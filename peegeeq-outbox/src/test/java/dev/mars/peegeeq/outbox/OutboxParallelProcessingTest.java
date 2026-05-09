@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,6 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Set;
 import java.util.UUID;
+import java.util.Properties;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -86,25 +88,15 @@ public class OutboxParallelProcessingTest {
         clearAllPeeGeeQSystemProperties();
 
         // Set up database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Configure parallel processing - MUST be set before creating configuration
-        System.setProperty("peegeeq.consumer.threads", "4");
-        System.setProperty("peegeeq.queue.batch-size", "5");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-
-        // Verify system properties are set correctly
-        logger.info("System Properties Debug:");
-        logger.info("   - peegeeq.consumer.threads = {}", System.getProperty("peegeeq.consumer.threads"));
-        logger.info("   - peegeeq.queue.batch-size = {}", System.getProperty("peegeeq.queue.batch-size"));
-        logger.info("   - peegeeq.queue.polling-interval = {}", System.getProperty("peegeeq.queue.polling-interval"));
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.consumer.threads", "4")
+                .property("peegeeq.queue.batch-size", "5")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
         // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("parallel-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Debug: Verify configuration is loaded correctly
         logger.info("Configuration Debug:");
@@ -153,16 +145,6 @@ public class OutboxParallelProcessingTest {
         } else {
             tearDownContext.completeNow();
         }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
     }
 
     @Test

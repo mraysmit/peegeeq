@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -37,6 +38,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -86,16 +88,10 @@ public class ConsumerGroupExampleTest {
         logger.info("Setting up Consumer Group Example Test");
         
         // Set database properties from TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
         

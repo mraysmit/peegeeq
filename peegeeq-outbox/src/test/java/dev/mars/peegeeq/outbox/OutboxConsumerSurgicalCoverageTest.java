@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
@@ -70,12 +72,6 @@ class OutboxConsumerSurgicalCoverageTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         testTopic = "surgical-" + UUID.randomUUID().toString().substring(0, 8);
-
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
     }
 
     @AfterEach
@@ -108,15 +104,6 @@ class OutboxConsumerSurgicalCoverageTest {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
         }
-        System.clearProperty("peegeeq.queue.consumer-threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
     }
 
     /**
@@ -125,10 +112,12 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testConsumerWithMultipleThreads(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.consumer-threads", "4");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.consumer-threads", "4")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("multi-thread-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -161,10 +150,12 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testConsumerWithCustomBatchSize(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.batch-size", "5");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.batch-size", "5")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("batch-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -197,10 +188,12 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testRetryWithConfiguredMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.max-retries", "1");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.max-retries", "1")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("retry-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -229,9 +222,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testSetConsumerGroupName(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -263,9 +258,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("except-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -292,9 +289,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testMessageWithCorrelationId(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("correlation-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -328,9 +327,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testDoubleSubscribe() throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("double-sub-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -349,9 +350,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testSubscribeAfterClose() throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("closed-sub-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -372,9 +375,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testUnsubscribeWithoutSubscribe() throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("unsub-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -391,9 +396,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testMessageWithNullHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("null-headers-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -423,9 +430,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testMessageWithEmptyHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("empty-headers-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -457,10 +466,12 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testMessageMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("metrics-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, meterRegistry);
         manager.start().await();
 
@@ -486,10 +497,12 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testMessageFailureMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("failure-metrics-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, meterRegistry);
         manager.start().await();
 
@@ -515,9 +528,11 @@ class OutboxConsumerSurgicalCoverageTest {
      */
     @Test
     void testDoubleClose() throws Exception {
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("double-close-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 

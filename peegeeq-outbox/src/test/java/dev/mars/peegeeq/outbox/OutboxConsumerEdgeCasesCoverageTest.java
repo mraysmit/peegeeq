@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -24,6 +25,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.util.Properties;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
@@ -49,12 +51,6 @@ class OutboxConsumerEdgeCasesCoverageTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerEdgeCasesCoverageTest.class);
 
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.queue.max-retries", "peegeeq.queue.polling-interval"
-    };
-
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
@@ -74,17 +70,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
         testTopic = "edge-test-" + UUID.randomUUID().toString().substring(0, 8);
 
         // Configure database connection with short polling interval and low max retries
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.max-retries", "2");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.max-retries", "2")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
 
         // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("edge-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -108,9 +100,6 @@ class OutboxConsumerEdgeCasesCoverageTest {
         }
         if (manager != null) {
             manager.closeReactive().await();
-        }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
         }
     }
 
