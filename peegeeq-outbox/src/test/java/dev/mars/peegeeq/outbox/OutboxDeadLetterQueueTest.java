@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
@@ -45,6 +46,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -61,12 +63,6 @@ public class OutboxDeadLetterQueueTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxDeadLetterQueueTest.class);
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.queue.max-retries", "peegeeq.queue.polling-interval"
-    };
-
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
@@ -80,16 +76,11 @@ public class OutboxDeadLetterQueueTest {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.max-retries", "2");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.max-retries", "2")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start().await();
 
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -108,9 +99,6 @@ public class OutboxDeadLetterQueueTest {
         if (producer != null) producer.close();
         if (manager != null) {
             manager.closeReactive().await();
-        }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
         }
     }
 

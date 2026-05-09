@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -52,6 +53,7 @@ import java.util.HashMap;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -148,21 +150,16 @@ class EnhancedErrorHandlingExampleTest {
         logger.info("=== Setting up Enhanced Error Handling Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        
-        // Configure error handling settings
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
-        System.setProperty("peegeeq.consumer.threads", "2");
-        System.setProperty("peegeeq.queue.batch-size", "5");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.consumer.threads", "2")
+                .property("peegeeq.queue.batch-size", "5")
+                .build();
         
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
@@ -197,18 +194,6 @@ class EnhancedErrorHandlingExampleTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    // Clear system properties
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.database.schema");
-                    System.clearProperty("peegeeq.queue.max-retries");
-                    System.clearProperty("peegeeq.queue.polling-interval");
-                    System.clearProperty("peegeeq.consumer.threads");
-                    System.clearProperty("peegeeq.queue.batch-size");
-
                     logger.info("Enhanced Error Handling Example Test cleanup completed");
                     testContext.completeNow();
                 })

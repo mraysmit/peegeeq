@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -54,6 +55,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -103,13 +105,8 @@ class OutboxConsumerGroupFaultToleranceTest {
 
         testTopic = "fault-test-" + UUID.randomUUID().toString().substring(0, 8);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("fault-test");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -150,12 +147,6 @@ class OutboxConsumerGroupFaultToleranceTest {
         if (verificationConnectionManager != null) {
             verificationConnectionManager.close();
         }
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.queue.max-retries");
     }
 
     // ========================================================================
@@ -453,14 +444,15 @@ class OutboxConsumerGroupFaultToleranceTest {
         @Test
         @DisplayName("always-failing handler exhausts retries and message reaches FAILED/DLQ")
         void alwaysFailingHandlerExhaustsRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
-            // Set max retries low for faster test
-            System.setProperty("peegeeq.queue.max-retries", "2");
+            Properties retryProps = PeeGeeQTestConfig.builder().from(postgres)
+                    .property("peegeeq.queue.max-retries", "2")
+                    .build();
 
             // Recreate config + factory with the new max-retries
             if (manager != null) {
                 manager.closeReactive().await();
             }
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration("retry-test");
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", retryProps);
             manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
             manager.start().await();
             DatabaseService databaseService = new PgDatabaseService(manager);
