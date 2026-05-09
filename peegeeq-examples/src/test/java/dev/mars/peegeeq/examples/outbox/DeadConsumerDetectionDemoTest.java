@@ -19,6 +19,8 @@ package dev.mars.peegeeq.examples.outbox;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -84,7 +86,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Tag(TestCategories.INTEGRATION)
 class DeadConsumerDetectionDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(DeadConsumerDetectionDemoTest.class);
@@ -102,33 +103,11 @@ class DeadConsumerDetectionDemoTest {
     private SubscriptionManager subscriptionManager;
     private DeadConsumerDetector deadConsumerDetector;
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
-    /**
-     * Clear system properties after test completion
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-    }
-
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema
         logger.info("Initializing database schema for dead consumer detection demo");
@@ -136,7 +115,7 @@ class DeadConsumerDetectionDemoTest {
         logger.info("Database schema initialized successfully");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start().await();
 
         // Create connection manager and pool
@@ -178,9 +157,6 @@ class DeadConsumerDetectionDemoTest {
             manager.closeReactive().await();
         }
 
-        // Clean up system properties
-        clearSystemProperties();
-
         logger.info("Test teardown completed");
     }
 
@@ -194,7 +170,6 @@ class DeadConsumerDetectionDemoTest {
      * settings based on processing characteristics.</p>
      */
     @Test
-    @Order(1)
     void testHeartbeatConfiguration() throws Exception {
         logger.info("\n=== DEMO 1: Heartbeat Configuration ===\n");
 
@@ -258,7 +233,6 @@ class DeadConsumerDetectionDemoTest {
      * instances and alerts operations team.</p>
      */
     @Test
-    @Order(2)
     void testDeadConsumerDetection(Vertx vertx) throws Exception {
         logger.info("\n=== DEMO 2: Dead Consumer Detection ===\n");
 
@@ -375,7 +349,6 @@ class DeadConsumerDetectionDemoTest {
      * as DEAD, then recovered and needs to resume processing.</p>
      */
     @Test
-    @Order(3)
     void testConsumerRecovery(Vertx vertx) throws Exception {
         logger.info("\n=== DEMO 3: Consumer Recovery ===\n");
 

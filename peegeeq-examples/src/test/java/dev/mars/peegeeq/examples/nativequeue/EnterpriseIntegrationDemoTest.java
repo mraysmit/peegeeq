@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -27,7 +28,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 
-import java.util.concurrent.CountDownLatch;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -49,7 +51,7 @@ import org.slf4j.LoggerFactory;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@org.junit.jupiter.api.extension.ExtendWith(VertxExtension.class)
 class EnterpriseIntegrationDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(EnterpriseIntegrationDemoTest.class);
 
@@ -256,24 +258,13 @@ class EnterpriseIntegrationDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Enterprise Integration Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for enterprise integration test
         logger.info("Initializing database schema for enterprise integration test");
@@ -281,7 +272,7 @@ class EnterpriseIntegrationDemoTest {
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with integration configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -310,18 +301,12 @@ class EnterpriseIntegrationDemoTest {
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        
         logger.info("Cleanup complete");
     }
 
     @Test
-    @Order(1)
     @DisplayName("Message Transformation - Converting Between Different Message Formats")
-    void testMessageTransformation() throws Exception {
+    void testMessageTransformation(VertxTestContext testContext) throws Exception {
         logger.info("Test: message transformation");
         logger.info("Testing Message Transformation");
 
@@ -330,8 +315,8 @@ class EnterpriseIntegrationDemoTest {
         
         List<TransformedMessage> transformedMessages = new ArrayList<>();
         AtomicInteger messagesProcessed = new AtomicInteger(0);
-        CountDownLatch inputLatch = new CountDownLatch(3);
-        CountDownLatch outputLatch = new CountDownLatch(3);
+        var inputCheckpoint = testContext.checkpoint(3);
+        var outputCheckpoint = testContext.checkpoint(3);
 
         // Create producers and consumers
         MessageProducer<OrderMessage> inputProducer = queueFactory.createProducer(inputQueue, OrderMessage.class);
@@ -402,10 +387,11 @@ class EnterpriseIntegrationDemoTest {
             );
             
             // Send to output queue
-            outputProducer.send(transformed);
+            outputProducer.send(transformed)
+                    .onFailure(testContext::failNow);
             
             messagesProcessed.incrementAndGet();
-            inputLatch.countDown();
+            inputCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -416,7 +402,7 @@ class EnterpriseIntegrationDemoTest {
             logger.info("Received transformed message for: {}", transformed.targetSystem);
             transformedMessages.add(transformed);
             
-            outputLatch.countDown();
+            outputCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -428,25 +414,27 @@ class EnterpriseIntegrationDemoTest {
             "ORD-US-001", "CUST-001", "PROD-001", 5, 99.99, "USD", "US", "HIGH",
             new JsonObject().put("salesChannel", "ONLINE").put("promotion", "SUMMER2024")
         );
-        inputProducer.send(usOrder);
+        inputProducer.send(usOrder)
+                .onFailure(testContext::failNow);
 
         // EU Order
         OrderMessage euOrder = new OrderMessage(
             "ORD-EU-001", "CUST-002", "PROD-002", 3, 149.99, "EUR", "EU", "NORMAL",
             new JsonObject().put("salesChannel", "RETAIL").put("vatIncluded", true)
         );
-        inputProducer.send(euOrder);
+        inputProducer.send(euOrder)
+                .onFailure(testContext::failNow);
 
         // APAC Order
         OrderMessage apacOrder = new OrderMessage(
             "ORD-APAC-001", "CUST-003", "PROD-003", 10, 79.99, "SGD", "APAC", "LOW",
             new JsonObject().put("salesChannel", "MOBILE").put("loyaltyDiscount", 0.1)
         );
-        inputProducer.send(apacOrder);
+        inputProducer.send(apacOrder)
+                .onFailure(testContext::failNow);
 
         // Wait for all transformations to complete
-        assertTrue(inputLatch.await(30, TimeUnit.SECONDS), "Should process all input messages");
-        assertTrue(outputLatch.await(30, TimeUnit.SECONDS), "Should receive all transformed messages");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all transformations");
 
         // Verify transformations
         assertEquals(3, transformedMessages.size(), "Should have 3 transformed messages");
@@ -471,9 +459,8 @@ class EnterpriseIntegrationDemoTest {
     }
 
     @Test
-    @Order(2)
     @DisplayName("Content-Based Routing - Routing Messages Based on Content")
-    void testContentBasedRouting() throws Exception {
+    void testContentBasedRouting(VertxTestContext testContext) throws Exception {
         logger.info("Test: content based routing");
         logger.info("Testing Content-Based Routing");
 
@@ -484,8 +471,8 @@ class EnterpriseIntegrationDemoTest {
 
         Map<String, List<OrderMessage>> routedMessages = new HashMap<>();
         AtomicInteger messagesRouted = new AtomicInteger(0);
-        CountDownLatch inputLatch = new CountDownLatch(6);
-        CountDownLatch routingLatch = new CountDownLatch(6);
+        var inputCheckpoint2 = testContext.checkpoint(6);
+        var routingCheckpoint = testContext.checkpoint(6);
 
         // Create producers and consumers
         MessageProducer<OrderMessage> inputProducer = queueFactory.createProducer(inputQueue, OrderMessage.class);
@@ -510,21 +497,24 @@ class EnterpriseIntegrationDemoTest {
 
             switch (routingDecision) {
                 case "HIGH_PRIORITY":
-                    highPriorityProducer.send(order);
+                    highPriorityProducer.send(order)
+                            .onFailure(testContext::failNow);
                     logger.info("  -> Routed to HIGH PRIORITY queue: {}", getRoutingReason(order));
                     break;
                 case "NORMAL_PRIORITY":
-                    normalPriorityProducer.send(order);
+                    normalPriorityProducer.send(order)
+                            .onFailure(testContext::failNow);
                     logger.info("  -> Routed to NORMAL PRIORITY queue: {}", getRoutingReason(order));
                     break;
                 case "LOW_PRIORITY":
-                    lowPriorityProducer.send(order);
+                    lowPriorityProducer.send(order)
+                            .onFailure(testContext::failNow);
                     logger.info("  -> Routed to LOW PRIORITY queue: {}", getRoutingReason(order));
                     break;
             }
 
             messagesRouted.incrementAndGet();
-            inputLatch.countDown();
+            inputCheckpoint2.flag();
             return Future.succeededFuture();
         });
 
@@ -533,7 +523,7 @@ class EnterpriseIntegrationDemoTest {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("HIGH_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("HIGH PRIORITY consumer processed: {}", order.getOrderId());
-            routingLatch.countDown();
+            routingCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -541,7 +531,7 @@ class EnterpriseIntegrationDemoTest {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("NORMAL_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("NORMAL PRIORITY consumer processed: {}", order.getOrderId());
-            routingLatch.countDown();
+            routingCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -549,7 +539,7 @@ class EnterpriseIntegrationDemoTest {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("LOW_PRIORITY", k -> new ArrayList<>()).add(order);
             logger.info("LOW PRIORITY consumer processed: {}", order.getOrderId());
-            routingLatch.countDown();
+            routingCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -561,46 +551,51 @@ class EnterpriseIntegrationDemoTest {
             "ORD-VIP-001", "VIP-CUST-001", "PROD-PREMIUM", 50, 999.99, "USD", "US", "CRITICAL",
             new JsonObject().put("customerTier", "VIP").put("expeditedShipping", true)
         );
-        inputProducer.send(vipOrder);
+        inputProducer.send(vipOrder)
+                .onFailure(testContext::failNow);
 
         // High priority: Critical priority flag
         OrderMessage criticalOrder = new OrderMessage(
             "ORD-CRIT-001", "CUST-002", "PROD-URGENT", 1, 49.99, "USD", "US", "CRITICAL",
             new JsonObject().put("customerTier", "STANDARD").put("urgentDelivery", true)
         );
-        inputProducer.send(criticalOrder);
+        inputProducer.send(criticalOrder)
+                .onFailure(testContext::failNow);
 
         // Normal priority: Standard order
         OrderMessage standardOrder1 = new OrderMessage(
             "ORD-STD-001", "CUST-003", "PROD-STANDARD", 3, 199.99, "USD", "US", "NORMAL",
             new JsonObject().put("customerTier", "STANDARD").put("standardShipping", true)
         );
-        inputProducer.send(standardOrder1);
+        inputProducer.send(standardOrder1)
+                .onFailure(testContext::failNow);
 
         // Normal priority: Medium amount
         OrderMessage standardOrder2 = new OrderMessage(
             "ORD-STD-002", "CUST-004", "PROD-REGULAR", 5, 149.99, "EUR", "EU", "NORMAL",
             new JsonObject().put("customerTier", "BRONZE").put("promotion", "SPRING2024")
         );
-        inputProducer.send(standardOrder2);
+        inputProducer.send(standardOrder2)
+                .onFailure(testContext::failNow);
 
         // Low priority: Small order amount
         OrderMessage lowOrder1 = new OrderMessage(
             "ORD-LOW-001", "CUST-005", "PROD-BASIC", 1, 19.99, "USD", "US", "LOW",
             new JsonObject().put("customerTier", "BASIC").put("freeShipping", false)
         );
-        inputProducer.send(lowOrder1);
+        inputProducer.send(lowOrder1)
+                .onFailure(testContext::failNow);
 
         // Low priority: Bulk order with low unit price
         OrderMessage lowOrder2 = new OrderMessage(
             "ORD-BULK-001", "CUST-006", "PROD-BULK", 100, 2.99, "USD", "US", "LOW",
             new JsonObject().put("customerTier", "BULK").put("bulkDiscount", 0.2)
         );
-        inputProducer.send(lowOrder2);
+        inputProducer.send(lowOrder2)
+                .onFailure(testContext::failNow);
 
         // Wait for all routing to complete
-        assertTrue(inputLatch.await(30, TimeUnit.SECONDS), "Should route all input messages");
-        assertTrue(routingLatch.await(30, TimeUnit.SECONDS), "Should process all routed messages");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should complete all routing");
 
         // Verify routing results
         assertEquals(6, messagesRouted.get(), "Should have routed 6 messages");
