@@ -1,4 +1,4 @@
-﻿package dev.mars.peegeeq.bitemporal;
+package dev.mars.peegeeq.bitemporal;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -51,6 +52,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -142,22 +144,20 @@ class PgBiTemporalEventStoreStatsTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
         vertx = Vertx.vertx();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -196,15 +196,6 @@ class PgBiTemporalEventStoreStatsTest {
                 .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);

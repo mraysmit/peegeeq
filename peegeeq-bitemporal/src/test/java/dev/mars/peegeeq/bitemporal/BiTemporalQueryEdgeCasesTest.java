@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -45,6 +46,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,15 +87,12 @@ class BiTemporalQueryEdgeCasesTest {
         this.vertx = vertx;
         logger.info("Setting up bi-temporal query edge cases test...");
         
-        // Set system properties for PeeGeeQ configuration - following exact pattern
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.pool.max.size", "10");
-        System.setProperty("peegeeq.database.pool.min.size", "2");
+        // Set configuration properties for PeeGeeQ - following exact pattern
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.pool.max-size", "10")
+                .property("peegeeq.database.pool.min-size", "2")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -101,7 +100,7 @@ class BiTemporalQueryEdgeCasesTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Configure PeeGeeQ - following exact pattern
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -135,14 +134,6 @@ class BiTemporalQueryEdgeCasesTest {
                     return Future.<Void>succeededFuture();
                 }))
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.database.ssl.enabled");
-                    System.clearProperty("peegeeq.database.pool.max.size");
-                    System.clearProperty("peegeeq.database.pool.min.size");
                     logger.info("Bi-temporal query edge cases test teardown completed");
                     testContext.completeNow();
                 })

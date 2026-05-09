@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -48,6 +49,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -152,22 +154,19 @@ class EventBusDistributionSemanticGapsTest {
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         // Ensure event bus distribution is OFF during setup
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         manager.start()
@@ -208,7 +207,6 @@ class EventBusDistributionSemanticGapsTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         if (eventStore != null) {
             eventStore.close();
@@ -224,15 +222,6 @@ class EventBusDistributionSemanticGapsTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -255,7 +244,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant validTime = Instant.now();
 
         // Direct path: ensure event-bus distribution is OFF
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -295,7 +283,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant validTime = Instant.now();
 
         // Event-bus path: enable event-bus distribution
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -338,7 +325,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant validTime = Instant.now();
 
         // Direct path: ensure event-bus distribution is OFF
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -388,7 +374,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant beforeAppend = Instant.now();
 
         // Event-bus path: enable event-bus distribution
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -443,7 +428,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant validTime = Instant.now();
 
         // Direct path: ensure event-bus distribution is OFF
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -480,7 +464,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant validTime = Instant.now();
 
         // Event-bus path: enable event-bus distribution
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -530,7 +513,6 @@ class EventBusDistributionSemanticGapsTest {
 
         try {
             // Direct path: ensure event-bus distribution is OFF
-            System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
             eventStore.append(eventType, payload, validTime)
                     .compose(event -> {
@@ -584,7 +566,6 @@ class EventBusDistributionSemanticGapsTest {
 
         try {
             // Event-bus path: enable event-bus distribution
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
 
             eventStore.append(eventType, payload, validTime)
                     .compose(event -> {
@@ -640,7 +621,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant beforeAppend = Instant.now();
 
         // Direct path: ensure event-bus distribution is OFF
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -681,7 +661,6 @@ class EventBusDistributionSemanticGapsTest {
         Instant beforeAppend = Instant.now();
 
         // Event-bus path: enable event-bus distribution
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
 
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
@@ -728,12 +707,10 @@ class EventBusDistributionSemanticGapsTest {
         Instant validTime = Instant.now();
 
         // Direct path first
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         eventStore.append(directType, payload, validTime)
                 .compose(directEvent -> {
                     // Switch to event-bus path
-                    System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
                     return eventStore.append(eventBusType, payload, validTime)
                             .map(eventBusEvent -> {
                                 assertNotEquals(directEvent.getEventId(), eventBusEvent.getEventId(),

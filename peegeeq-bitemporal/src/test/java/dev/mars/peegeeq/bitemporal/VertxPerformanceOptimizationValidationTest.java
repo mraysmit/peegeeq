@@ -21,9 +21,10 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -41,6 +42,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -88,23 +90,17 @@ class VertxPerformanceOptimizationValidationTest {
         this.vertx = vertx;
         logger.info("Setting up Vert.x 5.x performance optimization validation test");
 
-        // Set database connection properties from TestContainers
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-
-        // Set optimal system properties for testing
-        System.setProperty("peegeeq.database.pool.max-size", "100");
-        System.setProperty("peegeeq.database.pool.min-size", "5");
-        System.setProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
-        System.setProperty("peegeeq.database.pipelining.limit", "1024");
-        System.setProperty("peegeeq.database.event.loop.size", "8");
-        System.setProperty("peegeeq.database.worker.pool.size", "16");
+        // Set configuration properties from TestContainers
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.database.pool.max-size", "100")
+                .property("peegeeq.database.pool.min-size", "5")
+                .property("peegeeq.database.pool.wait-queue-multiplier", "10")
+                .property("peegeeq.database.pipelining.limit", "1024")
+                .property("peegeeq.database.event.loop.size", "8")
+                .property("peegeeq.database.worker.pool.size", "16")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -112,7 +108,7 @@ class VertxPerformanceOptimizationValidationTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
             .onSuccess(v -> {
@@ -136,18 +132,6 @@ class VertxPerformanceOptimizationValidationTest {
             });
         }
         closeFuture.onSuccess(v -> {
-            // Clear system properties
-            System.clearProperty("peegeeq.database.host");
-            System.clearProperty("peegeeq.database.port");
-            System.clearProperty("peegeeq.database.name");
-            System.clearProperty("peegeeq.database.username");
-            System.clearProperty("peegeeq.database.password");
-            System.clearProperty("peegeeq.database.pool.max-size");
-            System.clearProperty("peegeeq.database.pool.min-size");
-            System.clearProperty("peegeeq.database.pool.wait-queue-multiplier");
-            System.clearProperty("peegeeq.database.pipelining.limit");
-            System.clearProperty("peegeeq.database.event.loop.size");
-            System.clearProperty("peegeeq.database.worker.pool.size");
             logger.info("Test teardown completed");
             testContext.completeNow();
         }).onFailure(testContext::failNow);
