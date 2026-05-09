@@ -53,7 +53,6 @@ import org.slf4j.LoggerFactory;
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootOutboxApplication.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
