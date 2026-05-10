@@ -45,9 +45,10 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
     private static final String EVENT_STORE_NAME = "smoke_event_store";
 
     @Test
-    @DisplayName("Should create database setup with event store")
+    @DisplayName("Should create database setup with event store and receive 200 or 201")
     void testCreateEventStoreSetup(VertxTestContext testContext) {
         String setupId = generateSetupId();
+        logger.info("=== TEST: Create event store setup (setupId={}, eventStore={}) ===", setupId, EVENT_STORE_NAME);
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
         webClient.post("/api/v1/database-setup/create")
@@ -56,11 +57,13 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Create event store setup response: {} - {}", statusCode, response.bodyAsString());
-                    
+                    String body = response.bodyAsString();
+                    logger.info("Create event store setup response: status={}, body={}", statusCode, body);
+
                     assertTrue(statusCode == 200 || statusCode == 201,
-                        "Expected 200 or 201, got " + statusCode);
-                    
+                        "Expected 200 or 201, got " + statusCode + ". Body: " + body);
+
+                    logger.info("=== TEST PASSED: testCreateEventStoreSetup (setupId={}) ===", setupId);
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -68,18 +71,20 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
     }
 
     @Test
-    @DisplayName("Should append event with bi-temporal dimensions")
+    @DisplayName("Should append event with bi-temporal dimensions and receive eventId in response")
     void testAppendEvent(VertxTestContext testContext) {
         String setupId = generateSetupId();
+        logger.info("=== TEST: Append bi-temporal event (setupId={}, eventStore={}) ===", setupId, EVENT_STORE_NAME);
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
         webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
-                logger.info("Event store setup created: {}", setupId);
-                
+                logger.info("Event store setup created: setupId={} (status={})", setupId, setupResponse.statusCode());
+
                 String aggregateId = "order-" + System.currentTimeMillis();
+                logger.info("Appending OrderCreated event: aggregateId={}, totalAmount=199.99", aggregateId);
                 JsonObject eventPayload = new JsonObject()
                     .put("aggregateId", aggregateId)
                     .put("eventType", "OrderCreated")
@@ -102,16 +107,19 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Append event response: {} - {}", statusCode, response.bodyAsString());
+                    String rawBody = response.bodyAsString();
+                    logger.info("Append event response: status={}, body={}", statusCode, rawBody);
 
-                    // Event store append endpoint must return 200 or 201 for success
                     assertTrue(statusCode == 200 || statusCode == 201,
-                        "Expected 200 or 201, got " + statusCode);
+                        "Expected 200 or 201, got " + statusCode + ". Body: " + rawBody);
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response body should not be null");
-                    logger.info("Event appended successfully");
+                    assertNotNull(body.getString("eventId"),
+                        "Response must include eventId. Body: " + rawBody);
 
+                    logger.info("Event appended successfully: eventId={}", body.getString("eventId"));
+                    logger.info("=== TEST PASSED: testAppendEvent (setupId={}) ===", setupId);
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
@@ -119,17 +127,21 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
     }
 
     @Test
-    @DisplayName("Should query events by event type")
+    @DisplayName("Should query events by event type and return at least one matching event")
     void testQueryEventsByType(VertxTestContext testContext) {
         String setupId = generateSetupId();
+        String aggregateId = "order-" + System.currentTimeMillis();
+        logger.info("=== TEST: Query events by event type (setupId={}, aggregateId={}, eventStore={}) ===",
+            setupId, aggregateId, EVENT_STORE_NAME);
         JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
 
         webClient.post("/api/v1/database-setup/create")
             .putHeader("content-type", "application/json")
             .sendJsonObject(setupRequest)
             .compose(setupResponse -> {
-                // First append an event
-                String aggregateId = "order-" + System.currentTimeMillis();
+                logger.info("Event store setup created: setupId={} (status={})", setupId, setupResponse.statusCode());
+
+                logger.info("Appending OrderCreated event to query back: aggregateId={}", aggregateId);
                 JsonObject eventPayload = new JsonObject()
                     .put("aggregateId", aggregateId)
                     .put("eventType", "OrderCreated")
@@ -141,26 +153,33 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
                     .sendJsonObject(eventPayload);
             })
             .compose(appendResponse -> {
-                // Verify append succeeded before querying
                 int appendStatus = appendResponse.statusCode();
-                logger.info("Append response before query: {} - {}", appendStatus, appendResponse.bodyAsString());
+                String appendBody = appendResponse.bodyAsString();
+                logger.info("Event appended before query: status={}, body={}", appendStatus, appendBody);
                 assertTrue(appendStatus == 200 || appendStatus == 201,
-                    "Append must succeed before query, got " + appendStatus);
+                    "Append must succeed before query, got " + appendStatus + ". Body: " + appendBody);
 
-                // Then query events
+                logger.info("Querying events with eventType=OrderCreated from store={}", EVENT_STORE_NAME);
                 return webClient.get("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events?eventType=OrderCreated")
                     .send();
             })
             .onComplete(testContext.succeeding(response -> {
                 testContext.verify(() -> {
                     int statusCode = response.statusCode();
-                    logger.info("Query events response: {} - {}", statusCode, response.bodyAsString());
+                    String rawBody = response.bodyAsString();
+                    logger.info("Query events response: status={}, body={}", statusCode, rawBody);
 
-                    // Query must return 200 with events
-                    assertEquals(200, statusCode, "Expected 200, got " + statusCode);
+                    assertEquals(200, statusCode, "Expected 200, got " + statusCode + ". Body: " + rawBody);
 
-                    logger.info("Events queried successfully");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body must not be null");
+                    JsonArray events = body.getJsonArray("events");
+                    assertNotNull(events, "Response must include an events array. Body: " + rawBody);
+                    assertTrue(events.size() >= 1,
+                        "Expected at least 1 OrderCreated event, got " + events.size() + ". Body: " + rawBody);
 
+                    logger.info("Query returned {} event(s) matching eventType=OrderCreated", events.size());
+                    logger.info("=== TEST PASSED: testQueryEventsByType (setupId={}) ===", setupId);
                     cleanupSetup(setupId);
                 });
                 testContext.completeNow();
