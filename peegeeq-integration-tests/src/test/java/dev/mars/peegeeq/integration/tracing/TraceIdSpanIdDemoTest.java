@@ -21,8 +21,6 @@ import org.slf4j.MDC;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -198,9 +196,8 @@ public class TraceIdSpanIdDemoTest {
         
         AtomicReference<String> consumerTraceId = new AtomicReference<>();
         AtomicReference<String> consumerSpanId = new AtomicReference<>();
-        CountDownLatch consumerLatch = new CountDownLatch(1);
         
-        // Register Event Bus consumer
+        // Register Event Bus consumer — sets values and replies before request() future completes
         vertx.eventBus().consumer(eventBusAddress, msg -> {
             // Extract traceparent from message headers
             String traceparent = msg.headers().get("traceparent");
@@ -214,7 +211,6 @@ public class TraceIdSpanIdDemoTest {
             }
             
             msg.reply("acknowledged");
-            consumerLatch.countDown();
         });
         
         vertx.runOnContext(v -> {
@@ -239,8 +235,8 @@ public class TraceIdSpanIdDemoTest {
             vertx.eventBus().request(eventBusAddress, "test-message", opts)
                 .onComplete(ar -> {
                     try {
-                        assertTrue(consumerLatch.await(5, TimeUnit.SECONDS), 
-                            "Consumer should have received message");
+                        // consumerTraceId and consumerSpanId were set before msg.reply("acknowledged"),
+                        // so they are available when request() completes — no latch needed.
                         
                         try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
                             log.info("STEP 3: Back in publisher after Event Bus round-trip");
@@ -318,31 +314,33 @@ public class TraceIdSpanIdDemoTest {
             log.info("  child3.parentSpanId == child2.spanId: {}", child3.parentSpanId() != null && child3.parentSpanId().equals(child2.spanId()) ? "PASS" : "FAIL");
             log.info("============================================\n");
             
-            // All should have the same traceId
-            assertEquals(traceId, rootSpan.traceId());
-            assertEquals(traceId, child1.traceId());
-            assertEquals(traceId, child2.traceId());
-            assertEquals(traceId, child3.traceId());
-            
-            // All should have unique spanIds
-            List<String> spanIds = List.of(
-                rootSpan.spanId(), 
-                child1.spanId(), 
-                child2.spanId(), 
-                child3.spanId()
-            );
-            assertEquals(4, spanIds.stream().distinct().count(), 
-                "All spans should have unique spanIds");
-            
-            // Verify parent-child relationships
-            assertEquals(rootSpan.spanId(), child1.parentSpanId(), 
-                "child1's parent should be root");
-            assertEquals(child1.spanId(), child2.parentSpanId(), 
-                "child2's parent should be child1");
-            assertEquals(child2.spanId(), child3.parentSpanId(), 
-                "child3's parent should be child2");
-            
-            testContext.completeNow();
+            testContext.verify(() -> {
+                // All should have the same traceId
+                assertEquals(traceId, rootSpan.traceId());
+                assertEquals(traceId, child1.traceId());
+                assertEquals(traceId, child2.traceId());
+                assertEquals(traceId, child3.traceId());
+
+                // All should have unique spanIds
+                List<String> spanIds = List.of(
+                    rootSpan.spanId(),
+                    child1.spanId(),
+                    child2.spanId(),
+                    child3.spanId()
+                );
+                assertEquals(4, spanIds.stream().distinct().count(),
+                    "All spans should have unique spanIds");
+
+                // Verify parent-child relationships
+                assertEquals(rootSpan.spanId(), child1.parentSpanId(),
+                    "child1's parent should be root");
+                assertEquals(child1.spanId(), child2.parentSpanId(),
+                    "child2's parent should be child1");
+                assertEquals(child2.spanId(), child3.parentSpanId(),
+                    "child3's parent should be child2");
+
+                testContext.completeNow();
+            });
         });
     }
 

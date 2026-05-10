@@ -22,10 +22,12 @@ import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.base.BaseConfigurableTest;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
-import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -35,12 +37,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.io.IOException;
+import java.util.UUID;
 
 /**
  * Base class for E2E smoke tests.
@@ -62,22 +64,25 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
     protected static DatabaseSetupService setupService;
 
     @Container
-    protected static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_smoke_test");
-        container.withUsername("postgres");
-        container.withPassword("postgres");
-        return container;
-    }
+    protected static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     @BeforeAll
-    static void startServer() throws Exception {
+    static void startServer(Vertx injectedVertx, VertxTestContext testContext) {
         logger.info("Starting smoke test infrastructure...");
 
-        // Initialize Vert.x and load configuration
-        setupVertxAndConfig("smoke-test-config.json");
+        // Use the VertxExtension-managed Vertx and load configuration synchronously
+        vertx = injectedVertx;
+        try (InputStream stream = SmokeTestBase.class.getClassLoader()
+                .getResourceAsStream("smoke-test-config.json")) {
+            if (stream == null) {
+                testContext.failNow(new IllegalStateException("smoke-test-config.json not found in classpath"));
+                return;
+            }
+            testConfig = new JsonObject(new String(stream.readAllBytes(), StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            testContext.failNow(e);
+            return;
+        }
 
         JsonObject serverConfig = testConfig.getJsonObject("server");
         JsonObject clientConfig = testConfig.getJsonObject("client");
@@ -87,15 +92,10 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
                 .setDefaultPort(serverConfig.getInteger("port"))
                 .setConnectTimeout(clientConfig.getInteger("timeout")));
 
-        // Create the setup service using PeeGeeQRuntime - handles all wiring internally
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
-        CountDownLatch latch = new CountDownLatch(1);
-        final Throwable[] error = new Throwable[1];
-
-        // Create REST server with proper configuration object
         RestServerConfig config = new RestServerConfig(
-                serverConfig.getInteger("port"), 
+                serverConfig.getInteger("port"),
                 RestServerConfig.MonitoringConfig.defaults(),
                 serverConfig.getJsonArray("cors").getList());
 
@@ -103,79 +103,36 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
                 .onSuccess(id -> {
                     deploymentId = id;
                     logger.info("REST server deployed on port {}", config.port());
-                    latch.countDown();
+                    testContext.completeNow();
                 })
-                .onFailure(err -> {
-                    logger.error("Failed to deploy REST server", err);
-                    error[0] = err;
-                    latch.countDown();
-                });
-
-        if (!latch.await(30, TimeUnit.SECONDS)) {
-            throw new RuntimeException("Timeout waiting for REST server to start");
-        }
-
-        if (error[0] != null) {
-            throw new RuntimeException("Failed to start REST server", error[0]);
-        }
-
-        logger.info("Smoke test infrastructure ready");
+                .onFailure(testContext::failNow);
     }
 
     @AfterAll
-    static void stopServer() throws Exception {
+    static void stopServer(VertxTestContext testContext) {
         logger.info("Stopping smoke test infrastructure...");
-
-        // Cleanup all setups to stop their managers (and internal Vert.x instances)
-        if (setupService != null) {
-            try {
-                CountDownLatch idsLatch = new CountDownLatch(1);
-                java.util.concurrent.atomic.AtomicReference<java.util.Set<String>> idsRef =
-                        new java.util.concurrent.atomic.AtomicReference<>();
-                setupService.getAllActiveSetupIds()
-                        .onSuccess(ids -> { idsRef.set(ids); idsLatch.countDown(); })
-                        .onFailure(e -> { logger.warn("Failed to get active setup IDs", e); idsLatch.countDown(); });
-                if (idsLatch.await(10, TimeUnit.SECONDS)) {
-                    java.util.Set<String> setupIds = idsRef.get();
-                    if (setupIds != null && !setupIds.isEmpty()) {
-                        logger.info("Cleaning up {} active setups: {}", setupIds.size(), setupIds);
-                        CountDownLatch cleanupLatch = new CountDownLatch(setupIds.size());
-                        for (String setupId : setupIds) {
-                            setupService.destroySetup(setupId)
-                                    .onComplete(ar -> {
-                                        if (ar.failed()) logger.warn("Failed to destroy setup " + setupId, ar.cause());
-                                        cleanupLatch.countDown();
-                                    });
-                        }
-                        if (!cleanupLatch.await(30, TimeUnit.SECONDS)) {
-                            logger.warn("Timeout waiting for setups to be destroyed");
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                logger.warn("Failed to cleanup setups", e);
-            }
-        }
-
-        if (deploymentId != null && vertx != null) {
-            CountDownLatch latch = new CountDownLatch(1);
-            vertx.undeploy(deploymentId)
-                    .onComplete(ar -> latch.countDown());
-            latch.await(10, TimeUnit.SECONDS);
-        }
 
         if (webClient != null) {
             webClient.close();
+            webClient = null;
         }
 
-        if (vertx != null) {
-            CountDownLatch latch = new CountDownLatch(1);
-            vertx.close().onComplete(ar -> latch.countDown());
-            latch.await(10, TimeUnit.SECONDS);
-            vertx = null;
-        }
+        Future<Void> undeploy = deploymentId != null
+                ? vertx.undeploy(deploymentId).mapEmpty()
+                : Future.succeededFuture();
 
-        logger.info("Smoke test infrastructure stopped");
+        undeploy
+                .compose(v -> setupService != null ? setupService.close() : Future.<Void>succeededFuture())
+                .onSuccess(v -> {
+                    setupService = null;
+                    deploymentId = null;
+                    logger.info("Smoke test infrastructure stopped");
+                    testContext.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.warn("Error during smoke test cleanup: {}", err.getMessage());
+                    testContext.failNow(err);
+                });
     }
 
     protected String getApiBaseUrl() {

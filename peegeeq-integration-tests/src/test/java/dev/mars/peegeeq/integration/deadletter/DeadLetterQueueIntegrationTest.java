@@ -226,8 +226,8 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
                     .put("payload", new JsonObject().put("data", "retry-exhaustion-test"))
                     .put("correlationId", correlationId)))
             .onSuccess(publishResponse -> {
-                assertEquals(200, publishResponse.statusCode(),
-                    "Message publish must succeed");
+                testContext.verify(() ->
+                    assertEquals(200, publishResponse.statusCode(), "Message publish must succeed"));
                 logger.info("Message published (correlationId={}), polling DLQ...", correlationId);
 
                 // Poll DLQ until the message appears (delivery failure should trigger DLQ quickly)
