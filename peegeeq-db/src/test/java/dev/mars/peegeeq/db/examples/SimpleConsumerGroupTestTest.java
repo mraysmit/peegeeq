@@ -29,14 +29,13 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,12 +54,12 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
-@ResourceLock("system-properties")
 public class SimpleConsumerGroupTestTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SimpleConsumerGroupTestTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
@@ -68,8 +67,8 @@ public class SimpleConsumerGroupTestTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
+        // Build isolated per-test configuration
+        containerProps = buildContainerProperties(postgres);
         
         logger.info("✓ Simple Consumer Group Test setup completed");
     }
@@ -78,15 +77,11 @@ public class SimpleConsumerGroupTestTest {
     void tearDown() {
         logger.info("Tearing down Simple Consumer Group Test");
 
-        // Clean up system properties first (synchronous)
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-
         if (manager != null) {
-            // Fire and forget — closeReactive() kills the manager's owned Vertx,
+            // Fire and forget closeReactive() kills the manager's owned Vertx,
             // so callbacks cannot dispatch after close. Resource cleanup completes asynchronously.
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture());
+                .onFailure(t -> logger.warn("Error closing manager during tearDown: {}", t.getMessage()));
         }
 
         logger.info("Simple Consumer Group Test teardown completed");
@@ -97,12 +92,12 @@ public class SimpleConsumerGroupTestTest {
      * Validates simple consumer group setup and operation
      */
     @Test
-    void testBasicConsumerGroup(VertxTestContext testContext) throws InterruptedException {
+    void testBasicConsumerGroup(VertxTestContext testContext) {
         logger.info("=== Testing Basic Consumer Group ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 ConsumerGroupResult result = testBasicConsumerGroupFunctionality();
                 
                 assertNotNull(result, "Consumer group result should not be null");
@@ -115,10 +110,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Group: {}, Consumers: {}, Messages processed: {}", 
                     result.groupName, result.consumersAdded, result.messagesProcessed);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -126,12 +118,12 @@ public class SimpleConsumerGroupTestTest {
      * Validates consumer-specific message filtering
      */
     @Test
-    void testMessageFiltering(VertxTestContext testContext) throws InterruptedException {
+    void testMessageFiltering(VertxTestContext testContext) {
         logger.info("=== Testing Message Filtering ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 MessageFilteringResult result = testMessageFilteringFunctionality();
                 
                 assertNotNull(result, "Message filtering result should not be null");
@@ -144,10 +136,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Filters applied: {}, Messages filtered: {}", 
                     result.filtersApplied, result.messagesFiltered);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -155,12 +144,12 @@ public class SimpleConsumerGroupTestTest {
      * Validates concurrent message processing across consumers
      */
     @Test
-    void testMessageProcessing(VertxTestContext testContext) throws InterruptedException {
+    void testMessageProcessing(VertxTestContext testContext) {
         logger.info("=== Testing Message Processing ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 MessageProcessingResult result = testMessageProcessingFunctionality();
                 
                 assertNotNull(result, "Message processing result should not be null");
@@ -172,10 +161,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Produced: {}, Consumed: {}, Processing time: {}ms", 
                     result.messagesProduced, result.messagesConsumed, result.processingTime);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -183,12 +169,12 @@ public class SimpleConsumerGroupTestTest {
      * Validates adding and managing multiple consumers
      */
     @Test
-    void testConsumerManagement(VertxTestContext testContext) throws InterruptedException {
+    void testConsumerManagement(VertxTestContext testContext) {
         logger.info("=== Testing Consumer Management ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 ConsumerManagementResult result = testConsumerManagementFunctionality();
                 
                 assertNotNull(result, "Consumer management result should not be null");
@@ -200,10 +186,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Consumers managed: {}, Groups created: {}, Operations: {}", 
                     result.consumersManaged, result.consumerGroupsCreated, result.managementOperations);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     // Helper methods that replicate the original example's functionality
@@ -312,19 +295,25 @@ public class SimpleConsumerGroupTestTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
+    private Properties buildContainerProperties(PostgreSQLContainer postgres) {
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.health.enabled", "true");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        return props;
     }
     
     // Supporting classes

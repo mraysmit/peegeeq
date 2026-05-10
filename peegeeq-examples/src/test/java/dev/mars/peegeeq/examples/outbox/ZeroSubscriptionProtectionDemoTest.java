@@ -18,6 +18,8 @@ package dev.mars.peegeeq.examples.outbox;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -74,7 +76,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Tag(TestCategories.INTEGRATION)
 class ZeroSubscriptionProtectionDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(ZeroSubscriptionProtectionDemoTest.class);
@@ -91,32 +92,11 @@ class ZeroSubscriptionProtectionDemoTest {
     private TopicConfigService topicConfigService;
     private ZeroSubscriptionValidator zeroSubscriptionValidator;
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
-    /**
-     * Clear system properties after test completion
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-    }
-
     @BeforeEach
     void setUp() throws Exception {
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema
         logger.info("Initializing database schema for zero-subscription protection demo");
@@ -124,8 +104,8 @@ class ZeroSubscriptionProtectionDemoTest {
         logger.info("Database schema initialized successfully");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
 
         // Create connection manager and pool
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -153,6 +133,7 @@ class ZeroSubscriptionProtectionDemoTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
             try {
                 connectionManager.close();
@@ -163,9 +144,6 @@ class ZeroSubscriptionProtectionDemoTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-
-        // Clean up system properties
-        clearSystemProperties();
 
         logger.info("Test teardown completed");
     }
@@ -180,7 +158,6 @@ class ZeroSubscriptionProtectionDemoTest {
      * available workers. If no workers are available, messages wait in the queue.</p>
      */
     @Test
-    @Order(1)
     void testQueueTopicAlwaysAllowsWrites() throws Exception {
         logger.info("\n=== DEMO 1: QUEUE Topics Always Allow Writes ===\n");
 
@@ -233,7 +210,6 @@ class ZeroSubscriptionProtectionDemoTest {
      * backfill historical events using FROM_BEGINNING.</p>
      */
     @Test
-    @Order(2)
     void testPubSubAllowsWritesWithoutSubscriptions() throws Exception {
         logger.info("\n=== DEMO 2: PUB_SUB with blockWritesOnZeroSubscriptions=false ===\n");
 
@@ -290,7 +266,6 @@ class ZeroSubscriptionProtectionDemoTest {
      * only be published when there are active consumers listening.</p>
      */
     @Test
-    @Order(3)
     void testPubSubBlocksWritesWithoutSubscriptions() throws Exception {
         logger.info("\n=== DEMO 3: PUB_SUB with blockWritesOnZeroSubscriptions=true ===\n");
 

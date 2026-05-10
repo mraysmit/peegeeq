@@ -23,20 +23,25 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import org.slf4j.MDC;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -49,22 +54,29 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive core unit tests for {@link OutboxConsumerGroup} covering the
  * code review fixes:
  * <ul>
- *   <li>Phase 1 — Lifecycle state machine transitions and safety</li>
- *   <li>Phase 2 — Membership concurrency (putIfAbsent, no synchronized)</li>
- *   <li>Phase 3 — Failure semantics (RejectedMessageException vs MessageFilteredException)</li>
- *   <li>Phase 4 — Deterministic hash-based routing</li>
- *   <li>Phase 5 — Stats correctness (weighted average, lastActiveAt)</li>
- *   <li>Phase 7 — Builder validation</li>
+ *   <li>Phase 1 Lifecycle state machine transitions and safety</li>
+ *   <li>Phase 2 Membership concurrency (putIfAbsent, no synchronized)</li>
+ *   <li>Phase 3 Failure semantics (RejectedMessageException vs MessageFilteredException)</li>
+ *   <li>Phase 4 Deterministic hash-based routing</li>
+ *   <li>Phase 5 Stats correctness (weighted average, lastActiveAt)</li>
+ *   <li>Phase 7 Builder validation</li>
  * </ul>
  *
  * <p>These are fast, in-process unit tests with no database or Testcontainers dependency.
  * The integration-level tests remain in {@link OutboxConsumerGroupTest}.</p>
  */
 @Tag(TestCategories.CORE)
-@DisplayName("OutboxConsumerGroup — core unit tests")
+@ExtendWith(VertxExtension.class)
+@DisplayName("OutboxConsumerGroup core unit tests")
 class OutboxConsumerGroupCoreTest {
 
     private OutboxConsumerGroup<String> group;
+    private Vertx vertx;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+    }
 
     @AfterEach
     void tearDown() {
@@ -300,7 +312,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("concurrent addConsumer with same ID — exactly one succeeds")
+        @DisplayName("concurrent addConsumer with same ID exactly one succeeds")
         void concurrentAddConsumerOnlyOneSucceeds() throws Exception {
             group = createGroup("concurrent-group", "test-topic");
             int threadCount = 10;
@@ -310,7 +322,6 @@ class OutboxConsumerGroupCoreTest {
 
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             try {
-                CountDownLatch done = new CountDownLatch(threadCount);
                 for (int i = 0; i < threadCount; i++) {
                     executor.submit(() -> {
                         try {
@@ -321,12 +332,11 @@ class OutboxConsumerGroupCoreTest {
                             failureCount.incrementAndGet();
                         } catch (Exception e) {
                             // Barrier/timeout
-                        } finally {
-                            done.countDown();
                         }
                     });
                 }
-                assertTrue(done.await(10, TimeUnit.SECONDS));
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 assertEquals(1, successCount.get(), "Exactly one thread should succeed");
                 assertEquals(threadCount - 1, failureCount.get(), "All others should fail with duplicate ID");
             } finally {
@@ -489,6 +499,71 @@ class OutboxConsumerGroupCoreTest {
 
             ConsumerGroupStats stats = group.getStats();
             assertEquals(1, stats.getTotalMessagesFiltered());
+        }
+
+        @Test
+        @DisplayName("group filter throws exception → RejectedMessageException with MDC cleaned up")
+        void groupFilterThrowsException_rejectedAndMdcCleaned() throws Exception {
+            group = createGroup("throw-group", "test-topic");
+            group.setGroupFilter(msg -> { throw new RuntimeException("filter boom"); });
+            group.addConsumer("c1", msg -> Future.succeededFuture());
+            group.start();
+
+            // Clear MDC before test to establish baseline
+            MDC.clear();
+
+            Message<String> message = new SimpleMessage<>("throw-1", "test-topic", "payload");
+            Future<Void> result = invokeDistributeMessage(group, message);
+
+            // The future should fail with RejectedMessageException
+            assertTrue(result.failed(), "Should fail when group filter throws");
+            assertInstanceOf(RejectedMessageException.class, result.cause());
+            RejectedMessageException ex = (RejectedMessageException) result.cause();
+            assertEquals("throw-1", ex.getMessageId());
+            assertEquals("throw-group", ex.getGroupName());
+            assertTrue(ex.getMessage().contains("group filter threw"));
+
+            // MDC must be cleaned up this was the bug: throwing filter skipped eventually() block
+            assertNull(MDC.get(TraceContextUtil.MDC_CONSUMER_GROUP),
+                    "MDC consumer-group should be cleared after group filter exception");
+            assertNull(MDC.get(TraceContextUtil.MDC_TOPIC),
+                    "MDC topic should be cleared after group filter exception");
+            assertNull(MDC.get(TraceContextUtil.MDC_MESSAGE_ID),
+                    "MDC message-id should be cleared after group filter exception");
+        }
+
+        @Test
+        @DisplayName("group filter throws → totalMessagesFiltered incremented")
+        void groupFilterThrows_incrementsFilteredCount() throws Exception {
+            group = createGroup("throw-count-group", "test-topic");
+            group.setGroupFilter(msg -> { throw new IllegalStateException("broken"); });
+            group.addConsumer("c1", msg -> Future.succeededFuture());
+            group.start();
+
+            invokeDistributeMessage(group, new SimpleMessage<>("tc1", "test-topic", "p"));
+            invokeDistributeMessage(group, new SimpleMessage<>("tc2", "test-topic", "p"));
+
+            ConsumerGroupStats stats = group.getStats();
+            assertEquals(2, stats.getTotalMessagesFiltered(),
+                    "Throwing filter should still increment filtered count");
+        }
+
+        @Test
+        @DisplayName("group filter throws → handler is NOT invoked")
+        void groupFilterThrows_handlerNotInvoked() throws Exception {
+            group = createGroup("throw-noinvoke-group", "test-topic");
+            group.setGroupFilter(msg -> { throw new RuntimeException("kaboom"); });
+            AtomicInteger handlerCalls = new AtomicInteger();
+            group.addConsumer("c1", msg -> {
+                handlerCalls.incrementAndGet();
+                return Future.succeededFuture();
+            });
+            group.start();
+
+            invokeDistributeMessage(group, new SimpleMessage<>("nh1", "test-topic", "p"));
+
+            assertEquals(0, handlerCalls.get(),
+                    "Handler must not be invoked when group filter throws");
         }
     }
 
@@ -736,24 +811,17 @@ class OutboxConsumerGroupCoreTest {
         @Test
         @DisplayName("builder rejects both clientFactory and databaseService")
         void builderFailsWithBothDataSources() {
-            // Build validation should reject before PgClientFactory is actually used,
-            // so we use reflection to set fields directly and trigger validation
-            var builder = OutboxConsumerGroup.<String>builder()
-                    .groupName("g1")
-                    .topic("test-topic")
-                    .payloadType(String.class)
-                    .databaseService(new StubDatabaseService());
-            // Set clientFactory via reflection to bypass PgClientFactory constructor
+            io.vertx.core.Vertx vertx = io.vertx.core.Vertx.vertx();
             try {
-                java.lang.reflect.Field cf = builder.getClass().getDeclaredField("clientFactory");
-                cf.setAccessible(true);
-                cf.set(builder, new dev.mars.peegeeq.db.client.PgClientFactory(io.vertx.core.Vertx.vertx()));
+                var builder = OutboxConsumerGroup.<String>builder()
+                        .groupName("g1")
+                        .topic("test-topic")
+                        .payloadType(String.class)
+                        .databaseService(new StubDatabaseService())
+                        .clientFactory(new dev.mars.peegeeq.db.client.PgClientFactory(vertx));
                 assertThrows(IllegalStateException.class, builder::build);
-                // Clean up the Vertx instance
-                dev.mars.peegeeq.db.client.PgClientFactory factory =
-                        (dev.mars.peegeeq.db.client.PgClientFactory) cf.get(builder);
-            } catch (Exception e) {
-                fail("Reflection failed: " + e.getMessage());
+            } finally {
+                vertx.close();
             }
         }
 
@@ -847,7 +915,106 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("concurrent start() calls — all complete without error")
+        @DisplayName("handler returning null Future yields failed future, not NPE")
+        void handlerReturnsNull_failedFutureNotNpe() throws Exception {
+            group = createGroup("null-handler-group", "test-topic");
+            group.addConsumer("c1", msg -> null); // handler returns null
+            group.start();
+
+            Future<Void> result = invokeDistributeMessage(group,
+                    new SimpleMessage<>("msg-null", "test-topic", "payload"));
+
+            assertTrue(result.failed(), "Expected failed future when handler returns null");
+            assertInstanceOf(IllegalStateException.class, result.cause());
+            assertTrue(result.cause().getMessage().contains("null Future"),
+                    "Cause should mention null Future, was: " + result.cause().getMessage());
+        }
+
+        @Test
+        @DisplayName("handler returning null Future does not leak concurrency slot")
+        void handlerReturnsNull_concurrencySlotReleased() throws Exception {
+            group = createGroup("null-slot-group", "test-topic");
+            group.addConsumer("c1", msg -> null); // handler returns null
+            group.start();
+
+            // Send a message should fail but release the slot
+            invokeDistributeMessage(group, new SimpleMessage<>("msg-n1", "test-topic", "p"));
+
+            // If the slot leaked, the member's inFlightCount > 0.
+            // Verify by sending another message if concurrency is capped at 1 and the
+            // slot leaked, this second message would be rejected with "at max concurrency".
+            // Instead we expect the same null-Future failure (slot was properly released).
+            Future<Void> second = invokeDistributeMessage(group,
+                    new SimpleMessage<>("msg-n2", "test-topic", "p"));
+            assertTrue(second.failed());
+            assertInstanceOf(IllegalStateException.class, second.cause());
+            assertTrue(second.cause().getMessage().contains("null Future"),
+                    "Second message should also fail with null Future, not max concurrency. Was: "
+                            + second.cause().getMessage());
+        }
+
+        @Test
+        @DisplayName("hung handler distributeMessage Future stays incomplete")
+        void hungHandler_distributeMessageStaysIncomplete() throws Exception {
+            group = createGroup("hung-group", "test-topic");
+            group.addConsumer("c1", msg -> Promise.<Void>promise().future()); // never completes
+            group.start();
+
+            Future<Void> result = invokeDistributeMessage(group,
+                    new SimpleMessage<>("msg-hung", "test-topic", "payload"));
+
+            assertFalse(result.isComplete(),
+                    "distributeMessage should return incomplete Future when handler never completes");
+        }
+
+        @Test
+        @DisplayName("hung handler second message rejected at concurrency gate")
+        void hungHandler_secondMessageRejectedAtConcurrencyGate() throws Exception {
+            group = createGroup("hung-gate-group", "test-topic");
+            group.addConsumer("c1", msg -> Promise.<Void>promise().future()); // never completes
+            group.start();
+
+            // First message hangs the member's inFlightCount is now 1 (max)
+            Future<Void> first = invokeDistributeMessage(group,
+                    new SimpleMessage<>("msg-h1", "test-topic", "p"));
+            assertFalse(first.isComplete(), "First message should be stuck processing");
+
+            // Second message: same member selected (only consumer), concurrency gate rejects
+            Future<Void> second = invokeDistributeMessage(group,
+                    new SimpleMessage<>("msg-h2", "test-topic", "p"));
+            assertTrue(second.isComplete(), "Second message should complete immediately (rejected)");
+            assertTrue(second.failed());
+            assertTrue(second.cause().getMessage().contains("max concurrency"),
+                    "Expected concurrency gate rejection, was: " + second.cause().getMessage());
+        }
+
+        @Test
+        @DisplayName("hung handler MDC not cleaned until Future completes")
+        void hungHandler_mdcNotCleanedWhileHung() throws Exception {
+            group = createGroup("hung-mdc-group", "test-topic");
+            group.addConsumer("c1", msg -> Promise.<Void>promise().future()); // never completes
+            group.start();
+
+            Future<Void> result = invokeDistributeMessage(group,
+                    new SimpleMessage<>("msg-mdcleak", "test-topic", "payload"));
+
+            assertFalse(result.isComplete(), "Future should be stuck");
+
+            // MDC values were set by distributeMessage but .eventually(clearTraceMDC)
+            // has NOT fired because the Future is incomplete. Values persist on this thread.
+            assertNotNull(MDC.get(TraceContextUtil.MDC_CONSUMER_GROUP),
+                    "MDC consumer group should persist while handler is hung");
+            assertNotNull(MDC.get(TraceContextUtil.MDC_TOPIC),
+                    "MDC topic should persist while handler is hung");
+            assertNotNull(MDC.get(TraceContextUtil.MDC_MESSAGE_ID),
+                    "MDC message ID should persist while handler is hung");
+
+            // Clean up MDC manually for test hygiene
+            TraceContextUtil.clearTraceMDC();
+        }
+
+        @Test
+        @DisplayName("concurrent start() calls all complete without error")
         void concurrentStartAllComplete() throws Exception {
             group = createGroup("concurrent-start-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -858,7 +1025,6 @@ class OutboxConsumerGroupCoreTest {
 
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             try {
-                CountDownLatch done = new CountDownLatch(threadCount);
                 for (int i = 0; i < threadCount; i++) {
                     executor.submit(() -> {
                         try {
@@ -869,12 +1035,11 @@ class OutboxConsumerGroupCoreTest {
                             errorCount.incrementAndGet();
                         } catch (Exception e) {
                             // Barrier timeout
-                        } finally {
-                            done.countDown();
                         }
                     });
                 }
-                assertTrue(done.await(10, TimeUnit.SECONDS));
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
             } finally {
                 executor.shutdownNow();
@@ -889,19 +1054,18 @@ class OutboxConsumerGroupCoreTest {
     private OutboxConsumerGroup<String> createGroup(String groupName, String topic) {
         return new OutboxConsumerGroup<>(
                 groupName, topic, String.class,
-                new StubDatabaseService(), null, null,
+                new StubDatabaseService(vertx), null, null,
                 new PeeGeeQConfiguration("test"));
     }
 
-    @SuppressWarnings("unchecked")
-    private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message)
-            throws Exception {
-        Method method = OutboxConsumerGroup.class.getDeclaredMethod("distributeMessage", Message.class);
-        method.setAccessible(true);
-        return (Future<Void>) method.invoke(group, message);
+    private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message) {
+        return group.distributeMessage(message);
     }
 
     private static class StubDatabaseService implements DatabaseService {
+        private final Vertx vertx;
+        StubDatabaseService() { this(null); }
+        StubDatabaseService(Vertx vertx) { this.vertx = vertx; }
         @Override public Future<Void> initialize() { return Future.succeededFuture(); }
         @Override public Future<Void> start() { return Future.succeededFuture(); }
         @Override public Future<Void> stop() { return Future.succeededFuture(); }
@@ -912,7 +1076,7 @@ class OutboxConsumerGroupCoreTest {
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
         @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return null; }
+        @Override public Vertx getVertx() { return vertx; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }

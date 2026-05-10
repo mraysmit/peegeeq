@@ -56,6 +56,9 @@ public class DeadLetterQueueManager implements DeadLetterService {
     private final Pool reactivePool;
     private final ObjectMapper objectMapper;
 
+    // Shutdown coordination prevents database operations during closeReactive()
+    private volatile boolean closing = false;
+
     /**
      * Modern reactive constructor using Vert.x Pool.
      * This is the only constructor - pure Vert.x reactive implementation.
@@ -63,6 +66,14 @@ public class DeadLetterQueueManager implements DeadLetterService {
     public DeadLetterQueueManager(Pool reactivePool, ObjectMapper objectMapper) {
         this.reactivePool = Objects.requireNonNull(reactivePool, "Reactive pool cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
+    }
+
+    /**
+     * Marks this manager as closing to fail-fast any in-flight timer operations.
+     * Called by PeeGeeQManager.closeReactive() to prevent database queries after shutdown begins.
+     */
+    public void markClosing() {
+        this.closing = true;
     }
 
     /**
@@ -140,10 +151,9 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         }
                         return (Void) null;
                     });
-            }).recover(throwable -> {
+            }).onFailure(throwable -> {
                 logger.error("Failed to move message to dead letter queue (reactive): table={}, id={}",
                     originalTable, originalId, throwable);
-                return Future.failedFuture(throwable);
             });
         } catch (Exception e) {
             return Future.failedFuture(e);
@@ -179,9 +189,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         return new DeadLetterQueueStats(0, 0, 0, null, null, 0.0);
                     }
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to get dead letter queue statistics (reactive)", throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -207,9 +216,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     }
                     return messages;
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to retrieve dead letter messages for topic (reactive): {}", topic, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -234,9 +242,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     }
                     return messages;
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to retrieve all dead letter messages (reactive)", throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -259,9 +266,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         return Optional.<DeadLetterMessage>empty();
                     }
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to retrieve dead letter message with id (reactive): {}", id, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -319,9 +325,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                             return Future.succeededFuture(true);
                         });
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to reprocess dead letter message (reactive): {}", deadLetterMessageId, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -341,19 +346,25 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         return false;
                     }
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to delete dead letter message (reactive): {}", id, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
     public Future<Integer> purgeOldDeadLetterMessages(int retentionDays) {
+        if (closing) {
+            return Future.succeededFuture(0);
+        }
         if (retentionDays <= 0) {
             return Future.failedFuture(new IllegalArgumentException("retentionDays must be > 0"));
         }
         String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - ($1 * INTERVAL '1 day')";
 
         return reactivePool.withTransaction(connection -> {
+            // Double-check closing flag inside transaction callback
+            if (closing) {
+                return Future.succeededFuture(0);
+            }
             return connection.preparedQuery(sql)
                 .execute(Tuple.of(retentionDays))
                 .map(result -> {
@@ -363,9 +374,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     }
                     return deleted;
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to cleanup old dead letter messages (reactive)", throwable);
-            return Future.failedFuture(throwable);
         });
     }
 

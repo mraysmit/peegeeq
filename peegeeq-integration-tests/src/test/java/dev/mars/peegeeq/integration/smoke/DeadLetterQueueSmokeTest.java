@@ -246,13 +246,7 @@ class DeadLetterQueueSmokeTest extends SmokeTestBase {
     private void cleanupSetup(String setupId) {
         webClient.delete("/api/v1/setups/" + setupId)
             .send()
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    logger.info("Setup deleted: {}", setupId);
-                } else {
-                    logger.warn("Failed to delete setup: {}", setupId, ar.cause());
-                }
-            });
+            .onFailure(err -> logger.warn("Failed to delete setup: {}", setupId, err));
     }
 }
 

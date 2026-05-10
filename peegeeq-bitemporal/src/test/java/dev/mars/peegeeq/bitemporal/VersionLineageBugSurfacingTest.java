@@ -22,6 +22,8 @@ import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests that surface known version-lineage bugs in PgBiTemporalEventStore.
  *
- * <p>These tests are written BEFORE any fixes — they document the bugs
+ * <p>These tests are written BEFORE any fixes they document the bugs
  * by exercising the code paths that produce incorrect behavior:
  * <ul>
  *   <li>Bug 1: Concurrent corrections can produce duplicate version numbers
@@ -134,15 +136,13 @@ class VersionLineageBugSurfacingTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
@@ -156,16 +156,16 @@ class VersionLineageBugSurfacingTest {
                 .setUser(postgres.getUsername())
                 .setPassword(postgres.getPassword());
 
-        // Pool for verification queries — kept open across the test
+        // Pool for verification queries kept open across the test
         verificationPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                .recover(err -> Future.succeededFuture(null))
+                .transform(ar -> Future.succeededFuture(null))
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
@@ -196,15 +196,6 @@ class VersionLineageBugSurfacingTest {
                 .compose(v -> verificationPool != null ? verificationPool.close() : Future.succeededFuture())
                 .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -224,7 +215,7 @@ class VersionLineageBugSurfacingTest {
     // ==================== Bug 1: Concurrent version race condition ====================
 
     @Test
-    @DisplayName("Concurrent corrections must produce unique version numbers — surfaces race in appendCorrectionOwnTransaction")
+    @DisplayName("Concurrent corrections must produce unique version numbers surfaces race in appendCorrectionOwnTransaction")
     void concurrentCorrectionsMustProduceUniqueVersionNumbers(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         int concurrentCorrections = 10;
@@ -254,7 +245,7 @@ class VersionLineageBugSurfacingTest {
                 })
                 .compose(rootId -> {
                     // Step 4: Query the database directly to check version uniqueness
-                    // Use recursive CTE to find full family — flat OR query only works for star topology
+                    // Use recursive CTE to find full family flat OR query only works for star topology
                     String sql = """
                             WITH RECURSIVE family AS (
                                 SELECT event_id FROM bitemporal_event_log WHERE event_id = $1
@@ -279,13 +270,12 @@ class VersionLineageBugSurfacingTest {
                                 return duplicates;
                             });
                 })
-                .onSuccess(duplicates -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(duplicates -> testContext.verify(() -> {
                     assertTrue(duplicates.isEmpty(),
                             "Version numbers must be unique within a correction lineage, "
                                     + "but found duplicates: " + duplicates);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -328,7 +318,7 @@ class VersionLineageBugSurfacingTest {
                                 final long finalSuccessCount = successCount;
 
                                 // Verify database row count and version sequence
-                                // Use recursive CTE to find full family — flat OR query only works for star topology
+                                // Use recursive CTE to find full family flat OR query only works for star topology
                                 String familySql = """
                                         WITH RECURSIVE family AS (
                                             SELECT event_id FROM bitemporal_event_log WHERE event_id = $1
@@ -351,7 +341,7 @@ class VersionLineageBugSurfacingTest {
                                         });
                             });
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     long successCount = result.getKey();
                     List<Long> versions = result.getValue();
 
@@ -374,8 +364,7 @@ class VersionLineageBugSurfacingTest {
                     }
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -390,7 +379,7 @@ class VersionLineageBugSurfacingTest {
     void getAllVersionsWithCorrectionIdReturnsFullFamily(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
 
-        // Create root + 2 corrections (chain model — each points to predecessor)
+        // Create root + 2 corrections (chain model each points to predecessor)
         eventStore.appendBuilder()
                 .eventType("LineageTest")
                 .payload(new TestEvent("root", "original", 100))
@@ -411,7 +400,7 @@ class VersionLineageBugSurfacingTest {
                     return eventStore.getAllVersions(correction2.getEventId())
                             .map(versions -> Map.entry(allEvents, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> allCreated = result.getKey();
                     List<BiTemporalEvent<TestEvent>> versionsFound = result.getValue();
 
@@ -431,8 +420,7 @@ class VersionLineageBugSurfacingTest {
                     assertEquals(3L, versionsFound.get(2).getVersion());
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -463,7 +451,7 @@ class VersionLineageBugSurfacingTest {
                     return eventStore.getAllVersions(correction1.getEventId())
                             .map(versions -> Map.entry(allEvents, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> versionsFound = result.getValue();
 
                     assertEquals(3, versionsFound.size(),
@@ -475,8 +463,7 @@ class VersionLineageBugSurfacingTest {
                                         .collect(Collectors.joining(", ")));
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -514,7 +501,7 @@ class VersionLineageBugSurfacingTest {
                         return Map.entry(allVersions, asOfResult);
                     });
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> allVersions = result.getKey();
                     BiTemporalEvent<TestEvent> asOfResult = result.getValue();
 
@@ -527,11 +514,10 @@ class VersionLineageBugSurfacingTest {
                             "getAllVersions must find at least root + correction when called "
                                     + "with correction ID, but found " + allVersions.size()
                                     + ". getAsOfTransactionTime found version "
-                                    + asOfResult.getVersion() + " — the methods disagree.");
+                                    + asOfResult.getVersion() + " the methods disagree.");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

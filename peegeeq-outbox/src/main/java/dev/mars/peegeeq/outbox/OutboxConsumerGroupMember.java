@@ -24,12 +24,14 @@ import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.outbox.resilience.FilterRetryManager;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -66,16 +68,18 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     private final AtomicReference<String> lastError = new AtomicReference<>();
 
     // Concurrency gate: limits the number of in-flight messages per member
-    private final int maxConcurrency;
+    private volatile int maxConcurrency;
     private final AtomicInteger inFlightCount = new AtomicInteger(0);
-    
+
+    // Tracks in-flight processMessage() futures so stopAsync() can await them all before returning.
+    private final Set<Future<Void>> inflightFutures = ConcurrentHashMap.newKeySet();
+
     private volatile Predicate<Message<T>> messageFilter;
 
     // Filter error handling
     private final FilterErrorHandlingConfig filterErrorConfig;
     private final FilterCircuitBreaker filterCircuitBreaker;
-    private final ScheduledExecutorService filterScheduler;
-    private final boolean ownsScheduler;
+    private final Vertx vertx;
     private final DeadLetterQueueManager deadLetterQueueManager;
     // Performance tracking
     private final AtomicLong totalProcessingTimeMs = new AtomicLong(0);
@@ -89,7 +93,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                                     OutboxConsumerGroup<T> parentGroup) {
         this(consumerId, groupName, topic, messageHandler, messageFilter, parentGroup,
              FilterErrorHandlingConfig.defaultConfig(), DEFAULT_MAX_CONCURRENCY,
-             parentGroup != null ? parentGroup.getSharedFilterScheduler() : null);
+             parentGroup != null ? parentGroup.getVertx() : null);
     }
 
     public OutboxConsumerGroupMember(String consumerId, String groupName, String topic,
@@ -99,7 +103,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                                     FilterErrorHandlingConfig filterErrorConfig) {
         this(consumerId, groupName, topic, messageHandler, messageFilter, parentGroup,
              filterErrorConfig, DEFAULT_MAX_CONCURRENCY,
-             parentGroup != null ? parentGroup.getSharedFilterScheduler() : null);
+             parentGroup != null ? parentGroup.getVertx() : null);
     }
 
     public OutboxConsumerGroupMember(String consumerId, String groupName, String topic,
@@ -110,7 +114,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                                     int maxConcurrency) {
         this(consumerId, groupName, topic, messageHandler, messageFilter, parentGroup,
              filterErrorConfig, maxConcurrency,
-             parentGroup != null ? parentGroup.getSharedFilterScheduler() : null);
+             parentGroup != null ? parentGroup.getVertx() : null);
     }
 
     OutboxConsumerGroupMember(String consumerId, String groupName, String topic,
@@ -119,7 +123,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                              OutboxConsumerGroup<T> parentGroup,
                              FilterErrorHandlingConfig filterErrorConfig,
                              int maxConcurrency,
-                             ScheduledExecutorService filterScheduler) {
+                             Vertx vertx) {
         this.consumerId = consumerId;
         this.groupName = groupName;
         this.topic = topic;
@@ -134,17 +138,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         this.filterErrorConfig = filterErrorConfig;
         this.filterCircuitBreaker = new FilterCircuitBreaker(
             consumerId + "-filter", filterErrorConfig);
-        if (filterScheduler != null) {
-            this.filterScheduler = filterScheduler;
-            this.ownsScheduler = false;
-        } else {
-            this.filterScheduler = Executors.newScheduledThreadPool(1, r -> {
-                Thread t = new Thread(r, "filter-retry-" + consumerId);
-                t.setDaemon(true);
-                return t;
-            });
-            this.ownsScheduler = true;
-        }
+        this.vertx = vertx;
 
         // Initialize dead letter queue manager if DLQ is enabled
         if (filterErrorConfig.isDeadLetterQueueEnabled()) {
@@ -154,7 +148,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         }
 
         new FilterRetryManager(
-            consumerId + "-filter", filterErrorConfig, filterScheduler, deadLetterQueueManager);
+            consumerId + "-filter", filterErrorConfig, vertx, deadLetterQueueManager);
 
         logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling (DLQ enabled: {})",
             consumerId, groupName, topic, filterErrorConfig.isDeadLetterQueueEnabled());
@@ -164,7 +158,11 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     public String getConsumerId() {
         return consumerId;
     }
-    
+
+    void setMaxConcurrency(int n) {
+        this.maxConcurrency = Math.max(1, n);
+    }
+
     @Override
     public String getGroupName() {
         return groupName;
@@ -216,7 +214,24 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                 consumerId, groupName, topic);
         }
     }
-    
+
+    /**
+     * Stops this member and returns a Future that completes when all in-flight
+     * message processing has finished. Safe to call concurrently.
+     */
+    public Future<Void> stopAsync() {
+        stop();
+        ArrayList<Future<Void>> pending = new ArrayList<>(inflightFutures);
+        if (pending.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        return Future.all(
+            pending.stream()
+                .map(f -> f.transform(ar -> Future.<Void>succeededFuture()))
+                .toList()
+        ).mapEmpty();
+    }
+
     @Override
     public boolean isActive() {
         return active.get() && !closed.get();
@@ -284,19 +299,6 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         if (closed.compareAndSet(false, true)) {
             stop();
 
-            // Only shutdown scheduler if this member owns it (not shared from group)
-            if (ownsScheduler && filterScheduler != null && !filterScheduler.isShutdown()) {
-                filterScheduler.shutdown();
-                try {
-                    if (!filterScheduler.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS)) {
-                        filterScheduler.shutdownNow();
-                    }
-                } catch (InterruptedException e) {
-                    filterScheduler.shutdownNow();
-                    Thread.currentThread().interrupt();
-                }
-            }
-
             logger.debug("Closed outbox consumer member '{}' in group '{}' for topic '{}'",
                 consumerId, groupName, topic);
         }
@@ -304,6 +306,13 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     
     /**
      * Checks if this consumer accepts the given message based on its filter.
+     *
+     * <p><strong>Contract:</strong> The supplied {@code Predicate<Message<T>>} filter is
+     * executed synchronously on the calling thread (Vert.x event loop). Filters
+     * <em>must</em> be non-blocking and CPU-only. Any I/O or blocking operation inside
+     * a filter will stall the event loop. If async filter evaluation is required, wrap
+     * the filter invocation in {@code vertx.executeBlocking()} before passing it here,
+     * or use {@link AsyncFilterRetryManager} directly for retry-capable async execution.
      *
      * @param message The message to check
      * @return true if the message should be processed by this consumer
@@ -401,9 +410,19 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         // Wrap the message handler call in try-catch to handle both:
         // 1. Direct exceptions thrown from the handler method
         // 2. Failed futures returned by the handler method
+        // 3. Null returns from the handler method
         Future<Void> processingFuture;
         try {
             processingFuture = messageHandler.handle(message);
+
+            // Handle null return from message handler convert to failed future
+            // so the .onFailure handler decrements inFlightCount (no slot leak)
+            if (processingFuture == null) {
+                logger.error("Message handler returned null Future for message {} in consumer '{}': treating as failure",
+                    message.getId(), consumerId);
+                processingFuture = Future.failedFuture(
+                    new IllegalStateException("Message handler returned null Future"));
+            }
         } catch (Exception directException) {
             // Convert direct exceptions to failed futures
             logger.debug("Message handler threw direct exception for message {} in consumer '{}': {}",
@@ -411,7 +430,9 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             processingFuture = Future.failedFuture(directException);
         }
 
-        return processingFuture
+        // Register this in-flight future so stopAsync() can await it
+        Future<Void>[] trackRef = new Future[1];
+        Future<Void> tracked = processingFuture
             .onSuccess(result -> {
                 inFlightCount.decrementAndGet();
                 long processingTime = System.currentTimeMillis() - startTime;
@@ -428,10 +449,17 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                 totalProcessingTimeMs.addAndGet(processingTime);
                 failedMessageCount.incrementAndGet();
                 lastError.set(error.getMessage());
-                logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
+                logger.error("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
                     message.getId(), consumerId, groupName, error.getMessage());
                 lastActiveAt.set(Instant.now());
+            })
+            .eventually(() -> {
+                if (trackRef[0] != null) inflightFutures.remove(trackRef[0]);
+                return Future.succeededFuture();
             });
+        trackRef[0] = tracked;
+        inflightFutures.add(tracked);
+        return tracked;
     }
 
     /**

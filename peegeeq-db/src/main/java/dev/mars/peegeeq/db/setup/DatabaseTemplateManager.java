@@ -77,7 +77,7 @@ public class DatabaseTemplateManager {
                         return dropDatabase(connection, newDatabaseName);
                     } else {
                         logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
-                        return Future.succeededFuture();
+                        return Future.<Void>succeededFuture();
                     }
                 })
                 .compose(v -> {
@@ -87,14 +87,17 @@ public class DatabaseTemplateManager {
                     return connection.query(sql).execute()
                         .map(rowSet -> (Void) null)
                         .onSuccess(v2 -> logger.info("[{}] Database {} created successfully", PeeGeeQInfoCodes.DATABASE_CREATED, newDatabaseName))
-                        .recover(error -> {
-                            if (isDatabaseConflictError(error)) {
-                                logger.debug("🚫 EXPECTED: Database creation conflict - {}", error.getMessage());
-                                return Future.succeededFuture();
-                            } else {
-                                logger.error("Failed to execute SQL: {} - Error: {}", sql, error.getMessage());
-                                return Future.failedFuture(error);
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                if (isDatabaseConflictError(ar.cause())) {
+                                    logger.debug("\uD83D\uDEAB EXPECTED: Database creation conflict - {}", ar.cause().getMessage());
+                                    return Future.<Void>succeededFuture();
+                                } else {
+                                    logger.error("Failed to execute SQL: {} - Error: {}", sql, ar.cause().getMessage());
+                                    return Future.<Void>failedFuture(ar.cause());
+                                }
                             }
+                            return Future.<Void>succeededFuture();
                         });
                 });
         })
@@ -119,32 +122,67 @@ public class DatabaseTemplateManager {
 
         logger.info("Dropping database: {}", databaseName);
 
-        // Terminate active connections to the database first
-        String terminateConnectionsSql =
+        // Poll pg_stat_activity until all connections are confirmed gone, then drop.
+        // pg_terminate_backend() is asynchronous: it signals backends to exit but returns
+        // before they have fully disconnected. A fixed delay is not a correctness guarantee.
+        // Each poll iteration also re-terminates any new connections that appeared since
+        // the previous iteration, handling pools that auto-reconnect.
+        return dropWhenDrained(connection, databaseName, 0);
+    }
+
+    /**
+     * Terminate all remaining sessions on {@code dbName}, confirm via {@code pg_stat_activity}
+     * that the count has reached zero, then issue {@code DROP DATABASE}.
+     *
+     * <p>Retries up to 20 times with a 100 ms pause between attempts (~2 s total).
+     * Re-terminates on every attempt so that auto-reconnecting connection pools are handled.
+     *
+     * @param conn    admin connection to the {@code postgres} system database
+     * @param dbName  identifier already validated against SQL injection
+     * @param attempt current retry count (starts at 0)
+     */
+    private Future<Void> dropWhenDrained(SqlConnection conn, String dbName, int attempt) {
+        if (attempt > 20) {
+            return Future.failedFuture(
+                "Timed out waiting for connections to drain from database: " + dbName);
+        }
+
+        String terminateSql =
             "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
             "WHERE datname = $1 AND pid <> pg_backend_pid()";
 
-        return connection.preparedQuery(terminateConnectionsSql)
-            .execute(Tuple.of(databaseName))
-            .compose(rowSet -> {
-                int terminatedConnections = rowSet.size();
-                if (terminatedConnections > 0) {
-                    logger.info("Terminated {} active connections to database {}", terminatedConnections, databaseName);
-                }
+        String checkSql =
+            "SELECT COUNT(*) AS n FROM pg_stat_activity " +
+            "WHERE datname = $1 AND pid <> pg_backend_pid()";
 
-                // Wait a brief moment for connections to fully terminate using Promise
-                return Future.<Void>future(promise -> {
-                    vertx.setTimer(100, id -> promise.complete());
-                })
-                .compose(v -> {
-                    // Drop the database — identifier already validated above
-                    String dropSql = "DROP DATABASE IF EXISTS \"" + databaseName + "\"";
-                    return connection.query(dropSql).execute();
-                });
+        return conn.preparedQuery(terminateSql)
+            .execute(Tuple.of(dbName))
+            .compose(terminated -> {
+                if (terminated.size() > 0) {
+                    logger.info("Terminated {} active connections to database {}",
+                        terminated.size(), dbName);
+                }
+                return conn.preparedQuery(checkSql).execute(Tuple.of(dbName));
             })
-            .map(rowSet -> {
-                logger.info("Database {} dropped successfully", databaseName);
-                return null;
+            .compose(rows -> {
+                long remaining = rows.iterator().next().getLong("n");
+                if (remaining == 0) {
+                    // All connections confirmed gone (or nearly so); use WITH (FORCE) to handle
+                    // any connection that appeared between the count check and the DROP.
+                    // WITH (FORCE) is available in PostgreSQL 13+ and terminates remaining
+                    // connections atomically as part of the DROP, eliminating the TOCTOU race.
+                    String dropSql = "DROP DATABASE IF EXISTS \"" + dbName + "\" WITH (FORCE)";
+                    logger.info("All connections drained from {}, issuing DROP DATABASE", dbName);
+                    return conn.query(dropSql).execute()
+                        .map(rs -> {
+                            logger.info("Database {} dropped successfully", dbName);
+                            return (Void) null;
+                        });
+                }
+                logger.debug("Database {} still has {} connection(s), retrying (attempt {})",
+                    dbName, remaining, attempt + 1);
+                return Future.<Void>future(p -> vertx.setTimer(100, id -> p.complete()))
+                    .compose(ignored -> dropWhenDrained(conn, dbName, attempt + 1));
             });
     }
 

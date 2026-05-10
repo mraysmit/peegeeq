@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
@@ -73,7 +74,7 @@ class SystemMonitoringHandlerTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_monitoring_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -128,10 +129,11 @@ class SystemMonitoringHandlerTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -169,14 +171,13 @@ class SystemMonitoringHandlerTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queues created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -254,7 +255,7 @@ class SystemMonitoringHandlerTest {
                         } else if ("system_stats".equals(msg.getString("type"))) {
                             metricsReceived.set(true);
                             
-                            // Verify metrics structure — always present (Runtime-sourced)
+                            // Verify metrics structure always present (Runtime-sourced)
                             JsonObject data = msg.getJsonObject("data");
                             assertNotNull(data, "Metrics data should be present");
                             assertNotNull(data.getLong("timestamp"), "timestamp should be present");
@@ -294,7 +295,8 @@ class SystemMonitoringHandlerTest {
                     if (!metricsReceived.get()) {
                         logger.warn("Metrics not received within timeout");
                         ws.close();
-                        testContext.completeNow();
+                        testContext.failNow(new AssertionError(
+                            "WebSocket monitoring: no system_stats message received within 10 s"));
                     }
                 });
 
@@ -470,7 +472,7 @@ class SystemMonitoringHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint returned status: {}", status);
 
@@ -504,10 +506,11 @@ class SystemMonitoringHandlerTest {
                     if (!connectedEventReceived.get()) {
                         logger.warn("Connected event not received within timeout");
                         sseClient.close();
-                        testContext.completeNow();
+                        testContext.failNow(new AssertionError(
+                            "SSE metrics: 'connected' event not received within 5 s"));
                     }
                 });
-            }))
+            })))
             .onFailure(err -> {
                 sseClient.close();
                 testContext.failNow(err);
@@ -529,7 +532,7 @@ class SystemMonitoringHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "SSE endpoint should return 200");
 
                 AtomicBoolean metricsEventReceived = new AtomicBoolean(false);
@@ -553,10 +556,11 @@ class SystemMonitoringHandlerTest {
                     if (!metricsEventReceived.get()) {
                         logger.warn("Metrics event not received within timeout");
                         sseClient.close();
-                        testContext.completeNow();
+                        testContext.failNow(new AssertionError(
+                            "SSE metrics: 'metrics' event not received within 10 s"));
                     }
                 });
-            }))
+            })))
             .onFailure(err -> {
                 sseClient.close();
                 testContext.failNow(err);

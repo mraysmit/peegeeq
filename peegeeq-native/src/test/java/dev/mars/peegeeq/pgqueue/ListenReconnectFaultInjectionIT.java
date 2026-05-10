@@ -8,6 +8,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -21,7 +22,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.lang.reflect.Field;
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -32,6 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Fault-injection IT: forcibly closes the dedicated LISTEN connection and verifies
@@ -53,6 +56,8 @@ public class ListenReconnectFaultInjectionIT {
         return container;
     }
 
+    private static final Logger logger = LoggerFactory.getLogger(ListenReconnectFaultInjectionIT.class);
+
     private PeeGeeQManager manager;
     private PgNativeQueueFactory factory;
     private MessageProducer<String> producer;
@@ -63,20 +68,17 @@ public class ListenReconnectFaultInjectionIT {
     @BeforeEach
     void setUp() throws Exception {
         // Configure DB for this test run
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Initialize schema
         initializeSchema();
 
         // Start manager using a dedicated profile
-        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("listen-reconnect-test");
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("listen-reconnect-test", testProps);
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Use DatabaseService pattern for factory creation
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -91,18 +93,18 @@ public class ListenReconnectFaultInjectionIT {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) consumer.unsubscribe();
         if (factory != null) factory.close();
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
     @Test
     void testListenReconnectAfterForcedDisconnect(Vertx vertx, VertxTestContext testContext) throws Exception {
         consumer.subscribe(msg -> {
+        logger.info("Test: listen reconnect after forced disconnect");
             testContext.completeNow();
             return Future.succeededFuture();
         });
@@ -145,6 +147,7 @@ public class ListenReconnectFaultInjectionIT {
 
         // Wait for LISTEN connection to establish
         vertx.setPeriodic(100, waitId -> {
+        logger.info("Test: unsubscribe does not reestablish listen connection");
             try {
                 if (getSubscriber(concrete) != null) {
                     vertx.cancelTimer(waitId);

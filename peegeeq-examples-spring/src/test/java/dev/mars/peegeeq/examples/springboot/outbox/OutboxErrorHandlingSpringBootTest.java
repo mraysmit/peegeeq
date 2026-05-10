@@ -2,6 +2,7 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.outbox.OutboxFactory;
@@ -82,6 +83,9 @@ class OutboxErrorHandlingSpringBootTest {
 
     @Autowired
     private OutboxFactory outboxFactory;
+    @Autowired
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
 
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
@@ -114,6 +118,15 @@ class OutboxErrorHandlingSpringBootTest {
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete());
         delay.future().await();
+
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
     }
 
     @Test

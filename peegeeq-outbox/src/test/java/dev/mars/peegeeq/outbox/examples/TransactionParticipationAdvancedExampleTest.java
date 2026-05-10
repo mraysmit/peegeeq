@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -43,12 +44,14 @@ import org.junit.jupiter.api.TestInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -113,7 +116,7 @@ class TransactionParticipationAdvancedExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_tx_participation_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -128,22 +131,18 @@ class TransactionParticipationAdvancedExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up Transaction Participation Advanced Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         
         // Initialize PeeGeeQ Manager - following established pattern
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
         // Create outbox factory - following established pattern
@@ -177,6 +176,7 @@ class TransactionParticipationAdvancedExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Transaction Participation Advanced Example Test");
         
         if (orderProducer != null) {
@@ -198,14 +198,6 @@ class TransactionParticipationAdvancedExampleTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
         
         logger.info("Transaction Participation Advanced Example Test cleanup completed");
     }

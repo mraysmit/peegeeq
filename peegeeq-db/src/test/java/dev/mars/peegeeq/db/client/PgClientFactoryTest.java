@@ -33,10 +33,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.Optional;
 
-import java.util.concurrent.TimeUnit;
-
+import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 public class PgClientFactoryTest {
     private static final Logger logger = LoggerFactory.getLogger(PgClientFactoryTest.class);
 
@@ -76,22 +76,25 @@ public class PgClientFactoryTest {
             .build();
 
         poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down PgClientFactory test");
         if (factory != null) {
             factory.close();
         }
         if (vertx != null) {
-            VertxTestContext ctx = new VertxTestContext();
             vertx.close()
-                .onSuccess(v -> ctx.completeNow())
-                .onFailure(ctx::failNow);
-            ctx.awaitCompletion(10, TimeUnit.SECONDS);
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -205,7 +208,7 @@ public class PgClientFactoryTest {
     }
 
     @Test
-    void testAsyncLifecycleManagement() throws Exception {
+    void testAsyncLifecycleManagement(VertxTestContext testContext) {
         logger.info("TEST: Async lifecycle management - close and removeClient");
         
         String client1Id = "test-client-async-1";
@@ -218,9 +221,7 @@ public class PgClientFactoryTest {
         assertNotNull(client1, "First client should be created");
         assertNotNull(client2, "Second client should be created");
         assertEquals(2, factory.getAvailableClients().size(), "Should have 2 clients");
-        
-        VertxTestContext testContext = new VertxTestContext();
-        
+
         factory.removeClient(client1Id)
             .compose(v -> {
                 testContext.verify(() -> {
@@ -230,19 +231,11 @@ public class PgClientFactoryTest {
                 });
                 return factory.closeAsync();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(factory.getAvailableClients().isEmpty(), "All clients should be closed");
                 assertFalse(factory.getClient(client2Id).isPresent(), "No clients should remain after closeAsync");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception ex) throw ex;
-            throw new RuntimeException(cause);
-        }
+            })));
     }
 
     @Test

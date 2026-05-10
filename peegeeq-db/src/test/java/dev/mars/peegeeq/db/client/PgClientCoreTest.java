@@ -1,3 +1,4 @@
+// ===== FILE 1: PgClientCoreTest.java =====
 package dev.mars.peegeeq.db.client;
 
 /*
@@ -11,6 +12,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -18,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -48,16 +52,18 @@ public class PgClientCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-client", connectionConfig, poolConfig);
         
         client = new PgClient("test-client", connectionManager);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -67,21 +73,20 @@ public class PgClientCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testGetReactiveConnection() throws Exception {
-        SqlConnection connection = client.getReactiveConnection()
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertNotNull(connection);
-
-        // Verify connection works
-        Integer result = connection.query("SELECT 1 as value")
-            .execute()
-            .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, result);
-
-        connection.close().toCompletionStage().toCompletableFuture().get();
+    void testGetReactiveConnection(VertxTestContext testContext) {
+        client.getReactiveConnection()
+            .compose(connection ->
+                connection.query("SELECT 1 as value")
+                    .execute()
+                    .map(rowSet -> {
+                        Integer result = rowSet.iterator().next().getInteger("value");
+                        assertEquals(1, result);
+                        return connection;
+                    })
+                    .compose(conn -> conn.close().map(v -> conn))
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -98,7 +103,7 @@ public class PgClientCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testWithReactiveConnection() throws Exception {
+    void testWithReactiveConnection(VertxTestContext testContext) {
         client.withReactiveConnection(connection ->
             connection.query("SELECT 42 as value")
                 .execute()
@@ -106,18 +111,23 @@ public class PgClientCoreTest extends BaseIntegrationTest {
                     assertEquals(42, rowSet.iterator().next().getInteger("value"));
                     return null;
                 })
-        ).toCompletionStage().toCompletableFuture().get();
+        )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testWithReactiveConnectionResult() throws Exception {
-        Integer result = client.withReactiveConnectionResult(connection ->
+    void testWithReactiveConnectionResult(VertxTestContext testContext) {
+        client.withReactiveConnectionResult(connection ->
             connection.query("SELECT 99 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(99, result);
+        )
+            .onSuccess(result -> {
+                assertEquals(99, result);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -126,4 +136,3 @@ public class PgClientCoreTest extends BaseIntegrationTest {
         client.close();
     }
 }
-

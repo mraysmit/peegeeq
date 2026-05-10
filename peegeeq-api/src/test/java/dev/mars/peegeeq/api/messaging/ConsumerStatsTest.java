@@ -19,6 +19,8 @@ package dev.mars.peegeeq.api.messaging;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.Map;
@@ -28,6 +30,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("core")
 @DisplayName("Consumer Statistics Tests")
 class ConsumerStatsTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerStatsTest.class);
 
     @Test
     @DisplayName("Should calculate consumer statistics and rates correctly")
@@ -66,9 +70,9 @@ class ConsumerStatsTest {
         // 10 / 115 * 100 = 8.695...
         assertEquals(10.0 / 115.0 * 100.0, stats.getFilterRatePercent(), 0.001);
         
-        System.out.println("DEBUG: messagesFailed=" + stats.getMessagesFailed());
-        System.out.println("DEBUG: lastError=" + stats.getLastError());
-        System.out.println("DEBUG: hasErrors=" + stats.hasErrors());
+        logger.debug("messagesFailed={}", stats.getMessagesFailed());
+        logger.debug("lastError={}", stats.getLastError());
+        logger.debug("hasErrors={}", stats.hasErrors());
 
         assertTrue(stats.hasErrors());
         

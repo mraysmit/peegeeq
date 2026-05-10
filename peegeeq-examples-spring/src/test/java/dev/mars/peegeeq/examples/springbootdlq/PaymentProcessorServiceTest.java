@@ -69,8 +69,8 @@ import static org.junit.jupiter.api.Assertions.*;
         "peegeeq.dlq.dlq-alert-threshold=5"
     }
 )
-@ActiveProfiles("test")
 @Testcontainers
+@ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ExtendWith(VertxExtension.class)
 public class PaymentProcessorServiceTest {
@@ -78,13 +78,6 @@ public class PaymentProcessorServiceTest {
     private static final Logger log = LoggerFactory.getLogger(PaymentProcessorServiceTest.class);
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @org.junit.jupiter.api.AfterAll
-    static void tearDown() {
-        log.info("🧹 Cleaning up Payment Processor Service Test resources");
-        // Container cleanup is handled by SharedTestContainers
-        log.info("Payment Processor Service Test cleanup complete");
-    }
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -145,7 +138,7 @@ public class PaymentProcessorServiceTest {
     
     @Autowired
     private TestRestTemplate restTemplate;
-    
+
     @Test
     public void testSuccessfulPaymentProcessing(Vertx vertx) throws Exception {
         log.info("=== Testing Successful Payment Processing ===");

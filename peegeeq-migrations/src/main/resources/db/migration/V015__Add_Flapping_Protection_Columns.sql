@@ -15,13 +15,13 @@
 --   - Prefer moderate heartbeat intervals (30-60s) unless faster failure detection is required.
 --   - Do not index consecutive_misses or dead_after_misses unless a proven query requires it.
 --   - State is kept on the subscription row deliberately so it survives process restarts
---     and detector/job instance changes — do not move this to in-memory tracking.
+--     and detector/job instance changes do not move this to in-memory tracking.
 --   - At 10,000 subscriptions with 60s heartbeat intervals, expect ~167 row updates/sec.
 --     Monitor autovacuum and dead tuples on outbox_topic_subscriptions at higher scale.
 
 ALTER TABLE outbox_topic_subscriptions
-    ADD COLUMN consecutive_misses INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN dead_after_misses INTEGER NOT NULL DEFAULT 3;
+    ADD COLUMN IF NOT EXISTS consecutive_misses INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS dead_after_misses INTEGER NOT NULL DEFAULT 3;
 
 COMMENT ON COLUMN outbox_topic_subscriptions.consecutive_misses IS
     'Number of consecutive detection cycles where the heartbeat was expired. Reset to 0 on heartbeat or resubscription.';

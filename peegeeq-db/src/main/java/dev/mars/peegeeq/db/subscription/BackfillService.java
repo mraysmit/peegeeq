@@ -6,6 +6,7 @@ import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgException;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
@@ -65,6 +66,10 @@ public class BackfillService {
     private static final String STATUS_COMPLETED = "COMPLETED";
     private static final String STATUS_CANCELLED = "CANCELLED";
     private static final String STATUS_NONE = "NONE";
+
+    // Deadlock retry configuration
+    private static final int MAX_DEADLOCK_RETRIES = 3;
+    private static final long DEADLOCK_RETRY_BASE_DELAY_MS = 50L;
 
 
     private final PgConnectionManager connectionManager;
@@ -220,13 +225,16 @@ public class BackfillService {
                             .compose(totalMessages -> {
                                 if (totalMessages == 0L) {
                                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                        logger.info("Backfill complete (no messages): topic='{}', group='{}', elapsedMs={}",
-                                                topic, groupName, System.currentTimeMillis() - startTimeMs);
+                                        logger.info("Backfill complete (no messages): topic='{}', group='{}', elapsedMs={}, alreadyProcessed={}",
+                                                topic, groupName, System.currentTimeMillis() - startTimeMs, processedSoFar);
                                     }
-                                    return markBackfillCompleted(trace, topic, groupName, 0L)
+                                    // Use processedSoFar (not 0L): if this is a resume after cancel where
+                                    // all messages were already processed, we must preserve the previously
+                                    // recorded count. Writing 0L here corrupts backfill_processed_messages.
+                                    return markBackfillCompleted(trace, topic, groupName, processedSoFar)
                                             .map(v -> new BackfillResult(
                                                     BackfillResult.Status.COMPLETED,
-                                                    0L,
+                                                    processedSoFar,
                                                     "No messages to backfill"));
                                 }
 
@@ -483,7 +491,7 @@ public class BackfillService {
      * <p><strong>Note (M1 remediation):</strong> This count runs in its own connection, outside the
      * advisory lock transaction from {@code acquireBackfillLock}. The actual message count may
      * change between the lock release and this count. The value is used for progress reporting
-     * only ({@code backfill_total_messages}) and does not affect correctness — individual batch
+     * only ({@code backfill_total_messages}) and does not affect correctness individual batch
      * processing is idempotent and processes whatever messages exist at execution time.</p>
      */
     private Future<Long> countMessagesToBackfill(String topic, long fromMessageId, long maxMessages, BackfillScope messageScope) {
@@ -539,7 +547,7 @@ public class BackfillService {
                                                    long startFromId, int batchSize,
                                                    long maxMessages, long alreadyProcessed,
                                                    BackfillScope messageScope, long batchDelayMs) {
-        // Use tail-recursive Future composition — safe in Vert.x as the call stack unwinds between batches
+        // Use tail-recursive Future composition safe in Vert.x as the call stack unwinds between batches
         return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope, batchDelayMs);
     }
 
@@ -554,27 +562,79 @@ public class BackfillService {
      * </ul>
      * 
      * <p>Note: At default settings (1M max messages, 10k batch size) this creates ~100 levels
-     * of compose() nesting — each holding a Future reference but no live stack frames.
+     * of compose() nesting each holding a Future reference but no live stack frames.
      * The heap overhead is bounded and acceptable for the configured limits.
      */
     private Future<BackfillResult> processBatchesRecursively(TraceCtx trace, String topic, String groupName,
                                                              long currentStartId, int batchSize,
                                                              long maxMessages, long currentProcessed,
                                                              BackfillScope messageScope, long batchDelayMs) {
-        return processOneBatch(trace, topic, groupName, currentStartId, batchSize, maxMessages, currentProcessed, messageScope)
+        return processOneBatchWithDeadlockRetry(trace, topic, groupName, currentStartId, batchSize, maxMessages, currentProcessed, messageScope, 0)
                 .compose(batchResult -> {
                     if (batchResult.isComplete() || batchResult.isCancelled()) {
                         return Future.succeededFuture(batchResult.toBackfillResult());
                     }
-                    // Apply inter-batch delay if configured (non-blocking via Vert.x timer)
-                    Future<Void> delay = (batchDelayMs > 0 && vertx != null)
+                    // Apply inter-batch delay if configured (non-blocking via Vert.x timer).
+                    // startBackfill() already guards batchDelayMs > 0 requires vertx != null.
+                    Future<Void> delay = (batchDelayMs > 0)
                             ? vertx.timer(batchDelayMs).mapEmpty()
                             : Future.succeededFuture();
-                    // Tail-recursive call — no live stack frame retained between batches
+                    // Tail-recursive call no live stack frame retained between batches
                     return delay.compose(v -> processBatchesRecursively(trace, topic, groupName,
                             batchResult.nextStartId(), batchSize, maxMessages,
                             batchResult.totalProcessed(), messageScope, batchDelayMs));
                 });
+    }
+
+    /**
+     * Retries {@link #processOneBatch} on PostgreSQL deadlock (SQLSTATE 40P01) with
+     * exponential backoff. The batch transaction is rolled back on deadlock so the
+     * checkpoint is not advanced; retrying from the same {@code startFromId} is safe.
+     *
+     * <p>Requires a Vert.x instance ({@link #vertx}). If {@code vertx} is null the deadlock
+     * is propagated immediately — without Vert.x a non-blocking retry delay is not possible
+     * and silent immediate retries would worsen the deadlock.</p>
+     */
+    private Future<BatchResult> processOneBatchWithDeadlockRetry(TraceCtx trace, String topic, String groupName,
+                                                                  long startFromId, int batchSize,
+                                                                  long maxMessages, long alreadyProcessed,
+                                                                  BackfillScope messageScope, int attempt) {
+        return processOneBatch(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope)
+                .recover(err -> {
+                    if (!isDeadlock(err)) {
+                        return Future.failedFuture(err);
+                    }
+                    if (vertx == null) {
+                        // No Vert.x — cannot back off safely; propagate immediately.
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.error("Deadlock (40P01) for topic='{}', group='{}' at id={}: cannot retry without Vert.x instance",
+                                    topic, groupName, startFromId);
+                        }
+                        return Future.failedFuture(err);
+                    }
+                    if (attempt >= MAX_DEADLOCK_RETRIES) {
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.error("Deadlock (40P01) for topic='{}', group='{}' at id={}: exhausted {} retries",
+                                    topic, groupName, startFromId, MAX_DEADLOCK_RETRIES);
+                        }
+                        return Future.failedFuture(err);
+                    }
+                    long delayMs = DEADLOCK_RETRY_BASE_DELAY_MS * (1L << attempt); // 50, 100, 200 ms
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.warn("Deadlock (40P01) on batch for topic='{}', group='{}' at id={}, attempt {}/{}, retrying after {}ms",
+                                topic, groupName, startFromId, attempt + 1, MAX_DEADLOCK_RETRIES, delayMs);
+                    }
+                    return vertx.timer(delayMs).mapEmpty()
+                            .compose(v -> processOneBatchWithDeadlockRetry(
+                                    trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope, attempt + 1));
+                });
+    }
+
+    private static boolean isDeadlock(Throwable err) {
+        if (err instanceof PgException pgEx) {
+            return "40P01".equals(pgEx.getSqlState());
+        }
+        return err.getMessage() != null && err.getMessage().contains("40P01");
     }
 
     private Future<BatchResult> processOneBatch(TraceCtx trace, String topic, String groupName,
@@ -728,7 +788,7 @@ public class BackfillService {
                     }
 
                     if (batchCount < effectiveLimit) {
-                        // Last batch was smaller than limit — done
+                        // Last batch was smaller than limit done
                         return markBackfillCompleted(connection, trace, topic, groupName, newProcessed)
                                 .map(ignored -> BatchResult.complete(newProcessed));
                     }
@@ -765,14 +825,27 @@ public class BackfillService {
                 backfill_processed_messages = $3,
                 backfill_completed_at = $4
             WHERE topic = $1 AND group_name = $2
+            RETURNING backfill_total_messages
             """;
 
         return connection.preparedQuery(sql)
                 .execute(Tuple.of(topic, groupName, totalProcessed, now, STATUS_COMPLETED))
                 .compose(result -> {
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        logger.info("Backfill completed for topic='{}', group='{}': {} messages processed",
-                                topic, groupName, totalProcessed);
+                        if (result.size() > 0) {
+                            Long expectedTotal = result.iterator().next().getLong("backfill_total_messages");
+                            if (expectedTotal != null && expectedTotal > 0 && totalProcessed < expectedTotal) {
+                                logger.warn("Backfill completed with fewer messages than expected for topic='{}', group='{}': " +
+                                                "processed={}, expected={}, gap={} — rows may have been deleted during backfill",
+                                        topic, groupName, totalProcessed, expectedTotal, expectedTotal - totalProcessed);
+                            } else {
+                                logger.info("Backfill completed for topic='{}', group='{}': {} messages processed",
+                                        topic, groupName, totalProcessed);
+                            }
+                        } else {
+                            logger.info("Backfill completed for topic='{}', group='{}': {} messages processed",
+                                    topic, groupName, totalProcessed);
+                        }
                     }
                     return Future.succeededFuture();
                 });

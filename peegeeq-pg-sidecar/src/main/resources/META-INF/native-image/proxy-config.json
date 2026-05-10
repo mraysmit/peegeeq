@@ -1,0 +1,6 @@
+[
+  {
+    "comment": "SCRAM ServiceLoader registration",
+    "interfaces": ["com.ongres.scram.client.ScramClient"]
+  }
+]

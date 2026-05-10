@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -31,6 +32,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,6 +75,7 @@ class ConsumerModeGracefulDegradationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up graceful degradation test environment");
 
         // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
@@ -81,22 +84,17 @@ class ConsumerModeGracefulDegradationTest {
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties using TestContainer (following established patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Enable circuit breaker for degradation testing
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.failure-threshold", "3");
-        System.setProperty("peegeeq.circuit-breaker.timeout", "PT5S");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.circuit-breaker.failure-threshold", "3")
+                .property("peegeeq.circuit-breaker.timeout", "PT5S")
+                .build();
 
         // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -112,27 +110,15 @@ class ConsumerModeGracefulDegradationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up graceful degradation test environment");
         
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-        
-        // Clear test properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.circuit-breaker.enabled");
-        System.clearProperty("peegeeq.circuit-breaker.failure-threshold");
-        System.clearProperty("peegeeq.circuit-breaker.timeout");
         
         logger.info("Graceful degradation test cleanup completed");
     }
@@ -168,14 +154,13 @@ class ConsumerModeGracefulDegradationTest {
                 logger.info("Processed message {}: {}", count, message.getPayload());
                 received.flag();
                 return Future.succeededFuture();
-            });
-
-            // Delay for consumer setup using Vert.x timer
-            vertx.setTimer(1000, id -> {
+            })
+            .onSuccess(ignored -> {
                 producer.send("Degradation test message 1");
                 producer.send("Degradation test message 2");
                 producer.send("Degradation test message 3");
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
             logger.info("HYBRID mode degradation verified - processed: {} messages via polling fallback",
@@ -227,10 +212,8 @@ class ConsumerModeGracefulDegradationTest {
                 logger.info("Successfully processed message {}: {}", count, message.getPayload());
                 processed.flag();
                 return Future.succeededFuture();
-            });
-
-            // Delay for consumer setup, then send messages with periodic timer
-            vertx.setTimer(1000, setupId -> {
+            })
+            .onSuccess(ignored -> {
                 AtomicInteger sendIndex = new AtomicInteger(0);
                 vertx.setPeriodic(50, periodicId -> {
                     int i = sendIndex.incrementAndGet();
@@ -241,7 +224,8 @@ class ConsumerModeGracefulDegradationTest {
                         vertx.cancelTimer(periodicId);
                     }
                 });
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "Test timed out");
             assertTrue(processedCount.get() >= 10, "Should process at least 10 messages");
@@ -304,10 +288,8 @@ class ConsumerModeGracefulDegradationTest {
 
                 received.flag();
                 return Future.succeededFuture();
-            });
-
-            // Delay for consumer setup, then send messages in phases using Vert.x timers
-            vertx.setTimer(1000, setupId -> {
+            })
+            .onSuccess(ignored -> {
                 producer.send("Pre-degradation message 1");
                 producer.send("Pre-degradation message 2");
 
@@ -320,7 +302,8 @@ class ConsumerModeGracefulDegradationTest {
                         producer.send("Recovery message 6");
                     });
                 });
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
             assertEquals(6, processedCount.get(), "Should process exactly 6 messages");

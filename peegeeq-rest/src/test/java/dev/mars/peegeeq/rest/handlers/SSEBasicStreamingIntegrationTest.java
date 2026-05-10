@@ -109,11 +109,8 @@ class SSEBasicStreamingIntegrationTest {
                 httpClient = vertx.createHttpClient();
                 webClient = WebClient.create(vertx);
 
-                // Give server time to fully start
-                vertx.setTimer(1000, timerId -> {
-                    // Now create database setup via REST API
-                    createDatabaseSetupViaRestApi(vertx, testContext);
-                });
+                // Now create database setup via REST API
+                createDatabaseSetupViaRestApi(vertx, testContext);
             })
             .onFailure(testContext::failNow);
     }
@@ -192,7 +189,8 @@ class SSEBasicStreamingIntegrationTest {
         } else if (deploymentId != null) {
             // No setup to destroy, just undeploy
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> testContext.completeNow());
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -218,11 +216,11 @@ class SSEBasicStreamingIntegrationTest {
                         return Future.succeededFuture(); // Don't fail teardown
                     }
                 })
-                .recover(err -> {
+                .eventually(() -> {
                     client.close();
-                    logger.warn("Failed to cleanup test setup: {}", testSetupId, err);
-                    return Future.succeededFuture(); // Don't fail teardown
-                });
+                    return Future.succeededFuture();
+                })
+                .onFailure(err -> logger.warn("Failed to cleanup test setup: {}", testSetupId, err));
     }
 
     /**

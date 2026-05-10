@@ -102,6 +102,15 @@ public class PgConnectionManager {
     }
 
     /**
+     * Gets the Vert.x instance used by this connection manager.
+     *
+     * @return The Vert.x instance
+     */
+    public Vertx getVertx() {
+        return vertx;
+    }
+
+    /**
      * Gets the instance ID of this PgConnectionManager.
      * Useful for correlating log messages across components.
      *
@@ -152,7 +161,7 @@ public class PgConnectionManager {
                 return pool;
             } catch (Exception e) {
                 logger.error("Failed to create pool for {}: {}", id, e.getMessage());
-                // Note: do NOT call reactivePools.remove(id) here — we are inside
+                // Note: do NOT call reactivePools.remove(id) here we are inside
                 // computeIfAbsent, which does not store the value when the lambda throws,
                 // and ConcurrentHashMap forbids recursive structural modifications.
                 if (meter != null) {
@@ -276,7 +285,7 @@ public class PgConnectionManager {
 
         // Set search_path at connection level so all connections from the pool
         // automatically use the configured schema.
-        // See https://vertx.io/docs/vertx-pg-client/java/ — "Configuration / data object"
+        // See https://vertx.io/docs/vertx-pg-client/java/ "Configuration / data object"
         String configuredSchema = connectionConfig.getSchema();
         if (configuredSchema != null && !configuredSchema.isBlank()) {
             String normalized = normalizeSearchPath(configuredSchema);
@@ -308,7 +317,7 @@ public class PgConnectionManager {
      * Normalizes and validates a configured schema/search_path string.
      *
      * This enforces a project-specific restricted naming policy (letters, digits,
-     * underscore, comma) — not general PostgreSQL identifier validation. Quoted
+     * underscore, comma) not general PostgreSQL identifier validation. Quoted
      * identifiers, {@code $user}, and case-sensitive quoting are intentionally
      * rejected.
      *
@@ -356,16 +365,19 @@ public class PgConnectionManager {
 
         return withConnection(resolvedId, conn ->
             conn.query("SELECT 1").execute().map(rs -> true)
-        ).recover(err -> {
-            logger.warn("Health check failed for {}: {}", resolvedId, err.getMessage());
-            return Future.succeededFuture(false);
+        ).transform(ar -> {
+            if (ar.failed()) {
+                logger.warn("Health check failed for {}: {}", resolvedId, ar.cause().getMessage());
+                return Future.succeededFuture(false);
+            }
+            return Future.succeededFuture(ar.result());
         });
     }
 
     /**
      * Checks whether all registered pools are non-null.
      *
-     * This is NOT a database connectivity check — it only verifies that pool
+     * This is NOT a database connectivity check it only verifies that pool
      * objects exist. For actual health probes, use {@link #checkHealth(String)}.
      *
      * @return true if no pools are registered, or all registered pools are non-null
@@ -452,7 +464,7 @@ public class PgConnectionManager {
             return Future.succeededFuture();
         }
 
-        // Snapshot keys before iterating — closePool mutates the map
+        // Snapshot keys before iterating closePool mutates the map
         List<String> serviceIds = new ArrayList<>(reactivePools.keySet());
         List<Future<Void>> closeFutures = new ArrayList<>();
 
@@ -465,10 +477,9 @@ public class PgConnectionManager {
                 logger.info("PgConnectionManager@{}: Closed successfully ({} pool(s))", instanceId, closeFutures.size());
                 return Future.<Void>succeededFuture();
             })
-            .recover(throwable -> {
-                logger.error("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage(), throwable);
-                return Future.<Void>succeededFuture(); // Don't fail the overall close operation
-            });
+            .onFailure(throwable ->
+                logger.error("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage(), throwable))
+            .mapEmpty();
     }
 
     /**

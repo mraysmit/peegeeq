@@ -26,15 +26,15 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import dev.mars.peegeeq.db.PgTestImageConstant;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 
-import io.vertx.junit5.Checkpoint;
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,6 +49,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-13
  * @version 1.0
  */
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
+
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class PoolingUnderLoad {
@@ -57,7 +61,7 @@ public class PoolingUnderLoad {
     private static final PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");
@@ -92,39 +96,28 @@ public class PoolingUnderLoad {
     }
 
     @Test
-    void testConnectionPoolingUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
-        int numThreads = 10;
-        ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        Checkpoint latch = testContext.checkpoint(numThreads);
-
-        for (int i = 0; i < numThreads; i++) {
-            executor.submit(() -> {
-                try {
-                    // Use reactive patterns instead of deprecated JDBC methods
-                    pgClient.withReactiveConnectionResult(connection -> {
-                        // Simulate some work with reactive delay
-                        return connection.preparedQuery("SELECT 1")
-                            .execute()
-                            .map(rowSet -> {
-                                Row row = rowSet.iterator().next();
-                                int result = row.getInteger(0);
-                                assertEquals(1, result);
-                                return result;
-                            });
-                    }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-                    // Add a small delay to simulate work
-                    vertx.timer(100).toCompletionStage().toCompletableFuture().join();
-                } catch (Exception e) {
-                    fail("Exception in thread: " + e.getMessage());
-                } finally {
-                    latch.flag();
-                }
-            });
+    void testConnectionPoolingUnderLoad(Vertx vertx, VertxTestContext testContext) {
+        int numRequests = 10;
+        List<Future<?>> futures = new ArrayList<>();
+        
+        for (int i = 0; i < numRequests; i++) {
+            Future<?> requestFuture = pgClient.withReactiveConnectionResult(connection -> 
+                connection.preparedQuery("SELECT 1")
+                    .execute()
+                    .map(rowSet -> {
+                        Row row = rowSet.iterator().next();
+                        int result = row.getInteger(0);
+                        assertEquals(1, result);
+                        return result;
+                    })
+                    .compose(result -> vertx.timer(100).map(result))
+            );
+            futures.add(requestFuture);
         }
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Not all threads completed in time");
-        executor.shutdown();
+        
+        Future.all(futures)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
 

@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.springbootintegrated;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootintegrated.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootintegrated.model.CreateOrderRequest;
@@ -29,6 +30,8 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -99,6 +102,21 @@ class SpringBootIntegratedApplicationTest {
 
     @Autowired
     private DatabaseService databaseService;
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
+    }
 
     @BeforeEach
     void setUp() throws Exception {

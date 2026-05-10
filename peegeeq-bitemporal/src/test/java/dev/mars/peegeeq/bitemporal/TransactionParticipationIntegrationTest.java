@@ -38,11 +38,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -81,19 +83,17 @@ public class TransactionParticipationIntegrationTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("ALL database tables created successfully");
 
-        // Set system properties for PeeGeeQ configuration - following established patterns
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        // Set configuration properties for PeeGeeQ
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize PeeGeeQ Manager - following established patterns
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        peeGeeQManager.start();
+        peeGeeQManager.start().await();
 
         vertx = Vertx.vertx();
 
@@ -118,13 +118,6 @@ public class TransactionParticipationIntegrationTest {
         if (peeGeeQManager != null) {
             peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
-
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
 
         logger.info("Cleanup completed successfully");
     }
@@ -493,6 +486,7 @@ public class TransactionParticipationIntegrationTest {
 
         try {
             // Attempt transaction that should fail after bitemporal append
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = business SQL failure after bitemporal append must roll back the full transaction");
             Exception thrownException = assertThrows(Exception.class, () -> {
                 pool.withTransaction(connection -> {
                     logger.info("📝 Starting transaction that will fail after bitemporal append");
@@ -515,7 +509,7 @@ public class TransactionParticipationIntegrationTest {
                 }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             });
 
-            logger.info("Expected exception thrown: {}", thrownException.getMessage());
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (business SQL failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info("🔍 Verifying complete rollback - no partial data should exist");
@@ -597,6 +591,7 @@ public class TransactionParticipationIntegrationTest {
 
         try {
             // Attempt transaction that should fail after business operation
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = bitemporal append validation failure after business insert must roll back the full transaction");
             Exception thrownException = assertThrows(Exception.class, () -> {
                 pool.withTransaction(connection -> {
                     logger.info("📝 Starting transaction that will fail after business operation");
@@ -619,7 +614,7 @@ public class TransactionParticipationIntegrationTest {
                 }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             });
 
-            logger.info("Expected exception thrown: {}", thrownException.getMessage());
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (append validation failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info("🔍 Verifying complete rollback - no partial data should exist");
@@ -673,6 +668,7 @@ public class TransactionParticipationIntegrationTest {
 
         try {
             // Attempt complex transaction with multiple operations that will fail at the end
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = late-stage SQL failure in multi-step transaction must prevent partial commits");
             Exception thrownException = assertThrows(Exception.class, () -> {
                 pool.withTransaction(connection -> {
                     logger.info("📝 Starting complex transaction with multiple operations that will fail");
@@ -723,7 +719,7 @@ public class TransactionParticipationIntegrationTest {
                 }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             });
 
-            logger.info("Expected exception thrown: {}", thrownException.getMessage());
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected boundary-integrity rollback trigger: {}", thrownException.getMessage());
 
             // COMPREHENSIVE TRANSACTION BOUNDARY VERIFICATION
             logger.info("🔍 Verifying transaction boundary integrity - ALL operations should be rolled back");

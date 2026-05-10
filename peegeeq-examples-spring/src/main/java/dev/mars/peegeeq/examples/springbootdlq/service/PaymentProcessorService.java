@@ -85,7 +85,8 @@ public class PaymentProcessorService {
     @EventListener(ApplicationReadyEvent.class)
     public void startProcessing() {
         log.info("Starting payment processing with max retries: {}", properties.getMaxRetries());
-        consumer.subscribe(this::processPayment);
+        consumer.subscribe(this::processPayment)
+                .onFailure(err -> log.error("Consumer subscription failed for topic", err));
         log.info("Payment processor started successfully");
     }
     

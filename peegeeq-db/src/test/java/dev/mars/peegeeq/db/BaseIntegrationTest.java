@@ -17,7 +17,9 @@ package dev.mars.peegeeq.db;
  */
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -28,10 +30,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
-import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Base class for integration tests that provides proper database connection management,
@@ -57,7 +59,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * @version 2.0
  */
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
-@Tag("integration")
+@Tag(TestCategories.INTEGRATION)
 public abstract class BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BaseIntegrationTest.class);
@@ -74,161 +76,90 @@ public abstract class BaseIntegrationTest {
     }
 
     @BeforeEach
-    protected void setUpBaseIntegration() throws Exception {
+    protected void setUpBaseIntegration(VertxTestContext testContext) {
         // Generate unique test profile to avoid conflicts
         testProfile = "test-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         logger.info("Setting up integration test with profile: {}", testProfile);
-        
-        // Set up test-specific configuration (non-database system properties)
-        setupTestConfiguration();
-        
-        // Create configuration with explicit database settings from the shared container
-        // to avoid System.setProperty race conditions under parallel execution.
+
+        // Build isolated per-test configuration — no System.setProperty writes.
         PostgreSQLContainer postgres = getPostgres();
-        configuration = new PeeGeeQConfiguration(
-                testProfile,
-                postgres.getHost(),
-                postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(),
-                postgres.getUsername(),
-                postgres.getPassword(),
-                "public");
+        Properties props = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.database.pool.min-size", "1")
+                .property("peegeeq.database.pool.max-size", "3")
+                .property("peegeeq.database.pool.connection-timeout-ms", "30000")
+                .property("peegeeq.database.pool.idle-timeout-ms", "5000")
+                .property("peegeeq.database.pool.shared", "false")
+                .property("peegeeq.health.check-interval", "PT10S")
+                .property("peegeeq.health.timeout", "PT5S")
+                .property("peegeeq.metrics.reporting-interval", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.circuit-breaker.failure-rate-threshold", "50.0")
+                .property("peegeeq.circuit-breaker.minimum-number-of-calls", "3")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.consumer-group-retry.enabled", "false")
+                .build();
+        configuration = new PeeGeeQConfiguration(testProfile, props);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
-        
-        // Start manager with proper error handling
-        try {
-            awaitFuture(manager.start());
-            logger.info("PeeGeeQ Manager started successfully for profile: {}", testProfile);
-        } catch (Exception e) {
-            logger.error("Failed to start PeeGeeQ Manager for profile: {}", testProfile, e);
-            // Clean up on failure
-            if (manager != null) {
-                try {
-                    awaitFuture(manager.closeReactive());
-                } catch (Exception closeException) {
-                    logger.warn("Error closing manager after startup failure", closeException);
+
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started successfully for profile: {}", testProfile);
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                logger.error("Failed to start PeeGeeQ Manager for profile: {}", testProfile, e);
+                PeeGeeQManager failedManager = manager;
+                manager = null;
+                if (failedManager != null) {
+                    failedManager.closeReactive()
+                        .onSuccess(ignored -> testContext.failNow(e))
+                        .onFailure(ignored -> testContext.failNow(e));
+                } else {
+                    testContext.failNow(e);
                 }
-            }
-            throw e;
-        }
+            });
     }
     
     @AfterEach
-    void tearDownBaseIntegration() throws Exception {
+    void tearDownBaseIntegration(VertxTestContext testContext) {
         logger.info("Tearing down integration test for profile: {}", testProfile);
-        
-        // Close manager with proper error handling and timeout
-        if (manager != null) {
-            try {
-                // Give manager time to complete any ongoing operations
-                awaitFuture(manager.getVertx().timer(100).mapEmpty());
-                
-                // Close manager (this should close all HikariCP pools)
-                awaitFuture(manager.closeReactive());
-                logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile);
-                
-            } catch (Exception e) {
-                logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
-                // Don't rethrow - we want other cleanup to continue
-            } finally {
-                manager = null;
-            }
-        }
-        
-        // DO NOT clear test system properties in @AfterEach - causes race conditions in parallel execution
-        // Each test's @BeforeEach will overwrite them anyway
-        
-        // Force garbage collection to help with cleanup
-        System.gc();
-        
-        logger.info("Integration test teardown completed for profile: {}", testProfile);
-    }
-    
-    /**
-     * Set up database connection properties from TestContainer
-     */
-    private void setupDatabaseProperties() {
-        PostgreSQLContainer postgres = getPostgres();
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
 
-        // CRITICAL: Disable migrations - tables are created once by SharedPostgresTestExtension
-        // Running migrations on every test causes duplicate key violations with shared TestContainer
-        System.setProperty("peegeeq.migration.enabled", "false");
+        // Capture Vertx reference before nulling manager we need it for the
+        // belt-and-suspenders close below (Tier 2 fix for connection exhaustion).
+        Vertx vertxRef = (manager != null) ? manager.getVertx() : null;
+        PeeGeeQManager currentManager = manager;
+        manager = null;
 
-        logger.debug("Database properties set: {}:{}/{} (migrations disabled)",
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-    }
-    
-    /**
-     * Set up test-specific configuration with conservative settings.
-     *
-     * <p>Pool size is kept small (max 3) to avoid exhausting PostgreSQL connections
-     * when tests run in parallel. With 4 parallel test threads and multiple test classes,
-     * connection usage can spike quickly.</p>
-     */
-    private void setupTestConfiguration() {
-        // Database pool settings - very conservative for parallel tests
-        // With 4 parallel threads and max 3 connections per pool, we use at most 12 connections per wave
-        // PostgreSQL container is configured with max_connections=200
-        System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.connection-timeout", "PT10S");
-        System.setProperty("peegeeq.database.pool.idle-timeout", "PT10S");  // Shorter idle timeout for faster cleanup
-        System.setProperty("peegeeq.database.pool.max-lifetime", "PT2M");   // Shorter lifetime for faster recycling
+        // closeReactive() handles dead Vertx internally (step 7 catch).
+        // No grace timer needed it serves no documented purpose and
+        // throws RejectedExecutionException when the event loop is dead.
+        Future<Void> closeManager = (currentManager != null)
+            ? currentManager.closeReactive()
+                .onSuccess(v -> logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile))
+                .onFailure(e -> logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e))
+            : Future.succeededFuture();
 
-        // Health check settings - faster for tests
-        System.setProperty("peegeeq.health.check-interval", "PT10S");
-        System.setProperty("peegeeq.health.timeout", "PT5S");
-
-        // Metrics settings - faster for tests
-        System.setProperty("peegeeq.metrics.reporting-interval", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-
-        // Circuit breaker settings
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "50.0");
-        System.setProperty("peegeeq.circuit-breaker.minimum-number-of-calls", "3");
-
-        // Migration settings - keep disabled because schema is created once by SharedPostgresTestExtension
-        // Avoid enabling migrations here to prevent duplicate DDL when tests run in parallel
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
-
-        // Disable background dead consumer detection to prevent the PeeGeeQManager's
-        // periodic job from interfering with tests that explicitly test dead consumer
-        // detection. Without this, a background job from a parallel test's PeeGeeQManager
-        // can mark subscriptions DEAD before the test's own detector call runs.
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-
-        // Disable background consumer group retry job to prevent the PeeGeeQManager's
-        // periodic job from resetting FAILED→PENDING rows during tests that assert on
-        // FAILED status. Tests for retry behaviour create their own RetryService directly.
-        System.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
-
-        logger.debug("Test configuration properties set");
-    }
-    
-    /**
-     * Wait for manager to be fully started and healthy
-     */
-    protected void waitForManagerReady() throws InterruptedException {
-        if (manager == null) {
-            throw new IllegalStateException("Manager is not initialized");
-        }
-        
-        // Wait for health checks to stabilize
-        awaitFuture(manager.getVertx().timer(1000).mapEmpty());
-
-        // Verify manager is healthy
-        var healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
-        if (!healthStatus.isHealthy()) {
-            logger.warn("Manager is not healthy after startup: {}", healthStatus.getComponents());
-        }
+        // Tier 2: Eagerly close Vert.x to guarantee TCP socket release before the
+        // next test starts. closeReactive() step 7 attempts this, but the Vert.x
+        // instance may already be closed (RejectedExecutionException). Use .eventually()
+        // so this cleanup always runs without affecting the outcome of the chain.
+        closeManager
+            .eventually(() -> vertxRef != null
+                ? vertxRef.close()
+                    .onSuccess(ignored -> logger.info("Vert.x instance closed explicitly for profile: {}", testProfile))
+                    .onFailure(e -> logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage()))
+                : Future.succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Integration test teardown completed for profile: {}", testProfile);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     /**
@@ -238,33 +169,5 @@ public abstract class BaseIntegrationTest {
         return testProfile;
     }
 
-    protected <T> T awaitFuture(Future<T> future) {
-        VertxTestContext testContext = new VertxTestContext();
-        AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-
-        future
-            .onSuccess(result::set)
-            .onFailure(failure::set)
-            .eventually(() -> {
-                testContext.completeNow();
-                return Future.succeededFuture();
-            });
-
-        try {
-            if (!testContext.awaitCompletion(10, TimeUnit.SECONDS)) {
-                throw new RuntimeException("Timed out waiting for Future completion");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting for Future completion", e);
-        }
-
-        if (failure.get() != null) {
-            throw new RuntimeException(failure.get());
-        }
-        return result.get();
-    }
 }
-
 

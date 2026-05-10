@@ -30,6 +30,7 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)
-@DisplayName("Force-remove — integration tests")
+@DisplayName("Force-remove integration tests")
 class ForceRemoveIntegrationTest extends BaseIntegrationTest {
 
     private static final String SERVICE_ID = "peegeeq-main";
@@ -78,7 +80,10 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -86,6 +91,17 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         subscriptionManager = new SubscriptionManager(connectionManager, SERVICE_ID);
         cleanup = new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID);
         subscriptionManager.setDeadConsumerGroupCleanup(cleanup);
+    }
+
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        if (connectionManager != null) {
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
     }
 
     // =========================================================================
@@ -189,7 +205,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
     // =========================================================================
 
     @Test
-    @DisplayName("force-remove is idempotent — second call fails gracefully")
+    @DisplayName("force-remove is idempotent second call fails gracefully")
     void forceRemove_idempotent(VertxTestContext ctx) {
         String topic = "force-rm-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "force-rm-idemp-g-" + UUID.randomUUID().toString().substring(0, 8);
@@ -209,7 +225,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
     }
 
     // =========================================================================
-    // Helper — directly update subscription status (bypasses normal validation)
+    // Helper directly update subscription status (bypasses normal validation)
     // =========================================================================
 
     private Future<Void> updateStatusDirectly(String topic, String groupName, SubscriptionStatus status) {

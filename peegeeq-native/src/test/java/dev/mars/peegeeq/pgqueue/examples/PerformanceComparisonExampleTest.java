@@ -31,6 +31,7 @@ import dev.mars.peegeeq.pgqueue.ConsumerConfig;
 import dev.mars.peegeeq.pgqueue.ConsumerMode;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,7 +54,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.time.Instant;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -102,23 +103,18 @@ class PerformanceComparisonExampleTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Performance Comparison Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Configure for performance testing
-        System.setProperty("peegeeq.database.pool.min-size", "5");
-        System.setProperty("peegeeq.database.pool.max-size", "20");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.pool.min-size", "5")
+                .property("peegeeq.database.pool.max-size", "20")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.migration.auto-migrate", "true")
+                .build();
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
@@ -130,10 +126,10 @@ class PerformanceComparisonExampleTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(
-                new PeeGeeQConfiguration("development"),
+                new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
 
         // Create database service and factory provider
@@ -152,6 +148,7 @@ class PerformanceComparisonExampleTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Performance Comparison Test");
 
         if (nativeFactory != null) {
@@ -159,13 +156,8 @@ class PerformanceComparisonExampleTest {
         }
 
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-
-        // Clear system properties
-        clearSystemProperties();
 
         logger.info("Performance Comparison Test cleanup completed");
     }
@@ -264,27 +256,19 @@ class PerformanceComparisonExampleTest {
         // Test all configurations and compare performance
         PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
-        CountDownLatch delay1 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay1.countDown());
-        delay1.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
 
-        CountDownLatch delay2 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay2.countDown());
-        delay2.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
 
-        CountDownLatch delay3 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay3.countDown());
-        delay3.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
 
-        CountDownLatch delay4 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay4.countDown());
-        delay4.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
@@ -309,39 +293,11 @@ class PerformanceComparisonExampleTest {
     }
 
     /**
-     * Clears all system properties set for testing.
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.metrics.enabled");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.migration.auto-migrate");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-    }
-
-    /**
      * Tests a specific configuration and measures performance.
      */
     private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval, Vertx vertx) throws Exception {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
-
-        // Set system properties for this configuration
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.consumer.threads", String.valueOf(threads));
-        System.setProperty("peegeeq.queue.batch-size", String.valueOf(batchSize));
-        System.setProperty("peegeeq.queue.polling-interval", pollingInterval);
 
         Instant startTime = Instant.now();
 
@@ -366,7 +322,7 @@ class PerformanceComparisonExampleTest {
             // Performance tracking
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicLong totalProcessingTime = new AtomicLong(0);
-            CountDownLatch allProcessed = new CountDownLatch(1);
+            Promise<Void> allProcessed = Promise.promise();
 
             // Start consumer
             Instant consumerStartTime = Instant.now();
@@ -384,7 +340,7 @@ class PerformanceComparisonExampleTest {
                     logger.debug("Processed message {} for config {}", message.getId(), configName);
 
                     if (count >= MESSAGE_COUNT) {
-                        allProcessed.countDown();
+                        allProcessed.tryComplete();
                     }
                     result.complete();
                 });
@@ -410,7 +366,14 @@ class PerformanceComparisonExampleTest {
             logger.info("📤 Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
 
             // Wait for processing to complete (with timeout)
-            boolean completed = allProcessed.await(30, TimeUnit.SECONDS);
+            boolean completed;
+            try {
+                vertx.timer(30000).onSuccess(id -> allProcessed.tryFail("Timeout waiting for all messages"));
+                allProcessed.future().await();
+                completed = true;
+            } catch (Exception e) {
+                completed = false;
+            }
             Instant endTime = Instant.now();
 
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();

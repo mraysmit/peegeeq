@@ -1,4 +1,4 @@
-Mark — this adapter is doing the exact things that make Vert.x apps hard to operate at scale: it creates its **own Vert.x**, builds **a second pool** beside your factory’s pool, blocks on closes, and even ignores the `clientId` you pass in. Let’s fix it.
+Mark this adapter is doing the exact things that make Vert.x apps hard to operate at scale: it creates its **own Vert.x**, builds **a second pool** beside your factory’s pool, blocks on closes, and even ignores the `clientId` you pass in. Let’s fix it.
 
 ## The problems (blunt + specific)
 
@@ -29,7 +29,7 @@ Mark — this adapter is doing the exact things that make Vert.x apps hard to op
    You force callers to create a **pooled** connection to set `connectOptions` before they can create a **dedicated** connection for LISTEN. That’s backwards. You should be able to build `PgConnectOptions` straight from the factory’s config without creating a pool.
 
 7. **Fallback defaults**
-   When you don’t find config, you silently build a pool to `localhost/peegeeq`. That’s dangerous — services “work” but talk to the wrong DB. **Fail fast** instead.
+   When you don’t find config, you silently build a pool to `localhost/peegeeq`. That’s dangerous services “work” but talk to the wrong DB. **Fail fast** instead.
 
 8. **Thread-safety / idempotence**
    `pool` is a plain field; concurrent calls could race to create two pools. Guard creation.
@@ -162,8 +162,8 @@ public final class VertxPoolAdapter {
 
 ### Why this is better
 
-* **No duplicate pools** — you reuse the one your factory already manages.
-* **No hidden Vert.x** — lifecycle stays with the app.
+* **No duplicate pools** you reuse the one your factory already manages.
+* **No hidden Vert.x** lifecycle stays with the app.
 * **Dedicated LISTEN conn** without forcing a pool to be created first.
 * **Respects `clientId`**.
 

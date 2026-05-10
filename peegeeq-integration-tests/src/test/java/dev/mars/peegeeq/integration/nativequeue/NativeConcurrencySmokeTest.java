@@ -11,6 +11,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
@@ -42,6 +43,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("integration")
 public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
+    private static final org.slf4j.Logger logger = LoggerFactory.getLogger(NativeConcurrencySmokeTest.class);
+
     private final List<MessageConsumer<?>> activeConsumers = Collections.synchronizedList(new ArrayList<>());
 
     @AfterEach
@@ -51,7 +54,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                 try {
                     consumer.close();
                 } catch (Exception e) {
-                    // Ignore cleanup errors
+                    logger.warn("Failed to close consumer during cleanup", e);
                 }
             }
             activeConsumers.clear();
@@ -80,70 +83,58 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                 // 2. Get QueueFactory
                 setupService.getSetupResult(setupId).onSuccess(result -> {
                     QueueFactory factory = result.getQueueFactories().get(queueName);
-                    assertNotNull(factory, "Queue factory should exist");
+                    if (factory == null) {
+                        testContext.failNow(new AssertionError("Queue factory should exist"));
+                        return;
+                    }
 
                     // 3. Start Consumers
                     AtomicInteger consumedCount = new AtomicInteger(0);
                     Set<String> consumedIds = Collections.newSetFromMap(new ConcurrentHashMap<>());
-                    CountDownLatch allConsumed = new CountDownLatch(messageCount);
+                    Promise<Void> allConsumedPromise = Promise.promise();
 
                     for (int i = 0; i < consumerCount; i++) {
                         MessageConsumer<Object> consumer = factory.createConsumer(queueName, Object.class);
                         activeConsumers.add(consumer);
                         consumer.subscribe(msg -> {
                             consumedIds.add(msg.getId());
-                            consumedCount.incrementAndGet();
-                            allConsumed.countDown();
+                            if (consumedCount.incrementAndGet() >= messageCount) {
+                                allConsumedPromise.tryComplete();
+                            }
                             return Future.succeededFuture();
                         });
                     }
 
-                    // 4. Publish Messages via REST API
-                    new Thread(() -> {
-                        try {
-                            for (int i = 0; i < messageCount; i++) {
-                                int index = i;
-                                JsonObject msg = new JsonObject().put("payload", new JsonObject().put("data", "msg-" + index));
-                                CountDownLatch latch = new CountDownLatch(1);
-                                webClient.post( "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
-                                    .sendJsonObject(msg)
-                                    .onComplete(r -> {
-                                        if (r.failed()) {
-                                            System.err.println("Failed to publish message " + index + ": " + r.cause().getMessage());
-                                        } else if (r.result().statusCode() != 200) {
-                                            System.err.println("Failed to publish message " + index + ": Status " + r.result().statusCode());
-                                        }
-                                        latch.countDown();
-                                    });
-                                // Wait a bit for each message to ensure order/delivery, but not too long
-                                if (!latch.await(2, TimeUnit.SECONDS)) {
-                                    System.err.println("Timeout publishing message " + index);
-                                }
-                            }
-                        } catch (Exception e) {
-                            e.printStackTrace();
-                        }
-                    }).start();
+                    // Publish all messages; failures are logged but do not block publishing
+                    List<Future<Void>> publishFutures = new ArrayList<>();
+                    for (int i = 0; i < messageCount; i++) {
+                        int idx = i;
+                        publishFutures.add(
+                            webClient.post("/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                                .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-" + idx)))
+                                .onFailure(err -> logger.warn("Failed to publish message {}: {}", idx, err.getMessage()))
+                                .mapEmpty()
+                        );
+                    }
+                    Future.all(publishFutures)
+                        .onFailure(err -> logger.warn("Some messages failed to publish: {}", err.getMessage()));
 
-                    // 5. Wait for consumption
-                    new Thread(() -> {
-                        try {
-                            // Increased timeout to 60s
-                            boolean success = allConsumed.await(60, TimeUnit.SECONDS);
-                            if (success) {
+                    // Guard against infinite wait: fail after 60 s if not all consumed
+                    long timerId = vertx.setTimer(60_000, ignored ->
+                        allConsumedPromise.tryFail(new AssertionError(
+                            "Timeout waiting for messages. Consumed: " + consumedCount.get() + "/" + messageCount)));
+
+                    allConsumedPromise.future()
+                        .onSuccess(v -> {
+                            vertx.cancelTimer(timerId);
+                            testContext.verify(() -> {
                                 assertEquals(messageCount, consumedCount.get());
                                 assertEquals(messageCount, consumedIds.size(), "Should have no duplicates");
-                                
-                                // Cleanup
-                                webClient.delete( "/api/v1/database-setup/" + setupId).send();
-                                testContext.completeNow();
-                            } else {
-                                testContext.failNow(new AssertionError("Timeout waiting for messages. Consumed: " + consumedCount.get() + "/" + messageCount));
-                            }
-                        } catch (InterruptedException e) {
-                            testContext.failNow(e);
-                        }
-                    }).start();
+                                webClient.delete("/api/v1/database-setup/" + setupId).send();
+                            });
+                            testContext.completeNow();
+                        })
+                        .onFailure(testContext::failNow);
 
                 }).onFailure(ex -> {
                     testContext.failNow(ex);
@@ -165,72 +156,59 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
             .onSuccess(res -> {
                 setupService.getSetupResult(setupId).onSuccess(result -> {
                     QueueFactory factory = result.getQueueFactories().get(queueName);
+                    if (factory == null) {
+                        testContext.failNow(new AssertionError("Queue factory should exist for recovery test"));
+                        return;
+                    }
                     
-                    // 1. Start Consumer 1
+                    // 1. Start Consumer 1 — use a Promise so we can chain off message receipt
                     MessageConsumer<Object> consumer1 = factory.createConsumer(queueName, Object.class);
                     activeConsumers.add(consumer1);
-                    CountDownLatch latch1 = new CountDownLatch(1);
+                    Promise<Void> msg1Promise = Promise.promise();
                     consumer1.subscribe(msg -> {
-                        latch1.countDown();
+                        msg1Promise.tryComplete();
                         return Future.succeededFuture();
                     });
 
-                    // 2. Publish Message 1
-                    webClient.post( "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                    // 2. Publish Message 1, then wait for it via the promise
+                    webClient.post("/api/v1/queues/" + setupId + "/" + queueName + "/messages")
                         .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-1")))
-                        .onSuccess(r -> {
+                        .compose(r -> {
                             if (r.statusCode() != 200) {
-                                testContext.failNow(new AssertionError("Failed to publish msg-1: " + r.statusCode()));
-                                return;
+                                return Future.failedFuture(new AssertionError("Failed to publish msg-1: " + r.statusCode()));
                             }
-                            try {
-                                // Wait for consumption
-                                boolean received = latch1.await(10, TimeUnit.SECONDS);
-                                assertTrue(received, "Consumer 1 should receive message");
-                                
-                                // 3. Stop Consumer 1
-                                consumer1.unsubscribe();
-                                activeConsumers.remove(consumer1); // Remove from auto-cleanup as we closed it manually
-                                
-                                // 4. Publish Message 2 (while no consumer is active)
-                                webClient.post( "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
-                                    .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-2")))
-                                    .onSuccess(r2 -> {
-                                        if (r2.statusCode() != 200) {
-                                            testContext.failNow(new AssertionError("Failed to publish msg-2: " + r2.statusCode()));
-                                            return;
-                                        }
-                                        // 5. Start Consumer 2
-                                        MessageConsumer<Object> consumer2 = factory.createConsumer(queueName, Object.class);
-                                        activeConsumers.add(consumer2);
-                                        CountDownLatch latch2 = new CountDownLatch(1);
-                                        consumer2.subscribe(msg -> {
-                                            if (msg.getPayload().toString().contains("msg-2")) {
-                                                latch2.countDown();
-                                            }
-                                            return Future.succeededFuture();
-                                        });
-                                        
-                                        // 6. Verify Consumer 2 picks up the message
-                                        new Thread(() -> {
-                                            try {
-                                                boolean received2 = latch2.await(15, TimeUnit.SECONDS);
-                                                if (received2) {
-                                                    webClient.delete( "/api/v1/database-setup/" + setupId).send();
-                                                    testContext.completeNow();
-                                                } else {
-                                                    testContext.failNow(new AssertionError("Consumer 2 did not receive pending message"));
-                                                }
-                                            } catch (InterruptedException e) {
-                                                testContext.failNow(e);
-                                            }
-                                        }).start();
-                                    });
-                                    
-                            } catch (InterruptedException e) {
-                                testContext.failNow(e);
+                            return msg1Promise.future(); // wait for Consumer 1 to receive the message
+                        })
+                        .compose(v -> {
+                            // 3. Stop Consumer 1
+                            consumer1.unsubscribe();
+                            activeConsumers.remove(consumer1);
+
+                            // 4. Publish Message 2 while no consumer is active
+                            return webClient.post("/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                                .sendJsonObject(new JsonObject().put("payload", new JsonObject().put("data", "msg-2")));
+                        })
+                        .compose(r2 -> {
+                            if (r2.statusCode() != 200) {
+                                return Future.failedFuture(new AssertionError("Failed to publish msg-2: " + r2.statusCode()));
                             }
-                        });
+                            // 5. Start Consumer 2 — use a Promise to detect msg-2
+                            MessageConsumer<Object> consumer2 = factory.createConsumer(queueName, Object.class);
+                            activeConsumers.add(consumer2);
+                            Promise<Void> msg2Promise = Promise.promise();
+                            consumer2.subscribe(msg -> {
+                                if (msg.getPayload().toString().contains("msg-2")) {
+                                    msg2Promise.tryComplete();
+                                }
+                                return Future.succeededFuture();
+                            });
+                            return msg2Promise.future();
+                        })
+                        .onSuccess(v -> {
+                            webClient.delete("/api/v1/database-setup/" + setupId).send();
+                            testContext.completeNow();
+                        })
+                        .onFailure(testContext::failNow);
 
                 }).onFailure(ex -> {
                     testContext.failNow(ex);
@@ -329,7 +307,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     cleanLatch.await(10, SECONDS);
                 }
             } catch (Exception ignore) {
-                // Cleanup best-effort only.
+                logger.warn("Cleanup of setup {} failed (best-effort only)", setupId, ignore);
             }
         }
     }

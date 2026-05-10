@@ -32,6 +32,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -49,10 +50,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration tests for consumer groups functionality.
@@ -65,6 +69,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerGroupTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -83,20 +89,17 @@ class ConsumerGroupTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Set test properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Ensure required schema exists for native queue tests - use QUEUE_ALL for PeeGeeQManager health checks
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -111,6 +114,7 @@ class ConsumerGroupTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
@@ -124,6 +128,7 @@ class ConsumerGroupTest {
 
     @Test
     void testBasicConsumerGroupFunctionality(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic consumer group functionality");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "TestGroup", "test-topic", String.class);
@@ -194,6 +199,7 @@ class ConsumerGroupTest {
 
     @Test
     void testMessageFilteringByHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: message filtering by headers");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "FilterGroup", "test-topic", String.class);
@@ -250,6 +256,7 @@ class ConsumerGroupTest {
 
     @Test
     void testConsumerGroupWithGroupLevelFilter(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group with group level filter");
         // Create consumer group without group-level filter for now
         // TODO: Test group-level filtering once header support is fixed
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
@@ -291,6 +298,7 @@ class ConsumerGroupTest {
 
     @Test
     void testConsumerGroupStatistics(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group statistics");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "StatsGroup", "test-topic", String.class);
@@ -352,6 +360,7 @@ class ConsumerGroupTest {
 
     @Test
     void testRemoveConsumerFromGroup() throws Exception {
+        logger.info("Test: remove consumer from group");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "RemovalGroup", "test-topic", String.class);

@@ -83,10 +83,13 @@ public class PerformanceTestHarness {
                                    suite.getName(), suiteResults.getSuccessfulTests(), suiteResults.getFailedTests());
                         return (Void) null;
                     })
-                    .recover(err -> {
-                        logger.error("❌ Test suite {} failed with error", suite.getName(), err);
-                        aggregatedResults.addFailure(suite.getName(), err);
-                        return Future.succeededFuture();
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.error("\u274C Test suite {} failed with error", suite.getName(), ar.cause());
+                            aggregatedResults.addFailure(suite.getName(), ar.cause());
+                            return Future.succeededFuture();
+                        }
+                        return Future.succeededFuture(ar.result());
                     });
             });
         }
@@ -100,11 +103,14 @@ public class PerformanceTestHarness {
                 cleanup();
                 return aggregatedResults;
             })
-            .recover(err -> {
-                logger.error("❌ Performance test execution failed", err);
-                aggregatedResults.addFailure("TestHarness", err);
-                cleanup();
-                return Future.succeededFuture(aggregatedResults);
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.error("\u274C Performance test execution failed", ar.cause());
+                    aggregatedResults.addFailure("TestHarness", ar.cause());
+                    cleanup();
+                    return Future.succeededFuture(aggregatedResults);
+                }
+                return Future.succeededFuture(ar.result());
             });
     }
     

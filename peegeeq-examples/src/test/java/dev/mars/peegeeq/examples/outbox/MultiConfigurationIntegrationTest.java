@@ -4,6 +4,9 @@ package dev.mars.peegeeq.examples.outbox;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
@@ -67,6 +70,7 @@ class MultiConfigurationIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Start PostgreSQL container using standardized configuration
         postgres = PostgreSQLTestConstants.createStandardContainer();
         postgres.start();
@@ -77,8 +81,17 @@ class MultiConfigurationIntegrationTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Configure system properties to use the container
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.database.pool.min-size", "2")
+                .property("peegeeq.database.pool.max-size", "10")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.health.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.migration.auto-migrate", "true")
+                .property("peegeeq.queue.dead-letter-enabled", "true")
+                .build();
 
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
 
@@ -87,76 +100,28 @@ class MultiConfigurationIntegrationTest {
         OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) configManager.getFactoryProvider());
 
         // Register different configurations for different use cases
-        configManager.registerConfiguration("high-throughput", "test");
-        configManager.registerConfiguration("low-latency", "test");
-        configManager.registerConfiguration("reliable", "test");
-        configManager.registerConfiguration("test", "test");
+        configManager.registerConfiguration("high-throughput", new PeeGeeQConfiguration("default", testProps));
+        configManager.registerConfiguration("low-latency", new PeeGeeQConfiguration("default", testProps));
+        configManager.registerConfiguration("reliable", new PeeGeeQConfiguration("default", testProps));
+        configManager.registerConfiguration("test", new PeeGeeQConfiguration("default", testProps));
 
         configManager.start().await();
     }
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (configManager != null) {
             configManager.close().await();
         }
         if (postgres != null) {
             postgres.stop();
         }
-
-        // Clean up system properties
-        clearSystemProperties();
     }
 
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer() {
-        logger.info("Configuring system properties for TestContainer database...");
-
-        // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Configure for test environment
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-        System.setProperty("peegeeq.queue.dead-letter-enabled", "true");
-
-        logger.info("Configuration complete");
-    }
-
-    /**
-     * Clears system properties set for testing.
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.metrics.enabled");
-        System.clearProperty("peegeeq.health.enabled");
-        System.clearProperty("peegeeq.circuit-breaker.enabled");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.migration.auto-migrate");
-        System.clearProperty("peegeeq.queue.dead-letter-enabled");
-    }
-    
     @Test
     void testMultipleQueueConfigurationsInSameApplication(Vertx vertx) throws Exception {
         logger.info("Testing multiple queue configurations in same application");

@@ -4,7 +4,6 @@ import dev.mars.peegeeq.test.base.PeeGeeQTestBase;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import dev.mars.peegeeq.test.metrics.PerformanceMetricsCollector;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -35,7 +34,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
     private static final Logger logger = LoggerFactory.getLogger(HardwareProfilingIntegrationTest.class);
-    private Vertx vertx;
     
     @Test
     @DisplayName("Hardware Profile Capture - Should capture comprehensive system specifications")
@@ -143,7 +141,7 @@ class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
         
         // Create performance metrics collector with hardware profiling enabled
         PerformanceMetricsCollector collector = new PerformanceMetricsCollector(
-            getMetrics(), "hardware-integration-test", true);
+            getMeterRegistry(), "hardware-integration-test", true);
         
         assertTrue(collector.isHardwareProfilingEnabled(), "Hardware profiling should be enabled");
         assertNotNull(collector.getHardwareProfile(), "Hardware profile should be available");
@@ -227,8 +225,6 @@ class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
             byte[] buffer = new byte[1024 * 1024]; // 1MB allocation
             buffer[0] = 1; // Touch the memory
             
-            // Brief pause to allow monitoring
-            vertx.timer(10).toCompletionStage().toCompletableFuture().join();
         }
     }
 }

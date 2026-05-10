@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -35,6 +36,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Consumer Group Load Balancing Patterns for PeeGeeQ.
@@ -51,8 +54,9 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsumerGroupLoadBalancingDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupLoadBalancingDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -138,33 +142,23 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
-        System.out.println("\n⚖️ Setting up Consumer Group Load Balancing Demo Test");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        logger.info("Setting up Consumer Group Load Balancing Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for consumer group load balancing test
-        System.out.println("🔧 Initializing database schema for consumer group load balancing test");
+        logger.info("Initializing database schema for consumer group load balancing test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with load balancing configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -175,27 +169,23 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for load balancing pattern testing");
+        logger.info("Setup complete - Ready for load balancing pattern testing");
     }
 
     @AfterEach
     void tearDown() {
-        System.out.println("🧹 Cleaning up Consumer Group Load Balancing Demo Test");
+        logger.info("Tearing down: closing resources and manager");
+        logger.info("Cleaning up Consumer Group Load Balancing Demo Test");
         
         if (manager != null) {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -218,12 +208,12 @@ class ConsumerGroupLoadBalancingDemoTest {
      * health checks, and dynamic scaling.
      */
     @Test
-    @Order(1)
     @DisplayName("Round Robin Load Balancing - Even Distribution Across Consumers")
     void testRoundRobinLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n🔄 Testing Round Robin Load Balancing");
+        logger.info("Test: round robin load balancing");
+        logger.info("Testing Round Robin Load Balancing");
 
-        String queueName = "loadbalancing-roundrobin-queue";
+        String queueName = "loadbalancing-roundrobin-queue-" + System.currentTimeMillis();
         int numConsumers = 3;
         int numMessages = 15; // Should distribute 5 messages per consumer
 
@@ -255,8 +245,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
 
-                    System.out.println("\uD83D\uDD04 " + consumerId + " processed work: " + work.workId +
-                                     " (processing time: " + processingTime + "ms)");
+                    logger.debug("{} processed work: {} (processing time: {}ms)", consumerId, work.workId, processingTime);
 
                     processedCheckpoint.flag();
                     future.complete();
@@ -273,7 +262,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         roundRobinGroup.start();
 
         // 📤 **Send work items for round-robin distribution**
-        System.out.println("📤 Sending " + numMessages + " work items for round-robin distribution...");
+        logger.info("Sending {} work items for round-robin distribution...", numMessages);
 
         for (int i = 0; i < numMessages; i++) {
             Map<String, Object> workData = new HashMap<>();
@@ -289,12 +278,12 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify round-robin distribution
-        System.out.println("📊 Round Robin Distribution Results:");
+        logger.info("Round Robin Distribution Results:");
         int totalProcessed = 0;
         for (ConsumerMetrics metrics : consumerMetrics) {
             int processed = metrics.processedCount.get();
             totalProcessed += processed;
-            System.out.println("  " + metrics.consumerId + ": " + processed + " items processed");
+            logger.info("  {}: {} items processed", metrics.consumerId, processed);
         }
 
         assertEquals(numMessages, totalProcessed, "Should process all messages");
@@ -312,17 +301,17 @@ class ConsumerGroupLoadBalancingDemoTest {
         roundRobinGroup.stop();
         roundRobinGroup.close();
 
-        System.out.println("Round Robin Load Balancing test completed successfully");
-        System.out.println("📊 Total work items processed: " + totalProcessed);
+        logger.info("Round Robin Load Balancing test completed successfully");
+        logger.info("Total work items processed: {}", totalProcessed);
     }
 
     @Test
-    @Order(2)
     @DisplayName("Weighted Load Balancing - Distribution Based on Consumer Capacity")
     void testWeightedLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n⚖️ Testing Weighted Load Balancing");
+        logger.info("Test: weighted load balancing");
+        logger.info("Testing Weighted Load Balancing");
 
-        String queueName = "loadbalancing-weighted-queue";
+        String queueName = "loadbalancing-weighted-queue-" + System.currentTimeMillis();
         int numMessages = 20;
 
         // Consumer weights: 1:2:3 ratio (total weight = 6)
@@ -357,9 +346,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(actualProcessingTime);
 
-                    System.out.println("\u2696\uFE0F " + consumerId + " (weight=" + weights[consumerIndex] +
-                                     ") processed work: " + work.workId +
-                                     " (processing time: " + actualProcessingTime + "ms)");
+                    logger.debug("{} (weight={}) processed work: {} (processing time: {}ms)", consumerId, weights[consumerIndex], work.workId, actualProcessingTime);
 
                     processedCheckpoint.flag();
                     future.complete();
@@ -369,7 +356,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // Send work items for weighted distribution
-        System.out.println("📤 Sending " + numMessages + " work items for weighted distribution...");
+        logger.info("Sending {} work items for weighted distribution...", numMessages);
 
         for (int i = 0; i < numMessages; i++) {
             Map<String, Object> workData = new HashMap<>();
@@ -386,7 +373,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify weighted distribution
-        System.out.println("📊 Weighted Distribution Results:");
+        logger.info("Weighted Distribution Results:");
         int totalProcessed = 0;
         int totalWeight = Arrays.stream(weights).sum();
 
@@ -398,9 +385,7 @@ class ConsumerGroupLoadBalancingDemoTest {
             int expectedProcessed = (numMessages * weights[i]) / totalWeight;
             double avgProcessingTime = metrics.getAverageProcessingTime();
 
-            System.out.println("  " + metrics.consumerId + " (weight=" + weights[i] + "): " +
-                             processed + " items processed (expected ~" + expectedProcessed +
-                             "), avg processing time: " + String.format("%.1f", avgProcessingTime) + "ms");
+            logger.info("  {} (weight={}): {} items processed (expected ~{}), avg processing time: {}ms", metrics.consumerId, weights[i], processed, expectedProcessed, String.format("%.1f", avgProcessingTime));
         }
 
         assertEquals(numMessages, totalProcessed, "Should process all messages");
@@ -408,8 +393,8 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Cleanup consumers
         consumers.forEach(MessageConsumer::close);
 
-        System.out.println("Weighted Load Balancing test completed successfully");
-        System.out.println("📊 Total work items processed: " + totalProcessed);
+        logger.info("Weighted Load Balancing test completed successfully");
+        logger.info("Total work items processed: {}", totalProcessed);
     }
 
     /**
@@ -432,12 +417,12 @@ class ConsumerGroupLoadBalancingDemoTest {
      * session assignment with proper failover handling.
      */
     @Test
-    @Order(3)
     @DisplayName("Sticky Session Load Balancing - Session Affinity for Stateful Processing")
     void testStickySessionLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n🔗 Testing Sticky Session Load Balancing");
+        logger.info("Test: sticky session load balancing");
+        logger.info("Testing Sticky Session Load Balancing");
 
-        String queueName = "loadbalancing-sticky-queue";
+        String queueName = "loadbalancing-sticky-queue-" + System.currentTimeMillis();
         int numSessions = 3;
         int messagesPerSession = 5;
         int totalMessages = numSessions * messagesPerSession;
@@ -479,9 +464,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
 
-                    System.out.println("\uD83D\uDD17 " + consumerId + " processed work: " + work.workId +
-                                     " for session: " + work.sessionId +
-                                     " (processing time: " + processingTime + "ms)");
+                    logger.debug("{} processed work: {} for session: {} (processing time: {}ms)", consumerId, work.workId, work.sessionId, processingTime);
 
                     processedCheckpoint.flag();
                     future.complete();
@@ -500,7 +483,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // 📤 **Send work items with session affinity headers**
         // 🚨 KEY PATTERN: Set sessionId in message headers for MessageFilter.byHeader() routing
-        System.out.println("📤 Sending " + totalMessages + " work items with session affinity...");
+        logger.info("Sending {} work items with session affinity...", totalMessages);
 
         for (int session = 0; session < numSessions; session++) {
             String sessionId = "session-" + (session + 1);
@@ -530,21 +513,21 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify sticky session behavior
-        System.out.println("📊 Sticky Session Distribution Results:");
+        logger.info("Sticky Session Distribution Results:");
         int totalProcessed = 0;
 
         for (ConsumerMetrics metrics : consumerMetricsMap.values()) {
             int processed = metrics.processedCount.get();
             totalProcessed += processed;
-            System.out.println("  " + metrics.consumerId + ": " + processed + " items processed");
+            logger.info("  {}: {} items processed", metrics.consumerId, processed);
         }
 
         assertEquals(totalMessages, totalProcessed, "Should process all messages");
 
         // Verify session affinity
-        System.out.println("🔗 Session to Consumer Mapping:");
+        logger.info("Session to Consumer Mapping:");
         for (Map.Entry<String, String> entry : sessionToConsumerMapping.entrySet()) {
-            System.out.println("  " + entry.getKey() + " -> " + entry.getValue());
+            logger.info("  {} -> {}", entry.getKey(), entry.getValue());
         }
 
         assertEquals(numSessions, sessionToConsumerMapping.size(),
@@ -554,17 +537,17 @@ class ConsumerGroupLoadBalancingDemoTest {
         stickyGroup.stop();
         stickyGroup.close();
 
-        System.out.println("Sticky Session Load Balancing test completed successfully");
-        System.out.println("📊 Total work items processed: " + totalProcessed);
+        logger.info("Sticky Session Load Balancing test completed successfully");
+        logger.info("Total work items processed: {}", totalProcessed);
     }
 
     @Test
-    @Order(4)
     @DisplayName("Dynamic Load Balancing - Adaptive Distribution Based on Performance")
     void testDynamicLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n📈 Testing Dynamic Load Balancing");
+        logger.info("Test: dynamic load balancing");
+        logger.info("Testing Dynamic Load Balancing");
 
-        String queueName = "loadbalancing-dynamic-queue";
+        String queueName = "loadbalancing-dynamic-queue-" + System.currentTimeMillis();
         int numConsumers = 3;
         int numMessages = 18;
 
@@ -606,9 +589,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                     String performanceLevel = processingDelays[consumerIndex] <= 100 ? "FAST" :
                                             processingDelays[consumerIndex] <= 200 ? "MEDIUM" : "SLOW";
 
-                    System.out.println("\uD83D\uDCC8 " + consumerId + " (" + performanceLevel + ") processed work: " +
-                                     work.workId + " (processing time: " + processingTime + "ms, " +
-                                     "avg: " + String.format("%.1f", avgTime) + "ms)");
+                    logger.debug("{} ({}) processed work: {} (processing time: {}ms, avg: {}ms)", consumerId, performanceLevel, work.workId, processingTime, String.format("%.1f", avgTime));
 
                     processedCheckpoint.flag();
                     future.complete();
@@ -618,7 +599,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // Send work items for dynamic distribution
-        System.out.println("📤 Sending " + numMessages + " work items for dynamic distribution...");
+        logger.info("Sending {} work items for dynamic distribution...", numMessages);
 
         for (int i = 0; i < numMessages; i++) {
             Map<String, Object> workData = new HashMap<>();
@@ -635,7 +616,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
 
         // Analyze dynamic distribution results
-        System.out.println("📊 Dynamic Load Balancing Results:");
+        logger.info("Dynamic Load Balancing Results:");
         int totalProcessed = 0;
 
         for (int i = 0; i < consumerMetrics.size(); i++) {
@@ -648,11 +629,7 @@ class ConsumerGroupLoadBalancingDemoTest {
             String performanceLevel = processingDelays[i] <= 100 ? "FAST" :
                                     processingDelays[i] <= 200 ? "MEDIUM" : "SLOW";
 
-            System.out.println("  " + metrics.consumerId + " (" + performanceLevel + "): " +
-                             processed + " items processed, " +
-                             "avg time: " + String.format("%.1f", avgProcessingTime) + "ms, " +
-                             "success rate: " + String.format("%.1f", successRate * 100) + "%, " +
-                             "healthy: " + metrics.isHealthy);
+            logger.info("  {} ({}): {} items processed, avg time: {}ms, success rate: {}%, healthy: {}", metrics.consumerId, performanceLevel, processed, String.format("%.1f", avgProcessingTime), String.format("%.1f", successRate * 100), metrics.isHealthy);
         }
 
         assertEquals(numMessages, totalProcessed, "Should process all messages");
@@ -661,15 +638,15 @@ class ConsumerGroupLoadBalancingDemoTest {
         ConsumerMetrics fastConsumer = consumerMetrics.get(0);
         ConsumerMetrics slowConsumer = consumerMetrics.get(2);
 
-        System.out.println("🏃 Performance comparison:");
-        System.out.println("  Fast consumer avg time: " + String.format("%.1f", fastConsumer.getAverageProcessingTime()) + "ms");
-        System.out.println("  Slow consumer avg time: " + String.format("%.1f", slowConsumer.getAverageProcessingTime()) + "ms");
+        logger.info("Performance comparison:");
+        logger.info("  Fast consumer avg time: {}ms", String.format("%.1f", fastConsumer.getAverageProcessingTime()));
+        logger.info("  Slow consumer avg time: {}ms", String.format("%.1f", slowConsumer.getAverageProcessingTime()));
 
         // Cleanup consumers
         consumers.forEach(MessageConsumer::close);
 
-        System.out.println("Dynamic Load Balancing test completed successfully");
-        System.out.println("📊 Total work items processed: " + totalProcessed);
+        logger.info("Dynamic Load Balancing test completed successfully");
+        logger.info("Total work items processed: {}", totalProcessed);
     }
 }
 

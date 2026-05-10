@@ -32,10 +32,16 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.sql.SQLException;
+import io.vertx.core.Future;
+import io.vertx.junit5.Timeout;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -50,19 +56,23 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
+@Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
 class PeeGeeQMetricsTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetricsTest.class);
 
     private PgConnectionManager connectionManager;
     private io.vertx.sqlclient.Pool reactivePool;
     private MeterRegistry meterRegistry;
     private PeeGeeQMetrics metrics;
+    private boolean poolClosedIntentionally = false;
 
     @BeforeEach
-    void setUp() throws SQLException {
+    void setUp(Vertx vertx, VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        connectionManager = new PgConnectionManager(vertx);
 
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -73,34 +83,38 @@ class PeeGeeQMetricsTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
 
         // DO NOT recreate tables - they are created once by SharedPostgresTestExtension
-
         meterRegistry = new SimpleMeterRegistry();
         metrics = new PeeGeeQMetrics(reactivePool, "test-instance");
 
-        // Clean up any existing data from previous tests
-        cleanupTestData();
+        cleanupTestData()
+            .onFailure(e -> logger.warn("Failed to cleanup test data in setUp: {}", e.getMessage()))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        // Clean up test data after each test
-        try {
-            if (reactivePool != null) {
-                cleanupTestData();
-            }
-        } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
-        }
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> cleanup = (reactivePool != null && !poolClosedIntentionally)
+            ? cleanupTestData()
+                .onFailure(e -> logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage()))
+            : Future.succeededFuture();
 
-        if (connectionManager != null) {
-            connectionManager.close();
-        }
+        cleanup
+            .eventually(() -> connectionManager != null
+                ? connectionManager.close()
+                    .onFailure(e -> logger.debug("Connection manager close (may already be closed): {}", e.getMessage()))
+                : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -108,21 +122,15 @@ class PeeGeeQMetricsTest {
      * Scoped to only this test class's data (topic='test-topic') to avoid
      * interfering with concurrent test classes that also use these tables.
      */
-    private void cleanupTestData() {
-        try {
-            reactivePool.withConnection(connection -> {
-                // Clean up only data inserted by this test class (all use topic 'test-topic')
-                return connection.query("DELETE FROM dead_letter_queue WHERE topic = 'test-topic'").execute()
-                    .compose(result -> connection.query("DELETE FROM outbox WHERE topic = 'test-topic'").execute())
-                    .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic = 'test-topic'").execute())
-                    .compose(result -> connection.query("DELETE FROM queue_metrics").execute());
-            }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
-
-            System.out.println("DEBUG: Cleaned up test data for PeeGeeQMetrics test isolation");
-        } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data: " + e.getMessage());
-            // Don't throw - allow test to proceed
-        }
+    private Future<Void> cleanupTestData() {
+        return reactivePool.withConnection(connection ->
+            connection.query("DELETE FROM dead_letter_queue WHERE topic = 'test-topic'").execute()
+                .compose(result -> connection.query("DELETE FROM outbox WHERE topic = 'test-topic'").execute())
+                .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic = 'test-topic'").execute())
+                .compose(result -> connection.query("DELETE FROM queue_metrics").execute())
+                .mapEmpty()
+        ).onSuccess(v -> logger.debug("Cleaned up test data for PeeGeeQMetrics test isolation"))
+         .mapEmpty();
     }
 
     @Test
@@ -186,20 +194,20 @@ class PeeGeeQMetricsTest {
      */
     @Test
     void testMessageFailedMetrics() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL MESSAGE FAILURE METRICS TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately records message failures to verify metrics tracking");
+        logger.info("===== RUNNING INTENTIONAL MESSAGE FAILURE METRICS TEST =====");
+        logger.info("INTENTIONAL TEST: This test deliberately records message failures to verify metrics tracking");
 
         metrics.bindTo(meterRegistry);
 
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Recording simulated message failures for metrics testing");
+        logger.info("INTENTIONAL TEST FAILURE: Recording simulated message failures for metrics testing");
         metrics.recordMessageFailed("topic1", "timeout");
         metrics.recordMessageFailed("topic1", "validation");
         metrics.recordMessageFailed("topic2", "timeout");
 
         assertEquals(3.0, meterRegistry.get("peegeeq.messages.failed").tag("instance", "test-instance").counter().count());
 
-        System.out.println("**SUCCESS** Message failure metrics were properly recorded and tracked");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        logger.info("SUCCESS: Message failure metrics were properly recorded and tracked");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
     }
 
     @Test
@@ -257,18 +265,17 @@ class PeeGeeQMetricsTest {
     }
 
     @Test
-    void testQueueDepthGauges() throws SQLException {
+    void testQueueDepthGauges(VertxTestContext testContext) {
         metrics.bindTo(meterRegistry);
-        
-        // Insert test data to verify queue depth calculations
-        insertTestOutboxMessage();
-        insertTestQueueMessage();
-        insertTestDeadLetterMessage();
-        
-        // Queue depth gauges should reflect the test data
-        assertTrue(meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value() >= 0);
-        assertTrue(meterRegistry.get("peegeeq.queue.depth.native").gauge().value() >= 0);
-        assertTrue(meterRegistry.get("peegeeq.queue.depth.dead_letter").gauge().value() >= 0);
+        insertTestOutboxMessage()
+            .compose(v -> insertTestQueueMessage())
+            .compose(v -> insertTestDeadLetterMessage())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertTrue(meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value() >= 0);
+                assertTrue(meterRegistry.get("peegeeq.queue.depth.native").gauge().value() >= 0);
+                assertTrue(meterRegistry.get("peegeeq.queue.depth.dead_letter").gauge().value() >= 0);
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -316,44 +323,36 @@ class PeeGeeQMetricsTest {
     }
 
     @Test
-    void testMetricsPersistence() {
+    void testMetricsPersistence(VertxTestContext testContext) {
         metrics.bindTo(meterRegistry);
-        
-        // Record some metrics
         metrics.recordMessageSent("topic1");
         metrics.recordMessageReceived("topic1");
         metrics.recordMessageProcessed("topic1", Duration.ofMillis(100));
-        
-        // Test metrics persistence
-        assertDoesNotThrow(() -> metrics.persistMetrics(meterRegistry)
-            .toCompletionStage().toCompletableFuture().get());
-        
-        // Verify metrics were persisted to database using reactive patterns
-        try {
-            Integer count = reactivePool.withConnection(connection -> {
-                return connection.preparedQuery("SELECT COUNT(*) FROM queue_metrics")
-                    .execute()
-                    .map(rowSet -> {
-                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                        return row.getInteger(0);
-                    });
-            }).toCompletionStage().toCompletableFuture().get();
 
-            assertTrue(count > 0);
-        } catch (Exception e) {
-            fail("Failed to verify persisted metrics: " + e.getMessage());
-        }
+        metrics.persistMetrics(meterRegistry)
+            .compose(v -> reactivePool.withConnection(connection ->
+                connection.preparedQuery("SELECT COUNT(*) FROM queue_metrics")
+                    .execute()
+                    .map(rowSet -> rowSet.iterator().next().getInteger(0))
+            ))
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
+                assertTrue(count > 0);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testHealthCheck() throws Exception {
-        assertTrue(metrics.isHealthy()
-            .toCompletionStage().toCompletableFuture().get());
-        
-        // Health check should work even without binding to registry
-        PeeGeeQMetrics unboundMetrics = new PeeGeeQMetrics(reactivePool, "test-instance-2");
-        assertTrue(unboundMetrics.isHealthy()
-            .toCompletionStage().toCompletableFuture().get());
+    void testHealthCheck(VertxTestContext testContext) {
+        metrics.isHealthy()
+            .compose(healthy -> {
+                assertTrue(healthy);
+                PeeGeeQMetrics unboundMetrics = new PeeGeeQMetrics(reactivePool, "test-instance-2");
+                return unboundMetrics.isHealthy();
+            })
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
+                assertTrue(healthy);
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -416,76 +415,59 @@ class PeeGeeQMetricsTest {
      * to simulate a database failure and verify metrics system resilience.
      */
     @Test
-    void testMetricsWithDatabaseFailure() throws Exception {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL DATABASE FAILURE METRICS TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately closes the database connection to test metrics resilience");
+    void testMetricsWithDatabaseFailure(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Reactive health check failed') is EXPECTED — this test deliberately closes the DB connection to verify metrics resilience");
 
         metrics.bindTo(meterRegistry);
 
-        // Close the connection manager to simulate database failure
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Closing database connection to simulate failure");
-        connectionManager.close();
-
-        // Metrics recording should still work (not throw exceptions)
-        System.out.println("Testing that metrics recording continues to work despite database failure");
-        assertDoesNotThrow(() -> {
-            metrics.recordMessageSent("topic1");
-            metrics.recordMessageReceived("topic1");
-        });
-
-        // Health check should return false
-        assertFalse(metrics.isHealthy()
-            .toCompletionStage().toCompletableFuture().get());
-
-        // Queue depth gauges should return 0 on database failure
-        assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
-
-        System.out.println("**SUCCESS** Metrics system properly handled database failure");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        poolClosedIntentionally = true;
+        connectionManager.close()
+            .compose(v -> {
+                logger.info("Testing that metrics recording continues to work despite database failure");
+                assertDoesNotThrow(() -> {
+                    metrics.recordMessageSent("topic1");
+                    metrics.recordMessageReceived("topic1");
+                });
+                return metrics.isHealthy();
+            })
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
+                assertFalse(healthy);
+                assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
+                logger.info("SUCCESS: Metrics system properly handled database failure");
+                logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
+                testContext.completeNow();
+            })));
     }
 
-    private void insertTestOutboxMessage() {
-        try {
-            reactivePool.withConnection(connection -> {
-                return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
-                    .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
-                    .mapEmpty();
-            }).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to insert test outbox message", e);
-        }
+    private Future<Void> insertTestOutboxMessage() {
+        return reactivePool.withConnection(connection ->
+            connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
+                .mapEmpty()
+        );
     }
 
-    private void insertTestQueueMessage() {
-        try {
-            reactivePool.withConnection(connection -> {
-                return connection.preparedQuery("INSERT INTO queue_messages (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
-                    .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "AVAILABLE"))
-                    .mapEmpty();
-            }).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to insert test queue message", e);
-        }
+    private Future<Void> insertTestQueueMessage() {
+        return reactivePool.withConnection(connection ->
+            connection.preparedQuery("INSERT INTO queue_messages (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "AVAILABLE"))
+                .mapEmpty()
+        );
     }
 
-    private void insertTestDeadLetterMessage() {
-        try {
-            reactivePool.withConnection(connection -> {
-                return connection.preparedQuery("INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)")
-                    .execute(io.vertx.sqlclient.Tuple.of("outbox", 1, "test-topic", "{\"test\": \"data\"}",
-                        java.time.OffsetDateTime.now(), "test failure", 3))
-                    .mapEmpty();
-            }).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to insert test dead letter message", e);
-        }
+    private Future<Void> insertTestDeadLetterMessage() {
+        return reactivePool.withConnection(connection ->
+            connection.preparedQuery("INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)")
+                .execute(io.vertx.sqlclient.Tuple.of("outbox", 1, "test-topic", "{\"test\": \"data\"}",
+                    java.time.OffsetDateTime.now(), "test failure", 3))
+                .mapEmpty()
+        );
     }
 
     @Test
-    void testReactiveMetricsConstructor() throws Exception {
+    void testReactiveMetricsConstructor(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -495,28 +477,27 @@ class PeeGeeQMetricsTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
-        // Create reactive pool
-        Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
-        assertNotNull(reactivePool);
+        Pool localPool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
+        assertNotNull(localPool);
 
-        // Create metrics with reactive constructor
-        PeeGeeQMetrics reactiveMetrics = new PeeGeeQMetrics(reactivePool, "test-reactive-instance");
+        PeeGeeQMetrics reactiveMetrics = new PeeGeeQMetrics(localPool, "test-reactive-instance");
         assertNotNull(reactiveMetrics);
 
-        // Test that reactive health check works
-        assertTrue(reactiveMetrics.isHealthy()
-            .toCompletionStage().toCompletableFuture().get());
-
-        // Test that metrics can be bound to registry
-        assertDoesNotThrow(() -> reactiveMetrics.bindTo(meterRegistry));
-
-        // Test basic metrics recording
-        assertDoesNotThrow(() -> {
-            reactiveMetrics.recordMessageSent("test-topic");
-            reactiveMetrics.recordMessageReceived("test-topic");
-        });
+        reactiveMetrics.isHealthy()
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
+                assertTrue(healthy);
+                assertDoesNotThrow(() -> reactiveMetrics.bindTo(meterRegistry));
+                assertDoesNotThrow(() -> {
+                    reactiveMetrics.recordMessageSent("test-topic");
+                    reactiveMetrics.recordMessageReceived("test-topic");
+                });
+                testContext.completeNow();
+            })));
     }
 }

@@ -92,66 +92,63 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 httpClient = vertx.createHttpClient();
                 webClient = WebClient.create(vertx);
 
-                // Give server time to fully start
-                vertx.setTimer(1000, timerId -> {
-                    // Create database setup with queue - use databaseConfig format
-                    setupId = "consumer_group_test_" + System.currentTimeMillis();
+                // Create database setup with queue - use databaseConfig format
+                setupId = "consumer_group_test_" + System.currentTimeMillis();
 
-                    // Build databaseConfig from TestContainer connection info
-                    // Use a NEW database name so the REST API creates it fresh
-                    String newDbName = "cg_test_" + System.currentTimeMillis();
-                    JsonObject databaseConfig = new JsonObject()
-                        .put("host", postgres.getHost())
-                        .put("port", postgres.getMappedPort(5432))
-                        .put("databaseName", newDbName)
-                        .put("username", postgres.getUsername())
-                        .put("password", postgres.getPassword())
-                        .put("schema", "public")
-                        .put("templateDatabase", "template0")
-                        .put("encoding", "UTF8");
+                // Build databaseConfig from TestContainer connection info
+                // Use a NEW database name so the REST API creates it fresh
+                String newDbName = "cg_test_" + System.currentTimeMillis();
+                JsonObject databaseConfig = new JsonObject()
+                    .put("host", postgres.getHost())
+                    .put("port", postgres.getMappedPort(5432))
+                    .put("databaseName", newDbName)
+                    .put("username", postgres.getUsername())
+                    .put("password", postgres.getPassword())
+                    .put("schema", "public")
+                    .put("templateDatabase", "template0")
+                    .put("encoding", "UTF8");
 
-                    JsonObject queueConfig = new JsonObject()
-                        .put("queueName", QUEUE_NAME)
-                        .put("maxRetries", 3)
-                        .put("visibilityTimeout", 30);
+                JsonObject queueConfig = new JsonObject()
+                    .put("queueName", QUEUE_NAME)
+                    .put("maxRetries", 3)
+                    .put("visibilityTimeout", 30);
 
-                    JsonObject setupRequest = new JsonObject()
-                        .put("setupId", setupId)
-                        .put("databaseConfig", databaseConfig)
-                        .put("queues", new JsonArray().add(queueConfig));
+                JsonObject setupRequest = new JsonObject()
+                    .put("setupId", setupId)
+                    .put("databaseConfig", databaseConfig)
+                    .put("queues", new JsonArray().add(queueConfig));
 
-                    logger.info("Creating database setup via REST API: {}", setupId);
+                logger.info("Creating database setup via REST API: {}", setupId);
 
-                    webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
-                        .sendJsonObject(setupRequest)
-                        .onSuccess(response -> {
-                            if (response.statusCode() == 200 || response.statusCode() == 201) {
-                                logger.info("Database setup created: {}", setupId);
+                webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+                    .sendJsonObject(setupRequest)
+                    .onSuccess(response -> {
+                        if (response.statusCode() == 200 || response.statusCode() == 201) {
+                            logger.info("Database setup created: {}", setupId);
 
-                                // Now apply the Consumer Group Fanout schema to the newly created database
-                                // This is required because the REST API only creates base schema, not fanout tables
-                                // Note: OUTBOX component must be applied first as CONSUMER_GROUP_FANOUT depends on it
-                                try {
-                                    logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);
-                                    String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                                        postgres.getHost(), postgres.getMappedPort(5432), newDbName);
-                                    PeeGeeQTestSchemaInitializer.initializeSchema(jdbcUrl,
-                                        postgres.getUsername(), postgres.getPassword(),
-                                        SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
-                                    logger.info("Consumer Group Fanout schema applied successfully");
-                                    testContext.completeNow();
-                                } catch (Exception e) {
-                                    logger.error("Failed to apply fanout schema", e);
-                                    testContext.failNow(e);
-                                }
-                            } else {
-                                logger.error("Failed to create setup: {} - {}",
-                                          response.statusCode(), response.bodyAsString());
-                                testContext.failNow(new Exception("Failed to create setup: " + response.statusCode()));
+                            // Now apply the Consumer Group Fanout schema to the newly created database
+                            // This is required because the REST API only creates base schema, not fanout tables
+                            // Note: OUTBOX component must be applied first as CONSUMER_GROUP_FANOUT depends on it
+                            try {
+                                logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);
+                                String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
+                                    postgres.getHost(), postgres.getMappedPort(5432), newDbName);
+                                PeeGeeQTestSchemaInitializer.initializeSchema(jdbcUrl,
+                                    postgres.getUsername(), postgres.getPassword(),
+                                    SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
+                                logger.info("Consumer Group Fanout schema applied successfully");
+                                testContext.completeNow();
+                            } catch (Exception e) {
+                                logger.error("Failed to apply fanout schema", e);
+                                testContext.failNow(e);
                             }
-                        })
-                        .onFailure(testContext::failNow);
-                });
+                        } else {
+                            logger.error("Failed to create setup: {} - {}",
+                                      response.statusCode(), response.bodyAsString());
+                            testContext.failNow(new Exception("Failed to create setup: " + response.statusCode()));
+                        }
+                    })
+                    .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
 
@@ -168,7 +165,8 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 .onComplete(ar -> {
                     if (deploymentId != null) {
                         vertx.undeploy(deploymentId)
-                            .onComplete(result -> testContext.completeNow());
+                            .onSuccess(v -> testContext.completeNow())
+                            .onFailure(testContext::failNow);
                     } else {
                         testContext.completeNow();
                     }
@@ -237,23 +235,28 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                            "SSE should succeed even with non-existent consumer group");
                 
                 // Read SSE events
+                AtomicBoolean done = new AtomicBoolean(false);
                 StringBuilder sseData = new StringBuilder();
-                response.handler(buffer -> sseData.append(buffer.toString()));
-                
-                // Wait for initial events
-                vertx.setTimer(2000, id -> {
+                long timeoutId = vertx.setTimer(5000, id -> {
+                    if (done.compareAndSet(false, true))
+                        testContext.failNow(new AssertionError(
+                            "SSE did not deliver connection+configured events within 5 s. Received: " + sseData));
+                });
+                response.handler(chunk -> {
+                    sseData.append(chunk.toString());
                     String events = sseData.toString();
-                    logger.info("SSE Events received:\n{}", events);
-                    
-                    // Should receive connection event
-                    assertTrue(events.contains("event: connection"));
-                    
-                    // Should receive configured event showing defaults
-                    assertTrue(events.contains("event: configured"));
-                    assertTrue(events.contains("\"startPosition\":\"FROM_NOW\""));
-                    
-                    logger.info("SSE gracefully handled non-existent consumer group");
-                    testContext.completeNow();
+                    if (events.contains("event: connection") && events.contains("event: configured")) {
+                        if (done.compareAndSet(false, true)) {
+                            vertx.cancelTimer(timeoutId);
+                            testContext.verify(() -> {
+                                assertTrue(events.contains("event: connection"));
+                                assertTrue(events.contains("event: configured"));
+                                assertTrue(events.contains("\"startPosition\":\"FROM_NOW\""));
+                            });
+                            logger.info("SSE gracefully handled non-existent consumer group");
+                            testContext.completeNow();
+                        }
+                    }
                 });
             })
             .onFailure(testContext::failNow);
@@ -346,43 +349,42 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals(200, sseResponse.statusCode(), "SSE should connect successfully");
 
                 // Read SSE events
+                AtomicBoolean done = new AtomicBoolean(false);
                 StringBuilder sseData = new StringBuilder();
-                sseResponse.handler(buffer -> sseData.append(buffer.toString()));
-
-                // Wait for initial events
-                vertx.setTimer(2000, id -> {
+                long timeoutId = vertx.setTimer(5000, id -> {
+                    if (done.compareAndSet(false, true))
+                        testContext.failNow(new AssertionError(
+                            "SSE did not deliver connection+configured events within 5 s. Received: " + sseData));
+                });
+                sseResponse.handler(chunk -> {
+                    sseData.append(chunk.toString());
                     String events = sseData.toString();
-                    logger.info("SSE Events received:\n{}", events);
+                    if (events.contains("event: connection") && events.contains("event: configured")) {
+                        if (done.compareAndSet(false, true)) {
+                            vertx.cancelTimer(timeoutId);
+                            logger.info("SSE Events received:\n{}", events);
+                            testContext.verify(() -> {
+                                JsonObject connectionEvent = extractEventData(events, "connection");
+                                JsonObject configuredEvent = extractEventData(events, "configured");
 
-                    // Parse events
-                    try {
-                        JsonObject connectionEvent = extractEventData(events, "connection");
-                        JsonObject configuredEvent = extractEventData(events, "configured");
+                                assertNotNull(connectionEvent, "Should receive connection event");
+                                assertEquals(groupName, connectionEvent.getString("consumerGroup"),
+                                           "Connection event should include consumer group name");
 
-                        // Verify connection event includes consumer group
-                        assertNotNull(connectionEvent, "Should receive connection event");
-                        assertEquals(groupName, connectionEvent.getString("consumerGroup"),
-                                   "Connection event should include consumer group name");
-
-                        // Verify configured event uses subscription options
-                        assertNotNull(configuredEvent, "Should receive configured event");
-                        assertEquals("FROM_BEGINNING", configuredEvent.getString("startPosition"),
-                                   "Should use FROM_BEGINNING from subscription options");
-                        assertEquals(45, configuredEvent.getInteger("heartbeatIntervalSeconds"),
-                                   "Should use custom heartbeat interval from subscription options");
-                        assertEquals(groupName, configuredEvent.getString("consumerGroup"),
-                                   "Configured event should include consumer group name");
-
-                        logger.info("Complete workflow successful:");
-                        logger.info("   - Consumer group created");
-                        logger.info("   - Subscription options configured");
-                        logger.info("   - SSE connected with subscription options applied");
-
-                        testContext.completeNow();
-
-                    } catch (Exception e) {
-                        logger.error("Failed to parse SSE events", e);
-                        testContext.failNow(e);
+                                assertNotNull(configuredEvent, "Should receive configured event");
+                                assertEquals("FROM_BEGINNING", configuredEvent.getString("startPosition"),
+                                           "Should use FROM_BEGINNING from subscription options");
+                                assertEquals(45, configuredEvent.getInteger("heartbeatIntervalSeconds"),
+                                           "Should use custom heartbeat interval from subscription options");
+                                assertEquals(groupName, configuredEvent.getString("consumerGroup"),
+                                           "Configured event should include consumer group name");
+                            });
+                            logger.info("Complete workflow successful:");
+                            logger.info("   - Consumer group created");
+                            logger.info("   - Subscription options configured");
+                            logger.info("   - SSE connected with subscription options applied");
+                            testContext.completeNow();
+                        }
                     }
                 });
             })
@@ -522,32 +524,35 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 logger.info("SSE Response status: {}", response.statusCode());
                 assertEquals(200, response.statusCode());
                 
+                AtomicBoolean done = new AtomicBoolean(false);
                 StringBuilder sseData = new StringBuilder();
-                response.handler(buffer -> sseData.append(buffer.toString()));
-                
-                vertx.setTimer(2000, id -> {
+                long timeoutId = vertx.setTimer(5000, id -> {
+                    if (done.compareAndSet(false, true))
+                        testContext.failNow(new AssertionError(
+                            "SSE did not deliver connection+configured events within 5 s. Received: " + sseData));
+                });
+                response.handler(chunk -> {
+                    sseData.append(chunk.toString());
                     String events = sseData.toString();
-                    logger.info("SSE Events:\n{}", events);
-                    
-                    try {
-                        JsonObject connectionEvent = extractEventData(events, "connection");
-                        JsonObject configuredEvent = extractEventData(events, "configured");
-                        
-                        // Verify null consumer group
-                        assertNull(connectionEvent.getValue("consumerGroup"),
-                                 "Consumer group should be null when not specified");
-                        
-                        // Verify default subscription options
-                        assertEquals("FROM_NOW", configuredEvent.getString("startPosition"),
-                                   "Should use default FROM_NOW");
-                        assertEquals(60, configuredEvent.getInteger("heartbeatIntervalSeconds"),
-                                   "Should use default 60s heartbeat");
-                        
-                        logger.info("SSE without consumer group uses defaults correctly");
-                        testContext.completeNow();
-                        
-                    } catch (Exception e) {
-                        testContext.failNow(e);
+                    if (events.contains("event: connection") && events.contains("event: configured")) {
+                        if (done.compareAndSet(false, true)) {
+                            vertx.cancelTimer(timeoutId);
+                            logger.info("SSE Events:\n{}", events);
+                            testContext.verify(() -> {
+                                JsonObject connectionEvent = extractEventData(events, "connection");
+                                JsonObject configuredEvent = extractEventData(events, "configured");
+
+                                assertNull(connectionEvent.getValue("consumerGroup"),
+                                         "Consumer group should be null when not specified");
+
+                                assertEquals("FROM_NOW", configuredEvent.getString("startPosition"),
+                                           "Should use default FROM_NOW");
+                                assertEquals(60, configuredEvent.getInteger("heartbeatIntervalSeconds"),
+                                           "Should use default 60s heartbeat");
+                            });
+                            logger.info("SSE without consumer group uses defaults correctly");
+                            testContext.completeNow();
+                        }
                     }
                 });
             })
@@ -777,38 +782,41 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 logger.info("SSE connected");
 
+                AtomicBoolean done = new AtomicBoolean(false);
                 StringBuilder sseData = new StringBuilder();
-                sseResponse.handler(buffer -> sseData.append(buffer.toString()));
+                long timeoutId = vertx.setTimer(5000, id -> {
+                    if (done.compareAndSet(false, true))
+                        testContext.failNow(new AssertionError(
+                            "SSE did not deliver 'configured' event within 5 s. Received: " + sseData));
+                });
+                sseResponse.handler(chunk -> {
+                    sseData.append(chunk.toString());
+                    String events = sseData.toString();
+                    if (events.contains("event: configured") && done.compareAndSet(false, true)) {
+                        vertx.cancelTimer(timeoutId);
+                        // Assert the initial configured event used the original options
+                        testContext.verify(() ->
+                            assertTrue(events.contains("\"heartbeatIntervalSeconds\":30"),
+                                "SSE should have started with 30s heartbeat"));
 
-                // Wait for initial events, then update subscription
-                vertx.setTimer(1000, timerId -> {
-                    JsonObject updatedOptions = new JsonObject()
-                        .put("startPosition", "FROM_BEGINNING")
-                        .put("heartbeatIntervalSeconds", 45);
+                        // Trigger subscription update directly no timer needed
+                        JsonObject updatedOptions = new JsonObject()
+                            .put("startPosition", "FROM_BEGINNING")
+                            .put("heartbeatIntervalSeconds", 45);
 
-                    String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
-                                                         setupId, QUEUE_NAME, groupName);
+                        String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                                                             setupId, QUEUE_NAME, groupName);
 
-                    webClient.post(TEST_PORT, "localhost", setOptionsPath)
-                        .sendJsonObject(updatedOptions)
-                        .onSuccess(updateResponse -> {
-                            logger.info("Subscription updated while SSE active");
-
-                            // Wait a bit more to see if SSE still works
-                            vertx.setTimer(1000, id2 -> {
-                                String events = sseData.toString();
-
-                                // Verify SSE received initial configured event with old options
-                                assertTrue(events.contains("\"heartbeatIntervalSeconds\":30"),
-                                         "SSE should have started with 30s heartbeat");
-
+                        webClient.post(TEST_PORT, "localhost", setOptionsPath)
+                            .sendJsonObject(updatedOptions)
+                            .onSuccess(updateResponse -> {
                                 // The existing SSE connection continues with original options
                                 // (update doesn't affect existing connections, only new ones)
                                 logger.info("SSE connection stable during subscription update");
                                 testContext.completeNow();
-                            });
-                        })
-                        .onFailure(testContext::failNow);
+                            })
+                            .onFailure(testContext::failNow);
+                    }
                 });
             })
             .onFailure(testContext::failNow);
@@ -1017,9 +1025,9 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         String events = sseData.toString();
                         logger.warn("No 'configured' event received from SSE stream within 10 seconds");
                         logger.info("SSE data received: {}", events.substring(0, Math.min(500, events.length())));
-                        logger.info("✓ Test completed (SSE stream may not have sent configured event)");
                         if (testCompleted.compareAndSet(false, true)) {
-                            testContext.completeNow();
+                            testContext.failNow(new AssertionError(
+                                "SSE subscription: 'configured' event not received within 10 s"));
                         }
                     }
                 });
@@ -1128,39 +1136,41 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals(200, sseResponse.statusCode(), "SSE should connect successfully");
 
                 // Read SSE events
+                AtomicBoolean done = new AtomicBoolean(false);
                 StringBuilder sseData = new StringBuilder();
-                sseResponse.handler(buffer -> sseData.append(buffer.toString()));
-
-                // Wait for initial events
-                vertx.setTimer(2000, id -> {
+                long timeoutId = vertx.setTimer(5000, id -> {
+                    if (done.compareAndSet(false, true))
+                        testContext.failNow(new AssertionError(
+                            "SSE did not deliver 'configured' event within 5 s. Received: " + sseData));
+                });
+                sseResponse.handler(chunk -> {
+                    sseData.append(chunk.toString());
                     String events = sseData.toString();
-                    logger.info("SSE Events received:\n{}", events);
+                    if (events.contains("event: configured")) {
+                        if (done.compareAndSet(false, true)) {
+                            vertx.cancelTimer(timeoutId);
+                            logger.info("SSE Events received:\n{}", events);
+                            testContext.verify(() -> {
+                                JsonObject configuredEvent = extractEventData(events, "configured");
 
-                    try {
-                        JsonObject configuredEvent = extractEventData(events, "configured");
-
-                        // Verify configured event uses subscription options
-                        assertNotNull(configuredEvent, "Should receive configured event");
-                        assertEquals("FROM_BEGINNING", configuredEvent.getString("startPosition"),
-                                   "Should use FROM_BEGINNING from subscription options");
-                        assertEquals(90, configuredEvent.getInteger("heartbeatIntervalSeconds"),
-                                   "Should use custom heartbeat interval from subscription options");
-                        assertEquals(groupName, configuredEvent.getString("consumerGroup"),
-                                   "Configured event should include consumer group name");
-
-                        logger.info("");
-                        logger.info("========================================");
-                        logger.info("SINGLE-STEP PATTERN TEST PASSED:");
-                        logger.info("  Created consumer group with subscription options in one call");
-                        logger.info("  Subscription options persisted correctly");
-                        logger.info("  SSE connection applies subscription options");
-                        logger.info("========================================");
-                        logger.info("");
-
-                        testContext.completeNow();
-
-                    } catch (Exception e) {
-                        testContext.failNow(e);
+                                assertNotNull(configuredEvent, "Should receive configured event");
+                                assertEquals("FROM_BEGINNING", configuredEvent.getString("startPosition"),
+                                           "Should use FROM_BEGINNING from subscription options");
+                                assertEquals(90, configuredEvent.getInteger("heartbeatIntervalSeconds"),
+                                           "Should use custom heartbeat interval from subscription options");
+                                assertEquals(groupName, configuredEvent.getString("consumerGroup"),
+                                           "Configured event should include consumer group name");
+                            });
+                            logger.info("");
+                            logger.info("========================================");
+                            logger.info("SINGLE-STEP PATTERN TEST PASSED:");
+                            logger.info("  Created consumer group with subscription options in one call");
+                            logger.info("  Subscription options persisted correctly");
+                            logger.info("  SSE connection applies subscription options");
+                            logger.info("========================================");
+                            logger.info("");
+                            testContext.completeNow();
+                        }
                     }
                 });
             })

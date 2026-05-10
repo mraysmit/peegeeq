@@ -39,7 +39,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -66,6 +66,7 @@ public class PerformanceTuningExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTuningExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
@@ -73,28 +74,27 @@ public class PerformanceTuningExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Configure system properties for optimized performance
-        configurePerformanceProperties(postgres);
+        // Configure properties for optimized performance
+        containerProps = buildPerformanceProperties(postgres);
         
         logger.info("✓ Performance Tuning Example Test setup completed");
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down Performance Tuning Example Test");
         
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     logger.info("✓ Performance Tuning Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             logger.info("✓ Performance Tuning Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -102,12 +102,12 @@ public class PerformanceTuningExampleTest {
      * Validates database connection pool tuning strategies
      */
     @Test
-    void testConnectionPoolOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testConnectionPoolOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Connection Pool Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 demonstrateConnectionPoolOptimization(manager);
                 
                 assertTrue(manager.isStarted(), "Manager should be started");
@@ -115,10 +115,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Connection pool optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -126,12 +123,12 @@ public class PerformanceTuningExampleTest {
      * Validates message throughput and processing optimization
      */
     @Test
-    void testThroughputOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testThroughputOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Throughput Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateThroughputOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -140,10 +137,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Throughput optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -151,12 +145,12 @@ public class PerformanceTuningExampleTest {
      * Validates end-to-end latency reduction techniques
      */
     @Test
-    void testLatencyOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testLatencyOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Latency Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateLatencyOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -166,10 +160,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Latency optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -177,12 +168,12 @@ public class PerformanceTuningExampleTest {
      * Validates batch processing for improved performance
      */
     @Test
-    void testBatchProcessingOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testBatchProcessingOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Batch Processing Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateBatchProcessingOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -190,10 +181,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Batch processing optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -201,12 +189,12 @@ public class PerformanceTuningExampleTest {
      * Validates multi-threaded processing strategies
      */
     @Test
-    void testConcurrentProcessingOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testConcurrentProcessingOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Processing Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateConcurrentProcessingOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -214,10 +202,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Concurrent processing optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -225,12 +210,12 @@ public class PerformanceTuningExampleTest {
      * Validates memory usage and garbage collection optimization
      */
     @Test
-    void testMemoryOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testMemoryOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Memory Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long initialMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
                 demonstrateMemoryOptimization();
                 long finalMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
@@ -242,10 +227,7 @@ public class PerformanceTuningExampleTest {
                 logger.info("   Memory usage: Initial={}MB, Final={}MB", 
                     initialMemory / (1024 * 1024), finalMemory / (1024 * 1024));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     // Helper methods that replicate the original example's functionality
@@ -253,28 +235,33 @@ public class PerformanceTuningExampleTest {
     /**
      * Configures performance properties for optimization.
      */
-    private void configurePerformanceProperties(PostgreSQLContainer postgres) {
+    private Properties buildPerformanceProperties(PostgreSQLContainer postgres) {
+        Properties props = new Properties();
         // Database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
         
         // Performance optimization properties
-        System.setProperty("peegeeq.database.pool.min-size", "10");
-        System.setProperty("peegeeq.database.pool.max-size", "50");
-        System.setProperty("peegeeq.database.pool.max-wait-queue-size", "1000");
-        System.setProperty("peegeeq.consumer.threads", "8");
-        System.setProperty("peegeeq.queue.batch-size", "100");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
+        props.setProperty("peegeeq.database.pool.min-size", "1");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        props.setProperty("peegeeq.database.pool.max-wait-queue-size", "1000");
+        props.setProperty("peegeeq.consumer.threads", "8");
+        props.setProperty("peegeeq.queue.batch-size", "100");
+        props.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.health.enabled", "true");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        return props;
     }
     
     /**

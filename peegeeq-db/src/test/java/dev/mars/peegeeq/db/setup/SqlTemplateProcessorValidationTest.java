@@ -64,7 +64,7 @@ class SqlTemplateProcessorValidationTest {
     @Test
     void testAcceptsEmptyParameterValue() throws Exception {
         Map<String, String> params = Map.of("TABLE", "");
-        // Empty string is allowed — it's not a SQL injection marker
+        // Empty string is allowed it's not a SQL injection marker
         String result = invokeProcessTemplate("CREATE TABLE {TABLE}", params);
         assertEquals("CREATE TABLE ", result);
     }

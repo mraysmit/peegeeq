@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -55,7 +56,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootReactiveOutboxApplication.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
@@ -64,6 +64,7 @@ import static org.junit.jupiter.api.Assertions.*;
         "management.endpoints.web.exposure.include=health,metrics"
     }
 )
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class SpringBootReactiveOutboxApplicationTest {
     
@@ -79,16 +80,6 @@ class SpringBootReactiveOutboxApplicationTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring Spring Boot Reactive properties for TestContainer");
         SharedTestContainers.configureSharedProperties(registry);
-
-        // Configure R2DBC properties (Spring Data R2DBC)
-        String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s",
-            postgres.getHost(),
-            postgres.getFirstMappedPort(),
-            postgres.getDatabaseName());
-        registry.add("spring.r2dbc.url", () -> r2dbcUrl);
-        registry.add("spring.r2dbc.username", postgres::getUsername);
-        registry.add("spring.r2dbc.password", postgres::getPassword);
-
         logger.info("Spring Boot Reactive properties configured successfully");
     }
 

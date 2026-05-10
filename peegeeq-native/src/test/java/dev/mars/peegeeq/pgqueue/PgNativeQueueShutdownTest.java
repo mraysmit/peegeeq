@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -43,13 +44,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.lang.reflect.Field;
 import java.util.Properties;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Tests for PgNativeQueue shutdown scenarios and race condition handling.
@@ -63,6 +65,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueShutdownTest {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueShutdownTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = createPostgresContainer();
@@ -82,28 +86,22 @@ class PgNativeQueueShutdownTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties - following existing pattern exactly
-        Properties testProps = new Properties();
-        testProps.setProperty("peegeeq.database.host", postgres.getHost());
-        testProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        testProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        testProps.setProperty("peegeeq.database.username", postgres.getUsername());
-        testProps.setProperty("peegeeq.database.password", postgres.getPassword());
-        testProps.setProperty("peegeeq.database.ssl.enabled", "false");
-        testProps.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        testProps.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        testProps.setProperty("peegeeq.metrics.enabled", "true");
-        testProps.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         // Ensure required schema exists for native queue tests
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
-        // Set system properties
-        testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Initialize native queue components using DatabaseService pattern
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -114,6 +112,7 @@ class PgNativeQueueShutdownTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         try {
             if (consumer != null) {
                 consumer.close();
@@ -122,34 +121,19 @@ class PgNativeQueueShutdownTest {
                 producer.close();
             }
             if (manager != null) {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             }
         } catch (Exception e) {
             // Ignore cleanup errors
         }
-
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.metrics.enabled");
-        System.clearProperty("peegeeq.circuit-breaker.enabled");
     }
 
     @Test
     void testBasicShutdownWithoutErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic shutdown without errors");
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
-        CountDownLatch sendLatch1 = new CountDownLatch(1);
-        producer.send(testMessage).onComplete(ar -> sendLatch1.countDown());
-        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage).await();
 
         // Step 2: Process the message
         AtomicBoolean messageReceived = new AtomicBoolean(false);
@@ -170,11 +154,10 @@ class PgNativeQueueShutdownTest {
 
     @Test
     void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: shutdown during message processing");
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
-        CountDownLatch sendLatch2 = new CountDownLatch(1);
-        producer.send(testMessage).onComplete(ar -> sendLatch2.countDown());
-        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage).await();
 
         // Step 2: Set up consumer that will trigger shutdown during processing
         AtomicBoolean messageReceived = new AtomicBoolean(false);
@@ -202,6 +185,7 @@ class PgNativeQueueShutdownTest {
 
     @Test
     void testFactoryCloseClosesCreatedConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: factory close closes created consumers");
         consumer.subscribe(message -> Future.succeededFuture());
 
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;

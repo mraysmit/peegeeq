@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.time.Duration;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Comprehensive configuration management for PeeGeeQ.
@@ -50,12 +52,36 @@ public class PeeGeeQConfiguration {
     public PeeGeeQConfiguration(String profile) {
         this.profile = profile;
         this.properties = loadProperties(profile);
+        resolvePlaceholders(this.properties);
         this.instanceId = getString("peegeeq.metrics.instance-id", 
             "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
         logger.info("Loaded PeeGeeQ configuration for profile: {}", profile);
     }
     
+    /**
+     * Constructor for programmatic configuration with arbitrary property overrides.
+     *
+     * <p>Loads the profile defaults (resource files, env vars, system properties) and
+     * then applies every entry in {@code overrides} on top, without writing anything
+     * back to {@code System.getProperties()}. This is the correct pattern for tests
+     * that run concurrently: each test instance holds its own isolated property set
+     * and never races against other threads reading or writing global JVM state.
+     *
+     * @param profile   the configuration profile to use
+     * @param overrides property values that replace the loaded defaults; must not be null
+     */
+    public PeeGeeQConfiguration(String profile, Properties overrides) {
+        this.profile = profile;
+        this.properties = loadProperties(profile);
+        overrides.forEach((key, value) -> properties.setProperty(key.toString(), value.toString()));
+        resolvePlaceholders(this.properties);
+        this.instanceId = getString("peegeeq.metrics.instance-id",
+            "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
+        validateConfiguration();
+        logger.info("Loaded PeeGeeQ configuration for profile: {} with programmatic overrides", profile);
+    }
+
     /**
      * Constructor for programmatic configuration with explicit database settings.
      * This constructor is used internally by PeeGeeQDatabaseSetupService to avoid
@@ -84,7 +110,7 @@ public class PeeGeeQConfiguration {
         if (dbSchema != null && !dbSchema.isEmpty()) {
             properties.setProperty("peegeeq.database.schema", dbSchema);
         }
-        
+        resolvePlaceholders(this.properties);
         this.instanceId = getString("peegeeq.metrics.instance-id", 
             "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
         validateConfiguration();
@@ -141,6 +167,50 @@ public class PeeGeeQConfiguration {
         }
     }
     
+    /**
+     * Resolves {@code ${VAR}} and {@code ${VAR:default}} placeholders in all
+     * property values against environment variables.
+     *
+     * <ul>
+     *   <li>{@code ${VAR}} — replaced by the value of env var {@code VAR};
+     *       left unchanged if the variable is not set.</li>
+     *   <li>{@code ${VAR:default}} — replaced by {@code VAR} when set,
+     *       otherwise replaced by {@code default} (which may be empty).</li>
+     * </ul>
+     *
+     * <p>This is called after all property sources (resource files, env-var sweep,
+     * system properties, and programmatic overrides) have been merged, so that
+     * placeholders in any source are resolved uniformly.</p>
+     */
+    private static void resolvePlaceholders(Properties props) {
+        Pattern pattern = Pattern.compile("\\$\\{([^}:]+)(?::([^}]*))?\\}");
+        for (String key : props.stringPropertyNames()) {
+            String value = props.getProperty(key);
+            if (value == null || !value.contains("${")) {
+                continue;
+            }
+            Matcher matcher = pattern.matcher(value);
+            StringBuffer resolved = new StringBuffer();
+            while (matcher.find()) {
+                String varName = matcher.group(1);
+                String defaultVal = matcher.group(2); // null when no ':default' present
+                String envVal = System.getenv(varName);
+                String replacement;
+                if (envVal != null) {
+                    replacement = envVal;
+                } else if (defaultVal != null) {
+                    replacement = defaultVal;
+                } else {
+                    replacement = matcher.group(0); // leave ${VAR} unchanged
+                    logger.warn("Placeholder ${{{}}}: environment variable '{}' is not set and no default was provided", varName, varName);
+                }
+                matcher.appendReplacement(resolved, Matcher.quoteReplacement(replacement));
+            }
+            matcher.appendTail(resolved);
+            props.setProperty(key, resolved.toString());
+        }
+    }
+
     /**
      * Resolve an environment variable name to its matching property key,
      * handling hyphenated property names (e.g., max-size, visibility-timeout)
@@ -201,7 +271,7 @@ public class PeeGeeQConfiguration {
         }
         
         if (getString("peegeeq.database.password", "").isEmpty()) {
-            logger.warn("Database password is empty — ensure PostgreSQL is configured for trust/peer authentication");
+            logger.warn("Database password is empty ensure PostgreSQL is configured for trust/peer authentication");
         }
         
         // Connection pool validation
@@ -365,7 +435,7 @@ public class PeeGeeQConfiguration {
         try {
             return Duration.parse(value);
         } catch (Exception e) {
-            logger.warn("Invalid duration value for {}: {}, using default: {}", key, value, defaultValue);
+            logger.error("Invalid duration value for {}: {}, using default: {}", key, value, defaultValue);
             return defaultValue;
         }
     }

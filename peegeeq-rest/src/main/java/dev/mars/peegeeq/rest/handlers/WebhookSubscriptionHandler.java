@@ -232,8 +232,8 @@ public class WebhookSubscriptionHandler {
                 MessageConsumer<Object> consumer = queueFactory.createConsumer(
                     subscription.getQueueName(), Object.class);
                 
-                // Subscribe with push-based handler
-                consumer.subscribe(message -> {
+                // Subscribe with push-based handler; Future completes when LISTEN is established
+                return consumer.subscribe(message -> {
                     // Push message to webhook
                     return deliverToWebhook(subscription, message)
                         .onSuccess(v -> {
@@ -254,10 +254,7 @@ public class WebhookSubscriptionHandler {
                                     subscription.getSubscriptionId(), subscription.getConsecutiveFailures());
                             }
                         });
-                });
-                
-                activeConsumers.put(subscription.getSubscriptionId(), consumer);
-                return Future.succeededFuture();
+                }).onSuccess(v -> activeConsumers.put(subscription.getSubscriptionId(), consumer));
             });
     }
     

@@ -42,7 +42,7 @@ class PerformanceComparisonTest {
     
     @Test
     void testBasicComparison() {
-        System.err.println("=== TEST METHOD STARTED: testBasicComparison ===");
+        logger.info("=== TEST METHOD STARTED: testBasicComparison ===");
         logger.info("Testing basic performance comparison");
         
         Instant baseTime = Instant.now();
@@ -77,13 +77,13 @@ class PerformanceComparisonTest {
         assertFalse(comp.isRegression(10.0));
         assertTrue(comp.isSignificantDifference(25.0));
         
-        logger.info("✓ Basic comparison test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testBasicComparison ===");
+        logger.info("Basic comparison test passed");
+        logger.info("=== TEST METHOD COMPLETED: testBasicComparison ===");
     }
     
     @Test
     void testRegressionDetection() {
-        System.err.println("=== TEST METHOD STARTED: testRegressionDetection ===");
+        logger.info("=== TEST METHOD STARTED: testRegressionDetection ===");
         logger.info("Testing regression detection");
         
         Instant baseTime = Instant.now();
@@ -115,13 +115,13 @@ class PerformanceComparisonTest {
         assertTrue(comp.isRegression(50.0));
         assertTrue(comp.isSignificantDifference(25.0));
         
-        logger.info("✓ Regression detection test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testRegressionDetection ===");
+        logger.info("Regression detection test passed");
+        logger.info("=== TEST METHOD COMPLETED: testRegressionDetection ===");
     }
     
     @Test
     void testAdditionalMetricsComparison() {
-        System.err.println("=== TEST METHOD STARTED: testAdditionalMetricsComparison ===");
+        logger.info("=== TEST METHOD STARTED: testAdditionalMetricsComparison ===");
         logger.info("Testing additional metrics comparison");
         
         Instant baseTime = Instant.now();
@@ -170,13 +170,13 @@ class PerformanceComparisonTest {
         assertTrue(metrics.isMetricImproved("cpu_usage"));     // Higher value, but might not be better
         assertFalse(metrics.isMetricImproved("error_rate"));   // Lower is better, but shows as negative
         
-        logger.info("✓ Additional metrics comparison test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testAdditionalMetricsComparison ===");
+        logger.info("Additional metrics comparison test passed");
+        logger.info("=== TEST METHOD COMPLETED: testAdditionalMetricsComparison ===");
     }
     
     @Test
     void testZeroDurationHandling() {
-        System.err.println("=== TEST METHOD STARTED: testZeroDurationHandling ===");
+        logger.info("=== TEST METHOD STARTED: testZeroDurationHandling ===");
         logger.info("Testing zero duration handling");
         
         Instant baseTime = Instant.now();
@@ -203,13 +203,13 @@ class PerformanceComparisonTest {
         // Duration improvement should be 0 when baseline is 0
         assertEquals(0.0, metrics.getDurationImprovementPercent(), 0.1);
         
-        logger.info("✓ Zero duration handling test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testZeroDurationHandling ===");
+        logger.info("Zero duration handling test passed");
+        logger.info("=== TEST METHOD COMPLETED: testZeroDurationHandling ===");
     }
     
     @Test
     void testComparisonSummary() {
-        System.err.println("=== TEST METHOD STARTED: testComparisonSummary ===");
+        logger.info("=== TEST METHOD STARTED: testComparisonSummary ===");
         logger.info("Testing comparison summary");
         
         Instant baseTime = Instant.now();
@@ -236,13 +236,13 @@ class PerformanceComparisonTest {
         assertTrue(summary.contains("throughputChange"));
         assertTrue(summary.contains("improvement=true"));
         
-        logger.info("✓ Comparison summary test passed: {}", summary);
-        System.err.println("=== TEST METHOD COMPLETED: testComparisonSummary ===");
+        logger.info("Comparison summary test passed: {}", summary);
+        logger.info("=== TEST METHOD COMPLETED: testComparisonSummary ===");
     }
     
     @Test
     void testComparisonEquality() {
-        System.err.println("=== TEST METHOD STARTED: testComparisonEquality ===");
+        logger.info("=== TEST METHOD STARTED: testComparisonEquality ===");
         logger.info("Testing comparison equality");
         
         Instant baseTime = Instant.now();
@@ -265,13 +265,13 @@ class PerformanceComparisonTest {
         assertEquals(comp1, comp2);
         assertEquals(comp1.hashCode(), comp2.hashCode());
         
-        logger.info("✓ Comparison equality test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testComparisonEquality ===");
+        logger.info("Comparison equality test passed");
+        logger.info("=== TEST METHOD COMPLETED: testComparisonEquality ===");
     }
     
     @Test
     void testNullHandling() {
-        System.err.println("=== TEST METHOD STARTED: testNullHandling ===");
+        logger.info("=== TEST METHOD STARTED: testNullHandling ===");
         logger.info("Testing null handling");
         
         Instant baseTime = Instant.now();
@@ -291,7 +291,7 @@ class PerformanceComparisonTest {
             new PerformanceComparison(validSnapshot, null)
         );
         
-        logger.info("✓ Null handling test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testNullHandling ===");
+        logger.info("Null handling test passed");
+        logger.info("=== TEST METHOD COMPLETED: testNullHandling ===");
     }
 }

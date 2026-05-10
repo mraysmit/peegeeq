@@ -11,7 +11,9 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -21,9 +23,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -48,7 +54,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -62,7 +68,10 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -73,193 +82,190 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
         logger.info("CancelCleanupIntegrationTest setup complete");
     }
 
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        if (connectionManager != null) {
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
     @Test
-    void testCancelCleansUpOrphanedRowsAndDecrementsRequiredGroups() throws Exception {
+    void testCancelCleansUpOrphanedRowsAndDecrementsRequiredGroups(VertxTestContext testContext) {
         logger.info("=== Testing cancel() cleans up messages ===");
 
         String topic = "test-cancel-cleanup-" + UUID.randomUUID().toString().substring(0, 8);
         String groupA = "group-a";
         String groupB = "group-b";
+        int messageCount = 5;
 
-        // Create PUB_SUB topic
+        AtomicReference<List<Long>> messageIdsRef = new AtomicReference<>(new ArrayList<>());
+
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(24)
                 .build())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Subscribe both groups
-        subscriptionManager.subscribe(topic, groupA, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic, groupB, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Configure cleanup
-        DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
-        subscriptionManager.setDeadConsumerGroupCleanup(cleanup);
-
-        // Publish messages — trigger sets required_consumer_groups = 2 (2 active subscriptions)
-        int messageCount = 5;
-        java.util.List<Long> messageIds = new java.util.ArrayList<>();
-        for (int i = 0; i < messageCount; i++) {
-            long id = insertMessage(topic, new JsonObject().put("index", i))
-                .toCompletionStage().toCompletableFuture().get();
-            messageIds.add(id);
-        }
-
-        // Verify messages require 2 groups
-        long twoGroupMsgs = countMessagesWithRequiredGroups(topic, 2)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(messageCount, twoGroupMsgs, "Messages should require 2 consumer groups");
-
-        // Create PENDING tracking rows for groupB (simulates consumer fetching but not yet completing)
-        for (long id : messageIds) {
-            insertConsumerGroupRow(id, groupB, "PENDING")
-                .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Verify outbox_consumer_groups rows exist for groupB
-        long groupBRows = countConsumerGroupRows(topic, groupB)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(messageCount, groupBRows, "groupB should have tracking rows in outbox_consumer_groups");
-
-        // Cancel groupB — should clean up its tracking rows and decrement required_consumer_groups
-        subscriptionManager.cancel(topic, groupB)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify CANCELLED state
-        SubscriptionInfo cancelled = subscriptionManager.getSubscription(topic, groupB)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(SubscriptionState.CANCELLED, cancelled.state());
-
-        // Verify required_consumer_groups decremented to 1
-        long oneGroupMsgs = countMessagesWithRequiredGroups(topic, 1)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(messageCount, oneGroupMsgs,
+            .compose(v -> subscriptionManager.subscribe(topic, groupA, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupB, SubscriptionOptions.defaults()))
+            .compose(v -> {
+                DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
+                subscriptionManager.setDeadConsumerGroupCleanup(cleanup);
+                Future<Void> insertChain = Future.succeededFuture();
+                for (int i = 0; i < messageCount; i++) {
+                    final int idx = i;
+                    insertChain = insertChain.compose(ignored ->
+                        insertMessage(topic, new JsonObject().put("index", idx))
+                            .onSuccess(id -> messageIdsRef.get().add(id))
+                            .mapEmpty());
+                }
+                return insertChain;
+            })
+            .compose(v -> countMessagesWithRequiredGroups(topic, 2))
+            .compose(twoGroupMsgs -> {
+                assertEquals(messageCount, twoGroupMsgs, "Messages should require 2 consumer groups");
+                Future<Void> insertGroupChain = Future.succeededFuture();
+                for (long msgId : messageIdsRef.get()) {
+                    insertGroupChain = insertGroupChain.compose(ignored ->
+                        insertConsumerGroupRow(msgId, groupB, "PENDING"));
+                }
+                return insertGroupChain;
+            })
+            .compose(v -> countConsumerGroupRows(topic, groupB))
+            .compose(groupBRows -> {
+                assertEquals(messageCount, groupBRows, "groupB should have tracking rows in outbox_consumer_groups");
+                return subscriptionManager.cancel(topic, groupB);
+            })
+            .compose(v -> subscriptionManager.getSubscription(topic, groupB))
+            .compose(cancelled -> {
+                assertEquals(SubscriptionState.CANCELLED, cancelled.state());
+                return countMessagesWithRequiredGroups(topic, 1);
+            })
+            .compose(oneGroupMsgs -> {
+                assertEquals(messageCount, oneGroupMsgs,
                     "After cancel, messages should require 1 consumer group (decremented from 2)");
-
-        // Verify orphaned outbox_consumer_groups rows removed for groupB
-        long groupBRowsAfter = countConsumerGroupRows(topic, groupB)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(0, groupBRowsAfter,
+                return countConsumerGroupRows(topic, groupB);
+            })
+            .onComplete(testContext.succeeding(groupBRowsAfter -> testContext.verify(() -> {
+                assertEquals(0, groupBRowsAfter,
                     "Cancelled group's outbox_consumer_groups rows should be removed");
-
-        logger.info("Cancel cleanup test passed");
+                logger.info("Cancel cleanup test passed");
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testCancelWithoutCleanupServiceStillSucceeds() throws Exception {
+    void testCancelWithoutCleanupServiceStillSucceeds(VertxTestContext testContext) {
         logger.info("=== Testing cancel without DeadConsumerGroupCleanup still works ===");
 
         String topic = "test-cancel-nocleanup-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "no-cleanup-group";
 
-        // Create topic and subscribe
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build())
-            .toCompletionStage().toCompletableFuture().get();
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Do NOT configure DeadConsumerGroupCleanup
-
-        // Cancel should still succeed
-        subscriptionManager.cancel(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
-
-        SubscriptionInfo cancelled = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.cancel(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onComplete(testContext.succeeding(cancelled -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
                     "Cancel should succeed even without cleanup service configured");
-
-        logger.info("Cancel without cleanup service test passed");
+                logger.info("Cancel without cleanup service test passed");
+                testContext.completeNow();
+            })));
     }
 
+    /**
+     * Verifies that a failure in {@code DeadConsumerGroupCleanup} propagates out of {@code cancel()}.
+     *
+     * <p>Cleanup failure is data-integrity critical it means orphan rows were NOT removed and
+     * {@code required_consumer_groups} was NOT decremented. Silently swallowing the error would
+     * leave the topic in a corrupt state. The caller must be informed so it can retry or alert.</p>
+     *
+     * <p>A broken {@link PgConnectionManager} with no registered pool is injected so that
+     * {@code cleanupDeadGroup} fails with "No reactive pool found for service: no-such-pool".
+     * The test asserts that this failure propagates as an {@link java.util.concurrent.ExecutionException}
+     * rather than being silently swallowed.</p>
+     */
     @Test
-    void testCancelCleanupFailureDoesNotFailCancel() throws Exception {
-        logger.info("=== Testing cancel cleanup failure doesn't fail cancel ===");
+    void testCancelCleanupFailurePropagates(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED this test deliberately uses a broken connection manager to verify cleanup failure propagates from cancel");
+        logger.info("=== Testing cancel cleanup failure propagates ===");
 
         String topic = "test-cancel-fail-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "cancel-fail-group";
 
-        // Create topic and subscribe
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build())
-            .toCompletionStage().toCompletableFuture().get();
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Configure cleanup with a broken connection manager — cleanup will fail
-        PgConnectionManager brokenConnectionManager = new PgConnectionManager(manager.getVertx(), null);
-        DeadConsumerGroupCleanup brokenCleanup = new DeadConsumerGroupCleanup(brokenConnectionManager, "no-such-pool");
-        subscriptionManager.setDeadConsumerGroupCleanup(brokenCleanup);
-
-        // Cancel should still succeed even though cleanup fails
-        subscriptionManager.cancel(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
-
-        SubscriptionInfo cancelled = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
-                    "Cancel must succeed even when cleanup fails");
-
-        logger.info("Cancel cleanup failure resilience test passed");
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> {
+                PgConnectionManager brokenConnectionManager = new PgConnectionManager(manager.getVertx(), null);
+                DeadConsumerGroupCleanup brokenCleanup = new DeadConsumerGroupCleanup(brokenConnectionManager, "no-such-pool");
+                subscriptionManager.setDeadConsumerGroupCleanup(brokenCleanup);
+                return subscriptionManager.cancel(topic, groupName);
+            })
+            .transform(ar -> {
+                if (ar.succeeded()) {
+                    return Future.failedFuture(new AssertionError(
+                        "Cancel must fail when cleanup fails failure must propagate"));
+                }
+                try {
+                    assertNotNull(ar.cause().getMessage());
+                    logger.info("Cancel cleanup failure propagation test passed");
+                } catch (Throwable t) {
+                    return Future.failedFuture(t);
+                }
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testForceRemoveBehaviourUnchanged() throws Exception {
+    void testForceRemoveBehaviourUnchanged(VertxTestContext testContext) {
         logger.info("=== Testing forceRemoveConsumerGroup still works correctly ===");
 
         String topic = "test-forcerm-unchanged-" + UUID.randomUUID().toString().substring(0, 8);
         String groupA = "group-a";
         String groupB = "group-b";
+        int messageCount = 3;
 
-        // Create topic, subscribe both groups
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(24)
                 .build())
-            .toCompletionStage().toCompletableFuture().get();
-
-        subscriptionManager.subscribe(topic, groupA, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic, groupB, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
-        subscriptionManager.setDeadConsumerGroupCleanup(cleanup);
-
-        // Publish messages
-        int messageCount = 3;
-        for (int i = 0; i < messageCount; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // forceRemove groupB — existing behaviour should still work
-        subscriptionManager.forceRemoveConsumerGroup(topic, groupB)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify CANCELLED
-        SubscriptionInfo removed = subscriptionManager.getSubscription(topic, groupB)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(SubscriptionState.CANCELLED, removed.state());
-
-        // Verify messages decremented to 1
-        long oneGroupMsgs = countMessagesWithRequiredGroups(topic, 1)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(messageCount, oneGroupMsgs,
+            .compose(v -> subscriptionManager.subscribe(topic, groupA, SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, groupB, SubscriptionOptions.defaults()))
+            .compose(v -> {
+                DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main");
+                subscriptionManager.setDeadConsumerGroupCleanup(cleanup);
+                Future<Void> insertChain = Future.succeededFuture();
+                for (int i = 0; i < messageCount; i++) {
+                    final int idx = i;
+                    insertChain = insertChain.compose(ignored ->
+                        insertMessage(topic, new JsonObject().put("index", idx)).mapEmpty());
+                }
+                return insertChain;
+            })
+            .compose(v -> subscriptionManager.forceRemoveConsumerGroup(topic, groupB))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupB))
+            .compose(removed -> {
+                assertEquals(SubscriptionState.CANCELLED, removed.state());
+                return countMessagesWithRequiredGroups(topic, 1);
+            })
+            .onComplete(testContext.succeeding(oneGroupMsgs -> testContext.verify(() -> {
+                assertEquals(messageCount, oneGroupMsgs,
                     "forceRemove should still decrement required_consumer_groups");
-
-        logger.info("forceRemove behaviour unchanged test passed");
+                logger.info("forceRemove behaviour unchanged test passed");
+                testContext.completeNow();
+            })));
     }
 
     // --- Helper methods ---

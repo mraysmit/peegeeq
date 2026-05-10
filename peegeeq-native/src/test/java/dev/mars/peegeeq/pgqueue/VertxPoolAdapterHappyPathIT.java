@@ -3,6 +3,7 @@ package dev.mars.peegeeq.pgqueue;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -16,16 +17,21 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.createContainer;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class VertxPoolAdapterHappyPathIT {
+    private static final Logger logger = LoggerFactory.getLogger(VertxPoolAdapterHappyPathIT.class);
+
 
     @Container
     static final PostgreSQLContainer postgres = createContainer(BASIC);
@@ -34,29 +40,29 @@ class VertxPoolAdapterHappyPathIT {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
     }
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
+            try { manager.closeReactive().await(); } catch (Exception ignore) {}
         }
     }
 
     @Test
     void connectDedicated_succeeds_withDatabaseService(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: connect dedicated succeeds with database service");
         // Arrange: create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         VertxPoolAdapter adapter = new VertxPoolAdapter(
@@ -87,6 +93,7 @@ class VertxPoolAdapterHappyPathIT {
 
     @Test
     void getPoolOrThrow_returnsDatabaseServicePool(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: get pool or throw returns database service pool");
         // Arrange: create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         VertxPoolAdapter adapter = new VertxPoolAdapter(

@@ -16,6 +16,7 @@ package dev.mars.peegeeq.api.messaging;
  * limitations under the License.
  */
 
+import io.vertx.core.Future;
 
 /**
  * Interface for consuming messages from a queue.
@@ -36,10 +37,19 @@ public interface MessageConsumer<T> extends AutoCloseable {
     
     /**
      * Subscribes to messages with the given handler.
-     * 
+     *
+     * <p>Returns a {@code Future<Void>} that completes when the subscription is fully
+     * established. For LISTEN/NOTIFY modes this means the PostgreSQL {@code LISTEN}
+     * command has been acknowledged; for polling-only modes it completes immediately
+     * after the polling timer is scheduled.
+     *
+     * <p>Callers should compose on the returned Future before sending messages to avoid
+     * race conditions where notifications arrive before the LISTEN channel is ready.
+     *
      * @param handler The message handler to process received messages
+     * @return a Future that completes when the subscription is established, or fails if setup fails
      */
-    void subscribe(MessageHandler<T> handler);
+    Future<Void> subscribe(MessageHandler<T> handler);
     
     /**
      * Unsubscribes from message processing.

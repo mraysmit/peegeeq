@@ -21,6 +21,7 @@ import org.junit.jupiter.api.parallel.ResourceAccessMode;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -71,7 +72,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -91,13 +95,15 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     private Future<Void> cleanupDeadLetterQueue() {
         return reactivePool.<Void>withConnection(connection ->
             connection.preparedQuery("DELETE FROM dead_letter_queue").execute().mapEmpty()
-        ).recover(e -> Future.succeededFuture());
+        ).transform(ar -> Future.<Void>succeededFuture());
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -122,7 +128,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         moveToDeadLetterQueue("outbox", 1L, topic, payload, originalCreatedAt,
                 failureReason, retryCount, headers, correlationId, messageGroup)
             .compose(v -> getDeadLetterMessages(topic, 10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertEquals(1, messages.size());
                 DeadLetterMessage message = messages.get(0);
                 assertEquals("outbox", message.getOriginalTable());
@@ -133,8 +139,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                 assertEquals(correlationId, message.getCorrelationId());
                 assertEquals(messageGroup, message.getMessageGroup());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -153,11 +158,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         chain.compose(v -> getDeadLetterMessages(topic, 10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertEquals(5, messages.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -203,11 +207,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         chain.compose(v -> getAllDeadLetterMessages(10, 0))
-            .onSuccess(allMessages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allMessages -> testContext.verify(() -> {
                 assertTrue(allMessages.size() >= 3);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -236,11 +239,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testGetDeadLetterMessageNotFound(VertxTestContext testContext) {
         getDeadLetterMessage(999999L)
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertFalse(retrieved.isPresent());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -261,21 +263,19 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                         return getDeadLetterMessage(messageId);
                     });
             })
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertFalse(retrieved.isPresent());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testDeleteNonExistentMessage(VertxTestContext testContext) {
         deleteDeadLetterMessage(999999L, "Test deletion")
-            .onSuccess(deleted -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(deleted -> testContext.verify(() -> {
                 assertFalse(deleted);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -307,11 +307,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                     });
                 });
             })
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1, count, "Exactly one message should be reinserted into outbox");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -383,7 +382,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         }
 
         chain.compose(v -> getStatistics())
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertNotNull(stats);
                 assertTrue(stats.getTotalMessages() >= 5);
                 assertTrue(stats.getUniqueTopics() >= 2);
@@ -392,8 +391,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                 assertNotNull(stats.getNewestFailure());
                 assertTrue(stats.getAverageRetryCount() >= 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -405,33 +403,30 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         moveToDeadLetterQueue("outbox", 1L, topic, payload, Instant.now(),
                 "Test failure", 3, null, null, null)
             .compose(v -> getDeadLetterMessages(topic, 1, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertEquals(1, messages.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testGetDeadLetterMessagesWithLargeLimit(VertxTestContext testContext) {
         String topic = "test-topic-large-limit";
         getDeadLetterMessages(topic, 1000, 0)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertNotNull(messages);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testGetDeadLetterMessagesWithLargeOffset(VertxTestContext testContext) {
         String topic = "test-topic-large-offset";
         getDeadLetterMessages(topic, 10, 1000)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertNotNull(messages);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -482,12 +477,11 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         moveToDeadLetterQueue("outbox", 1L, topic, payload, Instant.now(),
                 "Test failure", 1, null, null, null)
             .compose(v -> getDeadLetterMessages(topic, 1, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertEquals(1, messages.size());
                 assertNotNull(messages.get(0).getFailedAt());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -498,11 +492,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                 assertNotNull(messages1);
                 return getDeadLetterMessages(topic, 10, 0);
             })
-            .onSuccess(messages2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages2 -> testContext.verify(() -> {
                 assertNotNull(messages2);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private <T> Future<Void> assertFutureFailure(Future<T> future) {
@@ -511,7 +504,12 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                 fail("Expected future to fail but it succeeded with: " + result);
                 return (Void) null;
             })
-            .recover(err -> Future.succeededFuture());
+            .transform(ar -> {
+                if (ar.failed() && !(ar.cause() instanceof AssertionError)) {
+                    return Future.<Void>succeededFuture();
+                }
+                return ar.failed() ? Future.failedFuture(ar.cause()) : Future.succeededFuture();
+            });
     }
 
     private Future<Integer> countOutboxRowsByTopic(String topic) {

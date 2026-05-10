@@ -222,7 +222,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     /**
      * Sends a message inside its own dedicated transaction using Pool.withTransaction().
-     * This wraps the outbox insert in an isolated transaction — it does NOT participate
+     * This wraps the outbox insert in an isolated transaction it does NOT participate
      * in any caller-initiated transaction. For true transactional outbox semantics
      * (atomicity with business writes), use {@link #sendInExistingTransaction} instead.
      *
@@ -350,7 +350,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * transaction, ensuring atomicity between business writes and the outbox insert.
      *
      * <p><b>Contract:</b> This method assumes the caller has already begun a transaction
-     * on the provided connection. It does not verify transaction state — if no transaction
+     * on the provided connection. It does not verify transaction state if no transaction
      * is active, the insert will still execute but will auto-commit independently.</p>
      *
      * @param payload    The message payload to send
@@ -437,7 +437,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     @Override
     public void close() {
         // Best-effort close: in-flight sends may still complete.
-        // Pool is a shared resource managed by PgConnectionManager/ConnectionProvider — not owned by this producer.
+        // Pool is a shared resource managed by PgConnectionManager/ConnectionProvider not owned by this producer.
         closed = true;
         logger.info("Closed outbox producer for topic: {}", topic);
     }

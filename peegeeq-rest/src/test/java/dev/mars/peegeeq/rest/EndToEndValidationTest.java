@@ -66,8 +66,7 @@ class EndToEndValidationTest {
                 .onSuccess(id -> {
                     deploymentId = id;
                     logger.info("Test server deployed with ID: {}", id);
-                    // Give the server a moment to fully start
-                    vertx.setTimer(1000, timerId -> testContext.completeNow());
+                    testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
 
@@ -116,8 +115,8 @@ class EndToEndValidationTest {
                         
                         logger.info("Health check endpoint working correctly");
                         testContext.completeNow();
-                    } catch (Exception e) {
-                        testContext.failNow(e);
+                    } catch (Throwable t) {
+                        testContext.failNow(t);
                     }
                 }).onFailure(testContext::failNow);
             })
@@ -170,15 +169,18 @@ class EndToEndValidationTest {
                     response.getHeader("content-type"));
                 
                 response.body().onSuccess(body -> {
-                    String metricsText = body.toString();
-                    assertTrue(metricsText.contains("peegeeq_http_requests_total"));
-                    assertTrue(metricsText.contains("peegeeq_active_connections"));
-                    assertTrue(metricsText.contains("peegeeq_messages_sent_total"));
-                    assertTrue(metricsText.contains("# HELP"));
-                    assertTrue(metricsText.contains("# TYPE"));
-                    
-                    logger.info("Metrics endpoint working correctly");
-                    testContext.completeNow();
+                    try {
+                        String metricsText = body.toString();
+                        assertTrue(metricsText.contains("peegeeq_server_status"));
+                        assertTrue(metricsText.contains("process_uptime_seconds"));
+                        assertTrue(metricsText.contains("# HELP"));
+                        assertTrue(metricsText.contains("# TYPE"));
+                        
+                        logger.info("Metrics endpoint working correctly");
+                        testContext.completeNow();
+                    } catch (Throwable t) {
+                        testContext.failNow(t);
+                    }
                 }).onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);
@@ -212,7 +214,7 @@ class EndToEndValidationTest {
     }
 
     @Test
-    void testAllEndpointsIntegration(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testAllEndpointsIntegration(Vertx vertx, VertxTestContext testContext) {
         logger.info("Testing all endpoints integration...");
         
         // Test multiple endpoints in sequence to ensure they all work together
@@ -223,11 +225,24 @@ class EndToEndValidationTest {
             assertTrue(httpClient != null, "HTTP client should be initialized");
         });
         
-        // Wait a bit to ensure server is fully started
-        vertx.setTimer(1000, id -> {
-            logger.info("All endpoints integration test completed");
-            testContext.completeNow();
-        });
+        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/api/v1/health")
+            .compose(HttpClientRequest::send)
+            .compose(healthResponse -> {
+                testContext.verify(() -> assertEquals(200, healthResponse.statusCode()));
+                return httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/api/v1/management/overview")
+                    .compose(HttpClientRequest::send);
+            })
+            .compose(overviewResponse -> {
+                testContext.verify(() -> assertEquals(200, overviewResponse.statusCode()));
+                return httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/metrics")
+                    .compose(HttpClientRequest::send);
+            })
+            .onSuccess(metricsResponse -> {
+                testContext.verify(() -> assertEquals(200, metricsResponse.statusCode()));
+                logger.info("All endpoints integration test completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test

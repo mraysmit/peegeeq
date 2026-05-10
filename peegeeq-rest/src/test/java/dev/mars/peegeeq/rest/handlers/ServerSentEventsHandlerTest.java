@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -62,7 +63,7 @@ class ServerSentEventsHandlerTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_sse_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -107,10 +108,11 @@ class ServerSentEventsHandlerTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -144,14 +146,13 @@ class ServerSentEventsHandlerTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queue created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -168,7 +169,7 @@ class ServerSentEventsHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint returned status: {}", status);
 
@@ -189,7 +190,7 @@ class ServerSentEventsHandlerTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE endpoint request failed: {}", err.getMessage());
                 httpClient.close();
@@ -212,7 +213,7 @@ class ServerSentEventsHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint with params returned status: {}", status);
 
@@ -223,7 +224,7 @@ class ServerSentEventsHandlerTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE endpoint request failed: {}", err.getMessage());
                 httpClient.close();
@@ -330,7 +331,7 @@ class ServerSentEventsHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
 
                 if (status == 200) {
@@ -354,7 +355,7 @@ class ServerSentEventsHandlerTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE headers test failed: {}", err.getMessage());
                 httpClient.close();

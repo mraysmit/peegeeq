@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.db.fanout;
 
+import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector.DetectionResult;
+
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetectionJob;
@@ -17,6 +19,7 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -27,6 +30,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -73,7 +77,10 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -87,64 +94,57 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
     }
 
     @AfterEach
-    void cleanUp() {
+    void cleanUp(VertxTestContext testContext) {
         if (job != null && job.isRunning()) {
             job.stop();
         }
+        if (connectionManager != null) {
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
     }
-
     /**
      * Test that a subscription with an expired heartbeat is detected and marked as DEAD.
      */
     @Test
-    void testDetectsExpiredHeartbeat() throws Exception {
+    void testDetectsExpiredHeartbeat(VertxTestContext ctx) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD', detection run summary) are EXPECTED ÔÇö this test deliberately expires a heartbeat to verify dead consumer detection job");
         String topic = "test-dead-detect-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "dead-group-1";
 
-        // Create topic
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Subscribe with very short heartbeat timeout (2 seconds, interval 1)
-        SubscriptionOptions options = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(1)
-                .heartbeatTimeoutSeconds(2)
-                .build();
-        subscriptionManager.subscribe(topic, groupName, options)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Set heartbeat to the past to simulate timeout
-        setHeartbeatInPast(topic, groupName, 10);
-
-        // Run detection — with flapping protection, need 3 consecutive misses (default threshold)
-        detector.detectDeadSubscriptions(topic)
-                .toCompletionStage().toCompletableFuture().get();
-        setHeartbeatInPast(topic, groupName, 10);
-        detector.detectDeadSubscriptions(topic)
-                .toCompletionStage().toCompletableFuture().get();
-        setHeartbeatInPast(topic, groupName, 10);
-        Integer markedDead = detector.detectDeadSubscriptions(topic)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, markedDead, "Should detect 1 dead subscription");
-
-        // Verify subscription is now DEAD
-        String status = getSubscriptionStatus(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals("DEAD", status, "Subscription should be marked as DEAD");
-
-        logger.info("Dead consumer detection verified");
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(1)
+                        .heartbeatTimeoutSeconds(2)
+                        .build()))
+                .compose(v -> setHeartbeatInPast(topic, groupName, 10))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(v -> setHeartbeatInPast(topic, groupName, 10))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(v -> setHeartbeatInPast(topic, groupName, 10))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(markedDead -> {
+                    assertEquals(1, markedDead, "Should detect 1 dead subscription");
+                    return getSubscriptionStatus(topic, groupName);
+                })
+                .onSuccess(status -> {
+                    assertEquals("DEAD", status, "Subscription should be marked as DEAD");
+                    logger.info("Dead consumer detection verified");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     /**
      * Test that healthy subscriptions (recent heartbeat) are NOT marked as DEAD.
      */
     @Test
-    void testDoesNotMarkHealthySubscriptions() throws Exception {
+    void testDoesNotMarkHealthySubscriptions(VertxTestContext ctx) {
         String topic = "test-healthy-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "healthy-group-1";
 
@@ -153,85 +153,69 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Subscribe with long timeout
-        SubscriptionOptions options = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(60)
-                .heartbeatTimeoutSeconds(300)
-                .build();
-        subscriptionManager.subscribe(topic, groupName, options)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run detection (heartbeat is fresh)
-        Integer markedDead = detector.detectDeadSubscriptions(topic)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(0, markedDead, "Should not detect any dead subscriptions");
-
-        // Verify subscription is still ACTIVE
-        String status = getSubscriptionStatus(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals("ACTIVE", status, "Subscription should remain ACTIVE");
-
-        logger.info("Healthy subscription preserved");
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(60)
+                        .heartbeatTimeoutSeconds(300)
+                        .build()))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(markedDead -> {
+                    assertEquals(0, markedDead, "Should not detect any dead subscriptions");
+                    return getSubscriptionStatus(topic, groupName);
+                })
+                .onSuccess(status -> {
+                    assertEquals("ACTIVE", status, "Subscription should remain ACTIVE");
+                    logger.info("Healthy subscription preserved");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     /**
      * Test that detect-all-dead works across multiple topics.
      */
     @Test
-    void testDetectAllDeadAcrossTopics() throws Exception {
+    void testDetectAllDeadAcrossTopics(VertxTestContext ctx) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED ÔÇö this test deliberately expires heartbeats across multiple topics");
         String topic1 = "test-dead-all-1-" + UUID.randomUUID().toString().substring(0, 8);
         String topic2 = "test-dead-all-2-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Create both topics
-        for (String topic : new String[]{topic1, topic2}) {
-            topicConfigService.createTopic(TopicConfig.builder()
-                            .topic(topic)
-                            .semantics(TopicSemantics.PUB_SUB)
-                            .messageRetentionHours(24)
-                            .build())
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Subscribe with short timeout
-        SubscriptionOptions shortTimeout = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(1)
-                .heartbeatTimeoutSeconds(2)
-                .build();
-
-        subscriptionManager.subscribe(topic1, "dead-group", shortTimeout)
-                .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic2, "dead-group", shortTimeout)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Expire both heartbeats and run detection cycles to reach flapping threshold
-        for (int i = 0; i < 3; i++) {
-            setHeartbeatInPast(topic1, "dead-group", 10);
-            setHeartbeatInPast(topic2, "dead-group", 10);
-            detector.detectAllDeadSubscriptions()
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Don't assert exact count — other parallel test classes may have already detected ours
-        // Instead, verify our specific subscriptions ended up DEAD
-        String status1 = getSubscriptionStatus(topic1, "dead-group")
-                .toCompletionStage().toCompletableFuture().get();
-        String status2 = getSubscriptionStatus(topic2, "dead-group")
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals("DEAD", status1, topic1 + "/dead-group should be DEAD");
-        assertEquals("DEAD", status2, topic2 + "/dead-group should be DEAD");
-
-        logger.info("Cross-topic dead detection verified");
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic1)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                .compose(v -> topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic2)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build()))
+                .compose(v -> subscriptionManager.subscribe(topic1, "dead-group", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(1)
+                        .heartbeatTimeoutSeconds(2)
+                        .build()))
+                .compose(v -> subscriptionManager.subscribe(topic2, "dead-group", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(1)
+                        .heartbeatTimeoutSeconds(2)
+                        .build()))
+                .compose(v -> runDetectionCycles(topic1, topic2, "dead-group", 3))
+                .compose(v -> getSubscriptionStatus(topic1, "dead-group"))
+                .compose(status1 -> {
+                    assertEquals("DEAD", status1, topic1 + "/dead-group should be DEAD");
+                    return getSubscriptionStatus(topic2, "dead-group");
+                })
+                .onSuccess(status2 -> {
+                    assertEquals("DEAD", status2, topic2 + "/dead-group should be DEAD");
+                    logger.info("Cross-topic dead detection verified");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     /**
      * Test that the scheduled job starts and stops correctly.
      */
     @Test
-    void testJobStartStop() throws Exception {
+    void testJobStartStop(VertxTestContext ctx) {
         job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 500);
 
         assertFalse(job.isRunning(), "Job should not be running initially");
@@ -239,35 +223,40 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         job.start();
         assertTrue(job.isRunning(), "Job should be running after start");
 
-        // Let it run a couple cycles
-        manager.getVertx().timer(1200).toCompletionStage().toCompletableFuture().join();
-
-        job.stop();
-        assertFalse(job.isRunning(), "Job should not be running after stop");
-
-        logger.info("Job start/stop lifecycle verified");
+        manager.getVertx().timer(1200)
+                .onSuccess(v -> {
+                    job.stop();
+                    assertFalse(job.isRunning(), "Job should not be running after stop");
+                    logger.info("Job start/stop lifecycle verified");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     /**
      * Test that the job cannot be started twice.
      */
     @Test
-    void testDoubleStartThrows() {
+    void testDoubleStartThrows(VertxTestContext ctx) {
         job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 1000);
         job.start();
 
-        assertThrows(IllegalStateException.class, () -> job.start(),
-                "Starting an already-running job should throw IllegalStateException");
-
-        job.stop();
-        logger.info("Double-start prevention verified");
+        try {
+            job.start();
+            ctx.failNow("Starting an already-running job should throw IllegalStateException");
+        } catch (IllegalStateException e) {
+            job.stop();
+            logger.info("Double-start prevention verified");
+            ctx.completeNow();
+        }
     }
 
     /**
      * Test that runDetectionOnce works independently of the periodic schedule.
      */
     @Test
-    void testRunDetectionOnce() throws Exception {
+    void testRunDetectionOnce(VertxTestContext ctx) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED ÔÇö this test deliberately runs manual dead detection");
         String topic = "test-manual-detect-" + UUID.randomUUID().toString().substring(0, 8);
 
         topicConfigService.createTopic(TopicConfig.builder()
@@ -275,62 +264,59 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
-
-        SubscriptionOptions shortTimeout = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(1)
-                .heartbeatTimeoutSeconds(2)
-                .build();
-        subscriptionManager.subscribe(topic, "manual-group", shortTimeout)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Pre-run 2 detection cycles to reach just below flapping threshold
-        for (int i = 0; i < 2; i++) {
-            setHeartbeatInPast(topic, "manual-group", 10);
-            detector.detectAllDeadSubscriptions()
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-        setHeartbeatInPast(topic, "manual-group", 10);
-
-        // Use job's runDetectionOnce without starting periodic schedule
-        job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);
-        Integer result = job.runDetectionOnce()
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(result >= 1, "Should detect at least 1 dead subscription");
-
-        logger.info("Manual detection run verified");
+                .compose(v -> subscriptionManager.subscribe(topic, "manual-group", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(1)
+                        .heartbeatTimeoutSeconds(2)
+                        .build()))
+                .compose(v -> {
+                    // Pre-run 2 detection cycles to reach just below flapping threshold
+                    return runDetectionCycles(topic, "manual-group", 2)
+                            .compose(u -> setHeartbeatInPast(topic, "manual-group", 10));
+                })
+                .compose(v -> {
+                    job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);
+                    return job.runDetectionOnce();
+                })
+                .onSuccess(result -> {
+                    assertTrue(result >= 1, "Should detect at least 1 dead subscription");
+                    logger.info("Manual detection run verified");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     /**
      * Test that stopping the job fences future runs, even if timer callbacks are queued.
      */
     @Test
-    void testStopPreventsFurtherRuns() throws Exception {
+    void testStopPreventsFurtherRuns(VertxTestContext ctx) {
         job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 5);
         job.start();
 
-        manager.getVertx().timer(250).toCompletionStage().toCompletableFuture().join();
-        long beforeStopRuns = job.getTotalRunCount();
+        manager.getVertx().timer(250)
+                .onSuccess(v -> {
+                    long beforeStopRuns = job.getTotalRunCount();
+                    job.stop();
+                    assertFalse(job.isRunning(), "Job should report stopped");
 
-        job.stop();
-        assertFalse(job.isRunning(), "Job should report stopped");
-
-        // Wait long enough that many timer ticks would have happened if not fenced.
-        manager.getVertx().timer(250).toCompletionStage().toCompletableFuture().join();
-        long afterStopRuns = job.getTotalRunCount();
-
-        assertEquals(beforeStopRuns, afterStopRuns,
-                "Run count should not increase after stop");
-
-        logger.info("Stop fencing verified: runCount stayed at {}", afterStopRuns);
+                    manager.getVertx().timer(250)
+                            .onSuccess(v2 -> {
+                                long afterStopRuns = job.getTotalRunCount();
+                                assertEquals(beforeStopRuns, afterStopRuns,
+                                        "Run count should not increase after stop");
+                                logger.info("Stop fencing verified: runCount stayed at {}", afterStopRuns);
+                                ctx.completeNow();
+                            })
+                            .onFailure(ctx::failNow);
+                })
+                .onFailure(ctx::failNow);
     }
 
     /**
      * Test that manual runDetectionOnceWithDetails executes detection + cleanup pipeline.
      */
     @Test
-    void testRunDetectionOnceWithDetailsPerformsCleanupPipeline() throws Exception {
+    void testRunDetectionOnceWithDetailsPerformsCleanupPipeline(VertxTestContext ctx) {
         String topic = "test-manual-pipeline-" + UUID.randomUUID().toString().substring(0, 8);
 
         topicConfigService.createTopic(TopicConfig.builder()
@@ -338,53 +324,140 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
-
-        SubscriptionOptions groupAOptions = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(60)
-                .heartbeatTimeoutSeconds(300)
-                .build();
-        subscriptionManager.subscribe(topic, "group-a", groupAOptions)
-                .toCompletionStage().toCompletableFuture().get();
-
-        SubscriptionOptions groupBOptions = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(1)
-                .heartbeatTimeoutSeconds(2)
-                .deadAfterMisses(1)
-                .build();
-        subscriptionManager.subscribe(topic, "group-b", groupBOptions)
-                .toCompletionStage().toCompletableFuture().get();
-
-        List<Long> messageIds = insertMessages(topic, 2);
-        for (Long msgId : messageIds) {
-            completeMessage(msgId, "group-a");
-        }
-
-        // Expire group-b heartbeat for the job's detection run to mark DEAD
-        setHeartbeatInPast(topic, "group-b", 10);
-
-        job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);
-        var details = job.runDetectionOnceWithDetails()
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(details.deadCount() >= 1,
-                "Manual detailed run should detect at least one dead subscription");
-
-        // Cleanup side effect: required_consumer_groups should be decremented for pending messages.
-        for (Long msgId : messageIds) {
-            Row state = getMessageRow(msgId);
-            assertEquals(1, state.getInteger("required_consumer_groups"),
-                    "Manual detailed run should execute cleanup pipeline");
-        }
-
-        logger.info("Manual detailed detection pipeline verified");
+                .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(60)
+                        .heartbeatTimeoutSeconds(300)
+                        .build()))
+                .compose(v -> subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(1)
+                        .heartbeatTimeoutSeconds(2)
+                        .deadAfterMisses(1)
+                        .build()))
+                .compose(v -> insertMessages(topic, 2))
+                .compose(messageIds -> completeMessagesAndReturnIds(topic, "group-a", messageIds))
+                .compose(messageIds -> setHeartbeatInPast(topic, "group-b", 10)
+                        .map(v -> messageIds))
+                .compose(messageIds -> {
+                    job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);
+                    return job.runDetectionOnceWithDetails()
+                            .compose(details -> verifyCleanupMessagesAndReturn(messageIds, details));
+                })
+                .onSuccess(v -> {
+                    logger.info("Manual detailed detection pipeline verified");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
-    // Helper methods
+    /**
+     * Tests the full end-to-end pipeline through the scheduled job:
+     * detection ÔåÆ cleanup ÔåÆ messages unblocked.
+     */
+    @Test
+    void testEndToEndDetectCleanupPipeline(VertxTestContext ctx) {
+        String topic = "test-pipeline-" + UUID.randomUUID().toString().substring(0, 8);
 
-    private void setHeartbeatInPast(String topic, String groupName, int secondsAgo) throws Exception {
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(60)
+                        .heartbeatTimeoutSeconds(300)
+                        .build()))
+                .compose(v -> subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.builder()
+                        .heartbeatIntervalSeconds(1)
+                        .heartbeatTimeoutSeconds(2)
+                        .build()))
+                .compose(v -> insertMessages(topic, 3))
+                .compose(messageIds -> completeMessagesAndReturnIds(topic, "group-a", messageIds))
+                .compose(messageIds -> verifyPendingMessagesAndReturn(topic, messageIds))
+                .compose(messageIds -> setHeartbeatInPast(topic, "group-b", 10)
+                        .map(v -> messageIds))
+                .compose(messageIds -> {
+                    job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 200);
+                    job.start();
+                    return waitForDetectionAndReturn(messageIds);
+                })
+                .compose(messageIds -> {
+                    job.stop();
+                    assertTrue(job.getTotalDeadDetected() >= 1,
+                            "Job should have detected at least 1 dead consumer");
+                    assertTrue(job.getTotalRunCount() >= 1,
+                            "Job should have completed at least 1 run");
+                    assertEquals(0, job.getTotalFailures(),
+                            "Job should have no failures");
+                    return getSubscriptionStatus(topic, "group-b")
+                            .map(v -> messageIds);
+                })
+                .compose(messageIds -> verifyCompletedMessagesAndReturn(topic, messageIds))
+                .onSuccess(v -> {
+                    logger.info("End-to-end pipeline verified: detect ÔåÆ cleanup ÔåÆ auto-complete");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
+    }
+
+    /**
+     * Tests that the {@code detectionInProgress} guard prevents overlapping detection runs.
+     */
+    @Test
+    void testConcurrentDetectionGuardPreventsOverlap(VertxTestContext ctx) {
+        Future<Void> setupFuture = Future.succeededFuture();
+
+        // Create multiple subscriptions so the detection query does real work
+        for (int i = 0; i < 10; i++) {
+            final int index = i;
+            setupFuture = setupFuture.compose(v -> {
+                String topic = "test-guard-" + UUID.randomUUID().toString().substring(0, 8);
+                return topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                        .compose(u -> subscriptionManager.subscribe(topic, "group-" + index, SubscriptionOptions.builder()
+                                .heartbeatIntervalSeconds(60)
+                                .heartbeatTimeoutSeconds(300)
+                                .build()));
+            });
+        }
+
+        setupFuture
+                .compose(v -> {
+                    job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 5);
+                    job.start();
+                    return manager.getVertx().timer(2000);
+                })
+                .onSuccess(v -> {
+                    job.stop();
+                    long runCount = job.getTotalRunCount();
+                    long failures = job.getTotalFailures();
+                    long expectedTicks = 400;
+
+                    logger.info("Guard test: {} runs completed out of ~{} timer ticks, {} failures",
+                            runCount, expectedTicks, failures);
+
+                    assertTrue(runCount >= 1, "Should have completed at least 1 run");
+                    assertTrue(runCount < expectedTicks * 3 / 4,
+                            "Guard should skip overlapping runs. Expected <" + (expectedTicks * 3 / 4) +
+                                    " but got " + runCount + " out of ~" + expectedTicks + " timer ticks");
+                    assertEquals(0, failures,
+                            "No failures should occur ÔÇö guard prevents concurrent DB access");
+
+                    logger.info("Concurrent detection guard verified: {} runs (not ~100)", runCount);
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
+    }
+
+    // ========================================================================
+    // Helper methods
+    // ========================================================================
+
+    private Future<Void> setHeartbeatInPast(String topic, String groupName, int secondsAgo) {
         OffsetDateTime pastTime = OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(secondsAgo);
-        connectionManager.withConnection("peegeeq-main", connection -> {
+        return connectionManager.withConnection("peegeeq-main", connection -> {
             String sql = """
                 UPDATE outbox_topic_subscriptions
                 SET last_heartbeat_at = $1
@@ -393,7 +466,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
             return connection.preparedQuery(sql)
                     .execute(Tuple.of(pastTime, topic, groupName))
                     .mapEmpty();
-        }).toCompletionStage().toCompletableFuture().get();
+        });
     }
 
     private Future<String> getSubscriptionStatus(String topic, String groupName) {
@@ -410,190 +483,35 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         });
     }
 
-    // ========================================================================
-    // End-to-end pipeline test: detection → cleanup → auto-complete
-    // ========================================================================
-
-    /**
-     * Tests the full end-to-end pipeline through the scheduled job:
-     * detection → cleanup → messages unblocked.
-     *
-     * <p>Scenario:</p>
-     * <ul>
-     *   <li>Topic with 2 consumer groups (group-a with long timeout, group-b with short timeout)</li>
-     *   <li>3 messages inserted (required_consumer_groups = 2 via trigger)</li>
-     *   <li>group-a completes all 3 messages (completed_consumer_groups = 1)</li>
-     *   <li>group-b heartbeat expires</li>
-     *   <li>Job runs periodically, detects group-b as DEAD, runs cleanup</li>
-     *   <li>Cleanup decrements required_consumer_groups (2 → 1)</li>
-     *   <li>Since completed (1) >= required (1), all messages auto-complete</li>
-     * </ul>
-     */
-    @Test
-    void testEndToEndDetectCleanupPipeline() throws Exception {
-        String topic = "test-pipeline-" + UUID.randomUUID().toString().substring(0, 8);
-
-        // Create topic
-        topicConfigService.createTopic(TopicConfig.builder()
-                        .topic(topic)
-                        .semantics(TopicSemantics.PUB_SUB)
-                        .messageRetentionHours(24)
-                        .build())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Subscribe group-a with long timeout (won't expire during test)
-        SubscriptionOptions groupAOptions = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(60)
-                .heartbeatTimeoutSeconds(300)
-                .build();
-        subscriptionManager.subscribe(topic, "group-a", groupAOptions)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Subscribe group-b with very short timeout (will expire)
-        SubscriptionOptions groupBOptions = SubscriptionOptions.builder()
-                .heartbeatIntervalSeconds(1)
-                .heartbeatTimeoutSeconds(2)
-                .build();
-        subscriptionManager.subscribe(topic, "group-b", groupBOptions)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Insert 3 messages (trigger sets required_consumer_groups = 2)
-        List<Long> messageIds = insertMessages(topic, 3);
-
-        // group-a completes all 3 messages
-        for (Long msgId : messageIds) {
-            completeMessage(msgId, "group-a");
+    private Future<Void> runDetectionCycles(String topic1, String topic2, String groupName, int cycles) {
+        Future<Void> future = Future.succeededFuture();
+        for (int i = 0; i < cycles; i++) {
+            future = future
+                    .compose(v -> setHeartbeatInPast(topic1, groupName, 10))
+                    .compose(v -> setHeartbeatInPast(topic2, groupName, 10))
+                    .compose(v -> detector.detectAllDeadSubscriptions())
+                    .mapEmpty();
         }
-
-        // Verify pre-condition: messages are PENDING with required=2, completed=1
-        for (Long msgId : messageIds) {
-            Row state = getMessageRow(msgId);
-            assertEquals("PENDING", state.getString("status"),
-                    "Message " + msgId + " should be PENDING before pipeline");
-            assertEquals(2, state.getInteger("required_consumer_groups"));
-            assertEquals(1, state.getInteger("completed_consumer_groups"));
-        }
-
-        // Expire group-b heartbeat
-        setHeartbeatInPast(topic, "group-b", 10);
-
-        // Start job with very short interval
-        job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 200);
-        job.start();
-
-        // Wait for the job to detect and clean up (generous 5-second timeout)
-        for (int i = 0; i < 25; i++) {
-            manager.getVertx().timer(200).toCompletionStage().toCompletableFuture().join();
-            if (job.getTotalDeadDetected() >= 1) {
-                // Give cleanup time to complete after detection
-                manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
-                break;
-            }
-        }
-
-        job.stop();
-
-        // Verify: job detected dead consumers
-        assertTrue(job.getTotalDeadDetected() >= 1,
-                "Job should have detected at least 1 dead consumer");
-        assertTrue(job.getTotalRunCount() >= 1,
-                "Job should have completed at least 1 run");
-        assertEquals(0, job.getTotalFailures(),
-                "Job should have no failures");
-
-        // Verify: group-b is DEAD
-        String statusB = getSubscriptionStatus(topic, "group-b")
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals("DEAD", statusB, "group-b should be marked DEAD");
-
-        // Verify: all messages auto-completed by the cleanup pipeline
-        for (Long msgId : messageIds) {
-            Row state = getMessageRow(msgId);
-            assertEquals("COMPLETED", state.getString("status"),
-                    "Message " + msgId + " should be auto-completed by cleanup pipeline");
-            assertEquals(1, state.getInteger("required_consumer_groups"),
-                    "required_consumer_groups should be decremented from 2 to 1");
-        }
-
-        logger.info("End-to-end pipeline verified: detect → cleanup → auto-complete");
+        return future;
     }
 
-    // ========================================================================
-    // Test: Concurrent detection guard prevents overlapping runs
-    // ========================================================================
-
-    /**
-     * Tests that the {@code detectionInProgress} guard prevents overlapping detection runs.
-     *
-     * <p>Strategy: start the job with a very short timer interval (10ms) so the timer fires
-     * far more frequently than a detection run can complete (each run executes real DB queries
-     * that take tens of milliseconds). If the guard were absent, we'd see either concurrent
-     * mutation errors or a run count approaching the number of timer ticks. With the guard,
-     * overlapping invocations are skipped and the run count stays low.</p>
-     *
-     * <p>This is a pure integration test — zero production code changes required.</p>
-     */
-    @Test
-    void testConcurrentDetectionGuardPreventsOverlap() throws Exception {
-        // Create multiple subscriptions so the detection query does real work
-        for (int i = 0; i < 10; i++) {
-            String topic = "test-guard-" + UUID.randomUUID().toString().substring(0, 8);
-            topicConfigService.createTopic(TopicConfig.builder()
-                            .topic(topic)
-                            .semantics(TopicSemantics.PUB_SUB)
-                            .messageRetentionHours(24)
-                            .build())
-                    .toCompletionStage().toCompletableFuture().get();
-
-            SubscriptionOptions opts = SubscriptionOptions.builder()
-                    .heartbeatIntervalSeconds(60)
-                    .heartbeatTimeoutSeconds(300)
-                    .build();
-            subscriptionManager.subscribe(topic, "group-" + i, opts)
-                    .toCompletionStage().toCompletableFuture().get();
+    private Future<Void> runDetectionCycles(String topic, String groupName, int cycles) {
+        Future<Void> future = Future.succeededFuture();
+        for (int i = 0; i < cycles; i++) {
+            future = future
+                    .compose(v -> setHeartbeatInPast(topic, groupName, 10))
+                    .compose(v -> detector.detectAllDeadSubscriptions())
+                    .mapEmpty();
         }
-
-        // Start job with 5ms interval — timer fires ~400 times in 2 seconds
-        // Each real detection run takes 10-20ms (DB query + getSubscriptionSummary)
-        // so the guard should skip most timer ticks
-        job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 5);
-        job.start();
-
-        // Let the timer fire many times
-        manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
-        job.stop();
-
-        long runCount = job.getTotalRunCount();
-        long failures = job.getTotalFailures();
-
-        // ~400 timer ticks in 2 seconds at 5ms interval
-        long expectedTicks = 400;
-        logger.info("Guard test: {} runs completed out of ~{} timer ticks, {} failures",
-                runCount, expectedTicks, failures);
-
-        // With guard: runs should be a fraction of the timer ticks
-        // because overlapping invocations are skipped while detection is in progress.
-        // Each detection run takes real DB time (10-20ms), so with a 5ms timer,
-        // at least half the ticks should be skipped. Assert runs < 75% of ticks.
-        assertTrue(runCount >= 1, "Should have completed at least 1 run");
-        assertTrue(runCount < expectedTicks * 3 / 4,
-                "Guard should skip overlapping runs. Expected <" + (expectedTicks * 3 / 4) +
-                        " but got " + runCount + " out of ~" + expectedTicks + " timer ticks");
-        assertEquals(0, failures,
-                "No failures should occur — guard prevents concurrent DB access");
-
-        logger.info("Concurrent detection guard verified: {} runs (not ~100)", runCount);
+        return future;
     }
 
-    // ========================================================================
-    // Additional helper methods for pipeline test
-    // ========================================================================
-
-    private List<Long> insertMessages(String topic, int count) throws Exception {
+    private Future<List<Long>> insertMessages(String topic, int count) {
         List<Long> ids = new ArrayList<>();
+        Future<Void> future = Future.succeededFuture();
         for (int i = 0; i < count; i++) {
             final int index = i;
-            Long id = connectionManager.withConnection("peegeeq-main", connection -> {
+            future = future.compose(v -> connectionManager.withConnection("peegeeq-main", connection -> {
                 String sql = """
                     INSERT INTO outbox (topic, payload, created_at, status)
                     VALUES ($1, $2::jsonb, $3, 'PENDING')
@@ -602,48 +520,118 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 JsonObject payload = new JsonObject().put("test", true).put("index", index);
                 return connection.preparedQuery(sql)
                         .execute(Tuple.of(topic, payload.encode(), OffsetDateTime.now(ZoneOffset.UTC)))
-                        .map(rows -> rows.iterator().next().getLong("id"));
-            }).toCompletionStage().toCompletableFuture().get();
-            ids.add(id);
+                        .map(rows -> rows.iterator().next().getLong("id"))
+                        .map(id -> {
+                            ids.add(id);
+                            return null;
+                        });
+            }));
         }
-        return ids;
+        return future.map(v -> ids);
     }
 
-    private void completeMessage(Long messageId, String groupName) throws Exception {
-        connectionManager.withTransaction("peegeeq-main", connection -> {
-            String insertSql = """
-                INSERT INTO outbox_consumer_groups (message_id, group_name, status, processed_at)
-                VALUES ($1, $2, 'COMPLETED', NOW())
-                ON CONFLICT (message_id, group_name)
-                DO UPDATE SET status = 'COMPLETED', processed_at = NOW()
-                """;
-            return connection.preparedQuery(insertSql)
-                    .execute(Tuple.of(messageId, groupName))
-                    .compose(v -> {
-                        String updateSql = """
-                            UPDATE outbox
-                            SET completed_consumer_groups = completed_consumer_groups + 1,
-                                status = CASE
-                                    WHEN completed_consumer_groups + 1 >= required_consumer_groups
-                                        THEN 'COMPLETED'
-                                    ELSE status
-                                END,
-                                processed_at = CASE
-                                    WHEN completed_consumer_groups + 1 >= required_consumer_groups
-                                        THEN NOW()
-                                    ELSE processed_at
-                                END
-                            WHERE id = $1
-                              AND completed_consumer_groups < required_consumer_groups
-                            """;
-                        return connection.preparedQuery(updateSql)
-                                .execute(Tuple.of(messageId))
-                                .mapEmpty();
-                    });
-        }).toCompletionStage().toCompletableFuture().get();
+    private Future<List<Long>> completeMessagesAndReturnIds(String topic, String groupName, List<Long> messageIds) {
+        Future<Void> future = Future.succeededFuture();
+        for (Long msgId : messageIds) {
+            future = future.compose(v -> connectionManager.withTransaction("peegeeq-main", connection -> {
+                String insertSql = """
+                    INSERT INTO outbox_consumer_groups (message_id, group_name, status, processed_at)
+                    VALUES ($1, $2, 'COMPLETED', NOW())
+                    ON CONFLICT (message_id, group_name)
+                    DO UPDATE SET status = 'COMPLETED', processed_at = NOW()
+                    """;
+                return connection.preparedQuery(insertSql)
+                        .execute(Tuple.of(msgId, groupName))
+                        .compose(u -> {
+                            String updateSql = """
+                                UPDATE outbox
+                                SET completed_consumer_groups = completed_consumer_groups + 1,
+                                    status = CASE
+                                        WHEN completed_consumer_groups + 1 >= required_consumer_groups
+                                            THEN 'COMPLETED'
+                                        ELSE status
+                                    END,
+                                    processed_at = CASE
+                                        WHEN completed_consumer_groups + 1 >= required_consumer_groups
+                                            THEN NOW()
+                                        ELSE processed_at
+                                    END
+                                WHERE id = $1
+                                  AND completed_consumer_groups < required_consumer_groups
+                                """;
+                            return connection.preparedQuery(updateSql)
+                                    .execute(Tuple.of(msgId))
+                                    .mapEmpty();
+                        });
+            }));
+        }
+        return future.map(v -> messageIds);
     }
 
-    private Row getMessageRow(Long messageId) throws Exception {
+    private Future<List<Long>> verifyPendingMessagesAndReturn(String topic, List<Long> messageIds) {
+        Future<Void> future = Future.succeededFuture();
+        for (Long msgId : messageIds) {
+            future = future.compose(v -> getMessageRow(msgId)
+                    .map(state -> {
+                        assertEquals("PENDING", state.getString("status"),
+                                "Message " + msgId + " should be PENDING before pipeline");
+                        assertEquals(2, state.getInteger("required_consumer_groups"));
+                        assertEquals(1, state.getInteger("completed_consumer_groups"));
+                        return null;
+                    }));
+        }
+        return future.map(v -> messageIds);
+    }
+
+    private Future<List<Long>> verifyCompletedMessagesAndReturn(String topic, List<Long> messageIds) {
+        Future<Void> future = Future.succeededFuture();
+        for (Long msgId : messageIds) {
+            future = future.compose(v -> getMessageRow(msgId)
+                    .map(state -> {
+                        assertEquals("COMPLETED", state.getString("status"),
+                                "Message " + msgId + " should be auto-completed by cleanup pipeline");
+                        assertEquals(1, state.getInteger("required_consumer_groups"),
+                                "required_consumer_groups should be decremented from 2 to 1");
+                        return null;
+                    }));
+        }
+        return future.map(v -> messageIds);
+    }
+
+    private Future<Void> verifyCleanupMessagesAndReturn(List<Long> messageIds, DetectionResult details) {
+        assertTrue(details.deadCount() >= 1,
+                "Manual detailed run should detect at least one dead subscription");
+        Future<Void> future = Future.succeededFuture();
+        for (Long msgId : messageIds) {
+            future = future.compose(v -> getMessageRow(msgId)
+                    .map(state -> {
+                        assertEquals(1, state.getInteger("required_consumer_groups"),
+                                "Manual detailed run should execute cleanup pipeline");
+                        return null;
+                    }));
+        }
+        return future;
+    }
+
+    private Future<List<Long>> waitForDetectionAndReturn(List<Long> messageIds) {
+        return waitForDetectionCycles(0, messageIds);
+    }
+
+    private Future<List<Long>> waitForDetectionCycles(int cycle, List<Long> messageIds) {
+        if (cycle >= 25) {
+            return Future.failedFuture(new RuntimeException("Detection did not complete within timeout"));
+        }
+
+        if (job.getTotalDeadDetected() >= 1) {
+            return manager.getVertx().timer(500)
+                    .map(v -> messageIds);
+        }
+
+        return manager.getVertx().timer(200)
+                .compose(v -> waitForDetectionCycles(cycle + 1, messageIds));
+    }
+
+    private Future<Row> getMessageRow(Long messageId) {
         return connectionManager.withConnection("peegeeq-main", connection -> {
             String sql = "SELECT status, required_consumer_groups, completed_consumer_groups FROM outbox WHERE id = $1";
             return connection.preparedQuery(sql)
@@ -654,6 +642,6 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                         }
                         return rows.iterator().next();
                     });
-        }).toCompletionStage().toCompletableFuture().get();
+        });
     }
 }

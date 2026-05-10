@@ -1,4 +1,4 @@
-Mark — this class will run, but it’s carrying **several prod-level hazards**. You’re mixing Vert.x with raw executors, blocking calls, and a leaky LISTEN connection. Here’s the no-BS review with precise fixes.
+Mark this class will run, but it’s carrying **several prod-level hazards**. You’re mixing Vert.x with raw executors, blocking calls, and a leaky LISTEN connection. Here’s the no-BS review with precise fixes.
 
 ---
 
@@ -187,7 +187,7 @@ long cleanupTimerId = vertx.setPeriodic(10_000, t ->
 
 ## 🧪 Other correctness points
 
-* `pendingLockOperations` is never incremented — dead variable; remove or wire correctly.
+* `pendingLockOperations` is never incremented dead variable; remove or wire correctly.
 * `consumerThreads` vs `batchSize`: cap batch by available worker permits.
 * `processMessageWithTransaction(...)` should be deleted. Your chosen model is “claim → process → delete/rehydrate”, not “hold tx while running handler”.
 * When moving to DLQ, you `SELECT` then `INSERT`. That’s two round trips; fine, but consider `INSERT … SELECT … RETURNING` if you find yourself racing with other cleanups.

@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +20,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -39,9 +39,9 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     private StuckMessageRecoveryManager recoveryManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         connectionManager = new PgConnectionManager(manager.getVertx());
-        
+
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -51,16 +51,26 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         pool = connectionManager.getOrCreateReactivePool("test-recovery", connectionConfig, poolConfig);
-        
-        recoveryManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), true);
+
+        // Remove any PROCESSING rows left by previous tests so count assertions start clean
+        pool.withConnection(conn ->
+            conn.preparedQuery("DELETE FROM outbox WHERE status = 'PROCESSING'").execute()
+        ).onSuccess(rows -> {
+            recoveryManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), true);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -82,39 +92,47 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesWhenDisabled() throws Exception {
+    void testRecoverStuckMessagesWhenDisabled(VertxTestContext testContext) {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
-        int recovered = disabledManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertEquals(0, recovered);
+        disabledManager.recoverStuckMessages()
+            .onComplete(testContext.succeeding(recovered -> testContext.verify(() -> {
+                assertEquals(0, (int) recovered);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testRecoverStuckMessagesNoStuckMessages() throws Exception {
-        int recovered = recoveryManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertEquals(0, recovered);
+    void testRecoverStuckMessagesNoStuckMessages(VertxTestContext testContext) {
+        recoveryManager.recoverStuckMessages()
+            .onComplete(testContext.succeeding(recovered -> testContext.verify(() -> {
+                assertEquals(0, (int) recovered);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testGetRecoveryStats() throws Exception {
-        StuckMessageRecoveryManager.RecoveryStats stats = recoveryManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats);
-        assertTrue(stats.isEnabled());
-        assertEquals(0, stats.getStuckMessagesCount());
-        assertEquals(0, stats.getTotalProcessingCount());
+    void testGetRecoveryStats(VertxTestContext testContext) {
+        recoveryManager.getRecoveryStats()
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
+                assertNotNull(stats);
+                assertTrue(stats.isEnabled());
+                assertEquals(0, stats.getStuckMessagesCount());
+                assertEquals(0, stats.getTotalProcessingCount());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testGetRecoveryStatsWhenDisabled() throws Exception {
+    void testGetRecoveryStatsWhenDisabled(VertxTestContext testContext) {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
-        StuckMessageRecoveryManager.RecoveryStats stats = disabledManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats);
-        assertFalse(stats.isEnabled());
-        assertEquals(0, stats.getStuckMessagesCount());
-        assertEquals(0, stats.getTotalProcessingCount());
+        disabledManager.getRecoveryStats()
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
+                assertNotNull(stats);
+                assertFalse(stats.isEnabled());
+                assertEquals(0, stats.getStuckMessagesCount());
+                assertEquals(0, stats.getTotalProcessingCount());
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -135,42 +153,44 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesMultipleCalls() throws Exception {
-        // First call
-        int count1 = recoveryManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count1 >= 0);
-
-        // Second call
-        int count2 = recoveryManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count2 >= 0);
+    void testRecoverStuckMessagesMultipleCalls(VertxTestContext testContext) {
+        recoveryManager.recoverStuckMessages()
+            .compose(count1 -> {
+                assertTrue(count1 >= 0);
+                return recoveryManager.recoverStuckMessages();
+            })
+            .onComplete(testContext.succeeding(count2 -> testContext.verify(() -> {
+                assertTrue(count2 >= 0);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testGetRecoveryStatsMultipleCalls() throws Exception {
-        // First call
-        StuckMessageRecoveryManager.RecoveryStats stats1 = recoveryManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats1);
-
-        // Second call
-        StuckMessageRecoveryManager.RecoveryStats stats2 = recoveryManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats2);
+    void testGetRecoveryStatsMultipleCalls(VertxTestContext testContext) {
+        recoveryManager.getRecoveryStats()
+            .compose(stats1 -> {
+                assertNotNull(stats1);
+                return recoveryManager.getRecoveryStats();
+            })
+            .onComplete(testContext.succeeding(stats2 -> testContext.verify(() -> {
+                assertNotNull(stats2);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testRecoveryManagerWithDifferentTimeouts() throws Exception {
+    void testRecoveryManagerWithDifferentTimeouts(VertxTestContext testContext) {
         StuckMessageRecoveryManager manager1 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), true);
-        int count1 = manager1.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count1 >= 0);
-
         StuckMessageRecoveryManager manager2 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(10), true);
-        int count2 = manager2.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count2 >= 0);
+        manager1.recoverStuckMessages()
+            .compose(count1 -> {
+                assertTrue(count1 >= 0);
+                return manager2.recoverStuckMessages();
+            })
+            .onComplete(testContext.succeeding(count2 -> testContext.verify(() -> {
+                assertTrue(count2 >= 0);
+                testContext.completeNow();
+            })));
     }
 }
 

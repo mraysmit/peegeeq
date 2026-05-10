@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -51,8 +53,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -88,7 +90,7 @@ public class MessagePriorityExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_priority_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -100,27 +102,22 @@ public class MessagePriorityExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Message Priority Example Test");
         
         // Configure database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        
-        // Configure for priority queue optimization
-        System.setProperty("peegeeq.queue.priority.enabled", "true");
-        System.setProperty("peegeeq.queue.priority.index-optimization", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.priority.enabled", "true")
+                .property("peegeeq.queue.priority.index-optimization", "true")
+                .build();
         
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         
         // Create outbox factory (outbox pattern supports priorities better)
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -134,12 +131,11 @@ public class MessagePriorityExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Message Priority Example Test");
         
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         
         logger.info("✓ Message Priority Example Test teardown completed");
@@ -303,17 +299,13 @@ public class MessagePriorityExampleTest {
     // Helper methods
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
-        CountDownLatch latch = new CountDownLatch(1);
-        producer.send(message).onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        producer.send(message).await();
         logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
     }
 
     private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
-        CountDownLatch latch = new CountDownLatch(1);
-        producer.send(message).onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        producer.send(message).await();
         logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
     }
 

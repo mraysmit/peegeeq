@@ -9,7 +9,9 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -28,6 +30,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
@@ -35,22 +38,18 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerGroupIntegrationTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupIntegrationTest.class);
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -60,33 +59,26 @@ public class OutboxConsumerGroupIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        System.err.println("=== OutboxConsumerGroupIntegrationTest SETUP STARTED ===");
-        
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "group-test-" + UUID.randomUUID().toString().substring(0, 8);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumerGroup = outboxFactory.createConsumerGroup("test-group", testTopic, String.class);
-        
-        System.err.println("=== OutboxConsumerGroupIntegrationTest SETUP COMPLETED ===");
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        System.err.println("=== OutboxConsumerGroupIntegrationTest TEARDOWN STARTED ===");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumerGroup != null) {
             consumerGroup.stop();
             consumerGroup.close();
@@ -98,12 +90,13 @@ public class OutboxConsumerGroupIntegrationTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        System.err.println("=== OutboxConsumerGroupIntegrationTest TEARDOWN COMPLETED ===");
     }
 
     @Test
@@ -114,6 +107,7 @@ public class OutboxConsumerGroupIntegrationTest {
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         ConsumerGroupMember<String> member1 = consumerGroup.addConsumer("member-1", message -> {
+        logger.info("Test: group distribution");
             member1Messages.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -128,9 +122,7 @@ public class OutboxConsumerGroupIntegrationTest {
         consumerGroup.start();
 
         // Give group workers a brief moment to fully subscribe before publishing.
-        java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
-        vertx.setTimer(300, timerId -> startLatch.countDown());
-        startLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(300).await();
 
         for (int i = 0; i < messageCount; i++) {
             producer.send("Message-" + i).onFailure(testContext::failNow);
@@ -138,8 +130,8 @@ public class OutboxConsumerGroupIntegrationTest {
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Did not receive all messages");
 
-        System.out.println("Member 1 received: " + member1Messages.size());
-        System.out.println("Member 2 received: " + member2Messages.size());
+        logger.info("Member 1 received: {}", member1Messages.size());
+        logger.info("Member 2 received: {}", member2Messages.size());
 
         assertFalse(member1Messages.isEmpty(), "Member 1 should have received messages");
         assertFalse(member2Messages.isEmpty(), "Member 2 should have received messages");
@@ -155,6 +147,7 @@ public class OutboxConsumerGroupIntegrationTest {
         consumerGroup.setGroupFilter(msg -> msg.getPayload().startsWith("Keep"));
 
         consumerGroup.addConsumer("member-1", message -> {
+        logger.info("Test: group filtering");
             receivedMessages.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -173,9 +166,7 @@ public class OutboxConsumerGroupIntegrationTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Did not receive expected messages");
         
         // Wait a bit more to ensure no dropped messages are received
-        java.util.concurrent.CountDownLatch extraLatch = new java.util.concurrent.CountDownLatch(1);
-        vertx.setTimer(1000, timerId -> extraLatch.countDown());
-        extraLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(1000).await();
 
         assertEquals(messageCount / 2, receivedMessages.size());
         assertTrue(receivedMessages.stream().allMatch(s -> s.startsWith("Keep")));
@@ -195,6 +186,7 @@ public class OutboxConsumerGroupIntegrationTest {
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         consumerGroup.addConsumer("member-A", message -> {
+        logger.info("Test: member filtering");
             member1Messages.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -227,6 +219,7 @@ public class OutboxConsumerGroupIntegrationTest {
         
         // Member only accepts "A"
         consumerGroup.addConsumer("member-A", message -> {
+        logger.info("Test: no eligible consumer");
             processedCount.incrementAndGet(); // Should not happen
             return Future.succeededFuture();
         }, msg -> msg.getPayload().equals("A"));
@@ -236,9 +229,7 @@ public class OutboxConsumerGroupIntegrationTest {
         producer.send("B");
         
         // Wait to ensure it's processed (and filtered)
-        java.util.concurrent.CountDownLatch filterLatch = new java.util.concurrent.CountDownLatch(1);
-        vertx.setTimer(2000, timerId -> filterLatch.countDown());
-        filterLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
         
         assertEquals(0, processedCount.get(), "Message should not have been processed");
         // With no-eligible-consumer handling (MessageFilteredException → reset to PENDING),
@@ -251,32 +242,87 @@ public class OutboxConsumerGroupIntegrationTest {
     
     @Test
     void testDynamicMemberManagement(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        java.util.concurrent.CountDownLatch signal1 = new java.util.concurrent.CountDownLatch(1);
+        io.vertx.core.Promise<Void> signal1 = io.vertx.core.Promise.promise();
         consumerGroup.addConsumer("member-1", message -> {
-            signal1.countDown();
+        logger.info("Test: dynamic member management");
+            signal1.tryComplete();
             return Future.succeededFuture();
         });
         
         consumerGroup.start();
         
         producer.send("Msg1").onFailure(testContext::failNow);
-        signal1.await(5, TimeUnit.SECONDS);
+        signal1.future().await();
         
         // Remove member
         consumerGroup.removeConsumer("member-1");
         assertEquals(0, consumerGroup.getActiveConsumerCount());
         
         // Add new member
-        java.util.concurrent.CountDownLatch signal2 = new java.util.concurrent.CountDownLatch(1);
+        io.vertx.core.Promise<Void> signal2 = io.vertx.core.Promise.promise();
         consumerGroup.addConsumer("member-2", message -> {
-            signal2.countDown();
+            signal2.tryComplete();
             return Future.succeededFuture();
         });
         
         assertEquals(1, consumerGroup.getActiveConsumerCount());
         
         producer.send("Msg2").onFailure(testContext::failNow);
-        signal2.await(5, TimeUnit.SECONDS);
+        signal2.future().await();
+        testContext.completeNow();
+    }
+
+    @Test
+    void testStopGracefullyAwaitsInflightMemberProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        io.vertx.core.Promise<Void> handlerStarted = io.vertx.core.Promise.promise();
+        io.vertx.core.Promise<Void> handlerGate = io.vertx.core.Promise.promise();
+        java.util.concurrent.atomic.AtomicBoolean handlerCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        logger.info("Test: stopGracefully awaits inflight member processing");
+
+        consumerGroup.addConsumer("member-1", message -> {
+            handlerStarted.tryComplete();
+            // Block until the gate is released simulates slow in-flight processing
+            return handlerGate.future().map(v -> {
+                handlerCompleted.set(true);
+                return (Void) null;
+            });
+        });
+
+        consumerGroup.start();
+
+        producer.send("slow-message").onFailure(testContext::failNow);
+
+        // Wait until the handler has started and the future is registered in inflightFutures
+        handlerStarted.future().await();
+
+        // stopGracefully() must wait for the in-flight handler future before resolving.
+        // It snapshots inflightFutures immediately on this call (synchronous capture).
+        io.vertx.core.Promise<Void> stopDone = io.vertx.core.Promise.promise();
+        if (consumerGroup instanceof OutboxConsumerGroup<?> og) {
+            og.stopGracefully()
+                .onSuccess(v -> stopDone.tryComplete())
+                .onFailure(stopDone::tryFail);
+        } else {
+            // Fallback: sync stop group not an OutboxConsumerGroup
+            consumerGroup.stop();
+            stopDone.tryComplete();
+        }
+
+        // Give stopGracefully() a moment to set up its wait on the in-flight future
+        vertx.timer(100).await();
+
+        // Handler is still blocked stopGracefully() must NOT have resolved yet
+        assertFalse(handlerCompleted.get(), "Handler should not have completed yet");
+        assertFalse(stopDone.future().isComplete(), "stopGracefully should still be waiting");
+
+        // Release the gate handler completes → stopGracefully() unblocks
+        handlerGate.tryComplete();
+
+        stopDone.future().await();
+
+        testContext.verify(() ->
+            assertTrue(handlerCompleted.get(),
+                "Handler must have completed before stopGracefully() resolved"));
         testContext.completeNow();
     }
 }

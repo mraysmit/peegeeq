@@ -163,9 +163,7 @@ class ReactiveNotificationTest {
             eventStore.close();
         }
         Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive().recover(err -> {
-                return Future.succeededFuture();
-            })
+            ? manager.closeReactive().transform(ar -> Future.succeededFuture())
             : Future.succeededFuture();
         closeFuture.onSuccess(v -> {
             restoreTestProperties();
@@ -197,7 +195,7 @@ class ReactiveNotificationTest {
                     .payload(testEvent).validTime(Instant.now()).execute();
             })
             .compose(appendedEvent -> notificationPromise.future().map(notifiedEvent -> Map.entry(appendedEvent, notifiedEvent)))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 BiTemporalEvent<TestEvent> appendedEvent = result.getKey();
                 BiTemporalEvent<TestEvent> notifiedEvent = result.getValue();
                 assertNotNull(appendedEvent);
@@ -208,8 +206,7 @@ class ReactiveNotificationTest {
                 assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
                 assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     /**
@@ -261,7 +258,7 @@ class ReactiveNotificationTest {
                     conn.query(notifyCommand).execute()
                         ).map(notifyResult -> result).eventually(() -> pool.close());
             })
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 BiTemporalEvent<TestEvent> appendedEvent = result.getKey();
                 BiTemporalEvent<TestEvent> notifiedEvent = result.getValue();
                 assertNotNull(notifiedEvent, "Notification handler should have received an event");
@@ -269,8 +266,7 @@ class ReactiveNotificationTest {
                 assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
                 assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private void setTestProperty(String key, String value) {

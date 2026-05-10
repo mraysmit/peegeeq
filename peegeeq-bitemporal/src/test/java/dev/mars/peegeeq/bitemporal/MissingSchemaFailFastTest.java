@@ -67,7 +67,6 @@ class MissingSchemaFailFastTest {
     void tearDown(VertxTestContext testContext) {
         if (peeGeeQManager != null) {
             peeGeeQManager.closeReactive()
-                .recover(err -> io.vertx.core.Future.succeededFuture())
                 .onComplete(v -> {
                     restoreTestProperties();
                     testContext.completeNow();
@@ -85,17 +84,18 @@ class MissingSchemaFailFastTest {
     @Test
     void startFailsWhenCoreTables_AreMissing(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing PeeGeeQManager fails fast with missing schema ===");
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = manager startup must fail when required tables are missing");
 
-        // Point PeeGeeQManager at the empty database — NO initializeSchema() call
+        // Point PeeGeeQManager at the empty database NO initializeSchema() call
         configureSystemPropertiesForContainer(postgres);
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .onSuccess(v -> testContext.failNow(
-                new AssertionError("PeeGeeQManager.start() should have failed — core tables are missing")))
+                new AssertionError("PeeGeeQManager.start() should have failed core tables are missing")))
             .onFailure(error -> testContext.verify(() -> {
-                logger.info("PeeGeeQManager.start() correctly failed: {}", error.getMessage());
+                logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected startup failure for missing schema: {}", error.getMessage());
 
                 // Walk the cause chain to find the IllegalStateException with the table list
                 Throwable cause = error;

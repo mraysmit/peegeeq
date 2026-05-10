@@ -10,11 +10,11 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -22,8 +22,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -34,14 +32,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Type safety tests for consumer mode implementation.
@@ -62,69 +62,48 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsumerModeTypeSafetyTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeTypeSafetyTest.class);
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_password");
-        return container;
-    }
+    @Container
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Configure test properties using TestContainer pattern (following existing patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT2S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
-
-        // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 
-        // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
-        // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
         factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for consumer mode type safety testing");
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-        logger.info("Test teardown completed");
     }
 
     // Test data classes for complex type testing
@@ -160,6 +139,11 @@ class ConsumerModeTypeSafetyTest {
         }
 
         @Override
+        public int hashCode() {
+            return java.util.Objects.hash(name, age, email);
+        }
+
+        @Override
         public String toString() {
             return "TestPerson{name='" + name + "', age=" + age + ", email='" + email + "'}";
         }
@@ -167,168 +151,104 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testStringTypeSafetyAcrossConsumerModes() throws Exception {
-        logger.info("🧪 Testing String type safety across all consumer modes");
-
+        logger.info("Test: string type safety across consumer modes");
         String topicName = "test-string-type-safety";
         String testMessage = "Hello, Type Safety! 🚀";
 
-        // Test LISTEN_NOTIFY_ONLY mode
         testTypeSafetyForMode(topicName + "-listen", String.class, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
-
-        // Test POLLING_ONLY mode
         testTypeSafetyForMode(topicName + "-polling", String.class, testMessage, ConsumerMode.POLLING_ONLY);
-
-        // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", String.class, testMessage, ConsumerMode.HYBRID);
-
-        logger.info("String type safety verified across all consumer modes");
     }
 
     @Test
     void testIntegerTypeSafetyAcrossConsumerModes() throws Exception {
-        logger.info("🧪 Testing Integer type safety across all consumer modes");
-
+        logger.info("Test: integer type safety across consumer modes");
         String topicName = "test-integer-type-safety";
         Integer testMessage = 42;
 
-        // Test LISTEN_NOTIFY_ONLY mode
         testTypeSafetyForMode(topicName + "-listen", Integer.class, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
-
-        // Test POLLING_ONLY mode
         testTypeSafetyForMode(topicName + "-polling", Integer.class, testMessage, ConsumerMode.POLLING_ONLY);
-
-        // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", Integer.class, testMessage, ConsumerMode.HYBRID);
-
-        logger.info("Integer type safety verified across all consumer modes");
     }
 
     @Test
     void testComplexObjectTypeSafetyAcrossConsumerModes() throws Exception {
-        logger.info("🧪 Testing complex object type safety across all consumer modes");
-
+        logger.info("Test: complex object type safety across consumer modes");
         String topicName = "test-complex-object-type-safety";
         TestPerson testMessage = new TestPerson("Alice Johnson", 30, "alice@example.com");
 
-        // Test LISTEN_NOTIFY_ONLY mode
         testTypeSafetyForMode(topicName + "-listen", TestPerson.class, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
-
-        // Test POLLING_ONLY mode
         testTypeSafetyForMode(topicName + "-polling", TestPerson.class, testMessage, ConsumerMode.POLLING_ONLY);
-
-        // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", TestPerson.class, testMessage, ConsumerMode.HYBRID);
-
-        logger.info("Complex object type safety verified across all consumer modes");
     }
 
     @Test
     void testListTypeSafetyAcrossConsumerModes() throws Exception {
-        logger.info("🧪 Testing List type safety across all consumer modes");
-
+        logger.info("Test: list type safety across consumer modes");
         String topicName = "test-list-type-safety";
         @SuppressWarnings("unchecked")
         Class<List<String>> listClass = (Class<List<String>>) (Class<?>) List.class;
-        // Use ArrayList instead of List.of() to match Jackson deserialization behavior
         List<String> testMessage = new ArrayList<>(List.of("item1", "item2", "item3"));
 
-        // Test LISTEN_NOTIFY_ONLY mode
         testTypeSafetyForMode(topicName + "-listen", listClass, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
-
-        // Test POLLING_ONLY mode
         testTypeSafetyForMode(topicName + "-polling", listClass, testMessage, ConsumerMode.POLLING_ONLY);
-
-        // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", listClass, testMessage, ConsumerMode.HYBRID);
-
-        logger.info("List type safety verified across all consumer modes");
     }
 
     @Test
     void testMapTypeSafetyAcrossConsumerModes() throws Exception {
-        logger.info("🧪 Testing Map type safety across all consumer modes");
-
+        logger.info("Test: map type safety across consumer modes");
         String topicName = "test-map-type-safety";
         @SuppressWarnings("unchecked")
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
-        // Use LinkedHashMap instead of Map.of() to match Jackson deserialization behavior
         Map<String, Object> testMessage = new LinkedHashMap<>();
         testMessage.put("name", "Test Map");
         testMessage.put("count", 123);
         testMessage.put("active", true);
 
-        // Test LISTEN_NOTIFY_ONLY mode
         testTypeSafetyForMode(topicName + "-listen", mapClass, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
-
-        // Test POLLING_ONLY mode
         testTypeSafetyForMode(topicName + "-polling", mapClass, testMessage, ConsumerMode.POLLING_ONLY);
-
-        // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", mapClass, testMessage, ConsumerMode.HYBRID);
-
-        logger.info("Map type safety verified across all consumer modes");
     }
 
     @Test
     void testBigDecimalTypeSafetyAcrossConsumerModes() throws Exception {
-        logger.info("🧪 Testing BigDecimal type safety across all consumer modes");
-
+        logger.info("Test: big decimal type safety across consumer modes");
         String topicName = "test-bigdecimal-type-safety";
         BigDecimal testMessage = new BigDecimal("123.456789");
 
-        // Test LISTEN_NOTIFY_ONLY mode
         testTypeSafetyForMode(topicName + "-listen", BigDecimal.class, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
-
-        // Test POLLING_ONLY mode
         testTypeSafetyForMode(topicName + "-polling", BigDecimal.class, testMessage, ConsumerMode.POLLING_ONLY);
-
-        // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", BigDecimal.class, testMessage, ConsumerMode.HYBRID);
-
-        logger.info("BigDecimal type safety verified across all consumer modes");
     }
 
     @Test
-    void testNullValueHandlingAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing null value handling behavior across all consumer modes");
-
+    void testNullValueHandlingAcrossConsumerModes(VertxTestContext testContext) throws Exception {
+        logger.info("Test: null value handling across consumer modes");
         String topicName = "test-null-value-handling";
 
-        // Based on logs, the producer accepts null values but consumer rejects them during processing
-        // Test that the system handles this gracefully by moving null messages to dead letter queue
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
 
-        AtomicReference<String> receivedMessage = new AtomicReference<>();
         VertxTestContext nullCtx = new VertxTestContext();
 
         consumer.subscribe(message -> {
-            receivedMessage.set(message.getPayload());
-            logger.info("📨 Received message: {}", message.getPayload());
             nullCtx.completeNow();
             return Future.succeededFuture();
         });
 
         try {
-            // Producer accepts null values (based on logs showing successful NOTIFY)
-            CountDownLatch nullSendLatch = new CountDownLatch(1);
-            producer.send(null).onComplete(ar -> nullSendLatch.countDown());
-            nullSendLatch.await(5, TimeUnit.SECONDS);
-            logger.info("Producer accepted null payload (will be rejected by consumer)");
+            producer.send(null).await();
 
-            // Consumer should not receive the message (it gets moved to dead letter queue)
             boolean received = nullCtx.awaitCompletion(5, TimeUnit.SECONDS);
             assertFalse(received, "Consumer should not receive null payload (moved to dead letter queue)");
-
-            logger.info("Null payload correctly handled - producer accepts, consumer rejects, moved to DLQ");
         } finally {
             consumer.close();
             producer.close();
         }
 
         testContext.completeNow();
-        logger.info("Null value handling behavior verified");
     }
 
     /**
@@ -345,50 +265,34 @@ class ConsumerModeTypeSafetyTest {
         MessageConsumer<T> consumer = factory.createConsumer(topicName, payloadType, config);
         MessageProducer<T> producer = factory.createProducer(topicName, payloadType);
 
-        AtomicReference<T> receivedMessage = new AtomicReference<>();
-        VertxTestContext modeCtx = new VertxTestContext();
+        try {
+            AtomicReference<T> receivedMessage = new AtomicReference<>();
+            VertxTestContext modeCtx = new VertxTestContext();
 
-        consumer.subscribe(message -> {
-            receivedMessage.set(message.getPayload());
-            logger.info("📨 Received {} message in {} mode: {}",
-                payloadType.getSimpleName(), mode, message.getPayload());
-            modeCtx.completeNow();
-            return Future.succeededFuture();
-        });
+            consumer.subscribe(message -> {
+                receivedMessage.set(message.getPayload());
+                modeCtx.completeNow();
+                return Future.succeededFuture();
+            });
 
-        // Send test message
-        CountDownLatch modeSendLatch = new CountDownLatch(1);
-        producer.send(expectedMessage).onComplete(ar -> modeSendLatch.countDown());
-        assertTrue(modeSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+            producer.send(expectedMessage).await();
 
-        // Wait for message processing
-        boolean received = modeCtx.awaitCompletion(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive message in " + mode + " mode");
+            boolean received = modeCtx.awaitCompletion(10, TimeUnit.SECONDS);
+            assertTrue(received, "Should receive message in " + mode + " mode");
 
-        // Verify type safety and content
-        T actualMessage = receivedMessage.get();
-        if (expectedMessage == null) {
-            assertNull(actualMessage, "Should receive null value correctly");
-        } else {
+            T actualMessage = receivedMessage.get();
             assertNotNull(actualMessage, "Should receive non-null message");
             assertEquals(expectedMessage, actualMessage,
                 "Message content should match exactly for " + payloadType.getSimpleName());
 
-            // For collection types, verify the content matches but allow different implementation classes
-            // (Jackson may deserialize to different concrete types than what we sent)
-            if (payloadType == List.class || payloadType == Map.class) {
-                logger.info("Collection content verified - sent: {}, received: {}",
-                    expectedMessage.getClass().getSimpleName(), actualMessage.getClass().getSimpleName());
-            } else {
+            if (payloadType != List.class && payloadType != Map.class) {
                 assertEquals(expectedMessage.getClass(), actualMessage.getClass(),
                     "Message type should match exactly for non-collection types");
             }
+        } finally {
+            consumer.close();
+            producer.close();
         }
-
-        consumer.close();
-        producer.close();
-
-        logger.info("Type safety verified for {} in {} mode", payloadType.getSimpleName(), mode);
     }
 }
 

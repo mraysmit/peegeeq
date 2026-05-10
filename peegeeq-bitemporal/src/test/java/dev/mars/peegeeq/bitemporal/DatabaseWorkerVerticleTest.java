@@ -60,6 +60,7 @@ class DatabaseWorkerVerticleTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database connection properties");
         // Set database connection properties
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -69,11 +70,13 @@ class DatabaseWorkerVerticleTest {
         setTestProperty("peegeeq.health-check.queue-checks-enabled", "false");
 
         // Initialize schema
+        logger.info("Initializing bitemporal schema");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
         // Initialize manager and event store
+        logger.info("Starting PeeGeeQManager and creating event store");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration());
-        manager.start();
+        manager.start().await();
 
         vertx = Vertx.vertx();
 
@@ -84,10 +87,12 @@ class DatabaseWorkerVerticleTest {
                 "bitemporal_event_log",
                 new com.fasterxml.jackson.databind.ObjectMapper()
         );
+        logger.info("Setup complete: manager started, event store created");
     }
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing event stores and manager");
         if (secondaryEventStore != null) {
             secondaryEventStore.close();
             secondaryEventStore = null;
@@ -101,6 +106,7 @@ class DatabaseWorkerVerticleTest {
             manager = null;
         }
         restoreTestProperties();
+        logger.info("Teardown complete");
     }
 
     private void setTestProperty(String key, String value) {
@@ -125,10 +131,12 @@ class DatabaseWorkerVerticleTest {
 
     @Test
     void shouldProcessAppendOperationViaEventBus() throws Exception {
+        logger.info("Test: verify append operation via event bus routes to the correct worker verticle");
         // Given
         String tableName = "bitemporal_event_log";
         
         // Deploy the worker verticle
+        logger.info("Deploying database worker verticle for table '{}'", tableName);
         PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, tableName)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         
@@ -151,22 +159,28 @@ class DatabaseWorkerVerticleTest {
             .put("aggregateId", "agg-1");
 
         // When
+        logger.info("Sending append request via event bus to address '{}'",
+                PgBiTemporalEventStore.databaseOperationAddress(tableName));
         JsonObject result = vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
             .map(msg -> msg.body())
             .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         // Then
+        logger.info("Append result received: id={}, eventType={}", result.getString("id"), result.getString("eventType"));
         assertNotNull(result);
         assertNotNull(result.getString("id"));
         assertEquals("test.event", result.getString("eventType"));
         assertEquals(payload, result.getJsonObject("payload"));
+        logger.info("Append operation via event bus completed successfully");
     }
 
     @Test
     void shouldFailAppendOperationForUnknownClientKey() throws Exception {
+        logger.info("Test: verify append with unknown instanceKey is rejected");
         // Given
         String tableName = "bitemporal_event_log";
 
+        logger.info("Deploying database worker verticle for table '{}'", tableName);
         PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, tableName)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -186,19 +200,24 @@ class DatabaseWorkerVerticleTest {
             .put("aggregateId", "agg-unknown")
             .put("clientKey", "does-not-exist");
 
+        logger.info("Sending append with instanceKey='does-not-exist' expecting rejection");
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = append via event bus with unknown instanceKey/clientKey");
         Exception exception = assertThrows(Exception.class, () ->
             vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
                 .map(msg -> msg.body())
                 .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected failure = {}", exception.getMessage());
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Expected missing pool error for unknown client key");
     }
 
     @Test
     void shouldRouteEventBusDistributionToCorrectTableWhenMultipleWorkerDeploymentsExist() throws Exception {
+        logger.info("Test: verify events route to correct table when multiple worker deployments exist");
         String primaryTable = "bitemporal_event_log";
         String secondaryTable = "bitemporal_event_log_secondary";
 
+        logger.info("Creating secondary table '{}' and deploying workers for both tables", secondaryTable);
         createSecondaryBitemporalTable(secondaryTable);
         setTestProperty("peegeeq.database.use.event.bus.distribution", "true");
 
@@ -215,20 +234,25 @@ class DatabaseWorkerVerticleTest {
         PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, secondaryTable)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
+        logger.info("Appending event to primary table and secondary table");
         await(eventStore.appendBuilder().eventType("table.primary").payload(new TestEvent("p1", "primary", 1)).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
         await(secondaryEventStore.appendBuilder().eventType("table.secondary").payload(new TestEvent("s1", "secondary", 2)).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
+        logger.info("Verifying events landed in the correct tables (no cross-contamination)");
         assertEquals(1L, countRowsForEventType(primaryTable, "table.primary"));
         assertEquals(0L, countRowsForEventType(primaryTable, "table.secondary"));
         assertEquals(1L, countRowsForEventType(secondaryTable, "table.secondary"));
         assertEquals(0L, countRowsForEventType(secondaryTable, "table.primary"));
+        logger.info("Event routing verified: each table contains only its own events");
     }
 
     @Test
     void shouldRejectLegacyClientKeyFallbackWhenMultipleStoresShareClientKey() throws Exception {
+        logger.info("Test: verify ambiguous legacy clientKey fallback is rejected when multiple stores share __default__");
         String primaryTable = "bitemporal_event_log";
         String secondaryTable = "bitemporal_event_log_secondary_ambiguous";
 
+        logger.info("Creating secondary table with same default client key to force ambiguity");
         createSecondaryBitemporalTable(secondaryTable);
 
         // Create second store with same default client key (__default__) to force ambiguity.
@@ -259,10 +283,13 @@ class DatabaseWorkerVerticleTest {
             .put("correlationId", UUID.randomUUID().toString())
             .put("aggregateId", "agg-ambiguous");
 
+        logger.info("Sending append with clientKey='__default__' (ambiguous) expecting rejection");
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = ambiguous legacy clientKey fallback across worker deployments");
         Exception exception = assertThrows(Exception.class, () ->
             vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(primaryTable), message)
                 .map(msg -> msg.body())
                 .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected failure = {}", exception.getMessage());
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Ambiguous legacy client-key fallback should be rejected");
     }
