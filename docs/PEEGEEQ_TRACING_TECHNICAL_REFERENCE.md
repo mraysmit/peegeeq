@@ -23,6 +23,7 @@
 12. [API Reference](#api-reference)
 13. [Compatibility Matrix](#compatibility-matrix)
 14. [Implementation Checklist](#implementation-checklist)
+15. [Event Causality and Identifier Taxonomy](#event-causality-and-identifier-taxonomy)
 
 ---
 
@@ -699,6 +700,38 @@ void testNoCrossThreadBleed() throws Exception {
 
 ## Database Schema
 
+### event_store_template table (v1.1.0+)
+
+All tenant event store tables include `causation_id` (added in v1.1.0):
+
+```sql
+ALTER TABLE event_store_template
+ADD COLUMN causation_id VARCHAR(255);
+
+CREATE INDEX IF NOT EXISTS idx_event_store_causation_id
+ON event_store_template(causation_id);
+```
+
+This enables querying full causality chains:
+
+```sql
+-- Find all events caused by a specific parent event
+SELECT * FROM {schema}.event_store
+WHERE causation_id = 'parent-event-id-here';
+
+-- Trace a complete event causality chain
+WITH RECURSIVE causality_chain AS (
+    SELECT event_id, event_type, causation_id, 0 AS depth
+    FROM {schema}.event_store
+    WHERE event_id = 'root-event-id'
+    UNION ALL
+    SELECT e.event_id, e.event_type, e.causation_id, cc.depth + 1
+    FROM {schema}.event_store e
+    JOIN causality_chain cc ON e.causation_id = cc.event_id
+)
+SELECT * FROM causality_chain ORDER BY depth;
+```
+
 ### messages table
 
 ```sql
@@ -904,6 +937,141 @@ AsyncTraceUtils.tracedConsumer(vertx, "address", msg -> {
 
 ---
 
+## Event Causality and Identifier Taxonomy
+
+PeeGeeQ uses four distinct identifiers for correlation and causality. Understanding their differences prevents misuse.
+
+### Identifier Reference Table
+
+| Identifier | Scope | Layer | Set by | Purpose |
+|------------|-------|-------|--------|---------|
+| `traceId` | Distributed request | W3C / Tracing | PeeGeeQ tracing infra | Correlate logs across service hops for a single request |
+| `spanId` | Single operation | W3C / Tracing | PeeGeeQ tracing infra | Identify a specific operation within a trace |
+| `correlationId` | Workflow / session | Event Sourcing | Application code | Group all events belonging to the same workflow or user session |
+| `causationId` | Event parent-child | Event Sourcing | Application code | Record which specific event caused this event |
+
+### How They Differ
+
+```
+traceId/spanId  → "Which HTTP request / Vert.x context produced this log line?"
+correlationId   → "Which business workflow do these events belong to?"
+causationId     → "Which specific event directly triggered this event?"
+```
+
+`traceId` and `spanId` live in the W3C `traceparent` header and are **ephemeral** — they exist for the lifetime of a request and are stored in MDC and Vert.x Context. They are not stored in the event store as first-class fields.
+
+`correlationId` and `causationId` are **persistent** — they are stored in every event record and survive beyond the originating request.
+
+### EventStore.append() Signature (v1.1.0+)
+
+```java
+Future<BiTemporalEvent<T>> append(
+    String eventType,      // 1. Event type name
+    T payload,             // 2. Event payload
+    Instant validTime,     // 3. Valid-time timestamp
+    Map<String, String> headers, // 4. Additional headers
+    String correlationId,  // 5. Groups related events in a workflow
+    String causationId,    // 6. NEW (v1.1.0) — ID of the event that caused this one
+    String aggregateId     // 7. Entity/aggregate ID
+);
+```
+
+Passing `null` for `causationId` is valid for root events (commands from external actors).
+
+### Event Causality Chain Pattern
+
+```java
+// Root event — caused by external user action, so causationId = null
+BiTemporalEvent<Order> orderEvent = eventStore.append(
+    "OrderCreated", order, now, headers,
+    "corr-123",  // correlationId — groups the whole workflow
+    null,        // causationId — root event, no parent
+    "order-456"  // aggregateId
+).toCompletionStage().toCompletableFuture().get();
+
+// Child event — caused by OrderCreated
+BiTemporalEvent<Inventory> inventoryEvent = eventStore.append(
+    "InventoryReserved", inventory, now, headers,
+    "corr-123",                  // same correlationId (same workflow)
+    orderEvent.getEventId(),     // causationId = parent event ID
+    "inventory-789"
+).toCompletionStage().toCompletableFuture().get();
+
+// Grandchild event — caused by InventoryReserved
+eventStore.append(
+    "PaymentProcessed", payment, now, headers,
+    "corr-123",
+    inventoryEvent.getEventId(), // causationId = immediate parent
+    "order-456"
+);
+```
+
+This produces the chain:
+
+```
+UserAction
+  → OrderCreated        (causationId: null,                    correlationId: corr-123)
+      → InventoryReserved (causationId: OrderCreated.eventId,    correlationId: corr-123)
+          → PaymentProcessed (causationId: InventoryReserved.eventId, correlationId: corr-123)
+```
+
+### Combining Tracing and Causality
+
+The W3C `traceparent` and `causationId` serve complementary roles and should both be present:
+
+```
+Incoming HTTP POST /orders
+  traceparent: 00-abc123...-def456...-01   ← W3C trace context for log correlation
+  body: { correlationId: "corr-123", causationId: null, ... }
+
+  │
+  ├─ Log: [trace=abc123 span=def456] Handling OrderCreated
+  ├─ eventStore.append(... causationId=null ...)   ← stored persistently in event
+  └─ eventStore.append(... causationId=orderEventId ...)  ← child event, same HTTP request trace
+```
+
+If the child event is triggered asynchronously (e.g. via outbox), it starts a **new** W3C trace but preserves the same `correlationId` and carries the `causationId` from the parent event:
+
+```
+Outbox consumer picks up InventoryReserved event
+  traceparent: 00-zzz999...-yyy888...-01   ← NEW trace (different request)
+  causationId: <OrderCreated event ID>      ← SAME causation chain (persistent)
+  correlationId: corr-123                   ← SAME workflow (persistent)
+```
+
+### BiTemporalEvent Interface (v1.1.0+)
+
+```java
+public interface BiTemporalEvent<T> {
+    String getEventId();
+    String getEventType();
+    T getPayload();
+    Instant getValidTime();
+    Instant getTransactionTime();
+    long getVersion();
+    String getPreviousVersionId();
+    Map<String, String> getHeaders();
+    String getCorrelationId();
+    String getCausationId();   // ← NEW in v1.1.0
+    String getAggregateId();
+    boolean isCorrection();
+    String getCorrectionReason();
+}
+```
+
+### Migration from v1.0.x
+
+See `PEEGEEQ_BREAKING_CHANGES_CAUSATION_ID.md` for the full migration guide. Summary:
+
+| Change | Action |
+|--------|--------|
+| `EventStore.append()` now takes 7 parameters | Add `null` as the 6th argument |
+| `BiTemporalEvent.getCausationId()` added | Implement if you have custom `BiTemporalEvent` impls |
+| `SimpleBiTemporalEvent` constructor updated | Add `null` as the 10th argument |
+| Event store tables get `causation_id` column | Run the migration SQL (see Database Schema section) |
+
+---
+
 ## Forward Compatibility (OpenTelemetry-Ready)
 
 This design is **OTel-compatible by construction**:
@@ -914,6 +1082,7 @@ This design is **OTel-compatible by construction**:
 | `mdcScope()` returning `AutoCloseable` | `Scope` |
 | `childSpan()` | `Span.spanBuilder().setParent()` |
 | W3C traceparent | W3C Trace Context Propagator |
+| `causationId` on events | OTel `Link` (causal relationship between spans) |
 
 **Future migration path**:
 1. Replace `TraceCtx` internals with OTel SDK
@@ -931,5 +1100,5 @@ This design is the **minimum bar for correctness** in a real Vert.x distributed 
 ---
 
 *Document: PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md*  
-*Version: 2.0*  
-*Last Updated: 2026-01-06*
+*Version: 2.1*  
+*Last Updated: 2026-05-10*

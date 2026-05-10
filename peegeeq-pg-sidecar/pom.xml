@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>dev.mars</groupId>
+        <artifactId>peegeeq</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>peegeeq-pg-sidecar</artifactId>
+    <name>PeeGeeQ PG Sidecar</name>
+    <description>
+        Lightweight Vert.x HTTP sidecar that exposes a /primary endpoint for HAProxy health checks.
+        Returns HTTP 200 when the local PostgreSQL node is the write primary (pg_is_in_recovery() = false),
+        HTTP 503 when it is a replica. Deploy one instance alongside each PostgreSQL node.
+    </description>
+
+    <dependencies>
+        <!-- Vert.x -->
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-pg-client</artifactId>
+        </dependency>
+
+        <!-- SCRAM Authentication for PostgreSQL (must be explicit — not transitively provided) -->
+        <dependency>
+            <groupId>com.ongres.scram</groupId>
+            <artifactId>scram-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.ongres.scram</groupId>
+            <artifactId>scram-common</artifactId>
+        </dependency>
+
+        <!-- Logging -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-web-client</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-test-support</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <groups>${test.groups}</groups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+                    <parallel>${test.parallel}</parallel>
+                    <threadCount>${test.threadCount}</threadCount>
+                    <perCoreThreadCount>false</perCoreThreadCount>
+                    <trimStackTrace>false</trimStackTrace>
+                    <useFile>true</useFile>
+                    <printSummary>true</printSummary>
+                </configuration>
+            </plugin>
+
+            <!-- Fat-jar for standalone deployment alongside PostgreSQL -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.1</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>dev.mars.peegeeq.sidecar.PgPrimaryCheckMain</mainClass>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <profile>
+            <id>core-tests</id>
+            <activation>
+                <activeByDefault>true</activeByDefault>
+            </activation>
+            <properties>
+                <test.groups>core</test.groups>
+                <test.excludedGroups>integration,performance,slow</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>4</test.threadCount>
+            </properties>
+        </profile>
+        <!--
+             Native image profile.
+             Prerequisites:
+               - GraalVM JDK 21+ on PATH  (or JAVA_HOME pointing at it)
+               - native-image tool installed: `gu install native-image`
+
+             Build fat-jar first, then build native image:
+               mvn package -Pnative
+             Or skip tests:
+               mvn package -Pnative -DskipTests
+
+             Output: target/peegeeq-pg-sidecar  (Linux/macOS) or target/peegeeq-pg-sidecar.exe (Windows)
+
+             Run:
+               ./target/peegeeq-pg-sidecar \
+                 -Dpg.host=localhost -Dpg.port=5432 \
+                 -Dpg.user=haproxy_check -Dpg.password= \
+                 -Dhttp.port=8008
+
+             Docker (multi-stage, distroless):
+               FROM ghcr.io/graalvm/native-image-community:21 AS builder
+               COPY . /build
+               WORKDIR /build
+               RUN mvn package -Pnative -DskipTests
+               FROM gcr.io/distroless/base
+               COPY --from=builder /build/target/peegeeq-pg-sidecar /app/peegeeq-pg-sidecar
+               ENTRYPOINT ["/app/peegeeq-pg-sidecar"]
+        -->
+        <profile>
+            <id>native</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.graalvm.buildtools</groupId>
+                        <artifactId>native-maven-plugin</artifactId>
+                        <version>0.10.3</version>
+                        <extensions>true</extensions>
+                        <executions>
+                            <execution>
+                                <id>build-native</id>
+                                <goals>
+                                    <goal>compile-no-fork</goal>
+                                </goals>
+                                <phase>package</phase>
+                            </execution>
+                        </executions>
+                        <configuration>
+                            <mainClass>dev.mars.peegeeq.sidecar.PgPrimaryCheckMain</mainClass>
+                            <imageName>peegeeq-pg-sidecar</imageName>
+                            <buildArgs>
+                                <!-- Required for plain HTTP server in Vert.x -->
+                                <buildArg>--enable-url-protocols=http</buildArg>
+                                <!-- SCRAM uses Java security providers -->
+                                <buildArg>--enable-all-security-services</buildArg>
+                                <!-- Fail fast: do not fall back to JVM if config is missing -->
+                                <buildArg>--no-fallback</buildArg>
+                                <!-- Faster startup: Netty is safe to initialise at build time -->
+                                <buildArg>--initialize-at-build-time=io.netty</buildArg>
+                                <!-- Report missing reachability metadata clearly -->
+                                <buildArg>-H:+ReportExceptionStackTraces</buildArg>
+                            </buildArgs>
+                            <!-- GraalVM Reachability Metadata repository (covers Vert.x, Netty, SLF4J) -->
+                            <metadataRepository>
+                                <enabled>true</enabled>
+                            </metadataRepository>
+                            <!-- User-supplied reflection/resource config in src/main/resources/META-INF/native-image/ -->
+                            <configurationFileDirectories>
+                                <configurationFileDirectory>
+                                    src/main/resources/META-INF/native-image
+                                </configurationFileDirectory>
+                            </configurationFileDirectories>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <profile>
+            <id>integration-tests</id>
+            <properties>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
+            </properties>
+        </profile>
+    </profiles>
+
+</project>
