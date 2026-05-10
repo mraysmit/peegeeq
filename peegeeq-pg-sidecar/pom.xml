@@ -189,7 +189,7 @@
                WORKDIR /build
                RUN mvn package -Pnative -DskipTests
                FROM gcr.io/distroless/base
-               COPY --from=builder /build/target/peegeeq-pg-sidecar /app/peegeeq-pg-sidecar
+               COPY - -from=builder /build/target/peegeeq-pg-sidecar /app/peegeeq-pg-sidecar
                ENTRYPOINT ["/app/peegeeq-pg-sidecar"]
         -->
         <profile>
