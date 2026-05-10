@@ -5,6 +5,12 @@
 
 > **MANDATORY NO BACKGROUND/ASYNC MODE**: All Maven test commands MUST be run in foreground (sync) mode so output streams live and visibly in the terminal. Never use background, async, or fire-and-forget execution for test runs. The `Tee-Object` pipe handles logging. Running in background hides output from the user and is forbidden regardless of how long the test run takes.
 
+> **DO NOT RE-RUN AFTER "Large tool result written to file"**: The `run_in_terminal` tool stops returning inline output to the agent after ~60KB. This is a limit of the **tool**, not of Tee-Object or Maven. Tee-Object has no limit — Maven and Tee-Object keep running to full completion in the terminal. After the tool returns:
+> 1. Do NOT re-run the command.
+> 2. Use `Get-Process java` to check if Maven is still running.
+> 3. When done, read the log: `Get-Content logs\<name>.txt -Tail 30`
+> 4. The complete Surefire summary and `BUILD SUCCESS`/`FAILURE` will always be in the log file.
+
 ---
 
 ## 1 Daily Development (run this constantly)
