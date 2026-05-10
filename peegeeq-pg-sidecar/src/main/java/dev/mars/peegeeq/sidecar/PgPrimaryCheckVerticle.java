@@ -103,7 +103,11 @@ public class PgPrimaryCheckVerticle extends AbstractVerticle {
     public void stop(Promise<Void> stop) {
         if (pool != null) {
             pool.close()
-                    .onComplete(ar -> stop.complete());
+                    .onSuccess(v -> stop.complete())
+                    .onFailure(err -> {
+                        logger.warn("Pool close failed during stop", err);
+                        stop.complete();
+                    });
         } else {
             stop.complete();
         }

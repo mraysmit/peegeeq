@@ -1,4 +1,4 @@
-# PostgreSQL Connection Management and HAProxy Failover Test Design
+# PeeGeeq Connection Management and HAProxy Failover 
 
 **Author**: Mark A Ray-Smith Cityline Ltd.
 **Date**: Aug 26, 2025  
@@ -33,6 +33,55 @@ This document records:
 5. The design decisions behind the HAProxy failover integration test.
 6. The local developer docker-compose topology (HAProxy + PgBouncer).
 7. Known gaps and future work.
+8. How to build and use the pg-sidecar service.
+
+---
+
+## Document Map
+
+| Section | What it covers | Audience |
+|---|---|---|
+| §1 Connection Management Architecture | How `PgConnectionManager`, `PgClientFactory`, and `PgBuilder.pool()` fit together; configuration loading; pool creation; reconnection; schema isolation | Developers, reviewers |
+| §2 Resilience Stack | The three independent mechanisms active during a failover window: Vert.x pool discard/reconnect, `HealthCheckManager` + circuit breaker, `ConnectionRouter` + Consul | Developers, architects |
+| §3 Application vs Database Failover | Why the two failover planes are orthogonal and what each one handles | Architects, ops |
+| §4 Why an External Proxy Is Needed | Why the Vert.x pool cannot self-heal without HAProxy; how HAProxy fills the gap; Patroni as an optional enhancement | Architects, ops |
+| §5 HAProxy Integration Test | Container topology, test phases, retry design, how to run the test | Developers |
+| §6 Local Developer Environment | Docker-compose stack (HAProxy + PgBouncer); how to simulate a failover with `docker compose stop` | Developers |
+| §7 Known Gaps | Summary of five open gaps; links to the detailed implementation plan | All |
+| §8 Using the pg-sidecar | How to build, configure, and run `peegeeq-pg-sidecar`; HAProxy `httpchk` config; verifying the endpoint | Developers, ops |
+
+---
+
+## Resiliency Options at a Glance
+
+The table below shows every PostgreSQL database-tier resiliency option available with PeeGeeQ,
+ordered from simplest to most complete.  Choose the row that matches your reliability
+requirements, then follow the detail links.
+
+| Option | Failover behaviour | Promotion mechanism | Write downtime | Extra infrastructure |
+|---|---|---|---|---|
+| **Single managed FQDN (DBA/DevOps-controlled)** | No automatic failover — DBA/DevOps updates the DNS record or virtual IP to point at the new primary; pool reconnects automatically once the FQDN resolves to the live node | Manual DBA / DevOps (DNS or VIP flip) | Until FQDN is re-pointed | DNS TTL management or virtual IP (no proxy process required) |
+| **HAProxy + `pgsql-check`** | Stops routing to dead node; standby stays read-only; no auto-promotion | Manual DBA | Until DBA promotes | HAProxy |
+| **HAProxy + `httpchk` + `peegeeq-pg-sidecar`** | Semantic primary detection via `pg_is_in_recovery()`; no auto-promotion | Manual DBA | Until DBA promotes | HAProxy + sidecar per node |
+| **HAProxy + Patroni** | Automatic failover; DCS leader election; fencing + `pg_rewind` | Patroni (`pg_promote()` + `pg_ctl`) | ~10–30 s | HAProxy + Patroni + DCS (etcd / Consul / ZK) |
+| **HAProxy + Consul monitor (`peegeeq-service-manager`)** | Automatic failover; Consul TTL + LockDelay fencing; partial (`pg_terminate_backend`) | `pg_promote()` via reactive pgclient | ~25–30 s (tunable) | Consul cluster (already required by service-manager) |
+
+### Reading the table
+
+- **Option 1** — no proxy process at all; the application points at a single FQDN or virtual IP that DBA/DevOps re-points to the new primary after failover.  The Vert.x pool reconnects automatically once the FQDN resolves to the live node.  Suitable for development and non-critical workloads.
+- **Option 3** — adds semantic primary detection (`pg_is_in_recovery()` via sidecar) without
+  requiring Patroni.  Correct for production with manual failover.
+- **Option 4** — full Patroni stack; the industry-standard approach for PostgreSQL HA.
+  Requires an external DCS.
+- **Option 5** — the native PeeGeeQ path: re-uses the Consul cluster that
+  `peegeeq-service-manager` already requires.  Avoids introducing Patroni.  The
+  `PgFailoverMonitor` and `PgPrimaryElector` components are **proposed** (see
+  [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md)).
+- **Option 6** — offloads all HA concerns to the cloud provider; simplest operational model
+  for cloud deployments.
+
+In all cases, point `peegeeq.database.host` and `peegeeq.database.port` at the proxy,
+load-balancer, or managed writer endpoint — never directly at a PostgreSQL node.
 
 `HealthCheckManager` updates a health status map and optionally short-circuits its own
 periodic checks via the circuit breaker — it does not stop the `Pool` or gate business
@@ -570,273 +619,756 @@ docker compose -f scripts/docker-compose-failover-local.yml start pg-primary
 
 ---
 
-## 7. Gaps and Future Work
+## 7. Known Gaps
 
-### 7.1 No pool-level reconnect configuration
+Five gaps exist between the current implementation and a fully resilient production setup.
+For detailed analysis, recommendations, and a phased implementation plan see
+[PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY_GAPS.md).
 
-`PgBuilder.pool()` has no `reconnectAttempts` / `reconnectInterval` setting analogous to
-Vert.x EventBus or HttpClient reconnect options.  Reconnect happens implicitly on the next
-`pool.getConnection()` call.  Under a slow HAProxy failover window, in-flight operations
-on broken connections will fail and must be retried by the caller.
-
-**Gap**: `CircuitBreakerManager` exists and is used by `HealthCheckManager` to guard
-health-check queries.  It is **not** currently wired into `PgConnectionManager` or into
-business operation paths.  During the ~1 s HAProxy failover window, callers receive raw
-`VertxException: Connection refused` failures rather than a structured
-`CircuitBreakerOpenException`.
-
-**Recommendation**: evaluate wiring the circuit breaker to the pool acquisition path
-(`withConnection`, `withTransaction`) so that a burst of connection failures during failover
-opens the breaker and surfaces a single, observable circuit-open event rather than a flood of
-raw TCP errors.
-
-### 7.2 LISTEN/NOTIFY reconnects are pool-independent
-
-`ReactiveNotificationHandler` in `peegeeq-bitemporal` manages its own long-lived connection
-separate from the pool.  It has its own exponential backoff.  It points directly at PostgreSQL
-(primary host/port), not at HAProxy.
-
-**Gap**: if the primary fails and the application uses bitemporal subscriptions, the
-LISTEN/NOTIFY connection will exhaust its 5 reconnect attempts and go silent.  It will not
-automatically route to the secondary via HAProxy because it was not pointed at HAProxy.
-
-**Recommendation**: `ReactiveNotificationHandler` should also connect through HAProxy (or
-another TCP proxy) so its long-lived connection benefits from the same automatic failover.
-
-### 7.3 Streaming replication not covered by the test
-
-The current test uses two independent PostgreSQL instances.  A real HA setup requires
-streaming replication so the secondary has the same data as the primary.  After a failover,
-queries to the secondary that reference data written to the primary but not yet replicated
-would return stale results or fail.
-
-**Recommendation**: a future integration test should configure pg_primary with
-`wal_level=replica`, set up a Testcontainers secondary with `recovery.conf` / `standby.signal`,
-and verify data consistency across the failover boundary.
-
-### 7.4 PgBouncer `server_reset_query` in transaction pool mode
-
-The local docker-compose uses `PGBOUNCER_POOL_MODE=session`.  In session mode, a server
-connection follows a client connection for its lifetime, making reset queries straightforward.
-Transaction pool mode (higher throughput) requires careful `server_reset_query` configuration
-because PostgreSQL `search_path` (and other session parameters) must be reset between
-transactions when connections are multiplexed.  Using transaction mode with PeeGeeQ's
-`search_path` tenant isolation has not been tested.
-
-**Recommendation**: if transaction pool mode is required for performance, validate that
-`server_reset_query = DISCARD ALL` or an explicit `SET search_path` reset correctly restores
-the configured schema between transactions.
-
-### 7.5 Split-brain consideration with streaming replication and automatic promotion
-
-HAProxy is production-ready and widely deployed in front of PostgreSQL.  It does not require
-Patroni.  The consideration below applies only to a **specific combination** of conditions:
-streaming replication is active **and** an automatic promotion mechanism (script, cloud
-automation, etc.) promotes the secondary without fencing the old primary first.
-
-**The scenario that requires care**:
-
-1. Primary goes down.  HAProxy routes writes to the secondary.
-2. Automated tooling promotes the secondary to accept writes.
-3. The original primary recovers and passes HAProxy's `pgsql-check` health check (`rise=1`).
-4. HAProxy automatically routes writes back to the original primary — which was never
-   demoted and has no knowledge of the promotion.
-5. Both nodes now accept writes simultaneously.  Data diverges.
-
-**This scenario does not arise when**:
-- Promotion is manual (a DBA promotes explicitly, then updates HAProxy or the DNS entry).
-- Patroni manages the cluster — it fences the old primary before promoting the secondary.
-- A cloud managed service is used (RDS Multi-AZ, Cloud SQL, etc.) — the managed failover
-  endpoint handles the switch atomically.
-- The `backup` keyword in HAProxy config is left as-is and no automatic promotion script
-  runs — HAProxy routes to the secondary for reads/connections but the secondary remains
-  a replica and never becomes a conflicting primary.
-
-**Why this does not affect the current project**: the integration test and local dev
-docker-compose use two independent PostgreSQL instances with no streaming replication.  No
-automatic promotion occurs.  The setup is correct for its purpose (connection-level failover
-testing).
-
-**Recommendation for production with streaming replication and automatic promotion**: add
-Patroni (or repmgr) to manage promotion with fencing, and replace the plain TCP check with
-`httpchk GET /primary` against Patroni's REST port as shown in §4.  For environments that
-use manual promotion or a managed service endpoint, HAProxy alone is sufficient.
+| # | Gap | Risk |
+|---|---|---|
+| 7.1 | No circuit breaker on pool operations — failover window errors surface as raw TCP failures | MEDIUM |
+| 7.2 | LISTEN/NOTIFY long-lived connection bypasses HAProxy — does not auto-recover after primary failover | LOW |
+| 7.3 | Streaming replication not covered by the integration test | LOW |
+| 7.4 | PgBouncer transaction pool mode with `search_path` tenant isolation is untested | LOW |
+| 7.5 | Split-brain risk when streaming replication + automatic node promotion are combined without Patroni | LOW–MEDIUM |
 
 ---
 
-## 8. Implementation Plan
+## 8. Using the pg-sidecar Service (`peegeeq-pg-sidecar`)
 
-The four gaps above are graded by risk and dependency order.  Gaps 7.1 and 7.2 require
-production code changes and must follow the standard change process (read existing code →
-focused file-by-file change → compile → integration test → verify no forbidden patterns).
-Gaps 7.3 and 7.4 are test/config-only changes.
+`peegeeq-pg-sidecar` is the project's built-in HTTP health-check sidecar.  It exposes
+a single endpoint:
 
----
-
-### Phase 1 — LISTEN/NOTIFY via HAProxy (Gap 7.2)
-**Risk: LOW.  No new abstractions.  Single call-site change.**
-
-`ReactiveNotificationHandler` accepts a `PgConnectOptions` as a constructor argument.  The
-host/port baked into that options object is what determines whether the long-lived LISTEN
-connection survives a primary failover.  Currently that options object is built from
-`PgConnectionConfig.getHost()` / `getPort()` — the raw PostgreSQL address.
-
-**Change required**: wherever `ReactiveNotificationHandler` is constructed (find all call sites
-in `peegeeq-bitemporal`), use the HAProxy host/port from configuration rather than the direct
-PostgreSQL host/port.
-
-**New configuration property** (add to `peegeeq-default.properties` and
-`PeeGeeQConfiguration`):
 ```
-peegeeq.database.proxy.host=   (default: same as peegeeq.database.host)
-peegeeq.database.proxy.port=   (default: same as peegeeq.database.port)
+GET /primary
+  → HTTP 200   when pg_is_in_recovery() = false  (this node is the write primary)
+  → HTTP 503   when pg_is_in_recovery() = true   (replica) or PostgreSQL is unreachable
 ```
 
-When these properties are set, both `PgConnectionManager.createReactivePool()` and the
-`PgConnectOptions` passed to `ReactiveNotificationHandler` should use the proxy address.
-When unset, behaviour is unchanged (direct PostgreSQL, no proxy).
-
-**Test**: extend `HaProxyConnectionFailoverTest` with a third phase that:
-1. Creates a `ReactiveNotificationHandler` pointed at HAProxy.
-2. Subscribes to a NOTIFY channel.
-3. Stops the primary; waits for HAProxy to switch.
-4. Issues `NOTIFY` on the secondary; asserts the handler receives the notification.
-
-**Files to change**:
-- `peegeeq-db/src/main/resources/peegeeq-default.properties` — add proxy properties
-- `peegeeq-db/src/main/java/.../config/PeeGeeQConfiguration.java` — read proxy properties
-- `peegeeq-bitemporal/src/main/.../bitemporal/PeeGeeQBiTemporalManager.java` (or wherever
-  `ReactiveNotificationHandler` is constructed) — use proxy options
-- `peegeeq-db/src/test/.../resilience/HaProxyConnectionFailoverTest.java` — Phase 3 test
+Deploy one sidecar process alongside **each** PostgreSQL node.  HAProxy calls the endpoint
+on the local sidecar to decide whether to route writes to that node.
 
 ---
 
-### Phase 2 — Circuit Breaker on Pool Operations (Gap 7.1)
-**Risk: MEDIUM.  Changes `PgConnectionManager` public API surface.**
+### 8.1 Where it fits in the stack
 
-The goal is to make `withConnection()` and `withTransaction()` aware of an optional
-`CircuitBreakerManager` so that a burst of connection failures during a failover window opens
-the breaker and surfaces a structured failure instead of a flood of raw TCP errors.
+```
+PeeGeeQ application
+  │  host=haproxy, port=5400    ← peegeeq.database.host / peegeeq.database.port
+  ▼
+HAProxy:5400
+  ├──► pg-node-1:5432   check port 8008  httpchk GET /primary
+  │       sidecar:8008 ──► pg-node-1:5432  SELECT pg_is_in_recovery()
+  └──► pg-node-2:5432   check port 8008  httpchk GET /primary backup
+          sidecar:8008 ──► pg-node-2:5432  SELECT pg_is_in_recovery()
+```
 
-**Design constraints**:
-- `CircuitBreakerManager` is already optional (nullable) in `HealthCheckManager`.  Apply the
-  same pattern in `PgConnectionManager`: accept it via constructor, null means no circuit
-  breaking.
-- The circuit breaker must be checked **before** `pool.withConnection()` is called; if open,
-  return `Future.failedFuture(new CallNotPermittedException(...))` immediately.
-- Record success/failure on the Resilience4j `CircuitBreaker` after the pool call resolves.
-- Use a **per-pool** circuit breaker named `"db.pool.<serviceId>"` so different pools can
-  fail independently.
+The sidecar calls `pg_is_in_recovery()` on the local PostgreSQL node and reports the result
+to HAProxy.  HAProxy only routes writes to the node whose sidecar returns HTTP 200.
 
-**Sketch** (inside `PgConnectionManager.withConnection()`):
+---
+
+### 8.2 Configuration
+
+All settings are passed as JVM system properties (`-D`).  No configuration file is required.
+
+| Property | Default | Description |
+|---|---|---|
+| `pg.host` | `localhost` | PostgreSQL host (should be `localhost` or the local node address) |
+| `pg.port` | `5432` | PostgreSQL port |
+| `pg.database` | `postgres` | Database to connect to |
+| `pg.user` | `haproxy_check` | PostgreSQL user |
+| `pg.password` | *(empty)* | Password (leave empty if using the no-password user setup) |
+| `http.port` | `8008` | Port the sidecar HTTP server listens on |
+
+The sidecar uses a pool of **2 connections** to the local node.  No additional configuration
+is needed.
+
+---
+
+### 8.3 PostgreSQL user setup (one-time, per node)
+
+The `haproxy_check` user requires only the ability to connect and call
+`pg_is_in_recovery()`.  No schema access and no password are needed.
+
+```sql
+CREATE USER haproxy_check WITH PASSWORD '' CONNECTION LIMIT 3;
+-- pg_is_in_recovery() is a built-in function; no GRANT is needed.
+-- Optionally restrict to the postgres database only:
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
+GRANT  CONNECT ON DATABASE postgres TO haproxy_check;
+```
+
+In Testcontainers, supply this as an init script via `.withInitScript("haproxy-check-init.sql")`.
+In docker-compose, mount it as `/docker-entrypoint-initdb.d/init-haproxy-check.sql`.
+
+---
+
+### 8.4 Build and run
+
+#### Fat-jar (JVM — any JDK 21+)
+
+```powershell
+cd c:\Users\mraysmit\dev\idea-projects\peegeeq
+mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.txt
+
+java `
+  -Dpg.host=localhost `
+  -Dpg.port=5432 `
+  -Dpg.database=postgres `
+  -Dpg.user=haproxy_check `
+  -Dpg.password= `
+  -Dhttp.port=8008 `
+  -jar peegeeq-pg-sidecar/target/peegeeq-pg-sidecar-1.0-SNAPSHOT.jar
+```
+
+#### Native binary (GraalVM JDK 21+)
+
+```powershell
+mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.txt
+# Build takes 2–5 minutes.
+# Output: peegeeq-pg-sidecar\target\peegeeq-pg-sidecar.exe  (Windows)
+#         peegeeq-pg-sidecar/target/peegeeq-pg-sidecar       (Linux/macOS)
+```
+
+Run (Windows):
+```powershell
+.\peegeeq-pg-sidecar\target\peegeeq-pg-sidecar.exe `
+  -Dpg.host=localhost `
+  -Dpg.port=5432 `
+  -Dpg.user=haproxy_check `
+  -Dpg.password= `
+  -Dhttp.port=8008
+```
+
+Run (Linux/macOS):
+```bash
+./peegeeq-pg-sidecar/target/peegeeq-pg-sidecar \
+  -Dpg.host=localhost \
+  -Dpg.port=5432 \
+  -Dpg.user=haproxy_check \
+  -Dpg.password= \
+  -Dhttp.port=8008
+```
+
+#### Container image (native binary, distroless, ~10 MB)
+
+```dockerfile
+# Stage 1: build the native binary
+FROM ghcr.io/graalvm/native-image-community:21 AS builder
+WORKDIR /build
+COPY . .
+RUN mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests
+
+# Stage 2: distroless runtime — no JVM, no shell, minimal attack surface
+FROM gcr.io/distroless/base-debian12
+COPY --from=builder /build/peegeeq-pg-sidecar/target/peegeeq-pg-sidecar /app/peegeeq-pg-sidecar
+EXPOSE 8008
+ENTRYPOINT ["/app/peegeeq-pg-sidecar"]
+```
+
+```bash
+docker build -t peegeeq-pg-sidecar:latest .
+
+docker run --rm \
+  -e JAVA_TOOL_OPTIONS="-Dpg.host=db-node-1 -Dpg.port=5432 -Dpg.user=haproxy_check -Dpg.password= -Dhttp.port=8008" \
+  -p 8008:8008 \
+  peegeeq-pg-sidecar:latest
+```
+
+---
+
+### 8.5 HAProxy configuration for HTTP-based primary detection
+
+Replace the `option pgsql-check` lines in the HAProxy config with `option httpchk` pointing
+at the sidecar.  This gives HAProxy semantic knowledge of which node PostgreSQL considers the
+write primary, not just which node accepts TCP connections.
+
+```haproxy
+backend pg_write
+    balance           leastconn
+    option            httpchk GET /primary
+    http-check        expect status 200
+
+    # Deploy one sidecar alongside each PostgreSQL node, listening on port 8008.
+    # HAProxy health-checks the sidecar HTTP endpoint; PostgreSQL port (5432) is for data.
+    server pg1 pg1:5432 check port 8008 inter 500ms fall 2 rise 1
+    server pg2 pg2:5432 check port 8008 inter 500ms fall 2 rise 1 backup
+```
+
+HAProxy contacts `pg1:8008/primary` and `pg2:8008/primary` every 500 ms.  Only the node whose
+sidecar returns HTTP 200 receives write traffic.  The backup server becomes active only when
+the primary's sidecar returns HTTP 503 twice in a row (`fall=2`).
+
+---
+
+### 8.6 PeeGeeQ application configuration
+
+Point PeeGeeQ at HAProxy, not at PostgreSQL directly.  The sidecar and HAProxy together
+ensure only the write primary receives connections.
+
+```properties
+# peegeeq-default.properties (or environment-specific override)
+peegeeq.database.host=haproxy-host     # HAProxy address, not the PostgreSQL node
+peegeeq.database.port=5400             # HAProxy frontend port
+peegeeq.database.name=peegeeq
+peegeeq.database.username=peegeeq
+peegeeq.database.password=peegeeq
+peegeeq.database.schema=public
+```
+
+Or via system properties at startup:
+```powershell
+java -Dpeegeeq.database.host=haproxy-host `
+     -Dpeegeeq.database.port=5400 `
+     -jar peegeeq-runtime/target/peegeeq-runtime.jar
+```
+
+The `PgConnectionManager` pool is built once from these values.  All connection attempts,
+reconnects, and failovers happen transparently through the HAProxy address — no code change
+or pool restart is required when PostgreSQL failover occurs.
+
+---
+
+### 8.7 Verifying the sidecar
+
+While the sidecar is running:
+
+```powershell
+# PowerShell
+Invoke-WebRequest -Uri http://localhost:8008/primary -Method GET | Format-List StatusCode, StatusDescription
+# Primary node  → StatusCode 200
+# Replica node  → StatusCode 503
+
+# curl
+curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8008/primary
+```
+
+Unknown paths return HTTP 404:
+```powershell
+Invoke-WebRequest -Uri http://localhost:8008/health -Method GET
+# → 404
+```
+
+---
+
+### 8.8 Running the integration test
+
+The integration test (`PgPrimaryCheckIntegrationTest`) starts a real PostgreSQL container,
+deploys the verticle, and verifies all three response cases (200, 404, 503):
+
+```powershell
+cd c:\Users\mraysmit\dev\idea-projects\peegeeq
+mvn test -pl :peegeeq-pg-sidecar -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-integration-20260510.txt
+```
+
+Requirements: Docker Desktop running.  The test uses `postgres:15.13-alpine3.20` (pulled once,
+cached by Docker).  Expected run time: under 30 seconds.
+
+
+---
+
+## Appendix A: HAProxy Primary Detection Options
+
+*The following is the full content of peegeeq-service-manager/docs/PG_HAPROXY_PRIMARY_DETECTION_OPTIONS.md.*
+
+---
+
+# HAProxy PostgreSQL Routing Without Patroni
+
+**Author**: Mark A Ray-Smith Cityline Ltd.  
+**Date**: May 10, 2026  
+**Status**: REFERENCE  
+**Module**: `peegeeq-service-manager`
+
+---
+
+## 1. The Core Problem
+
+`option pgsql-check` and plain TCP checks both verify that PostgreSQL is **alive**.
+Both the primary and any replica pass these checks.
+Neither tells HAProxy which node is the **write primary**.
+
+Only something that queries `SELECT pg_is_in_recovery()` can distinguish them:
+
+| Node role | `pg_is_in_recovery()` | HAProxy should… |
+|-----------|----------------------|-----------------|
+| Primary (read-write) | `f` | Route writes here |
+| Standby / replica | `t` | Block writes / mark backup |
+
+This is precisely what Patroni's `/primary` HTTP endpoint does internally — it calls
+`pg_is_in_recovery()` and returns HTTP 200 for primary, HTTP 503 for replica.
+
+---
+
+## 2. What Patroni Does
+
+Understanding what Patroni provides is necessary context for evaluating the alternatives.
+
+Patroni is a Python daemon that runs on each PostgreSQL node and does three distinct things:
+
+### 2.1 Leader Election via a Distributed Data Store (DCS)
+
+Patroni stores the identity of the current primary in an external DCS — etcd, Consul, or
+ZooKeeper.  Each Patroni instance holds a **session-based lock** (a TTL key in etcd, or a
+Consul session + KV key).  The primary continuously renews that lock.  When the primary fails:
+
+1. The lock TTL expires.
+2. The standby with the most up-to-date WAL position races to acquire the lock.
+3. The winner of the race is authorised to promote.
+
+This is the property the alternatives in §3 either replicate (Consul-based monitor), partially
+replicate (repmgr with witness), or omit entirely (custom HTTP sidecar).
+
+### 2.2 Automatic Promotion
+
+Once a Patroni standby wins the DCS lock it calls:
+
+```
+pg_promote()          ← SQL, PostgreSQL 12+
+  or
+pg_ctl promote        ← shell command, older PostgreSQL
+```
+
+It then updates the DCS entry to announce itself as the new primary.
+
+### 2.3 HTTP Status Endpoint for HAProxy
+
+Patroni runs a small REST API on each node (default port 8008).
+
+| Endpoint | HTTP 200 | HTTP 503 |
+|----------|----------|----------|
+| `/primary` | This node is the write primary | This node is not the primary |
+| `/replica` | This node is a healthy replica | This node is not a replica |
+| `/health` | Node is running | Node is unhealthy |
+
+HAProxy uses `option httpchk GET /primary` to query this endpoint.  Servers that return 503
+are taken out of rotation.  This is the only part of Patroni that HAProxy interacts with.
+
+### 2.4 Fencing the Old Primary
+
+When the old primary comes back after a crash it must be prevented from accepting writes until
+it re-syncs.  Patroni handles this by:
+
+- Refusing to start PostgreSQL on the old primary until it has confirmed with the DCS that
+  another node now holds the leader lock.
+- Running `pg_rewind` automatically to align the old primary's WAL with the new primary's
+  timeline before starting replication.
+
+**This is the hardest part to replicate without Patroni.**  Without it, a recovered old
+primary can accept writes concurrently with the new primary, causing data divergence.
+
+### 2.5 Summary of What Patroni Provides
+
+| Capability | Patroni provides | Notes |
+|------------|-----------------|-------|
+| HAProxy routing signal (`/primary` HTTP) | Yes | Trivially replicable with a sidecar |
+| Automatic promotion | Yes | Requires DCS or equivalent |
+| DCS-backed leader election (no split-brain) | Yes | Core value of Patroni |
+| Automatic fencing / pg_rewind on re-join | Yes | Hardest to replicate |
+| Monitoring REST API (`/patroni`, `/history`) | Yes | Nice-to-have, not critical for routing |
+
+---
+
+## 3. Options Without Patroni
+
+### 3.1 Custom HTTP Sidecar (Patroni-Equivalent, Minimal)
+
+Patroni's `/primary` endpoint is not complex.  The logic is:
+
+```
+GET /primary
+  → SELECT pg_is_in_recovery()
+  → false  → HTTP 200  (this node is the write primary)
+  → true   → HTTP 503  (this node is a replica)
+```
+
+You can replicate this with a small process on each PostgreSQL node.  Since PeeGeeQ is a
+Vert.x project, a Java implementation is the natural fit: no extra language runtime,
+packaged as a standard fat-jar or native image, consistent with the rest of the codebase.
+
+**Java / Vert.x implementation** (runs on each node, listens on port 8008):
+
 ```java
-// New optional field: private final CircuitBreakerManager circuitBreakerManager;
+// PgPrimaryCheckVerticle.java — deploy as a standalone Vert.x verticle
+// Exposes GET /primary → 200 if write primary, 503 if replica or unreachable
+public class PgPrimaryCheckVerticle extends AbstractVerticle {
 
-public <T> Future<T> withConnection(String serviceId, Function<SqlConnection, Future<T>> op) {
-    String resolvedId = resolveServiceId(serviceId);
-    Pool pool = reactivePools.get(resolvedId);
-    if (pool == null) {
-        return Future.failedFuture(new IllegalStateException("No pool: " + resolvedId));
+    private static final int HTTP_PORT = 8008;
+
+    @Override
+    public void start(Promise<Void> start) {
+        PgConnectOptions connectOptions = new PgConnectOptions()
+                .setHost(config().getString("pg.host", "localhost"))
+                .setPort(config().getInteger("pg.port", 5432))
+                .setDatabase(config().getString("pg.database", "postgres"))
+                .setUser(config().getString("pg.user", "haproxy_check"))
+                .setPassword(config().getString("pg.password", ""));
+
+        Pool pool = PgBuilder.pool()
+                .with(new PoolOptions().setMaxSize(2))
+                .connectingTo(connectOptions)
+                .using(vertx)
+                .build();
+
+        vertx.createHttpServer()
+                .requestHandler(req -> {
+                    if ("/primary".equals(req.path())) {
+                        pool.query("SELECT pg_is_in_recovery()")
+                                .execute()
+                                .onSuccess(rows -> {
+                                    boolean isReplica = rows.iterator().next().getBoolean(0);
+                                    req.response().setStatusCode(isReplica ? 503 : 200).end();
+                                })
+                                .onFailure(err -> req.response().setStatusCode(503).end());
+                    } else {
+                        req.response().setStatusCode(404).end();
+                    }
+                })
+                .listen(HTTP_PORT)
+                .<Void>mapEmpty()
+                .onComplete(start);
     }
-    if (circuitBreakerManager != null) {
-        CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker("db.pool." + resolvedId);
-        if (cb != null && cb.getState() == CircuitBreaker.State.OPEN) {
-            return Future.failedFuture(cb.createCallNotPermittedException());
-        }
-        return pool.withConnection(conn -> {
-            setupNoticeHandler(conn);
-            return op.apply(conn);
-        }).onSuccess(v -> { if (cb != null) cb.onSuccess(0, TimeUnit.NANOSECONDS); })
-          .onFailure(e -> { if (cb != null) cb.onError(0, TimeUnit.NANOSECONDS, e); });
-    }
-    return pool.withConnection(conn -> {
-        setupNoticeHandler(conn);
-        return op.apply(conn);
-    });
 }
 ```
 
-Apply the same pattern to `withTransaction()`.  `getReactiveConnection()` is for callers that
-manage their own connection lifecycle; leave it unwrapped for now.
+**Main launcher** (for running as a standalone process):
 
-**Wiring**: `PeeGeeQManager` already constructs both `PgConnectionManager` and
-`CircuitBreakerManager`; pass `circuitBreakerManager` into the `PgConnectionManager`
-constructor there.
+```java
+public class PgPrimaryCheckMain {
+    public static void main(String[] args) {
+        Vertx vertx = Vertx.vertx();
+        JsonObject config = new JsonObject()
+                .put("pg.host",     System.getProperty("pg.host", "localhost"))
+                .put("pg.port",     Integer.getInteger("pg.port", 5432))
+                .put("pg.database", System.getProperty("pg.database", "postgres"))
+                .put("pg.user",     System.getProperty("pg.user", "haproxy_check"))
+                .put("pg.password", System.getProperty("pg.password", ""));
 
-**Test**: add an integration test (`CircuitBreakerPoolIntegrationTest`) that:
-1. Creates a pool pointed at a stopped PostgreSQL container.
-2. Calls `withConnection()` enough times to trip the breaker threshold.
-3. Asserts subsequent calls fail with a `CallNotPermittedException` (not a TCP error).
-4. Starts the container; asserts the breaker transitions to HALF_OPEN then CLOSED.
-
-**Files to change**:
-- `peegeeq-db/src/main/java/.../connection/PgConnectionManager.java` — constructor +
-  `withConnection()` + `withTransaction()`
-- `peegeeq-db/src/main/java/.../PeeGeeQManager.java` — pass `circuitBreakerManager` to
-  `PgConnectionManager`
-- `peegeeq-db/src/test/.../resilience/CircuitBreakerPoolIntegrationTest.java` — new test
-
----
-
-### Phase 3 — Streaming Replication Test (Gap 7.3)
-**Risk: LOW.  Test-only.  No production code change.**
-
-Replace the two-independent-nodes topology in `HaProxyConnectionFailoverTest` with a real
-streaming replication setup.  This verifies not just connection-level resilience but also that
-data written before the failover is visible on the secondary after promotion.
-
-**PostgreSQL configuration for primary** (via `withCommand()` on `PostgreSQLContainer`):
-```
--c wal_level=replica
--c max_wal_senders=3
--c wal_keep_size=64
+        vertx.deployVerticle(new PgPrimaryCheckVerticle(),
+                new DeploymentOptions().setConfig(config));
+    }
+}
 ```
 
-**Secondary setup** (via `withCommand()` on `GenericContainer` running the same Postgres
-image): use `pg_basebackup` in a `@BeforeAll` init script, then add `standby.signal` to the
-data directory.  Testcontainers `ExecInContainerPattern` can run the `pg_basebackup` command
-after both containers are started.
+**Run**:
 
-**Test phase** (extends Phase 2 of the existing test):
-1. Write a known row to primary via the pool.
-2. Stop primary; wait for HAProxy failover.
-3. Promote secondary with `pg_ctl promote`.
-4. Query that row via the pool — now reaching the promoted secondary.
-5. Assert the row exists (data survived the failover).
+```bash
+java -Dpg.host=localhost -Dpg.port=5432 -Dpg.user=haproxy_check \
+     -jar pg-primary-check.jar
+```
 
-**New test class**: `HaProxyReplicationFailoverTest` in the same `resilience` package.
-Keep `HaProxyConnectionFailoverTest` as-is (connection-level test, no replication, faster).
+**Why Java over Python here**:
+- No additional language runtime on the node — the JVM is already required for PeeGeeQ.
+- Uses `io.vertx.pgclient` (same driver as PeeGeeQ) — consistent behaviour, no new
+  PostgreSQL dependency.
+- Can be compiled to a GraalVM native image if a minimal-footprint sidecar is required.
+- The `haproxy_check` user needs no password and only the `SELECT pg_is_in_recovery()`
+  privilege — same as the Python version.
+
+**HAProxy config** (identical regardless of sidecar language):
+
+```haproxy
+backend pg_write
+    option httpchk GET /primary
+    server pg1 pg1:5432 check port 8008 inter 500ms fall 2 rise 1
+    server pg2 pg2:5432 check port 8008 backup inter 500ms fall 2 rise 1
+```
+
+This is functionally identical to what Patroni exposes.  The HTTP check and HAProxy
+configuration are the same; the only thing absent is the DCS-backed leader election that
+Patroni adds on top.
+
+**Deployment note**: this verticle must run as a sidecar on each PostgreSQL host (or
+container).  In a container environment it can run in a sidecar container sharing the
+network namespace with PostgreSQL, or as a second process in the same container managed by
+a simple process supervisor (e.g. `s6`, `supervisord`).
 
 ---
 
-### Phase 4 — PgBouncer Transaction Pool Validation (Gap 7.4)
-**Risk: LOW.  Config and test only.**
+### 3.2 HAProxy `agent-check` (TCP, No HTTP Needed)
 
-Add a second PgBouncer profile to the local docker-compose that uses
-`PGBOUNCER_POOL_MODE=transaction` with `server_reset_query=DISCARD ALL`.
+HAProxy has a dedicated `agent-check` mechanism.  An agent process listens on a TCP port;
+HAProxy connects, sends nothing, and reads a single text response:
 
-Write a test (`PgBouncerTransactionModeTest`) in `peegeeq-db` that:
-1. Starts PostgreSQL + PgBouncer (transaction mode) via Testcontainers.
-2. Runs `peegeeq-migrations` Flyway migrations against it.
-3. Creates a `PeeGeeQManager` pointed at PgBouncer.
-4. Sends and consumes messages across multiple transactions.
-5. Verifies `search_path` is correctly applied for each connection (queries the right schema).
+| Agent response | HAProxy action |
+|----------------|----------------|
+| `up\n` | Mark server UP, route traffic |
+| `down\n` | Mark server DOWN, stop routing |
+| `drain\n` | Drain existing connections, stop new ones |
 
-This test can be tagged `@Tag(TestCategories.INTEGRATION)` and run in CI alongside the
-existing integration suite.
+**Minimal shell agent** (served via `xinetd` or `socat` on port 9000 of each node):
+
+```bash
+#!/bin/bash
+# pg_agent.sh
+result=$(psql -U haproxy_check -Atc "SELECT pg_is_in_recovery()")
+if [ "$result" = "f" ]; then
+    echo "up"
+else
+    echo "down"
+fi
+```
+
+**`socat` wrapper** to expose the script on a TCP port:
+
+```bash
+socat TCP-LISTEN:9000,fork,reuseaddr EXEC:/opt/pg_agent.sh
+```
+
+**HAProxy config**:
+
+```haproxy
+backend pg_write
+    server pg1 pg1:5432 check agent-check agent-port 9000 agent-inter 500ms
+    server pg2 pg2:5432 check agent-check agent-port 9000 agent-inter 500ms backup
+```
+
+The `agent-check` and TCP health check run independently.  Both must pass for HAProxy to
+consider a server available.
 
 ---
 
-### Summary table
+### 3.3 `repmgr` + `repmgrd` (Automated Promotion, No DCS)
 
-| # | Gap | Phase | Risk | Production change | Test change |
-|---|---|---|---|---|---|
-| 7.2 | LISTEN/NOTIFY bypasses HAProxy | Phase 1 | LOW | Proxy config properties; call-site change | `HaProxyConnectionFailoverTest` Phase 3 |
-| 7.1 | No circuit breaker on pool ops | Phase 2 | MEDIUM | `PgConnectionManager` + `PeeGeeQManager` wiring | New `CircuitBreakerPoolIntegrationTest` |
-| 7.3 | No streaming replication test | Phase 3 | LOW | None | New `HaProxyReplicationFailoverTest` |
-| 7.4 | PgBouncer transaction mode untested | Phase 4 | LOW | None | New `PgBouncerTransactionModeTest` |
-| 7.5 | Split-brain with replication + auto-promotion | Ops/infra | LOW–MEDIUM (specific conditions only) | Add Patroni if using auto-promotion with replication | N/A |
+`repmgr` is the traditional PostgreSQL replication manager.  The `repmgrd` daemon handles
+automatic failover without requiring an external distributed data store (etcd, Consul,
+ZooKeeper).
 
-Phases 1 and 3 can be worked in parallel (different modules, no shared files).  Phase 2
-depends on Phase 1 being stable (pool changes affect the same `PgConnectionManager`).
-Phase 4 is fully independent.
+Key characteristics:
+- `repmgrd` runs on each PostgreSQL node.
+- It monitors the primary and triggers promotion scripts when the primary is unresponsive.
+- A **witness server** (a lightweight third node, not a full PostgreSQL replica) is
+  recommended to provide quorum and prevent split-brain; without it a two-node cluster
+  has the same split-brain exposure as any other two-node setup.
+- `repmgr` does not expose an HTTP endpoint compatible with `option httpchk`; HAProxy
+  integration still requires one of the sidecar approaches above.
+- Automatic failover is optional — `repmgr` can be used for monitoring and manual failover
+  only.
+
+---
+
+## 4. Comparison
+
+| Approach | Complexity | Extra process required | Automatic promotion | Split-brain safe |
+|----------|------------|------------------------|--------------------|--------------------|
+| Custom HTTP sidecar (§3.1) | Very low | Yes — tiny Python/shell | No | No |
+| HAProxy `agent-check` (§3.2) | Low | Yes — shell + socat/xinetd | No | No |
+| repmgr + repmgrd (§3.3) | Medium | Yes — repmgrd daemon | Yes (with witness) | Partial |
+| Consul-based monitor (see `PG_FAILOVER_CONSUL_DESIGN.md`) | Medium | No (uses existing Consul) | Yes | Yes (with fencing) |
+| Patroni | High | Yes — Patroni + DCS | Yes | Yes |
+
+---
+
+## 5. What Each Option Provides and Lacks
+
+### Custom HTTP sidecar / `agent-check`
+
+**Provides**:
+- HAProxy routes writes only to the current primary — correctly.
+- Identical behaviour to Patroni from HAProxy's perspective.
+- No new runtime dependencies.
+
+**Does not provide**:
+- Automatic promotion of the standby when the primary fails.
+- Split-brain prevention — if you promote manually and the old primary recovers, both
+  nodes could accept writes until the operator intervenes.
+
+**Appropriate when**:
+- Promotion is manual (operator decides when to promote).
+- Downtime during primary failure is acceptable until operator action.
+- You want the simplest possible routing-correctness fix.
+
+### `repmgr` + `repmgrd`
+
+**Provides**:
+- Automatic promotion without Patroni.
+- History of switchovers/failovers stored in `repmgr` schema.
+
+**Does not provide**:
+- Consul/etcd-backed quorum (uses its own TCP-based primary check).
+- Guaranteed split-brain safety without a witness node.
+
+**Appropriate when**:
+- You want automatic promotion without adding Consul or etcd.
+- You can provision a third node (witness) for quorum.
+
+### Consul-based monitor (PeeGeeQ-native)
+
+See `PG_FAILOVER_CONSUL_DESIGN.md` for the full design.  This is the preferred path for
+PeeGeeQ because Consul is already present in `peegeeq-service-manager` and the integration
+is fully reactive (Vert.x `io.vertx.ext.consul.ConsulClient`).
+
+---
+
+## 6. Recommendation for PeeGeeQ
+
+| Scenario | Recommended approach |
+|----------|----------------------|
+| Development / single-node | `option pgsql-check` already in HAProxy test config — sufficient |
+| Production, manual failover acceptable | Custom HTTP sidecar (§2.1) + HAProxy `httpchk` |
+| Production, automatic failover required | Consul-based monitor (`PG_FAILOVER_CONSUL_DESIGN.md`) |
+| Production, no Consul, 3 nodes available | `repmgr` + witness node |
+
+---
+
+## 7. Building the Java Sidecar
+
+The sidecar is implemented in `peegeeq-pg-sidecar`. Two deployment artefacts are supported:
+a **fat-jar** (JVM) and a **native binary** (GraalVM). Both expose the same `/primary`
+endpoint and accept the same system property configuration.
+
+### 7.1 Prerequisites
+
+| Artefact | Requirement |
+|----------|-------------|
+| Fat-jar | JDK 21+ (any distribution) |
+| Native binary | GraalVM JDK 21+ with `native-image` installed |
+
+Install GraalVM and `native-image` (one-time):
+
+```powershell
+# Option A — SDKMAN (Linux / macOS / WSL)
+sdk install java 21.0.3-graalce
+gu install native-image
+
+# Option B — Winget (Windows, native GraalVM distribution)
+winget install GraalVM.GraalVM.Community.21
+
+# Option C — download directly from https://www.graalvm.org/downloads/
+# Then add GRAALVM_HOME/bin to PATH and run:
+gu install native-image
+```
+
+Verify:
+
+```powershell
+java -version              # should show GraalVM
+native-image --version     # should print GraalVM native-image version
+```
+
+### 7.2 Build the Fat-Jar (JVM)
+
+```powershell
+cd c:\Users\mraysmit\dev\idea-projects\peegeeq
+mvn package -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-build.txt
+```
+
+Output: `peegeeq-pg-sidecar/target/peegeeq-pg-sidecar-1.0-SNAPSHOT.jar`
+
+Run:
+
+```powershell
+java `
+  -Dpg.host=localhost `
+  -Dpg.port=5432 `
+  -Dpg.database=postgres `
+  -Dpg.user=haproxy_check `
+  -Dpg.password= `
+  -Dhttp.port=8008 `
+  -jar peegeeq-pg-sidecar/target/peegeeq-pg-sidecar-1.0-SNAPSHOT.jar
+```
+
+### 7.3 Build the Native Binary (GraalVM)
+
+```powershell
+cd c:\Users\mraysmit\dev\idea-projects\peegeeq
+mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests 2>&1 | Tee-Object -FilePath logs\pg-sidecar-native.txt
+```
+
+The build takes 2–5 minutes. Output:
+
+- Windows: `peegeeq-pg-sidecar/target/peegeeq-pg-sidecar.exe`
+- Linux/macOS: `peegeeq-pg-sidecar/target/peegeeq-pg-sidecar`
+
+Run (Windows):
+
+```powershell
+.\peegeeq-pg-sidecar\target\peegeeq-pg-sidecar.exe `
+  -Dpg.host=localhost `
+  -Dpg.port=5432 `
+  -Dpg.user=haproxy_check `
+  -Dpg.password= `
+  -Dhttp.port=8008
+```
+
+Run (Linux/macOS):
+
+```bash
+./peegeeq-pg-sidecar/target/peegeeq-pg-sidecar \
+  -Dpg.host=localhost \
+  -Dpg.port=5432 \
+  -Dpg.user=haproxy_check \
+  -Dpg.password= \
+  -Dhttp.port=8008
+```
+
+### 7.4 Container Image (Native Binary, Distroless)
+
+Build a minimal container image from the native binary using a two-stage Dockerfile.
+The final image contains only the binary — no JVM, no shell, no package manager.
+
+```dockerfile
+# Stage 1: build the native binary
+FROM ghcr.io/graalvm/native-image-community:21 AS builder
+WORKDIR /build
+COPY . .
+RUN mvn package -Pnative -pl :peegeeq-pg-sidecar -DskipTests
+
+# Stage 2: distroless runtime — minimal attack surface, ~10 MB image
+FROM gcr.io/distroless/base-debian12
+COPY --from=builder /build/peegeeq-pg-sidecar/target/peegeeq-pg-sidecar /app/peegeeq-pg-sidecar
+EXPOSE 8008
+ENTRYPOINT ["/app/peegeeq-pg-sidecar"]
+```
+
+Build and run:
+
+```bash
+docker build -t peegeeq-pg-sidecar:latest .
+
+docker run --rm \
+  -e pg.host=db-node-1 \
+  -e pg.port=5432 \
+  -e pg.user=haproxy_check \
+  -e pg.password= \
+  -p 8008:8008 \
+  peegeeq-pg-sidecar:latest
+```
+
+Note: system properties (`-D`) do not pass through environment variables automatically in a
+native binary. If running in a container, you can either set the properties in `ENTRYPOINT`
+or add a small config-from-env layer to `PgPrimaryCheckMain`.
+
+### 7.5 PostgreSQL User Setup
+
+The `haproxy_check` user requires no password and only the minimum privilege needed to call
+`pg_is_in_recovery()`:
+
+```sql
+CREATE USER haproxy_check WITH PASSWORD '' CONNECTION LIMIT 3;
+-- pg_is_in_recovery() is a built-in function; no GRANT is needed.
+-- Optionally restrict to the postgres database only:
+REVOKE CONNECT ON DATABASE postgres FROM PUBLIC;
+GRANT  CONNECT ON DATABASE postgres TO haproxy_check;
+```
+
+### 7.6 Verify the Endpoint
+
+```powershell
+# While the sidecar is running:
+Invoke-WebRequest -Uri http://localhost:8008/primary -Method GET | Select-Object StatusCode
+# Primary node  → StatusCode 200
+# Replica node  → StatusCode 503
+```
+
+Or with `curl`:
+
+```bash
+curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8008/primary
+```
+
+---
+
+*End of document.*
