@@ -19,10 +19,11 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 
+import io.vertx.junit5.Checkpoint;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 @ExtendWith(VertxExtension.class)
 @Tag("tracing-verification")
@@ -147,35 +148,32 @@ public class TracePropagationTest {
      * sees another operation's traceId, the test fails.
      */
     @Test
-    void testConcurrencyIsolation(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testConcurrencyIsolation(Vertx vertx, VertxTestContext testContext) {
         final int PARALLEL_TRACES = 100;
-        
+
+        Checkpoint checkpoint = testContext.checkpoint(PARALLEL_TRACES);
+
         // Map to track: traceId -> list of observed traceIds in its worker
-        java.util.concurrent.ConcurrentHashMap<String, List<String>> observedTraces = 
+        java.util.concurrent.ConcurrentHashMap<String, List<String>> observedTraces =
             new java.util.concurrent.ConcurrentHashMap<>();
-        
-        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(PARALLEL_TRACES);
-        java.util.concurrent.atomic.AtomicReference<Throwable> firstError = new java.util.concurrent.atomic.AtomicReference<>();
-        
-        Logger log = (Logger) LoggerFactory.getLogger(TracePropagationTest.class);
-        
+
         for (int i = 0; i < PARALLEL_TRACES; i++) {
             final int index = i;
-            
+
             vertx.runOnContext(v -> {
                 // Create unique trace for this parallel operation
                 TraceCtx rootSpan = TraceCtx.createNew();
                 String expectedTraceId = rootSpan.traceId();
                 observedTraces.put(expectedTraceId, Collections.synchronizedList(new ArrayList<>()));
-                
+
                 // Store in Vert.x Context
                 Vertx.currentContext().put(TraceContextUtil.CONTEXT_TRACE_KEY, rootSpan);
-                
+
                 // Execute blocking operation that captures its observed traceId
                 AsyncTraceUtils.executeBlockingTraced(vertx, workerExecutor, false, () -> {
                     // Capture what MDC says our traceId is
                     String observedMdcTrace = org.slf4j.MDC.get("traceId");
-                    
+
                     // Record observation
                     if (observedMdcTrace != null) {
                         List<String> observations = observedTraces.get(expectedTraceId);
@@ -183,44 +181,20 @@ public class TracePropagationTest {
                             observations.add(observedMdcTrace);
                         }
                     }
-                    
-                    // Verify isolation - MDC must match expected
+
+                    // Verify isolation — MDC must match expected; throw AssertionError to fail the future
                     if (!expectedTraceId.equals(observedMdcTrace)) {
-                        String error = String.format(
+                        throw new AssertionError(String.format(
                             "BLEED DETECTED! Operation %d expected traceId=%s but found %s",
                             index, expectedTraceId, observedMdcTrace
-                        );
-                        firstError.compareAndSet(null, new AssertionError(error));
+                        ));
                     }
-                    
-                    // Simulate some work to increase chance of race conditions
-                    vertx.timer(5).toCompletionStage().toCompletableFuture().join();
-                    
+
                     return "done-" + index;
-                }).onComplete(ar -> {
-                    if (ar.failed() && firstError.get() == null) {
-                        firstError.compareAndSet(null, ar.cause());
-                    }
-                    latch.countDown();
-                });
+                })
+                .onSuccess(result -> checkpoint.flag())
+                .onFailure(testContext::failNow);
             });
-        }
-        
-        // Wait for all parallel operations to complete
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
-        
-        if (!completed) {
-            testContext.failNow(new AssertionError("Timeout waiting for parallel traces to complete"));
-            return;
-        }
-        
-        Throwable error = firstError.get();
-        if (error != null) {
-            log.error("Concurrency isolation test FAILED: {}", error.getMessage());
-            testContext.failNow(error);
-        } else {
-            log.info("Concurrency isolation test PASSED: {} parallel traces with no bleed detected", PARALLEL_TRACES);
-            testContext.completeNow();
         }
     }
 
