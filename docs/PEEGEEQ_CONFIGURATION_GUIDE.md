@@ -12,9 +12,13 @@ Author: Mark Andrew Ray-Smith Cityline Ltd
 
 - [Overview](#overview)
 - [Priority Chain](#priority-chain)
+  - [Phase 1 — Source merge](#phase-1--source-merge-lowest--highest-priority)
+  - [Phase 2 — Placeholder resolution](#phase-2--placeholder-resolution)
+- [Environment Variable Mapping](#environment-variable-mapping)
+  - [Mechanism 1 — PEEGEEQ_* direct sweep](#mechanism-1--peegeeq_-direct-sweep-phase-1-step-3)
+  - [Mechanism 2 — ${VAR:default} placeholder syntax](#mechanism-2--vardefault-placeholder-syntax-phase-2)
 - [Constructors and When to Use Each](#constructors-and-when-to-use-each)
 - [Named Profiles](#named-profiles)
-- [Environment Variable Mapping](#environment-variable-mapping)
 - [Property Reference](#property-reference)
   - [Database Connection](#database-connection)
   - [Connection Pool](#connection-pool)
@@ -63,8 +67,12 @@ point.
 
 ## Priority Chain
 
-Properties are resolved from lowest to highest priority. A later source overrides an earlier one
-for the same key.
+Configuration loading happens in **two sequential phases**. Understanding both is essential for
+predicting which value a property will have at runtime.
+
+### Phase 1 — Source merge (lowest → highest priority)
+
+Five sources are merged in order. A later source overwrites an earlier one for the same key.
 
 ```
 1. peegeeq-default.properties          (classpath, always loaded)
@@ -74,13 +82,40 @@ for the same key.
 5. Programmatic overrides              (Properties passed to the 2-arg constructor — highest)
 ```
 
-**Profile selection** is resolved once at construction:
+**Profile selection** is resolved once at construction before Phase 1 begins:
 
 ```
 System.getProperty("peegeeq.profile")
   → env PEEGEEQ_PROFILE
   → fallback: "default"
 ```
+
+### Phase 2 — Placeholder resolution
+
+After all five sources are merged into a single property set, `PeeGeeQConfiguration` scans
+every value for `${VAR}` and `${VAR:default}` placeholders and resolves them against
+environment variables. This phase runs **once**, on the fully merged set, before validation.
+
+```
+${VAR}          → value of env var VAR; left unchanged and WARN logged if VAR is not set
+${VAR:default}  → value of env var VAR if set, otherwise the literal text after ":"
+${VAR:}         → value of env var VAR if set, otherwise empty string
+```
+
+Placeholders may appear in values from **any** source — property files, programmatic overrides,
+or even values written via `System.setProperty`. They are always resolved in Phase 2 regardless
+of which source supplied them.
+
+**Important ordering detail:** Phase 3 `PEEGEEQ_*` env-var sweep (step 3 above) sets property
+values directly from the environment; it does not use `${...}` syntax. Placeholder syntax is
+for embedding env-var references inside property *file* values or programmatic override strings.
+Both mechanisms ultimately source values from environment variables, but they operate
+differently:
+
+| Mechanism | Where it applies | How it works |
+|---|---|---|
+| `PEEGEEQ_*` sweep (step 3) | `PEEGEEQ_DATABASE_HOST=db.example.com` | Sets `peegeeq.database.host` directly |
+| Placeholder in file value | `peegeeq.database.host=${DB_HOST:localhost}` | Resolved in Phase 2 after merge |
 
 > **Multi-tenancy warning:** System properties (step 4) are process-wide. In a JVM hosting
 > multiple tenant instances, relying on `System.setProperty` creates silent misconfiguration
@@ -102,6 +137,92 @@ System.getProperty("peegeeq.profile")
 > PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", jvmOverrides);
 > ```
 > This keeps System access to one intentional call at the application boundary.
+
+---
+
+## Environment Variable Mapping
+
+There are **two distinct mechanisms** for sourcing values from environment variables. Both are
+always active; they complement rather than replace each other.
+
+### Mechanism 1 — `PEEGEEQ_*` direct sweep (Phase 1, step 3)
+
+Every environment variable whose name starts with `PEEGEEQ_` is mapped directly to a property
+key during the source merge. Underscores become dots; hyphenated property names are matched by
+normalising both sides.
+
+```
+PEEGEEQ_DATABASE_HOST        →  peegeeq.database.host
+PEEGEEQ_DATABASE_POOL_MAX_SIZE  →  peegeeq.database.pool.max-size
+```
+
+This sweep runs at priority level 3 — it overrides values from property files but is itself
+overridden by system properties (step 4) and programmatic overrides (step 5).
+
+| Environment variable | Property key |
+|---|---|
+| `PEEGEEQ_PROFILE` | profile selection |
+| `PEEGEEQ_DATABASE_HOST` | `peegeeq.database.host` |
+| `PEEGEEQ_DATABASE_PORT` | `peegeeq.database.port` |
+| `PEEGEEQ_DATABASE_NAME` | `peegeeq.database.name` |
+| `PEEGEEQ_DATABASE_USERNAME` | `peegeeq.database.username` |
+| `PEEGEEQ_DATABASE_PASSWORD` | `peegeeq.database.password` |
+| `PEEGEEQ_DATABASE_SCHEMA` | `peegeeq.database.schema` |
+| `PEEGEEQ_DATABASE_SSL_ENABLED` | `peegeeq.database.ssl.enabled` |
+| `PEEGEEQ_DATABASE_POOL_MAX_SIZE` | `peegeeq.database.pool.max-size` |
+
+### Mechanism 2 — `${VAR:default}` placeholder syntax (Phase 2)
+
+Any property value — in a `.properties` file, in a programmatic override, or written via
+`System.setProperty` — may contain `${...}` placeholders. After all five source layers are
+merged, `PeeGeeQConfiguration` resolves every placeholder against the process environment.
+
+**Syntax reference:**
+
+| Pattern | Env var set? | Resolved value |
+|---|---|---|
+| `${VAR}` | yes | value of `VAR` |
+| `${VAR}` | no | `${VAR}` unchanged; WARN logged |
+| `${VAR:fallback}` | yes | value of `VAR` |
+| `${VAR:fallback}` | no | `fallback` |
+| `${VAR:}` | no | empty string |
+
+**Example — property file:**
+
+```properties
+peegeeq.database.host=${DB_HOST:localhost}
+peegeeq.database.port=${DB_PORT:5432}
+peegeeq.database.name=${DB_NAME:peegeeq_prod}
+peegeeq.database.username=${DB_USERNAME:peegeeq_prod}
+peegeeq.database.password=${DB_PASSWORD:}
+peegeeq.database.schema=${DB_SCHEMA:public}
+peegeeq.metrics.instance-id=${INSTANCE_ID:peegeeq-prod}
+```
+
+This is exactly the pattern used in `peegeeq-production.properties`. With `DB_PASSWORD` unset
+the password resolves to an empty string (trust/peer auth); a WARN is logged.
+
+**Example — programmatic override with placeholder:**
+
+```java
+// Useful when a wrapper config system supplies a reference string rather than the resolved value
+Properties overrides = new Properties();
+overrides.setProperty("peegeeq.database.password", "${DB_PWD}");
+PeeGeeQConfiguration config = new PeeGeeQConfiguration("production", overrides);
+// Phase 2 resolves ${DB_PWD} from the environment before validation runs
+```
+
+> **Choosing between the two mechanisms**
+>
+> - Use `PEEGEEQ_*` env vars when you have direct control over the process environment and want
+>   a simple, file-free deployment (e.g. container/Kubernetes secrets injected as env vars).
+> - Use `${VAR:default}` placeholders in `.properties` files when you want the file to be
+>   self-documenting (defaults are visible) and when different deployments share the same
+>   profile file but differ only in environment.
+> - Both mechanisms may be used together; the `PEEGEEQ_*` sweep at step 3 takes priority over
+>   the placeholder default but loses to a live `VAR` environment variable resolved in Phase 2
+>   for the same property (because Phase 2 runs after step 3 has already set the value).
+>   **Avoid setting the same property via both mechanisms** to prevent confusion.
 
 ---
 
@@ -187,30 +308,6 @@ it lists; everything else falls through to `peegeeq-default.properties`.
 | circuit-breaker | enabled | **disabled** | enabled | enabled | enabled | enabled |
 | auto-migrate | false | **true** | false | — | — | — |
 | SSL | false | false | **true** | — | — | — |
-
----
-
-## Environment Variable Mapping
-
-Environment variables with the `PEEGEEQ_` prefix are automatically mapped to property keys.
-Underscore separators are converted to dots; hyphenated property key names are also matched
-(e.g., `PEEGEEQ_DATABASE_POOL_MAX_SIZE` → `peegeeq.database.pool.max-size`).
-
-| Environment variable | Property key |
-|---|---|
-| `PEEGEEQ_PROFILE` | profile selection |
-| `PEEGEEQ_DATABASE_HOST` | `peegeeq.database.host` |
-| `PEEGEEQ_DATABASE_PORT` | `peegeeq.database.port` |
-| `PEEGEEQ_DATABASE_NAME` | `peegeeq.database.name` |
-| `PEEGEEQ_DATABASE_USERNAME` | `peegeeq.database.username` |
-| `PEEGEEQ_DATABASE_PASSWORD` | `peegeeq.database.password` |
-| `PEEGEEQ_DATABASE_SCHEMA` | `peegeeq.database.schema` |
-| `PEEGEEQ_DATABASE_SSL_ENABLED` | `peegeeq.database.ssl.enabled` |
-| `PEEGEEQ_DATABASE_POOL_MAX_SIZE` | `peegeeq.database.pool.max-size` |
-| `INSTANCE_ID` | `peegeeq.metrics.instance-id` (via `${INSTANCE_ID:peegeeq-prod}` in `production` profile) |
-
-The `production` profile uses `${ENV_VAR:default}` placeholder syntax for the six core database
-settings. These are resolved by `PeeGeeQConfiguration` at load time.
 
 ---
 
@@ -766,28 +863,6 @@ marks messages as stuck before the worker holding them has had time to finish.
 
 `peegeeq.database.host` resolved to an empty string. Check that `PEEGEEQ_DATABASE_HOST` is set
 in the environment, or that the `overrides` `Properties` object contains `peegeeq.database.host`.
-
----
-
-### Tests hang for 30 seconds then report `Timeout` with no root cause
-
-An exception was thrown inside a bare `.onSuccess()` callback. Vert.x routes synchronous
-exceptions thrown inside `onSuccess` to the vertex exception handler silently; `onFailure` is
-never called and `VertxTestContext` times out. Fix:
-
-```java
-// Replace:
-.onSuccess(v -> {
-    someMethodThatMayThrow();
-    testContext.completeNow();
-})
-
-// With:
-.onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-    someMethodThatMayThrow();
-    testContext.completeNow();
-})))
-```
 
 ---
 
