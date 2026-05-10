@@ -311,4 +311,67 @@ public class DeadLetterRequeueIntegrationTest {
             })
             .onFailure(testContext::failNow);
     }
+
+    @Test
+    @Order(9)
+    @DisplayName("Get DLQ message with non-numeric ID returns 400")
+    void testGetMessageWithNonNumericId_returns400(VertxTestContext testContext) {
+        String path = String.format("/api/v1/setups/%s/deadletter/messages/not-a-number", setupId);
+
+        webClient.get(TEST_PORT, "localhost", path)
+            .send()
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(400, response.statusCode(), "Expected 400 for non-numeric message ID");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body must be JSON");
+                    assertNotNull(body.getString("error"), "Response must contain 'error' field");
+                    logger.info("Got expected 400 for non-numeric DLQ message ID");
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("Delete DLQ message with non-numeric ID returns 400")
+    void testDeleteMessageWithNonNumericId_returns400(VertxTestContext testContext) {
+        String path = String.format("/api/v1/setups/%s/deadletter/messages/not-a-number", setupId);
+
+        webClient.delete(TEST_PORT, "localhost", path)
+            .send()
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(400, response.statusCode(), "Expected 400 for non-numeric message ID");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body must be JSON");
+                    assertNotNull(body.getString("error"), "Response must contain 'error' field");
+                    logger.info("Got expected 400 for non-numeric DLQ delete message ID");
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("Reprocess DLQ message with non-numeric ID returns 400")
+    void testReprocessMessageWithNonNumericId_returns400(VertxTestContext testContext) {
+        String path = String.format("/api/v1/setups/%s/deadletter/messages/not-a-number/reprocess", setupId);
+
+        webClient.post(TEST_PORT, "localhost", path)
+            .sendJsonObject(new JsonObject().put("reason", "test"))
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(400, response.statusCode(), "Expected 400 for non-numeric message ID");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response body must be JSON");
+                    assertNotNull(body.getString("error"), "Response must contain 'error' field");
+                    logger.info("Got expected 400 for non-numeric DLQ reprocess message ID");
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
 }
