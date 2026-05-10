@@ -1,0 +1,35 @@
+[
+  {
+    "comment": "SCRAM authentication — loaded via ServiceLoader by Vert.x pgclient",
+    "name": "com.ongres.scram.client.ScramClient",
+    "allPublicConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "com.ongres.scram.common.ScramMechanisms",
+    "allPublicConstructors": true,
+    "allPublicMethods": true,
+    "allPublicFields": true
+  },
+  {
+    "comment": "Logback configuration classes",
+    "name": "ch.qos.logback.classic.Logger",
+    "allPublicConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ch.qos.logback.core.ConsoleAppender",
+    "allPublicConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "name": "ch.qos.logback.classic.encoder.PatternLayoutEncoder",
+    "allPublicConstructors": true,
+    "allPublicMethods": true
+  },
+  {
+    "comment": "Vert.x verticle loaded by class name",
+    "name": "dev.mars.peegeeq.sidecar.PgPrimaryCheckVerticle",
+    "allPublicConstructors": true
+  }
+]
