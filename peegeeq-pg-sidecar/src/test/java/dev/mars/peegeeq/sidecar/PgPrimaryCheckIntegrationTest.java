@@ -6,6 +6,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
+import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -139,5 +140,59 @@ class PgPrimaryCheckIntegrationTest {
                     "Unreachable PostgreSQL should return HTTP 503");
             ctx.completeNow();
         })).onFailure(ctx::failNow);
+    }
+
+    @Test
+    @DisplayName("Concurrent /primary requests (simulating HAProxy polling frequency) all return 200")
+    void concurrentRequestsAllReturn200(Vertx vertx, VertxTestContext ctx) {
+        int requestCount = 10;
+        Checkpoint checkpoint = ctx.checkpoint(requestCount);
+
+        for (int i = 0; i < requestCount; i++) {
+            webClient.get(SIDECAR_HTTP_PORT, "localhost", "/primary")
+                    .send()
+                    .onSuccess(response -> ctx.verify(() -> {
+                        assertEquals(200, response.statusCode(),
+                                "Every concurrent request to a standalone primary should return 200");
+                        checkpoint.flag();
+                    }))
+                    .onFailure(ctx::failNow);
+        }
+    }
+
+    @Test
+    @DisplayName("GET / (root path) returns 404")
+    void rootPathReturns404(Vertx vertx, VertxTestContext ctx) {
+        webClient.get(SIDECAR_HTTP_PORT, "localhost", "/")
+                .send()
+                .onSuccess(response -> ctx.verify(() -> {
+                    assertEquals(404, response.statusCode());
+                    ctx.completeNow();
+                }))
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @DisplayName("GET /replica returns 404 — only /primary is a recognised path")
+    void replicaPathReturns404(Vertx vertx, VertxTestContext ctx) {
+        webClient.get(SIDECAR_HTTP_PORT, "localhost", "/replica")
+                .send()
+                .onSuccess(response -> ctx.verify(() -> {
+                    assertEquals(404, response.statusCode());
+                    ctx.completeNow();
+                }))
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @DisplayName("GET /patroni returns 404 — sidecar does not expose Patroni-compatible paths")
+    void patroniPathReturns404(Vertx vertx, VertxTestContext ctx) {
+        webClient.get(SIDECAR_HTTP_PORT, "localhost", "/patroni")
+                .send()
+                .onSuccess(response -> ctx.verify(() -> {
+                    assertEquals(404, response.statusCode());
+                    ctx.completeNow();
+                }))
+                .onFailure(ctx::failNow);
     }
 }
