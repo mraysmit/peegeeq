@@ -33,7 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,6 +56,7 @@ public class PeeGeeQExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
@@ -63,27 +64,26 @@ public class PeeGeeQExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        configureSystemPropertiesForContainer(postgres);
+        containerProps = buildContainerProperties(postgres);
         
         logger.info("✓ PeeGeeQ Example Test setup completed");
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down PeeGeeQ Example Test");
         
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
-                .onComplete(v -> {
-                    logger.info("✓ PeeGeeQ Example Test teardown completed");
+                .onSuccess(v -> {
+                    logger.info("\u2713 PeeGeeQ Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
-            logger.info("✓ PeeGeeQ Example Test teardown completed");
+            logger.info("\u2713 PeeGeeQ Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -91,13 +91,13 @@ public class PeeGeeQExampleTest {
      * Validates health checks, metrics, and monitoring capabilities
      */
     @Test
-    void testProductionReadinessFeatures(VertxTestContext testContext) throws InterruptedException {
+    void testProductionReadinessFeatures(VertxTestContext testContext) {
         logger.info("=== Testing Production Readiness Features ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", containerProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getSystemStatus())
-            .onSuccess(systemStatus -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
                 assertNotNull(systemStatus, "System status should not be null");
                 assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
                 logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
@@ -112,10 +112,7 @@ public class PeeGeeQExampleTest {
                 
                 logger.info("Production readiness features validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -178,13 +175,13 @@ public class PeeGeeQExampleTest {
      * Validates all PeeGeeQ capabilities in a production-like environment
      */
     @Test
-    void testFeatureDemonstrations(VertxTestContext testContext) throws InterruptedException {
+    void testFeatureDemonstrations(VertxTestContext testContext) {
         logger.info("=== Testing Feature Demonstrations ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", containerProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getSystemStatus())
-            .onSuccess(systemStatus -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
                 // Health monitoring
                 assertNotNull(systemStatus.getHealthStatus());
                 logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
@@ -200,10 +197,7 @@ public class PeeGeeQExampleTest {
                 
                 logger.info("Feature demonstrations validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     // Helper methods that replicate the original example's functionality
@@ -211,29 +205,33 @@ public class PeeGeeQExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
+    private Properties buildContainerProperties(PostgreSQLContainer postgres) {
         logger.info("Configuring PeeGeeQ to use container database...");
 
+        Properties props = new Properties();
         // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
         // Configure for test environment
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        props.setProperty("peegeeq.database.pool.min-size", "2");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.health.enabled", "true");
+        props.setProperty("peegeeq.circuit-breaker.enabled", "true");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
 
         logger.info("Configuration complete");
+        return props;
     }
     
     /**
@@ -252,11 +250,11 @@ public class PeeGeeQExampleTest {
      * Validates system properties configuration.
      */
     private void validateSystemPropertiesConfiguration() {
-        assertNotNull(System.getProperty("peegeeq.database.host"));
-        assertNotNull(System.getProperty("peegeeq.database.port"));
-        assertNotNull(System.getProperty("peegeeq.database.name"));
-        assertEquals("true", System.getProperty("peegeeq.metrics.enabled"));
-        assertEquals("true", System.getProperty("peegeeq.health.enabled"));
+        assertNotNull(containerProps.getProperty("peegeeq.database.host"));
+        assertNotNull(containerProps.getProperty("peegeeq.database.port"));
+        assertNotNull(containerProps.getProperty("peegeeq.database.name"));
+        assertEquals("true", containerProps.getProperty("peegeeq.metrics.enabled"));
+        assertEquals("true", containerProps.getProperty("peegeeq.health.enabled"));
     }
 }
 

@@ -93,7 +93,8 @@ public class AllTradesConsumerService {
         log.info("Starting all-trades consumer: {}", consumerInstanceId);
         
         // Subscribe to messages (no filter - accepts all)
-        consumer.subscribe(this::processMessage);
+        consumer.subscribe(this::processMessage)
+                .onFailure(err -> log.error("Consumer subscription failed for topic", err));
         
         // Update consumer status in database
         updateConsumerStatus("RUNNING");

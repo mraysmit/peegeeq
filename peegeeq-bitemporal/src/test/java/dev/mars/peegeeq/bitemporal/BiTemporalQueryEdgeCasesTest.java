@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -45,6 +46,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,15 +87,12 @@ class BiTemporalQueryEdgeCasesTest {
         this.vertx = vertx;
         logger.info("Setting up bi-temporal query edge cases test...");
         
-        // Set system properties for PeeGeeQ configuration - following exact pattern
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.pool.max.size", "10");
-        System.setProperty("peegeeq.database.pool.min.size", "2");
+        // Set configuration properties for PeeGeeQ - following exact pattern
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.pool.max-size", "10")
+                .property("peegeeq.database.pool.min-size", "2")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -101,7 +100,7 @@ class BiTemporalQueryEdgeCasesTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Configure PeeGeeQ - following exact pattern
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -126,23 +125,15 @@ class BiTemporalQueryEdgeCasesTest {
         Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
-                .recover(error -> {
-                    logger.warn("Error closing event store: {}", error.getMessage());
-                    return Future.succeededFuture();
+                .transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing event store: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
                 })
-                .compose(v -> closeManagerFuture.recover(error -> {
-                    logger.warn("Error closing manager: {}", error.getMessage());
-                    return Future.succeededFuture();
+                .compose(v -> closeManagerFuture.transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing manager: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
                 }))
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.database.ssl.enabled");
-                    System.clearProperty("peegeeq.database.pool.max.size");
-                    System.clearProperty("peegeeq.database.pool.min.size");
                     logger.info("Bi-temporal query edge cases test teardown completed");
                     testContext.completeNow();
                 })
@@ -177,7 +168,7 @@ class BiTemporalQueryEdgeCasesTest {
                 .aggregateId("ORDER-003").execute()
                 .map(storedEvent3 -> List.of(storedEvents.get(0), storedEvents.get(1), storedEvent3)))
             .compose(storedEvents -> eventStore.query(EventQuery.all()).map(allEvents -> Map.entry(storedEvents, allEvents)))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 List<BiTemporalEvent<OrderEvent>> storedEvents = result.getKey();
                 List<BiTemporalEvent<OrderEvent>> allEvents = result.getValue();
                 assertNotNull(storedEvents.get(0));
@@ -192,8 +183,7 @@ class BiTemporalQueryEdgeCasesTest {
                 assertNotNull(IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-3"), "Should find event with correlation ID test-corr-3");
                 logger.info("Multiple event storage test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -208,7 +198,7 @@ class BiTemporalQueryEdgeCasesTest {
             .headers(Map.of("test", "query-retrieval")).correlationId("test-corr-100")
             .causationId(null).aggregateId("ORDER-100").execute()
             .compose(storedEvent -> eventStore.query(EventQuery.all()).map(allEvents -> Map.entry(storedEvent, allEvents)))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 BiTemporalEvent<OrderEvent> storedEvent = result.getKey();
                 List<BiTemporalEvent<OrderEvent>> allEvents = result.getValue();
                 assertNotNull(storedEvent);
@@ -226,8 +216,7 @@ class BiTemporalQueryEdgeCasesTest {
                     "Transaction time should be >= valid time");
                 logger.info("Event query and retrieval test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 

@@ -16,7 +16,6 @@ package dev.mars.peegeeq.test.metrics;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -46,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class PerformanceMetricsCollectorTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceMetricsCollectorTest.class);
     
-    private PeeGeeQMetrics baseMetrics;
     private SimpleMeterRegistry meterRegistry;
     private PerformanceMetricsCollector collector;
     private String testInstanceId;
@@ -54,24 +52,21 @@ class PerformanceMetricsCollectorTest {
     
     @BeforeEach
     void setUp(Vertx vertx) {
-        System.err.println("=== PerformanceMetricsCollectorTest setUp() started ===");
+        logger.info("=== PerformanceMetricsCollectorTest setUp() started ===");
         
         testInstanceId = "test-collector-" + System.currentTimeMillis();
         meterRegistry = new SimpleMeterRegistry();
-        // Pass null for the pool as we are not testing database metrics that require the pool
-        baseMetrics = new PeeGeeQMetrics(null, testInstanceId);
-        baseMetrics.bindTo(meterRegistry);
-        
-        collector = new PerformanceMetricsCollector(baseMetrics, testInstanceId);
+
+        collector = new PerformanceMetricsCollector(meterRegistry, testInstanceId);
         this.vertx = vertx;
         
         logger.info("Set up PerformanceMetricsCollector test with instance: {}", testInstanceId);
-        System.err.println("=== PerformanceMetricsCollectorTest setUp() completed ===");
+        logger.info("=== PerformanceMetricsCollectorTest setUp() completed ===");
     }
     
     @Test
     void testBasicMetricsCollection() {
-        System.err.println("=== TEST METHOD STARTED: testBasicMetricsCollection ===");
+        logger.info("=== TEST METHOD STARTED: testBasicMetricsCollection ===");
         logger.info("Testing basic metrics collection");
         
         String testName = "basicMetricsTest";
@@ -104,13 +99,13 @@ class PerformanceMetricsCollectorTest {
         assertEquals(100L, snapshot.getAdditionalMetricAsLong("operations", 0L));
         assertEquals(2000.0, snapshot.getAdditionalMetricAsDouble("throughput", 0.0));
         
-        logger.info("✓ Basic metrics collection test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testBasicMetricsCollection ===");
+        logger.info("Basic metrics collection test passed");
+        logger.info("=== TEST METHOD COMPLETED: testBasicMetricsCollection ===");
     }
     
     @Test
     void testPerformanceComparison() {
-        System.err.println("=== TEST METHOD STARTED: testPerformanceComparison ===");
+        logger.info("=== TEST METHOD STARTED: testPerformanceComparison ===");
         logger.info("Testing performance comparison between profiles");
         
         String testName = "comparisonTest";
@@ -140,13 +135,13 @@ class PerformanceMetricsCollectorTest {
         assertNotNull(comparison.getComparison());
         assertNotNull(comparison.getMetrics());
         
-        logger.info("✓ Performance comparison test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testPerformanceComparison ===");
+        logger.info("Performance comparison test passed");
+        logger.info("=== TEST METHOD COMPLETED: testPerformanceComparison ===");
     }
     
     @Test
     void testMetricsReset() {
-        System.err.println("=== TEST METHOD STARTED: testMetricsReset ===");
+        logger.info("=== TEST METHOD STARTED: testMetricsReset ===");
         logger.info("Testing metrics reset functionality");
         
         // Record some metrics
@@ -164,13 +159,13 @@ class PerformanceMetricsCollectorTest {
         assertTrue(collector.getPerformanceSnapshots().isEmpty());
         assertTrue(collector.getProfileComparisons().isEmpty());
         
-        logger.info("✓ Metrics reset test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testMetricsReset ===");
+        logger.info("Metrics reset test passed");
+        logger.info("=== TEST METHOD COMPLETED: testMetricsReset ===");
     }
     
     @Test
     void testThroughputCalculation() {
-        System.err.println("=== TEST METHOD STARTED: testThroughputCalculation ===");
+        logger.info("=== TEST METHOD STARTED: testThroughputCalculation ===");
         logger.info("Testing throughput calculation");
         
         String testName = "throughputTest";
@@ -198,13 +193,13 @@ class PerformanceMetricsCollectorTest {
         assertEquals(expectedThroughput, throughput, 0.0001,
             "Throughput should match operations/duration calculation");
         
-        logger.info("✓ Throughput calculation test passed (throughput: {} ops/sec)", throughput);
-        System.err.println("=== TEST METHOD COMPLETED: testThroughputCalculation ===");
+        logger.info("Throughput calculation test passed (throughput: {} ops/sec)", throughput);
+        logger.info("=== TEST METHOD COMPLETED: testThroughputCalculation ===");
     }
     
     @Test
     void testFailedTestHandling() {
-        System.err.println("=== TEST METHOD STARTED: testFailedTestHandling ===");
+        logger.info("=== TEST METHOD STARTED: testFailedTestHandling ===");
         logger.info("Testing failed test handling");
         
         String testName = "failedTest";
@@ -220,13 +215,13 @@ class PerformanceMetricsCollectorTest {
         assertEquals(testName, snapshot.getTestName());
         assertEquals(profile, snapshot.getProfile());
         
-        logger.info("✓ Failed test handling test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testFailedTestHandling ===");
+        logger.info("Failed test handling test passed");
+        logger.info("=== TEST METHOD COMPLETED: testFailedTestHandling ===");
     }
     
     @Test
     void testMultipleProfileSnapshots() {
-        System.err.println("=== TEST METHOD STARTED: testMultipleProfileSnapshots ===");
+        logger.info("=== TEST METHOD STARTED: testMultipleProfileSnapshots ===");
         logger.info("Testing multiple profile snapshots");
         
         String testName = "multiProfileTest";
@@ -256,7 +251,7 @@ class PerformanceMetricsCollectorTest {
             assertTrue(snapshot.isSuccess());
         }
         
-        logger.info("✓ Multiple profile snapshots test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testMultipleProfileSnapshots ===");
+        logger.info("Multiple profile snapshots test passed");
+        logger.info("=== TEST METHOD COMPLETED: testMultipleProfileSnapshots ===");
     }
 }

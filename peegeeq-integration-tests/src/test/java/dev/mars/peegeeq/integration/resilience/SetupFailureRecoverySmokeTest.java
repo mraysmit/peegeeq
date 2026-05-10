@@ -4,23 +4,25 @@ import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Test;
 
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Collections;
 import java.util.UUID;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("integration")
+@ExtendWith(VertxExtension.class)
 public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
 
     @Test
-    void testInvalidSchemaNameRejected() throws InterruptedException {
+    void testInvalidSchemaNameRejected(Vertx vertx, VertxTestContext testContext) {
         String setupId = UUID.randomUUID().toString();
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
                 .host(postgres.getHost())
@@ -33,31 +35,24 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
 
         DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, dbConfig, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
 
-        // We expect the future to fail immediately with IllegalArgumentException
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
         setupService.createCompleteSetup(request)
-            .onFailure(err -> {
-                errorRef.set(err);
-                latch.countDown();
-            })
-            .onSuccess(result -> latch.countDown());
-
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Operation timed out");
-        assertNotNull(errorRef.get(), "Expected future to fail");
-        assertInstanceOf(IllegalArgumentException.class, errorRef.get());
-        // Use case-insensitive check as validator uses "Schema" not "schema"
-        String causeMsg = errorRef.get().getMessage().toLowerCase();
-        assertTrue(causeMsg.contains("invalid") && causeMsg.contains("schema") && causeMsg.contains("name"),
-                   "Exception should mention invalid schema name. Got: " + errorRef.get().getMessage());
+            .onSuccess(result -> testContext.failNow(new AssertionError("Expected future to fail with IllegalArgumentException, but it succeeded")))
+            .onFailure(err -> testContext.verify(() -> {
+                assertNotNull(err);
+                assertInstanceOf(IllegalArgumentException.class, err);
+                // Use case-insensitive check as validator uses "Schema" not "schema"
+                String causeMsg = err.getMessage().toLowerCase();
+                assertTrue(causeMsg.contains("invalid") && causeMsg.contains("schema") && causeMsg.contains("name"),
+                        "Exception should mention invalid schema name. Got: " + err.getMessage());
+                testContext.completeNow();
+            }));
     }
 
     @Test
-    void testPartialSetupCleanup() throws Exception {
+    void testPartialSetupCleanup(Vertx vertx, VertxTestContext testContext) {
         String setupId = UUID.randomUUID().toString();
         String dbName = "peegeeq_fail_" + setupId.replace("-", "_");
-        
+
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -69,54 +64,35 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
 
         DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, dbConfig, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
 
-        // Create a service that fails during EventStore creation (Step 4)
-        // We use a provider that throws RuntimeException
-        // We create it inside vertx context to ensure it shares the same Vertx instance
-        CountDownLatch serviceLatch = new CountDownLatch(1);
-        AtomicReference<PeeGeeQDatabaseSetupService> serviceRef = new AtomicReference<>();
-        vertx.runOnContext(v -> {
-            PeeGeeQDatabaseSetupService service = new PeeGeeQDatabaseSetupService(manager -> {
-                throw new RuntimeException("Simulated failure in Step 4");
-            });
-            serviceRef.set(service);
-            serviceLatch.countDown();
+        PeeGeeQDatabaseSetupService failingService = new PeeGeeQDatabaseSetupService(manager -> {
+            throw new RuntimeException("Simulated failure in Step 4");
         });
-        assertTrue(serviceLatch.await(5, TimeUnit.SECONDS), "Service creation timed out");
-        PeeGeeQDatabaseSetupService failingService = serviceRef.get();
 
-        // Execute setup and expect failure
-        CountDownLatch setupLatch = new CountDownLatch(1);
-        AtomicReference<Throwable> setupErrorRef = new AtomicReference<>();
+        // Phase 1: verify setup fails with the expected error
+        // Phase 2: verify the failed setup is not retained as active
+        Checkpoint checkpoint = testContext.checkpoint(2);
 
         failingService.createCompleteSetup(request)
-            .onFailure(err -> {
-                setupErrorRef.set(err);
-                setupLatch.countDown();
-            })
-            .onSuccess(result -> setupLatch.countDown());
+            .onSuccess(v -> testContext.failNow(new AssertionError("Expected setup to fail")))
+            .onFailure(setupErr -> {
+                testContext.verify(() -> {
+                    assertNotNull(setupErr);
+                    assertTrue(setupErr.getMessage().contains("Failed to create database setup"),
+                            "Got: " + setupErr.getMessage());
+                    assertTrue(setupErr.getCause().getMessage().contains("Simulated failure in Step 4"),
+                            "Got: " + setupErr.getCause().getMessage());
+                });
+                checkpoint.flag();
 
-        assertTrue(setupLatch.await(10, TimeUnit.SECONDS), "Setup timed out");
-        assertNotNull(setupErrorRef.get(), "Expected setup to fail");
-
-        // The exception wraps the RuntimeException from createCompleteSetup
-        assertTrue(setupErrorRef.get().getMessage().contains("Failed to create database setup"));
-        // The cause of that exception should be our simulated failure
-        assertTrue(setupErrorRef.get().getCause().getMessage().contains("Simulated failure in Step 4"));
-
-        // Verify failed setup was not retained as active.
-        CountDownLatch statusLatch = new CountDownLatch(1);
-        AtomicReference<Throwable> statusErrorRef = new AtomicReference<>();
-
-        failingService.getSetupStatus(setupId)
-            .onFailure(err -> {
-                statusErrorRef.set(err);
-                statusLatch.countDown();
-            })
-            .onSuccess(result -> statusLatch.countDown());
-
-        assertTrue(statusLatch.await(5, TimeUnit.SECONDS), "Status check timed out");
-        assertNotNull(statusErrorRef.get(), "Expected status check to fail");
-        assertInstanceOf(PeeGeeQDatabaseSetupService.SetupNotFoundException.class, statusErrorRef.get(),
-            "Failed setup should not remain registered as active");
+                // Verify failed setup was not retained as active
+                failingService.getSetupStatus(setupId)
+                    .onSuccess(v -> testContext.failNow(
+                            new AssertionError("Expected status check to fail with SetupNotFoundException")))
+                    .onFailure(statusErr -> testContext.verify(() -> {
+                        assertInstanceOf(PeeGeeQDatabaseSetupService.SetupNotFoundException.class, statusErr,
+                                "Failed setup should not remain registered as active");
+                        checkpoint.flag();
+                    }));
+            });
     }
 }

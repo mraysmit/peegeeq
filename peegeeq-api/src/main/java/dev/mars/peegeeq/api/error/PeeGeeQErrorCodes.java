@@ -142,6 +142,11 @@ public final class PeeGeeQErrorCodes {
     public static final String CONSUMER_GROUP_NOT_FOUND = "PGQERR0450";
     public static final String CONSUMER_GROUP_CREATE_FAILED = "PGQERR0451";
     public static final String CONSUMER_MEMBER_NOT_FOUND = "PGQERR0452";
+    public static final String PARTITION_JOIN_FAILED = "PGQERR0460";
+    public static final String PARTITION_LEAVE_FAILED = "PGQERR0461";
+    public static final String PARTITION_FETCH_FAILED = "PGQERR0462";
+    public static final String PARTITION_COMMIT_FAILED = "PGQERR0463";
+    public static final String PARTITION_ASSIGNMENT_FAILED = "PGQERR0464";
 
     // ========================================================================
     // Database/Connection Errors (0500-0549)

@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.performance;
 
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import io.vertx.core.DeploymentOptions;
@@ -31,9 +32,9 @@ public class VertxPerformanceOptimizer {
      * 
      * @return Optimized Vertx instance
      */
-    public static Vertx createOptimizedVertx() {
-        int eventLoopPoolSize = getOptimalEventLoopSize();
-        int workerPoolSize = getOptimalWorkerPoolSize();
+    public static Vertx createOptimizedVertx(PeeGeeQConfiguration config) {
+        int eventLoopPoolSize = getOptimalEventLoopSize(config);
+        int workerPoolSize = getOptimalWorkerPoolSize(config);
         
         VertxOptions options = new VertxOptions()
             .setEventLoopPoolSize(eventLoopPoolSize)
@@ -55,9 +56,10 @@ public class VertxPerformanceOptimizer {
      * @param poolConfig Pool configuration
      * @return Optimized Pool
      */
-    public static Pool createOptimizedPool(Vertx vertx, 
-                                         PgConnectionConfig connectionConfig, 
-                                         PgPoolConfig poolConfig) {
+    public static Pool createOptimizedPool(Vertx vertx,
+                                         PgConnectionConfig connectionConfig,
+                                         PgPoolConfig poolConfig,
+                                         PeeGeeQConfiguration config) {
         
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(connectionConfig.getHost())
@@ -71,7 +73,7 @@ public class VertxPerformanceOptimizer {
         }
         
         // Enable pipelining for performance (checklist item #6)
-        int pipeliningLimit = getPipeliningLimit();
+        int pipeliningLimit = getPipeliningLimit(config);
         connectOptions.setPipeliningLimit(pipeliningLimit);
         
         // Set application name for monitoring (checklist item #7)
@@ -99,8 +101,8 @@ public class VertxPerformanceOptimizer {
      * 
      * @return DeploymentOptions with optimal instance count
      */
-    public static DeploymentOptions createOptimizedDeploymentOptions() {
-        int instances = getOptimalVerticleInstances();
+    public static DeploymentOptions createOptimizedDeploymentOptions(PeeGeeQConfiguration config) {
+        int instances = getOptimalVerticleInstances(config);
         
         DeploymentOptions options = new DeploymentOptions()
             .setInstances(instances)
@@ -116,11 +118,13 @@ public class VertxPerformanceOptimizer {
      * 
      * @return Optimal event loop pool size
      */
-    private static int getOptimalEventLoopSize() {
+    private static int getOptimalEventLoopSize(PeeGeeQConfiguration config) {
         int processors = Runtime.getRuntime().availableProcessors();
-        int eventLoops = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", 
-                                                            String.valueOf(processors * 2)));
-        
+        int configured = (config != null)
+                ? config.getInt("peegeeq.database.event.loop.size", 0)
+                : 0;
+        int eventLoops = (configured > 0) ? configured : processors * 2;
+
         // Ensure reasonable bounds
         return Math.max(2, Math.min(eventLoops, 32));
     }
@@ -130,11 +134,13 @@ public class VertxPerformanceOptimizer {
      * 
      * @return Optimal worker pool size
      */
-    private static int getOptimalWorkerPoolSize() {
+    private static int getOptimalWorkerPoolSize(PeeGeeQConfiguration config) {
         int processors = Runtime.getRuntime().availableProcessors();
-        int workers = Integer.parseInt(System.getProperty("peegeeq.database.worker.pool.size", 
-                                                         String.valueOf(processors * 4)));
-        
+        int configured = (config != null)
+                ? config.getInt("peegeeq.database.worker.pool.size", 0)
+                : 0;
+        int workers = (configured > 0) ? configured : processors * 4;
+
         // Ensure reasonable bounds
         return Math.max(4, Math.min(workers, 64));
     }
@@ -144,11 +150,13 @@ public class VertxPerformanceOptimizer {
      * 
      * @return Optimal verticle instance count
      */
-    private static int getOptimalVerticleInstances() {
+    private static int getOptimalVerticleInstances(PeeGeeQConfiguration config) {
         int processors = Runtime.getRuntime().availableProcessors();
-        int instances = Integer.parseInt(System.getProperty("peegeeq.verticle.instances", 
-                                                           String.valueOf(processors)));
-        
+        int configured = (config != null)
+                ? config.getInt("peegeeq.verticle.instances", 0)
+                : 0;
+        int instances = (configured > 0) ? configured : processors;
+
         // Ensure reasonable bounds
         return Math.max(1, Math.min(instances, 16));
     }
@@ -158,16 +166,18 @@ public class VertxPerformanceOptimizer {
      * 
      * @return Optimal pipelining limit
      */
-    private static int getPipeliningLimit() {
-        boolean pipeliningEnabled = Boolean.parseBoolean(
-            System.getProperty("peegeeq.database.pipelining.enabled", "true"));
-        
+    private static int getPipeliningLimit(PeeGeeQConfiguration config) {
+        if (config == null) {
+            return 32; // default when no config provided
+        }
+
+        boolean pipeliningEnabled = config.getBoolean("peegeeq.database.pipelining.enabled", true);
         if (!pipeliningEnabled) {
             return 1; // Disable pipelining
         }
-        
-        int limit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "32"));
-        
+
+        int limit = config.getInt("peegeeq.database.pipelining.limit", 32);
+
         // Ensure reasonable bounds (8-256 as per checklist)
         return Math.max(8, Math.min(limit, 256));
     }
@@ -178,7 +188,7 @@ public class VertxPerformanceOptimizer {
      * @param poolConfig Pool configuration to validate
      * @return Validation warnings/recommendations
      */
-    public static String validatePoolConfiguration(PgPoolConfig poolConfig) {
+    public static String validatePoolConfiguration(PgPoolConfig poolConfig, PeeGeeQConfiguration config) {
         StringBuilder warnings = new StringBuilder();
         
         // Check pool size (checklist item #1)
@@ -193,7 +203,7 @@ public class VertxPerformanceOptimizer {
         }
         
         // Check pipelining
-        int pipeliningLimit = getPipeliningLimit();
+        int pipeliningLimit = getPipeliningLimit(config);
         if (pipeliningLimit < 8) {
             warnings.append("⚠️  Pipelining limit (").append(pipeliningLimit)
                    .append(") is below recommended minimum of 8.\n");

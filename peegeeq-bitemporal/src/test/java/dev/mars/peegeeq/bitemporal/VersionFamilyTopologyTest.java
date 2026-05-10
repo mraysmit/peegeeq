@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -37,6 +38,8 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -66,6 +69,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class VersionFamilyTopologyTest {
+
+        private static final Logger logger = LoggerFactory.getLogger(VersionFamilyTopologyTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
@@ -127,22 +132,20 @@ class VersionFamilyTopologyTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
         vertx = Vertx.vertx();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -154,7 +157,6 @@ class VersionFamilyTopologyTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                .recover(err -> Future.succeededFuture(null))
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
@@ -181,15 +183,6 @@ class VersionFamilyTopologyTest {
                 .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -224,7 +217,7 @@ class VersionFamilyTopologyTest {
                         .map(c -> List.of(ab.getKey(), ab.getValue(), c)))
                 .compose(all -> eventStore.getAllVersions(all.get(0).getEventId())
                         .map(versions -> Map.entry(all, versions)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TopologyEvent>> versions = result.getValue();
                     assertEquals(3, versions.size(),
                             "getAllVersions from root must return full chain (A, B, C)");
@@ -232,8 +225,7 @@ class VersionFamilyTopologyTest {
                     assertEquals(2L, versions.get(1).getVersion());
                     assertEquals(3L, versions.get(2).getVersion());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -257,15 +249,14 @@ class VersionFamilyTopologyTest {
                     String middleId = all.get(1).getEventId();
                     return eventStore.getAllVersions(middleId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(3, versions.size(),
                             "getAllVersions from middle node must return full chain. "
                                     + "Got: " + versions.stream()
                                     .map(e -> "v" + e.getVersion())
                                     .collect(Collectors.joining(", ")));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -289,15 +280,14 @@ class VersionFamilyTopologyTest {
                     String leafId = all.get(2).getEventId();
                     return eventStore.getAllVersions(leafId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(3, versions.size(),
                             "getAllVersions from leaf must return full chain. "
                                     + "Got: " + versions.stream()
                                     .map(e -> "v" + e.getVersion())
                                     .collect(Collectors.joining(", ")));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -334,7 +324,7 @@ class VersionFamilyTopologyTest {
                     String leafId = all.get(3).getEventId();
                     return eventStore.getAllVersions(leafId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(4, versions.size(),
                             "Deep chain: getAllVersions from leaf D must return 4 versions. "
                                     + "Got: " + versions.stream()
@@ -346,8 +336,7 @@ class VersionFamilyTopologyTest {
                                 "Version at index " + i + " should be " + (i + 1));
                     }
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -383,7 +372,7 @@ class VersionFamilyTopologyTest {
                     String dId = all.get(3).getEventId();
                     return eventStore.getAllVersions(dId).map(versions -> Map.entry(all, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TopologyEvent>> versions = result.getValue();
                     assertEquals(4, versions.size(),
                             "Chain: getAllVersions from leaf D must return all 4 family members. "
@@ -391,8 +380,7 @@ class VersionFamilyTopologyTest {
                                     .map(e -> e.getPayload().getId() + "/v" + e.getVersion())
                                     .collect(Collectors.joining(", ")));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -424,7 +412,7 @@ class VersionFamilyTopologyTest {
                     String cId = all.get(2).getEventId();
                     return eventStore.getAllVersions(cId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(4, versions.size(),
                             "Chain: getAllVersions from intermediate C must return all 4 family members "
                                     + "(the recursive CTE walks up to root A, then down to all descendants). "
@@ -432,8 +420,7 @@ class VersionFamilyTopologyTest {
                                     .map(e -> e.getPayload().getId() + "/v" + e.getVersion())
                                     .collect(Collectors.joining(", ")));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -462,13 +449,12 @@ class VersionFamilyTopologyTest {
                     String leafId = all.get(2).getEventId();
                     return eventStore.getAsOfTransactionTime(leafId, Instant.now());
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNotNull(result, "getAsOfTransactionTime from chain leaf must find a result");
                     assertEquals(3L, result.getVersion(),
                             "Should return version 3 (latest) when queried at current time from leaf");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -500,14 +486,13 @@ class VersionFamilyTopologyTest {
                     String middleId = all.get(1).getEventId();
                     return eventStore.getAsOfTransactionTime(middleId, asOfTime);
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNotNull(result, "getAsOfTransactionTime must find a result in chain");
                     assertTrue(result.getVersion() <= 2L,
                             "At the recorded time, version C did not exist yet. "
                                     + "Expected version <= 2, got " + result.getVersion());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -541,7 +526,7 @@ class VersionFamilyTopologyTest {
                         return Map.entry(allVersions, asOfResult);
                     });
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TopologyEvent>> allVersions = result.getKey();
                     BiTemporalEvent<TopologyEvent> asOfResult = result.getValue();
 
@@ -556,8 +541,7 @@ class VersionFamilyTopologyTest {
                             "Both methods must agree on the latest version");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -580,7 +564,7 @@ class VersionFamilyTopologyTest {
                         .map(c -> List.of(ab.getKey(), ab.getValue(), c)))
                 .compose(all -> eventStore.getAllVersions(all.get(0).getEventId())
                         .map(versions -> Map.entry(all, versions)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TopologyEvent>> created = result.getKey();
                     List<BiTemporalEvent<TopologyEvent>> versions = result.getValue();
 
@@ -592,13 +576,12 @@ class VersionFamilyTopologyTest {
                     assertEquals(created.get(0).getEventId(), versions.get(1).getPreviousVersionId(),
                             "B's previousVersionId must be A's eventId");
 
-                    // C (v3) has predecessor B (NOT A — chain model)
+                    // C (v3) has predecessor B (NOT A chain model)
                     assertEquals(created.get(1).getEventId(), versions.get(2).getPreviousVersionId(),
                             "C's previousVersionId must be B's eventId (immediate predecessor, not root)");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -609,10 +592,12 @@ class VersionFamilyTopologyTest {
     @Test
     @DisplayName("getAllVersions on closed store returns failed future")
     void getAllVersionsOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions on closed store must fail");
         eventStore.close()
                 .compose(v -> eventStore.getAllVersions("any-id"))
                 .onSuccess(result -> testContext.failNow("getAllVersions on closed store should fail"))
                 .onFailure(err -> testContext.verify(() -> {
+                                        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store getAllVersions failure = {}", err.getMessage());
                     assertInstanceOf(IllegalStateException.class, err);
                     assertTrue(err.getMessage().contains("closed"));
                     testContext.completeNow();
@@ -625,10 +610,12 @@ class VersionFamilyTopologyTest {
     @Test
     @DisplayName("getAsOfTransactionTime on closed store returns failed future")
     void getAsOfTransactionTimeOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime on closed store must fail");
         eventStore.close()
                 .compose(v -> eventStore.getAsOfTransactionTime("any-id", Instant.now()))
                 .onSuccess(result -> testContext.failNow("getAsOfTransactionTime on closed store should fail"))
                 .onFailure(err -> testContext.verify(() -> {
+                                        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store getAsOfTransactionTime failure = {}", err.getMessage());
                     assertInstanceOf(IllegalStateException.class, err);
                     assertTrue(err.getMessage().contains("closed"));
                     testContext.completeNow();
@@ -643,7 +630,9 @@ class VersionFamilyTopologyTest {
     @Test
     @DisplayName("getAllVersions with null event ID throws NullPointerException")
     void getAllVersionsWithNullEventIdFails(VertxTestContext testContext) throws Exception {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null event ID");
         assertThrows(NullPointerException.class, () -> eventStore.getAllVersions(null));
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null event ID");
         testContext.completeNow();
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -654,13 +643,12 @@ class VersionFamilyTopologyTest {
     @DisplayName("getAllVersions with non-existent event ID returns empty list")
     void getAllVersionsWithNonExistentIdReturnsEmpty(VertxTestContext testContext) throws Exception {
         eventStore.getAllVersions("non-existent-event-id-12345")
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertNotNull(versions);
                     assertTrue(versions.isEmpty(),
                             "getAllVersions for non-existent ID should return empty list");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -670,12 +658,11 @@ class VersionFamilyTopologyTest {
     @DisplayName("getAsOfTransactionTime with non-existent event ID returns null")
     void getAsOfTransactionTimeWithNonExistentIdReturnsNull(VertxTestContext testContext) throws Exception {
         eventStore.getAsOfTransactionTime("non-existent-event-id-12345", Instant.now())
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNull(result,
                             "getAsOfTransactionTime for non-existent ID should return null");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -697,7 +684,7 @@ class VersionFamilyTopologyTest {
                         new TopologyEvent("C", "v3", 3), t, "correct B")
                         .map(c -> List.of(ab.getKey(), ab.getValue(), c)))
                 .compose(all -> eventStore.getAllVersions(all.get(0).getEventId()))
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     // Verify strictly increasing
                     for (int i = 1; i < versions.size(); i++) {
                         assertTrue(versions.get(i).getVersion() > versions.get(i - 1).getVersion(),
@@ -712,8 +699,7 @@ class VersionFamilyTopologyTest {
                     assertEquals(versions.size(), uniqueVersions.size(),
                             "All version numbers must be unique");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());

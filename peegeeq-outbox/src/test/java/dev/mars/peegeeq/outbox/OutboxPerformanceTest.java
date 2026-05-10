@@ -1,6 +1,9 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -24,6 +27,7 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -66,16 +70,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 public class OutboxPerformanceTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceTest.class);
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -92,26 +90,18 @@ public class OutboxPerformanceTest {
         testTopic = "perf-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Set up database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Configure for performance
-        Properties perfProps = new Properties();
-        perfProps.setProperty("peegeeq.consumer.threads", "8");
-        perfProps.setProperty("peegeeq.queue.batch-size", "50");
-        perfProps.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-        perfProps.setProperty("peegeeq.connection.pool.size", "20");
-        
-        // Apply the properties
-        perfProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.consumer.threads", "8")
+                .property("peegeeq.queue.batch-size", "50")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.connection.pool.size", "20")
+                .build();
 
         // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("perf-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -122,6 +112,7 @@ public class OutboxPerformanceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -132,22 +123,13 @@ public class OutboxPerformanceTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.connection.pool.size");
     }
 
     @Test
@@ -159,11 +141,12 @@ public class OutboxPerformanceTest {
 
         // Set up consumer with timing
         consumer.subscribe(message -> {
+        logger.info("Test: throughput performance");
             long startTime = System.nanoTime();
             
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
-                System.out.println("Processed " + count + " messages...");
+                logger.info("Processed {} messages...", count);
             }
             
             long endTime = System.nanoTime();
@@ -173,7 +156,7 @@ public class OutboxPerformanceTest {
             return Future.succeededFuture();
         });
 
-        System.out.println("Starting throughput test with " + messageCount + " messages...");
+        logger.info("Starting throughput test with {} messages...", messageCount);
         Instant startTime = Instant.now();
 
         // Send all messages as fast as possible
@@ -183,9 +166,7 @@ public class OutboxPerformanceTest {
         }
 
         // Wait for all sends to complete
-        java.util.concurrent.CountDownLatch sendLatch = new java.util.concurrent.CountDownLatch(1);
-        Future.all(sendFutures).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(60, TimeUnit.SECONDS), "All sends should complete");
+        Future.all(sendFutures).await();
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed
@@ -202,14 +183,14 @@ public class OutboxPerformanceTest {
         double totalThroughput = messageCount / (totalDuration.toMillis() / 1000.0);
         double avgProcessingTimeNs = totalProcessingTime.get() / (double) messageCount;
 
-        System.out.println("\n=== THROUGHPUT PERFORMANCE RESULTS ===");
-        System.out.println("Messages: " + messageCount);
-        System.out.println("Send duration: " + sendDuration.toMillis() + "ms");
-        System.out.println("Processing duration: " + processingDuration.toMillis() + "ms");
-        System.out.println("Total duration: " + totalDuration.toMillis() + "ms");
-        System.out.println("Send throughput: " + String.format("%.2f", sendThroughput) + " msg/sec");
-        System.out.println("Total throughput: " + String.format("%.2f", totalThroughput) + " msg/sec");
-        System.out.println("Avg processing time: " + String.format("%.2f", avgProcessingTimeNs / 1_000_000) + "ms");
+        logger.info("=== THROUGHPUT PERFORMANCE RESULTS ===");
+        logger.info("Messages: {}", messageCount);
+        logger.info("Send duration: {}ms", sendDuration.toMillis());
+        logger.info("Processing duration: {}ms", processingDuration.toMillis());
+        logger.info("Total duration: {}ms", totalDuration.toMillis());
+        logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
+        logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
+        logger.info("Avg processing time: {}ms", String.format("%.2f", avgProcessingTimeNs / 1_000_000));
 
         // Verify all messages were processed
         assertEquals(messageCount, processedCount.get(), "Should process all messages");
@@ -229,6 +210,7 @@ public class OutboxPerformanceTest {
 
         // Set up consumer with latency measurement
         consumer.subscribe(message -> {
+        logger.info("Test: latency performance");
             long receiveTime = System.nanoTime();
             long sendTime = Long.parseLong(message.getHeaders().get("sendTime"));
             long latency = receiveTime - sendTime;
@@ -241,25 +223,20 @@ public class OutboxPerformanceTest {
             return Future.succeededFuture();
         });
 
-        System.out.println("Starting latency test with " + messageCount + " messages...");
+        logger.info("Starting latency test with {} messages...", messageCount);
 
         // Send messages with timestamps (with small delays between sends)
-        java.util.concurrent.CountDownLatch execLatch = new java.util.concurrent.CountDownLatch(1);
         vertx.executeBlocking(() -> {
             for (int i = 0; i < messageCount; i++) {
                 long sendTime = System.nanoTime();
-                java.util.concurrent.CountDownLatch sendLatch = new java.util.concurrent.CountDownLatch(1);
                 producer.send("Latency test message " + i, 
-                    Map.of("sendTime", String.valueOf(sendTime)))
-                    .onComplete(ar -> sendLatch.countDown());
-                sendLatch.await(5, TimeUnit.SECONDS);
+                    Map.of("sendTime", String.valueOf(sendTime))).await();
                 
                 // Small delay between sends to measure individual latencies
                 LockSupport.parkNanos(10_000_000L);
             }
             return null;
-        }).onComplete(ar -> execLatch.countDown());
-        execLatch.await(120, TimeUnit.SECONDS);
+        }).await();
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), 
@@ -270,11 +247,11 @@ public class OutboxPerformanceTest {
         double minLatencyMs = minLatency.get() / 1_000_000.0;
         double maxLatencyMs = maxLatency.get() / 1_000_000.0;
 
-        System.out.println("\n=== LATENCY PERFORMANCE RESULTS ===");
-        System.out.println("Messages: " + messageCount);
-        System.out.println("Average latency: " + String.format("%.2f", avgLatencyMs) + "ms");
-        System.out.println("Min latency: " + String.format("%.2f", minLatencyMs) + "ms");
-        System.out.println("Max latency: " + String.format("%.2f", maxLatencyMs) + "ms");
+        logger.info("=== LATENCY PERFORMANCE RESULTS ===");
+        logger.info("Messages: {}", messageCount);
+        logger.info("Average latency: {}ms", String.format("%.2f", avgLatencyMs));
+        logger.info("Min latency: {}ms", String.format("%.2f", minLatencyMs));
+        logger.info("Max latency: {}ms", String.format("%.2f", maxLatencyMs));
 
         // Performance assertions (adjust based on expected performance)
         assertTrue(avgLatencyMs < 1000, "Average latency should be < 1000ms, was: " + avgLatencyMs);
@@ -292,22 +269,21 @@ public class OutboxPerformanceTest {
 
         // Set up consumer
         consumer.subscribe(message -> {
+        logger.info("Test: concurrent producer performance");
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
-                System.out.println("Processed " + count + " concurrent messages...");
+                logger.info("Processed {} concurrent messages...", count);
             }
             allProcessed.flag();
             return Future.succeededFuture();
         });
 
-        System.out.println("Starting concurrent producer test: " + producerCount + 
-            " producers, " + messagesPerProducer + " messages each...");
+        logger.info("Starting concurrent producer test: {} producers, {} messages each...", producerCount, messagesPerProducer);
         
         Instant startTime = Instant.now();
 
         // Create and run concurrent producers
         java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(producerCount);
-        java.util.concurrent.CountDownLatch producerLatch = new java.util.concurrent.CountDownLatch(producerCount);
         
         for (int p = 0; p < producerCount; p++) {
             final int producerId = p;
@@ -317,24 +293,19 @@ public class OutboxPerformanceTest {
                         outboxFactory.createProducer(testTopic, String.class);
                     
                     for (int m = 0; m < messagesPerProducer; m++) {
-                        java.util.concurrent.CountDownLatch sendLatch = new java.util.concurrent.CountDownLatch(1);
-                        concurrentProducer.send("Concurrent-P" + producerId + "-M" + m)
-                            .onComplete(ar -> sendLatch.countDown());
-                        sendLatch.await(10, TimeUnit.SECONDS);
+                        concurrentProducer.send("Concurrent-P" + producerId + "-M" + m).await();
                     }
                     
                     concurrentProducer.close();
                 } catch (Exception e) {
-                    System.err.println("Producer " + producerId + " failed: " + e.getMessage());
-                } finally {
-                    producerLatch.countDown();
+                    logger.warn("Producer {} failed: {}", producerId, e.getMessage());
                 }
             });
         }
 
         // Wait for all producers to complete
-        assertTrue(producerLatch.await(120, TimeUnit.SECONDS), "All producers should complete");
         executor.shutdown();
+        assertTrue(executor.awaitTermination(120, TimeUnit.SECONDS), "All producers should complete");
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed
@@ -349,14 +320,14 @@ public class OutboxPerformanceTest {
         double sendThroughput = totalMessages / (sendDuration.toMillis() / 1000.0);
         double totalThroughput = totalMessages / (totalDuration.toMillis() / 1000.0);
 
-        System.out.println("\n=== CONCURRENT PRODUCER PERFORMANCE RESULTS ===");
-        System.out.println("Producers: " + producerCount);
-        System.out.println("Messages per producer: " + messagesPerProducer);
-        System.out.println("Total messages: " + totalMessages);
-        System.out.println("Send duration: " + sendDuration.toMillis() + "ms");
-        System.out.println("Total duration: " + totalDuration.toMillis() + "ms");
-        System.out.println("Send throughput: " + String.format("%.2f", sendThroughput) + " msg/sec");
-        System.out.println("Total throughput: " + String.format("%.2f", totalThroughput) + " msg/sec");
+        logger.info("=== CONCURRENT PRODUCER PERFORMANCE RESULTS ===");
+        logger.info("Producers: {}", producerCount);
+        logger.info("Messages per producer: {}", messagesPerProducer);
+        logger.info("Total messages: {}", totalMessages);
+        logger.info("Send duration: {}ms", sendDuration.toMillis());
+        logger.info("Total duration: {}ms", totalDuration.toMillis());
+        logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
+        logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
 
         // Verify all messages were processed
         assertEquals(totalMessages, processedCount.get(), "Should process all concurrent messages");

@@ -5,11 +5,14 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.time.Duration;
 
 import java.util.List;
 
@@ -52,7 +55,10 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -62,14 +68,16 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
     @Test
-    void testCreateTopicWithQueueSemantics() throws Exception {
+    void testCreateTopicWithQueueSemantics(VertxTestContext testContext) {
         String topic = "test-topic-queue";
 
         TopicConfig config = TopicConfig.builder()
@@ -82,29 +90,23 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify topic was created
-        TopicConfig retrieved = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(retrieved);
-        assertEquals(topic, retrieved.getTopic());
-        assertEquals(TopicSemantics.QUEUE, retrieved.getSemantics());
-        assertEquals(24, retrieved.getMessageRetentionHours());
-        assertEquals(1, retrieved.getZeroSubscriptionRetentionHours());
-        assertFalse(retrieved.isBlockWritesOnZeroSubscriptions());
-        assertEquals("REFERENCE_COUNTING", retrieved.getCompletionTrackingMode());
-        assertNotNull(retrieved.getCreatedAt());
-        assertNotNull(retrieved.getUpdatedAt());
+            .compose(v -> topicConfigService.getTopic(topic))
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
+                assertNotNull(retrieved);
+                assertEquals(topic, retrieved.getTopic());
+                assertEquals(TopicSemantics.QUEUE, retrieved.getSemantics());
+                assertEquals(24, retrieved.getMessageRetentionHours());
+                assertEquals(1, retrieved.getZeroSubscriptionRetentionHours());
+                assertFalse(retrieved.isBlockWritesOnZeroSubscriptions());
+                assertEquals("REFERENCE_COUNTING", retrieved.getCompletionTrackingMode());
+                assertNotNull(retrieved.getCreatedAt());
+                assertNotNull(retrieved.getUpdatedAt());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testCreateTopicWithPubSubSemantics() throws Exception {
+    void testCreateTopicWithPubSubSemantics(VertxTestContext testContext) {
         String topic = "test-topic-pubsub";
 
         TopicConfig config = TopicConfig.builder()
@@ -117,81 +119,56 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify topic was created
-        TopicConfig retrieved = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(retrieved);
-        assertEquals(topic, retrieved.getTopic());
-        assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
-        assertEquals(48, retrieved.getMessageRetentionHours());
-        assertEquals(2, retrieved.getZeroSubscriptionRetentionHours());
-        assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
-        assertEquals("OFFSET_WATERMARK", retrieved.getCompletionTrackingMode());
+            .compose(v -> topicConfigService.getTopic(topic))
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
+                assertNotNull(retrieved);
+                assertEquals(topic, retrieved.getTopic());
+                assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
+                assertEquals(48, retrieved.getMessageRetentionHours());
+                assertEquals(2, retrieved.getZeroSubscriptionRetentionHours());
+                assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
+                assertEquals("OFFSET_WATERMARK", retrieved.getCompletionTrackingMode());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testCreateTopicUpsert() throws Exception {
+    void testCreateTopicUpsert(VertxTestContext testContext) {
         String topic = "test-topic-upsert";
 
-        // Create initial topic
         TopicConfig config1 = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .messageRetentionHours(24)
             .build();
 
-        topicConfigService.createTopic(config1)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Create again with different settings (should upsert)
         TopicConfig config2 = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(48)
             .build();
 
-        topicConfigService.createTopic(config2)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify topic was updated
-        TopicConfig retrieved = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(retrieved);
-        assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
-        assertEquals(48, retrieved.getMessageRetentionHours());
+        topicConfigService.createTopic(config1)
+            .compose(v -> topicConfigService.createTopic(config2))
+            .compose(v -> topicConfigService.getTopic(topic))
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
+                assertNotNull(retrieved);
+                assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
+                assertEquals(48, retrieved.getMessageRetentionHours());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testUpdateTopic() throws Exception {
+    void testUpdateTopic(VertxTestContext testContext) {
         String topic = "test-topic-update";
 
-        // Create initial topic
-        TopicConfig config = TopicConfig.builder()
+        TopicConfig initialConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .messageRetentionHours(24)
             .build();
 
-        topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Update topic
         TopicConfig updatedConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
@@ -201,27 +178,22 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .completionTrackingMode("OFFSET_WATERMARK")
             .build();
 
-        topicConfigService.updateTopic(updatedConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify update
-        TopicConfig retrieved = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(retrieved);
-        assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
-        assertEquals(72, retrieved.getMessageRetentionHours());
-        assertEquals(3, retrieved.getZeroSubscriptionRetentionHours());
-        assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
-        assertEquals("OFFSET_WATERMARK", retrieved.getCompletionTrackingMode());
+        topicConfigService.createTopic(initialConfig)
+            .compose(v -> topicConfigService.updateTopic(updatedConfig))
+            .compose(v -> topicConfigService.getTopic(topic))
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
+                assertNotNull(retrieved);
+                assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
+                assertEquals(72, retrieved.getMessageRetentionHours());
+                assertEquals(3, retrieved.getZeroSubscriptionRetentionHours());
+                assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
+                assertEquals("OFFSET_WATERMARK", retrieved.getCompletionTrackingMode());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testUpdateNonExistentTopic() throws Exception {
+    void testUpdateNonExistentTopic(VertxTestContext testContext) {
         String topic = "test-topic-nonexistent";
 
         TopicConfig config = TopicConfig.builder()
@@ -229,33 +201,28 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.QUEUE)
             .build();
 
-        // Should fail because topic doesn't exist
-        Exception exception = assertThrows(Exception.class, () -> {
-            topicConfigService.updateTopic(config)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get();
-        });
-
-        assertTrue(exception.getCause() instanceof IllegalStateException);
-        assertTrue(exception.getCause().getMessage().contains("not found"));
+        topicConfigService.updateTopic(config)
+            .onSuccess(v -> testContext.failNow(new AssertionError("Expected failure but update succeeded")))
+            .onFailure(t -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, t);
+                assertTrue(t.getMessage().contains("not found"));
+                testContext.completeNow();
+            }));
     }
 
     @Test
-    void testGetNonExistentTopic() throws Exception {
+    void testGetNonExistentTopic(VertxTestContext testContext) {
         String topic = "test-topic-does-not-exist";
 
-        TopicConfig retrieved = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNull(retrieved);
+        topicConfigService.getTopic(topic)
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
+                assertNull(retrieved);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testListTopics() throws Exception {
-        // Create multiple topics
+    void testListTopics(VertxTestContext testContext) {
         TopicConfig config1 = TopicConfig.builder()
             .topic("test-topic-list-1")
             .semantics(TopicSemantics.QUEUE)
@@ -267,109 +234,69 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.createTopic(config1)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        topicConfigService.createTopic(config2)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // List all topics
-        List<TopicConfig> topics = topicConfigService.listTopics()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(topics);
-        assertTrue(topics.size() >= 2, "Should have at least 2 topics");
-
-        // Verify our topics are present
-        boolean hasTopic1 = topics.stream()
-            .anyMatch(t -> t.getTopic().equals("test-topic-list-1"));
-        boolean hasTopic2 = topics.stream()
-            .anyMatch(t -> t.getTopic().equals("test-topic-list-2"));
-
-        assertTrue(hasTopic1, "Should contain test-topic-list-1");
-        assertTrue(hasTopic2, "Should contain test-topic-list-2");
+            .compose(v -> topicConfigService.createTopic(config2))
+            .compose(v -> topicConfigService.listTopics())
+            .onComplete(testContext.succeeding(topics -> testContext.verify(() -> {
+                assertNotNull(topics);
+                assertTrue(topics.size() >= 2, "Should have at least 2 topics");
+                assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("test-topic-list-1")),
+                    "Should contain test-topic-list-1");
+                assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("test-topic-list-2")),
+                    "Should contain test-topic-list-2");
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testDeleteTopic() throws Exception {
+    void testDeleteTopic(VertxTestContext testContext) {
         String topic = "test-topic-delete";
 
-        // Create topic
         TopicConfig config = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
 
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify it exists
-        TopicConfig retrieved = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        assertNotNull(retrieved);
-
-        // Delete topic
-        topicConfigService.deleteTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify it's gone
-        TopicConfig afterDelete = topicConfigService.getTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        assertNull(afterDelete);
+            .compose(v -> topicConfigService.getTopic(topic))
+            .compose(retrieved -> {
+                assertNotNull(retrieved);
+                return topicConfigService.deleteTopic(topic);
+            })
+            .compose(v -> topicConfigService.getTopic(topic))
+            .onComplete(testContext.succeeding(afterDelete -> testContext.verify(() -> {
+                assertNull(afterDelete);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testDeleteNonExistentTopic() throws Exception {
+    void testDeleteNonExistentTopic(VertxTestContext testContext) {
         String topic = "test-topic-delete-nonexistent";
 
-        // Should not throw exception, just log warning
         topicConfigService.deleteTopic(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testTopicExists() throws Exception {
+    void testTopicExists(VertxTestContext testContext) {
         String topic = "test-topic-exists";
 
-        // Should not exist initially
-        Boolean existsBefore = topicConfigService.topicExists(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        assertFalse(existsBefore);
-
-        // Create topic
         TopicConfig config = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
 
-        topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Should exist now
-        Boolean existsAfter = topicConfigService.topicExists(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        assertTrue(existsAfter);
+        topicConfigService.topicExists(topic)
+            .compose(existsBefore -> {
+                assertFalse(existsBefore);
+                return topicConfigService.createTopic(config);
+            })
+            .compose(v -> topicConfigService.topicExists(topic))
+            .onComplete(testContext.succeeding(existsAfter -> testContext.verify(() -> {
+                assertTrue(existsAfter);
+                testContext.completeNow();
+            })));
     }
 
     @Test

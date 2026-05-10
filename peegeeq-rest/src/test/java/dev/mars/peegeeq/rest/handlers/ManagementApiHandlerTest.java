@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -60,7 +61,7 @@ class ManagementApiHandlerTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_management_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -103,10 +104,11 @@ class ManagementApiHandlerTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -120,7 +122,7 @@ class ManagementApiHandlerTest {
         client.get(TEST_PORT, "localhost", "/api/v1/health")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Health check should return 200 OK");
 
                 JsonObject health = response.bodyAsJsonObject();
@@ -136,8 +138,7 @@ class ManagementApiHandlerTest {
                 logger.info("Health check response: {}", health.encode());
                 logger.info("Health check endpoint test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -148,7 +149,7 @@ class ManagementApiHandlerTest {
         client.get(TEST_PORT, "localhost", "/api/v1/management/overview")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Overview should return 200 OK");
 
                 JsonObject overview = response.bodyAsJsonObject();
@@ -171,8 +172,7 @@ class ManagementApiHandlerTest {
                 logger.info("System overview response: {}", overview.encode());
                 logger.info("System overview endpoint test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -183,7 +183,7 @@ class ManagementApiHandlerTest {
         client.get(TEST_PORT, "localhost", "/api/v1/management/queues")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Queues endpoint should return 200 OK");
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -200,8 +200,7 @@ class ManagementApiHandlerTest {
                 logger.info("Queues response: {}", body.encode());
                 logger.info("Queues endpoint (empty) test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -244,7 +243,7 @@ class ManagementApiHandlerTest {
                     .timeout(10000)
                     .send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Queues endpoint should return 200 OK");
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -264,8 +263,7 @@ class ManagementApiHandlerTest {
                 logger.info("Queues response with setup: {}", body.encode());
                 logger.info("Queues endpoint (with setup) test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -276,7 +274,7 @@ class ManagementApiHandlerTest {
         client.get(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Consumer groups should return 200 OK");
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -290,8 +288,7 @@ class ManagementApiHandlerTest {
                 logger.info("Consumer groups response: {}", body.encode());
                 logger.info("Consumer groups endpoint test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -302,7 +299,7 @@ class ManagementApiHandlerTest {
         client.get(TEST_PORT, "localhost", "/api/v1/management/metrics")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Metrics should return 200 OK");
 
                 JsonObject metrics = response.bodyAsJsonObject();
@@ -323,8 +320,7 @@ class ManagementApiHandlerTest {
                 logger.info("System metrics response: {}", metrics.encode());
                 logger.info("System metrics endpoint test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -585,10 +581,12 @@ class ManagementApiHandlerTest {
             .put("databaseConfig", new JsonObject()
                 .put("host", postgres.getHost())
                 .put("port", postgres.getFirstMappedPort())
-                .put("databaseName", "404_test_" + System.currentTimeMillis())
+                .put("databaseName", "notfound_test_" + System.currentTimeMillis())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
-                .put("schema", "public"))
+                .put("schema", "public")
+                .put("templateDatabase", "template0")
+                .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
             .put("eventStores", new JsonArray());
 

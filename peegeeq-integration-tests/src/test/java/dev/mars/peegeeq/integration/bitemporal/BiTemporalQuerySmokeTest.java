@@ -79,7 +79,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                     .addQueryParam("validTimeTo", t1End.toString())
                     .send();
             })
-            .onComplete(testContext.succeeding(response -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 JsonObject body = response.bodyAsJsonObject();
                 JsonArray events = body.getJsonArray("events");
@@ -105,7 +105,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                 
                 cleanupSetup(setupId);
                 testContext.completeNow();
-            }));
+            })));
     }
 
     @Test
@@ -139,7 +139,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                     .addQueryParam("aggregateId", "audit-1")
                     .send();
             })
-            .onComplete(testContext.succeeding(response -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 JsonArray events = response.bodyAsJsonObject().getJsonArray("events");
                 assertEquals(1, events.size());
@@ -149,7 +149,7 @@ public class BiTemporalQuerySmokeTest extends SmokeTestBase {
                 
                 cleanupSetup(setupId);
                 testContext.completeNow();
-            }));
+            })));
     }
 
     private void cleanupSetup(String setupId) {

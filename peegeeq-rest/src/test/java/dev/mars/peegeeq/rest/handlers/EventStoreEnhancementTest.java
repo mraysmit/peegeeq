@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -62,7 +63,7 @@ class EventStoreEnhancementTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_eventstore_enhancement_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -107,10 +108,11 @@ class EventStoreEnhancementTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -146,14 +148,13 @@ class EventStoreEnhancementTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Event store setup created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -179,15 +180,14 @@ class EventStoreEnhancementTest {
             .putHeader("content-type", "application/json")
             .timeout(10000)
             .sendJsonObject(eventRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Event store should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
-                assertEquals("Event stored successfully", body.getString("message"));
+                assertTrue(body.getString("message").contains("stored successfully"), "message should contain 'stored successfully' but was: " + body.getString("message"));
                 assertNotNull(body.getString("eventId"), "Event ID should be returned");
                 logger.info("Event stored: {}", body.getString("eventId"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -201,7 +201,7 @@ class EventStoreEnhancementTest {
             .addQueryParam("limit", "10")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Query should return 200 OK");
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -224,8 +224,7 @@ class EventStoreEnhancementTest {
 
                 logger.info("Query returned {} events", events.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -243,7 +242,7 @@ class EventStoreEnhancementTest {
             .addQueryParam("limit", "50")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Time range query should return 200 OK");
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -252,8 +251,7 @@ class EventStoreEnhancementTest {
 
                 logger.info("Time range query response: {}", body.encode());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -265,7 +263,7 @@ class EventStoreEnhancementTest {
                 "/api/v1/eventstores/" + testSetupId + "/order_events/stats")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "Stats should return 200 OK");
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -277,8 +275,7 @@ class EventStoreEnhancementTest {
 
                 logger.info("Event store stats: {}", body.encode());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -325,7 +322,7 @@ class EventStoreEnhancementTest {
                     .timeout(10000)
                     .send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
 
                 JsonObject body = response.bodyAsJsonObject();
@@ -334,7 +331,6 @@ class EventStoreEnhancementTest {
                 assertTrue(events.size() >= 3, "Should have at least 3 events now");
                 logger.info("Total events after multiple stores: {}", events.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -30,7 +31,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
-import java.util.concurrent.CountDownLatch;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -73,25 +76,22 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
         // Ensure required schema exists for native queue tests
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-
         // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -107,13 +107,12 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -127,11 +126,9 @@ class ListenNotifyOnlyEdgeCaseTest {
         // First, send messages BEFORE setting up the consumer
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch preSendLatch = new CountDownLatch(3);
-        producer.send("Message 1 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
-        producer.send("Message 2 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
-        producer.send("Message 3 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
-        assertTrue(preSendLatch.await(5, TimeUnit.SECONDS), "Pre-consumer sends should complete");
+        producer.send("Message 1 - Before Consumer").await();
+        producer.send("Message 2 - Before Consumer").await();
+        producer.send("Message 3 - Before Consumer").await();
 
         logger.info("Sent 3 messages before consumer setup");
 
@@ -182,12 +179,9 @@ class ListenNotifyOnlyEdgeCaseTest {
             receivedMessage.set(message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        // Wait for LISTEN setup, then send
-        vertx.setTimer(1000, id -> {
-            producer.send("Special characters test message");
-        });
+        })
+        .onSuccess(ignored -> producer.send("Special characters test message"))
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
             "Should receive message even with special characters in topic name");
@@ -225,12 +219,9 @@ class ListenNotifyOnlyEdgeCaseTest {
             receivedMessage.set(message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        // Wait for LISTEN setup, then send
-        vertx.setTimer(1000, id -> {
-            producer.send(largePayload);
-        });
+        })
+        .onSuccess(ignored -> producer.send(largePayload))
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "Should receive large message via LISTEN_NOTIFY_ONLY mode");
@@ -256,34 +247,36 @@ class ListenNotifyOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(10);
 
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            producers.add(factory.createProducer(topicName, String.class));
+        }
+
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received concurrent message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
-        });
-
-        // Wait for LISTEN setup, then launch concurrent producers
-        vertx.setTimer(1000, id -> {
+        })
+        .onSuccess(ignored -> {
             for (int i = 0; i < 5; i++) {
                 final int producerId = i;
-                vertx.executeBlocking(() -> {
-                    MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                    CountDownLatch sendLatch = new CountDownLatch(2);
-                    producer.send("Message from producer " + producerId + " - msg 1").onComplete(ar -> sendLatch.countDown());
-                    producer.send("Message from producer " + producerId + " - msg 2").onComplete(ar -> sendLatch.countDown());
-                    sendLatch.await(5, TimeUnit.SECONDS);
-                    producer.close();
-                    return null;
-                }).onFailure(testContext::failNow);
+                MessageProducer<String> producer = producers.get(producerId);
+                producer.send("Message from producer " + producerId + " - msg 1")
+                    .compose(v -> producer.send("Message from producer " + producerId + " - msg 2"))
+                    .onFailure(testContext::failNow);
             }
-        });
+        })
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should receive all 10 messages from concurrent producers");
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
         consumer.close();
+        for (MessageProducer<String> p : producers) {
+            p.close();
+        }
         logger.info("LISTEN_NOTIFY_ONLY handles concurrent producers correctly");
     }
 
@@ -314,24 +307,21 @@ class ListenNotifyOnlyEdgeCaseTest {
                 promise.complete();
             });
             return promise.future();
-        });
-
-        // Wait for LISTEN setup, send message, then close during processing
-        vertx.setTimer(1000, id -> {
+        })
+        .onSuccess(ignored -> {
             producer.send("Message for shutdown test");
-
             // Give time for message to arrive and processing to start
             vertx.setTimer(1000, id2 -> {
                 logger.info("🔄 Closing consumer during message processing");
                 consumer.close();
                 producer.close();
-
                 testContext.verify(() -> {
                     assertTrue(processedCount.get() >= 0, "Should handle shutdown gracefully");
                 });
                 testComplete.flag();
             });
-        });
+        })
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         logger.info("LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");

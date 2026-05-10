@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -30,7 +31,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -72,25 +73,22 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
         // Ensure required schema exists for native queue tests
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-
         // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -106,13 +104,12 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -136,15 +133,12 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.info("📨 Legacy API processed message: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Legacy message 1")
+            })
+            .onSuccess(ignored -> producer.send("Legacy message 1")
                     .compose(v -> producer.send("Legacy message 2"))
                     .compose(v -> producer.send("Legacy message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should process messages successfully");
@@ -182,28 +176,25 @@ class ConsumerModeBackwardCompatibilityTest {
             AtomicInteger newCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
-            legacyConsumer.subscribe(message -> {
-                legacyCount.incrementAndGet();
-                logger.info("📨 Legacy consumer processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            newConsumer.subscribe(message -> {
-                newCount.incrementAndGet();
-                logger.info("📨 New consumer processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                legacyProducer.send("Mixed legacy message 1")
+            Future.all(
+                legacyConsumer.subscribe(message -> {
+                    legacyCount.incrementAndGet();
+                    logger.info("📨 Legacy consumer processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                newConsumer.subscribe(message -> {
+                    newCount.incrementAndGet();
+                    logger.info("📨 New consumer processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                })
+            ).onSuccess(ignored -> legacyProducer.send("Mixed legacy message 1")
                     .compose(v -> newProducer.send("Mixed new message 1"))
                     .compose(v -> legacyProducer.send("Mixed legacy message 2"))
                     .compose(v -> newProducer.send("Mixed new message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Mixed API usage should process all messages");
@@ -244,28 +235,25 @@ class ConsumerModeBackwardCompatibilityTest {
             AtomicInteger hybridCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
-            legacyConsumer.subscribe(message -> {
-                legacyCount.incrementAndGet();
-                logger.info("📨 Legacy default processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            hybridConsumer.subscribe(message -> {
-                hybridCount.incrementAndGet();
-                logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                legacyProducer.send("Legacy default message 1")
+            Future.all(
+                legacyConsumer.subscribe(message -> {
+                    legacyCount.incrementAndGet();
+                    logger.info("📨 Legacy default processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                hybridConsumer.subscribe(message -> {
+                    hybridCount.incrementAndGet();
+                    logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                })
+            ).onSuccess(ignored -> legacyProducer.send("Legacy default message 1")
                     .compose(v -> hybridProducer.send("Explicit hybrid message 1"))
                     .compose(v -> legacyProducer.send("Legacy default message 2"))
                     .compose(v -> hybridProducer.send("Explicit hybrid message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Both legacy and explicit HYBRID should process messages");
@@ -305,14 +293,11 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.info("📨 Legacy migration processed: {}", message.getPayload());
                 legacyMessages.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Migration message 1")
+            })
+            .onSuccess(ignored -> producer.send("Migration message 1")
                     .compose(v -> producer.send("Migration message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for processing
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Legacy consumer should process initial messages");
@@ -332,16 +317,11 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.info("📨 New API migration processed: {}", message.getPayload());
                 newMessages.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for new consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Migration message 3")
+            })
+            .onSuccess(ignored -> producer.send("Migration message 3")
                     .compose(v -> producer.send("Migration message 4"))
-                    .onFailure(e -> {
-                        // Best effort - phase2 will timeout
-                    });
-            });
+                    .onFailure(e -> { /* Best effort - phase2 will timeout */ }))
+            .onFailure(phase2::failNow);
 
             // Wait for processing
             boolean newReceived = phase2.awaitCompletion(10, TimeUnit.SECONDS);
@@ -381,17 +361,16 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.debug("📨 Performance test processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 io.vertx.core.Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 5; i++) {
                     final int msgNum = i;
                     chain = chain.compose(v -> producer.send("Performance message " + msgNum));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should handle performance test messages");

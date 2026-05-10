@@ -18,7 +18,10 @@ package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,8 +34,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.util.Properties;
 import java.util.concurrent.locks.LockSupport;
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Comprehensive test for JdbcIntegrationHybridExample functionality.
@@ -57,41 +62,31 @@ public class JdbcIntegrationHybridExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(JdbcIntegrationHybridExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_jdbc_hybrid_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     
     @BeforeEach
-    void setUp() {
-        logger.info("Setting up JDBC Integration Hybrid Example Test");
-        
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
-        
-        logger.info("✓ JDBC Integration Hybrid Example Test setup completed");
+    void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start().await();
     }
     
     @AfterEach
     void tearDown() {
-        logger.info("Tearing down JDBC Integration Hybrid Example Test");
-        
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
         }
-        
-        logger.info("✓ JDBC Integration Hybrid Example Test teardown completed");
     }
 
     /**
@@ -101,10 +96,6 @@ public class JdbcIntegrationHybridExampleTest {
     @Test
     void testExistingJdbcMethod() throws Exception {
         logger.info("=== Testing Existing JDBC Method ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test existing JDBC method
         JdbcMethodResult result = testExistingJdbcMethodPattern();
@@ -130,10 +121,6 @@ public class JdbcIntegrationHybridExampleTest {
     void testHybridApproach() throws Exception {
         logger.info("=== Testing Hybrid Approach (Demonstrating Incompatibility) ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test hybrid approach (demonstrating incompatibility)
         HybridApproachResult result = testHybridApproachPattern();
         
@@ -154,10 +141,6 @@ public class JdbcIntegrationHybridExampleTest {
     @Test
     void testNewReactiveMethod() throws Exception {
         logger.info("=== Testing New Reactive Method ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test new reactive method
         ReactiveMethodResult result = testNewReactiveMethodPattern();
@@ -180,10 +163,6 @@ public class JdbcIntegrationHybridExampleTest {
     void testPerformanceComparison() throws Exception {
         logger.info("=== Testing Performance Comparison ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test performance comparison
         PerformanceComparisonResult result = testPerformanceComparisonPattern();
         
@@ -205,10 +184,6 @@ public class JdbcIntegrationHybridExampleTest {
     @Test
     void testMigrationStrategies() throws Exception {
         logger.info("=== Testing Migration Strategies ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test migration strategies
         MigrationStrategiesResult result = testMigrationStrategiesPattern();
@@ -359,23 +334,6 @@ public class JdbcIntegrationHybridExampleTest {
         logger.info("✓ Migration strategies pattern tested");
         
         return new MigrationStrategiesResult(strategiesEvaluated, bestPracticesApplied, migrationPlanCompleted);
-    }
-    
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
     }
     
     // Supporting classes

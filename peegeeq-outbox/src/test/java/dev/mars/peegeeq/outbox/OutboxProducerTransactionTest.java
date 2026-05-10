@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 import dev.mars.peegeeq.api.database.ConnectionProvider;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -25,6 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -41,15 +44,7 @@ public class OutboxProducerTransactionTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerTransactionTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private PgDatabaseService databaseService;
@@ -57,17 +52,13 @@ public class OutboxProducerTransactionTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService dbs = new PgDatabaseService(manager);
         databaseService = dbs;
@@ -85,11 +76,14 @@ public class OutboxProducerTransactionTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             testContext.completeNow();
@@ -291,7 +285,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // sendInExistingTransaction — success path with real connection
+    // sendInExistingTransaction success path with real connection
     // =========================================================================
 
     @Test
@@ -333,7 +327,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // Idempotency — ON CONFLICT DO NOTHING behavior
+    // Idempotency ON CONFLICT DO NOTHING behavior
     // =========================================================================
 
     @Test
@@ -343,11 +337,11 @@ public class OutboxProducerTransactionTest {
         Map<String, String> headers = new HashMap<>();
         headers.put("idempotencyKey", idempotencyKey);
 
-        // First send — should insert
+        // First send should insert
         producer.sendInOwnTransaction("first-message", headers)
             .compose(v -> {
                 logger.info("First message sent with idempotency key: {}", idempotencyKey);
-                // Second send with same key — should silently do nothing
+                // Second send with same key should silently do nothing
                 return producer.sendInOwnTransaction("second-message", headers);
             })
             .compose(v -> {
@@ -364,11 +358,10 @@ public class OutboxProducerTransactionTest {
                     })
                 );
             })
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1, count, "Only one row should exist for duplicate idempotency key");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -378,7 +371,7 @@ public class OutboxProducerTransactionTest {
     void testNoIdempotencyKeyAllowsDuplicates(VertxTestContext testContext) throws Exception {
         String uniqueMarker = "no-idem-" + System.currentTimeMillis();
 
-        // Send two distinct messages without idempotency key — both should insert
+        // Send two distinct messages without idempotency key both should insert
         producer.sendInOwnTransaction(uniqueMarker + "-a")
             .compose(v -> producer.sendInOwnTransaction(uniqueMarker + "-b"))
             .onSuccess(v -> {
@@ -411,7 +404,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // Idempotency key normalization — empty/whitespace → null
+    // Idempotency key normalization empty/whitespace → null
     // =========================================================================
 
     @Test
@@ -455,11 +448,11 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // close() pool isolation — closing producer does not close shared pool
+    // close() pool isolation closing producer does not close shared pool
     // =========================================================================
 
     @Test
-    @DisplayName("Closing producer does not close the shared pool — second producer still works")
+    @DisplayName("Closing producer does not close the shared pool second producer still works")
     void testCloseDoesNotAffectSharedPool(VertxTestContext testContext) throws Exception {
         // Create a second producer using the same databaseService (same shared pool)
         OutboxProducer<String> producer2 = new OutboxProducer<>(databaseService,
@@ -472,7 +465,7 @@ public class OutboxProducerTransactionTest {
         // Second producer should still work because the pool is shared
         producer2.sendInOwnTransaction("after-close-" + System.currentTimeMillis())
             .onSuccess(v -> {
-                logger.info("Second producer works after first producer closed — shared pool intact");
+                logger.info("Second producer works after first producer closed shared pool intact");
                 producer2.close();
                 testContext.completeNow();
             })

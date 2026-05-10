@@ -4,7 +4,6 @@ peegeeq-api/src/test/java/dev/mars/peegeeq/api/messaging/MessageTest.java
 peegeeq-api/src/test/java/dev/mars/peegeeq/api/messaging/SubscriptionOptionsValidationTest.java
 peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/BiTemporalEventStoreExampleTest.java
 peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/BiTemporalFactoryTest.java
-peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/BiTemporalPerformanceBenchmarkTest.java
 peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/BiTemporalQueryEdgeCasesTest.java
 peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/JsonbConversionValidationTest.java
 peegeeq-bitemporal/src/test/java/dev/mars/peegeeq/bitemporal/PeeGeeQBiTemporalIntegrationTest.java

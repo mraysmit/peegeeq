@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -74,7 +75,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
 
         // Verify clientId is present on the consumer group itself
-        // (currently fails — OutboxConsumerGroup has no clientId field)
+        // (currently fails OutboxConsumerGroup has no clientId field)
         String actualClientId = getPrivateField(outboxGroup, "clientId", String.class);
         assertEquals(expectedClientId, actualClientId,
                 "Consumer group should hold the factory's clientId for propagation to its underlying consumer");
@@ -108,7 +109,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         try {
             group.start();
         } catch (Exception ignored) {
-            // Expected — no real database available
+            // Expected no real database available
         }
 
         // Then: the underlying consumer should have the same clientId
@@ -118,7 +119,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
             assertEquals(expectedClientId, actualClientId,
                     "Underlying consumer created by start() should have the group's clientId");
         }
-        // If underlyingConsumer is null, start() failed before creating it — acceptable in unit context
+        // If underlyingConsumer is null, start() failed before creating it acceptable in unit context
 
         group.close();
     }
@@ -212,7 +213,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
     }
 
     /**
-     * Minimal DatabaseService stub for unit tests — no real database needed.
+     * Minimal DatabaseService stub for unit tests no real database needed.
      */
     private static class StubDatabaseService implements DatabaseService {
         @Override public io.vertx.core.Future<Void> initialize() { return io.vertx.core.Future.succeededFuture(); }
@@ -225,7 +226,8 @@ class OutboxConsumerGroupClientIdPropagationTest {
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         @Override public io.vertx.core.Future<Void> runMigrations() { return io.vertx.core.Future.succeededFuture(); }
         @Override public io.vertx.core.Future<Boolean> performHealthCheck() { return io.vertx.core.Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return null; }
+        private final Vertx vertx = Vertx.vertx();
+        @Override public io.vertx.core.Vertx getVertx() { return vertx; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }

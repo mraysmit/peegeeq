@@ -22,6 +22,8 @@ import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -146,6 +148,7 @@ class BiTemporalEventStoreExampleTest {
     
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up BiTemporalEventStoreExampleTest ===");
 
         logger.info("Database configured: {}:{}/{}", postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
@@ -171,20 +174,15 @@ class BiTemporalEventStoreExampleTest {
         System.setProperty("db.password", postgres.getPassword());
 
         // Configure PeeGeeQ to use the TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         // Initialize PeeGeeQ manager
         logger.info("Initializing PeeGeeQ manager and starting services");
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ manager started successfully");
 
         // Create event store with unique table name for test isolation
@@ -197,6 +195,7 @@ class BiTemporalEventStoreExampleTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down BiTemporalEventStoreExampleTest ===");
         System.setOut(originalOut);
         System.setErr(originalErr);
@@ -237,11 +236,6 @@ class BiTemporalEventStoreExampleTest {
         System.clearProperty("db.database");
         System.clearProperty("db.username");
         System.clearProperty("db.password");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
     }
     
     /**
@@ -366,8 +360,8 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(2, versions.size(), "Audit trail must contain both original and corrected versions");
 
         // 9. COMPLIANCE QUERY: Point-in-time query for regulatory reconstruction
-        Instant beforeCorrection = correctionEvent.getTransactionTime().minus(1, ChronoUnit.SECONDS);
-        BiTemporalEvent<TradeEvent> eventBeforeCorrection = await(eventStore.getAsOfTransactionTime(event1.getEventId(), beforeCorrection));
+        // Use the original event's actual transaction_time: <= semantics returns the original version
+        BiTemporalEvent<TradeEvent> eventBeforeCorrection = await(eventStore.getAsOfTransactionTime(event1.getEventId(), event1.getTransactionTime()));
 
         assertNotNull(eventBeforeCorrection, "Must be able to reconstruct pre-correction state for regulatory reporting");
         assertEquals(0, new BigDecimal("150250.00").compareTo(eventBeforeCorrection.getPayload().getNotionalAmount()), "Original notional amount must be preserved in audit trail");
@@ -799,10 +793,9 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(2, completeAuditTrail.size(), "Audit trail must contain both original and corrected versions");
 
         // REGULATORY VALIDATION: Point-in-time reconstruction for supervisor
-        // Scenario: "What did you report on T+1?" (before correction was known)
-        Instant supervisorInquiryTime = correctionTime.minus(1, ChronoUnit.HOURS); // Just before correction
+        // Use the initial report's actual DB transaction_time so the query finds only the original version
         BiTemporalEvent<TradeEvent> reportAsOfT1 = await(eventStore.getAsOfTransactionTime(
-            initialReportEvent.getEventId(), supervisorInquiryTime
+            initialReportEvent.getEventId(), initialReportEvent.getTransactionTime()
         ));
 
         assertNotNull(reportAsOfT1, "Must be able to reconstruct T+1 report for regulatory inquiry");

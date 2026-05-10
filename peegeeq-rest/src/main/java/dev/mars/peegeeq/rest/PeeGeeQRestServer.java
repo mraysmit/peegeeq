@@ -95,6 +95,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
     private final ObjectMapper objectMapper;
 
     private HttpServer server;
+    private volatile long serverStartTime;
 
     // Handlers that manage consumers and need explicit cleanup on shutdown
     private WebhookSubscriptionHandler webhookHandler;
@@ -162,6 +163,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     @Override
     public void start(Promise<Void> startPromise) {
+        this.serverStartTime = System.currentTimeMillis();
                 // Use a startup-only trace for boot logs without polluting request context.
                 TraceCtx startupTrace = TraceCtx.createNew();
                 try (var scope = TraceContextUtil.mdcScope(startupTrace)) {
@@ -258,20 +260,22 @@ public class PeeGeeQRestServer extends AbstractVerticle {
             logger.warn("Error closing handlers during shutdown: {}", e.getMessage());
         }
 
-        // Step 2: Close the HTTP server
-        if (server != null) {
-            server.close()
-                    .onSuccess(v -> {
-                        logger.info("PeeGeeQ REST API server stopped");
-                        stopPromise.complete();
-                    })
-                    .onFailure(cause -> {
-                        logger.error("Failed to stop PeeGeeQ REST API server", cause);
-                        stopPromise.fail(cause);
-                    });
-        } else {
-            stopPromise.complete();
-        }
+        // Step 2: Close the setup service (cancels background timers on all active
+        // PeeGeeQManager instances, preventing "Failed to refresh depth cache" warnings
+        // after the database becomes unreachable)
+        setupService.close()
+                .onFailure(e -> logger.warn("Error closing setup service during shutdown: {}", e.getMessage()))
+                // Step 3: Close the HTTP server regardless of setupService outcome
+                .eventually(() -> {
+                    if (server != null) {
+                        return server.close()
+                                .onSuccess(v -> logger.info("PeeGeeQ REST API server stopped"))
+                                .onFailure(cause -> logger.error("Failed to stop PeeGeeQ REST API server", cause));
+                    }
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> stopPromise.complete())
+                .onFailure(stopPromise::fail);
     }
 
     private Router createRouter() {
@@ -322,6 +326,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
             JsonObject health = new JsonObject()
                     .put("status", "UP")
                     .put("timestamp", System.currentTimeMillis())
+                    .put("uptime", System.currentTimeMillis() - serverStartTime)
                     .put("version", "1.0.0")
                     .put("build", "Phase-5-Management-UI");
             ctx.response()
@@ -487,6 +492,18 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .handler(subscriptionHandler::getBackfillProgress);
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
                 .handler(subscriptionHandler::cancelBackfill);
+
+        // Partitioned Consumption routes (OFFSET_WATERMARK mode)
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join")
+                .handler(subscriptionHandler::joinPartitionedGroup);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave")
+                .handler(subscriptionHandler::leavePartitionedGroup);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions")
+                .handler(subscriptionHandler::getPartitionAssignments);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch")
+                .handler(subscriptionHandler::fetchPartitioned);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit")
+                .handler(subscriptionHandler::commitPartitionedOffset);
 
         // Consumer Alerting routes - dead consumer detection and blocked message stats
         router.get("/api/v1/setups/:setupId/consumer-alerts/dead")

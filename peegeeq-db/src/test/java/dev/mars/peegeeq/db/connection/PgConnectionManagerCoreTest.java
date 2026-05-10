@@ -11,6 +11,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -18,6 +19,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -43,15 +46,17 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         meterRegistry = new SimpleMeterRegistry();
         connectionManager = new PgConnectionManager(manager.getVertx(), meterRegistry);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -85,7 +90,10 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         Pool pool = connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
@@ -98,7 +106,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetOrCreateReactivePoolWithNullConnectionConfig() {
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         assertThrows(NullPointerException.class, () ->
             connectionManager.getOrCreateReactivePool("test-service", null, poolConfig)
         );
@@ -131,7 +139,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         // Initially no pool exists
         assertNull(connectionManager.getExistingPool("test-service"));
@@ -146,7 +154,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testGetReactiveConnection() throws Exception {
+    void testGetReactiveConnection(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -157,41 +165,37 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .schema("public")
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        // Get a connection
-        SqlConnection connection = connectionManager.getReactiveConnection("test-service")
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertNotNull(connection);
-
-        // Verify connection works
-        Integer result = connection.query("SELECT 1 as value")
-            .execute()
-            .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, result);
-
-        // Close connection
-        connection.close().toCompletionStage().toCompletableFuture().get();
+        connectionManager.getReactiveConnection("test-service")
+            .compose(connection -> {
+                assertNotNull(connection);
+                return connection.query("SELECT 1 as value")
+                    .execute()
+                    .map(rowSet -> rowSet.iterator().next().getInteger("value"))
+                    .compose(result -> {
+                        assertEquals(1, result);
+                        return connection.close();
+                    });
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetReactiveConnectionWithNonExistentService() throws Exception {
-        try {
-            connectionManager.getReactiveConnection("non-existent-service")
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected exception for non-existent service");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalStateException);
-            assertTrue(e.getCause().getMessage().contains("No reactive pool found"));
-        }
+    void testGetReactiveConnectionWithNonExistentService(VertxTestContext testContext) {
+        connectionManager.getReactiveConnection("non-existent-service")
+            .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
+            .onFailure(e -> testContext.verify(() -> {
+                assertTrue(e instanceof IllegalStateException);
+                assertTrue(e.getMessage().contains("No reactive pool found"));
+                testContext.completeNow();
+            }));
     }
 
     @Test
-    void testWithConnection() throws Exception {
+    void testWithConnection(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -202,34 +206,35 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .schema("public")
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        // Execute operation with connection
-        Integer result = connectionManager.withConnection("test-service", conn ->
+        connectionManager.withConnection("test-service", conn ->
             conn.query("SELECT 42 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(42, result);
+        )
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+            assertEquals(42, result);
+            testContext.completeNow();
+        })));
     }
 
     @Test
-    void testWithConnectionNonExistentService() throws Exception {
-        try {
-            connectionManager.withConnection("non-existent-service", conn ->
-                conn.query("SELECT 1").execute().map(rs -> 1)
-            ).toCompletionStage().toCompletableFuture().get();
-            fail("Expected exception for non-existent service");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalStateException);
-            assertTrue(e.getCause().getMessage().contains("No reactive pool found"));
-        }
+    void testWithConnectionNonExistentService(VertxTestContext testContext) {
+        connectionManager.withConnection("non-existent-service", conn ->
+            conn.query("SELECT 1").execute().map(rs -> 1)
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
+        .onFailure(e -> testContext.verify(() -> {
+            assertTrue(e instanceof IllegalStateException);
+            assertTrue(e.getMessage().contains("No reactive pool found"));
+            testContext.completeNow();
+        }));
     }
 
     @Test
-    void testWithTransaction() throws Exception {
+    void testWithTransaction(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -239,34 +244,35 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        // Execute operation within transaction
-        Integer result = connectionManager.withTransaction("test-service", conn ->
+        connectionManager.withTransaction("test-service", conn ->
             conn.query("SELECT 99 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(99, result);
+        )
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+            assertEquals(99, result);
+            testContext.completeNow();
+        })));
     }
 
     @Test
-    void testWithTransactionNonExistentService() throws Exception {
-        try {
-            connectionManager.withTransaction("non-existent-service", conn ->
-                conn.query("SELECT 1").execute().map(rs -> 1)
-            ).toCompletionStage().toCompletableFuture().get();
-            fail("Expected exception for non-existent service");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalStateException);
-            assertTrue(e.getCause().getMessage().contains("No reactive pool found"));
-        }
+    void testWithTransactionNonExistentService(VertxTestContext testContext) {
+        connectionManager.withTransaction("non-existent-service", conn ->
+            conn.query("SELECT 1").execute().map(rs -> 1)
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
+        .onFailure(e -> testContext.verify(() -> {
+            assertTrue(e instanceof IllegalStateException);
+            assertTrue(e.getMessage().contains("No reactive pool found"));
+            testContext.completeNow();
+        }));
     }
 
     @Test
-    void testCheckHealth() throws Exception {
+    void testCheckHealth(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -276,23 +282,23 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        // Check health
-        Boolean healthy = connectionManager.checkHealth("test-service")
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(healthy);
+        connectionManager.checkHealth("test-service")
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
+                assertTrue(healthy);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testCheckHealthNonExistentService() throws Exception {
-        // Check health for non-existent service
-        Boolean healthy = connectionManager.checkHealth("non-existent-service")
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertFalse(healthy);
+    void testCheckHealthNonExistentService(VertxTestContext testContext) {
+        connectionManager.checkHealth("non-existent-service")
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
+                assertFalse(healthy);
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -306,7 +312,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         // Initially true (no pools)
         assertTrue(connectionManager.hasPoolsConfigured());
@@ -319,7 +325,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testClosePool() throws Exception {
+    void testClosePool(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -329,29 +335,28 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Verify pool exists
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
-        // Close pool
         connectionManager.closePool("test-service")
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify pool is removed
-        assertNull(connectionManager.getExistingPool("test-service"));
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-service"));
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testClosePoolNonExistentService() throws Exception {
-        // Closing non-existent pool should succeed without error
+    void testClosePoolNonExistentService(VertxTestContext testContext) {
         connectionManager.closePool("non-existent-service")
-            .toCompletionStage().toCompletableFuture().get();
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCloseAsync() throws Exception {
+    void testCloseAsync(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -361,7 +366,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service-1", connectionConfig, poolConfig);
         connectionManager.getOrCreateReactivePool("test-service-2", connectionConfig, poolConfig);
 
@@ -369,24 +374,23 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service-1"));
         assertNotNull(connectionManager.getExistingPool("test-service-2"));
 
-        // Close all pools
         connectionManager.close()
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify all pools are removed
-        assertNull(connectionManager.getExistingPool("test-service-1"));
-        assertNull(connectionManager.getExistingPool("test-service-2"));
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-service-1"));
+                assertNull(connectionManager.getExistingPool("test-service-2"));
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testCloseAsyncWithNoPools() throws Exception {
-        // Closing with no pools should succeed without error
+    void testCloseAsyncWithNoPools(VertxTestContext testContext) {
         connectionManager.close()
-            .toCompletionStage().toCompletableFuture().get();
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClose() throws Exception {
+    void testClose(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -396,18 +400,17 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Verify pool exists
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
-        // Close asynchronously and await
         connectionManager.close()
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify pool is removed
-        assertNull(connectionManager.getExistingPool("test-service"));
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-service"));
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -422,7 +425,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .schema("public, pg_catalog")
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         // Create pool with schema configuration
         Pool pool = connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);

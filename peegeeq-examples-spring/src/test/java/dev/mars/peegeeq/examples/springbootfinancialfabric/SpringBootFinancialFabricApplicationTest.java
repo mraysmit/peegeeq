@@ -17,6 +17,7 @@ package dev.mars.peegeeq.examples.springbootfinancialfabric;
  */
 
 import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.config.FinancialFabricProperties;
@@ -25,6 +26,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -60,8 +62,8 @@ import static org.junit.jupiter.api.Assertions.*;
         "spring.profiles.active=test"
     }
 )
-@ActiveProfiles("test")
 @Testcontainers
+@ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 public class SpringBootFinancialFabricApplicationTest {
     
@@ -123,10 +125,22 @@ public class SpringBootFinancialFabricApplicationTest {
     
     @Autowired
     private FinancialFabricProperties properties;
-    
+
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Financial Fabric Test resources");
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
         log.info("Financial Fabric Test cleanup complete");
     }
     

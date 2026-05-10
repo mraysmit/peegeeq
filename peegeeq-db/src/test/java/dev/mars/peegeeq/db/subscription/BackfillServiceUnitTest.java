@@ -6,10 +6,13 @@ import dev.mars.peegeeq.db.subscription.BackfillService.BackfillResult;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -21,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * methods that do not require a database connection.
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class BackfillServiceUnitTest {
 
     private Vertx vertx;
@@ -35,9 +39,14 @@ class BackfillServiceUnitTest {
     }
 
     @AfterEach
-    void tearDown() {
-        if (connectionManager != null) connectionManager.close();
-        if (vertx != null) vertx.close();
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> closeFuture = connectionManager != null
+                ? connectionManager.close()
+                : Future.succeededFuture();
+        closeFuture
+                .compose(v -> vertx != null ? vertx.close() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // =========================================================================

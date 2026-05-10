@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -44,6 +45,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -51,6 +53,7 @@ import java.util.HashMap;
 
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -128,7 +131,7 @@ class EnhancedErrorHandlingExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_enhanced_error_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -140,28 +143,24 @@ class EnhancedErrorHandlingExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up Enhanced Error Handling Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        
-        // Configure error handling settings
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
-        System.setProperty("peegeeq.consumer.threads", "2");
-        System.setProperty("peegeeq.queue.batch-size", "5");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.consumer.threads", "2")
+                .property("peegeeq.queue.batch-size", "5")
+                .build();
         
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
         // Create outbox factory - following established pattern
@@ -178,6 +177,7 @@ class EnhancedErrorHandlingExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Enhanced Error Handling Example Test");
 
         if (factory != null) {
@@ -192,25 +192,12 @@ class EnhancedErrorHandlingExampleTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            if (ar.failed()) {
-                logger.warn("Error closing manager: {}", ar.cause().getMessage());
-            }
-            // Clear system properties
-            System.clearProperty("peegeeq.database.host");
-            System.clearProperty("peegeeq.database.port");
-            System.clearProperty("peegeeq.database.name");
-            System.clearProperty("peegeeq.database.username");
-            System.clearProperty("peegeeq.database.password");
-            System.clearProperty("peegeeq.database.schema");
-            System.clearProperty("peegeeq.queue.max-retries");
-            System.clearProperty("peegeeq.queue.polling-interval");
-            System.clearProperty("peegeeq.consumer.threads");
-            System.clearProperty("peegeeq.queue.batch-size");
-
-            logger.info("Enhanced Error Handling Example Test cleanup completed");
-            testContext.completeNow();
-        });
+        closeFuture
+                .onSuccess(v -> {
+                    logger.info("Enhanced Error Handling Example Test cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     

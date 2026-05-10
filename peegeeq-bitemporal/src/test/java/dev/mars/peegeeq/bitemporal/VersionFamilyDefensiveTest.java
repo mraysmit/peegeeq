@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -36,6 +37,8 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -70,6 +73,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class VersionFamilyDefensiveTest {
+
+        private static final Logger logger = LoggerFactory.getLogger(VersionFamilyDefensiveTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
@@ -131,22 +136,20 @@ class VersionFamilyDefensiveTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
         vertx = Vertx.vertx();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -158,7 +161,7 @@ class VersionFamilyDefensiveTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                .recover(err -> Future.succeededFuture(null))
+                .transform(ar -> Future.succeededFuture(null))
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
@@ -185,15 +188,6 @@ class VersionFamilyDefensiveTest {
                 .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -233,13 +227,13 @@ class VersionFamilyDefensiveTest {
                 .compose(roots -> eventStore.appendCorrection(roots.getValue().getEventId(), "FamilyB",
                         new DefensiveEvent("corrB1", "family-B-corr1", 101), t, "correct B")
                         .map(corrB1 -> roots))
-                // Now query family A — must get exactly 3 members, none from family B
+                // Now query family A must get exactly 3 members, none from family B
                 .compose(roots -> eventStore.getAllVersions(roots.getKey().getEventId())
                         .map(familyA -> Map.entry(roots, familyA)))
-                // Also query family B — must get exactly 2 members, none from family A
+                // Also query family B must get exactly 2 members, none from family A
                 .compose(pair -> eventStore.getAllVersions(pair.getKey().getValue().getEventId())
                         .map(familyB -> Map.entry(pair.getValue(), familyB)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<DefensiveEvent>> familyA = result.getKey();
                     List<BiTemporalEvent<DefensiveEvent>> familyB = result.getValue();
 
@@ -255,7 +249,7 @@ class VersionFamilyDefensiveTest {
                             .map(BiTemporalEvent::getEventId).collect(Collectors.toSet());
                     familyAIds.retainAll(familyBIds);
                     assertTrue(familyAIds.isEmpty(),
-                            "Families must not share any event IDs — cross-family contamination detected");
+                            "Families must not share any event IDs cross-family contamination detected");
 
                     // Verify family A contains only FamilyA event types
                     assertTrue(familyA.stream().allMatch(e -> "FamilyA".equals(e.getEventType())),
@@ -264,8 +258,7 @@ class VersionFamilyDefensiveTest {
                             "Family B must contain only FamilyB events");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -289,7 +282,7 @@ class VersionFamilyDefensiveTest {
                 // Query family A as-of now
                 .compose(roots -> eventStore.getAsOfTransactionTime(roots.getKey().getEventId(), Instant.now())
                         .map(resultA -> Map.entry(roots, resultA)))
-                .onSuccess(pair -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                     BiTemporalEvent<DefensiveEvent> resultA = pair.getValue();
                     assertNotNull(resultA, "getAsOfTransactionTime must return a result for family A");
                     assertEquals("IsoA", resultA.getEventType(),
@@ -297,8 +290,7 @@ class VersionFamilyDefensiveTest {
                     assertNotEquals(999, resultA.getPayload().getValue(),
                             "Result payload must not be from family B");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -320,7 +312,7 @@ class VersionFamilyDefensiveTest {
                     String leafId = allEvents.get(allEvents.size() - 1).getEventId();
                     return eventStore.getAllVersions(leafId).map(versions -> Map.entry(allEvents, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<DefensiveEvent>> versions = result.getValue();
                     assertEquals(depth, versions.size(),
                             "10-level deep chain: getAllVersions from leaf must return all " + depth + " versions. "
@@ -340,8 +332,7 @@ class VersionFamilyDefensiveTest {
                     }
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -361,12 +352,11 @@ class VersionFamilyDefensiveTest {
                     String middleId = allEvents.get(4).getEventId();
                     return eventStore.getAllVersions(middleId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(depth, versions.size(),
                             "getAllVersions from middle of 10-level chain must return all " + depth);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -410,7 +400,7 @@ class VersionFamilyDefensiveTest {
                     return eventStore.getAllVersions(lastChild.getEventId())
                             .map(versions -> Map.entry(pair, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<DefensiveEvent>> versions = result.getValue();
                     int expectedTotal = 1 + childCount; // root + children
                     assertEquals(expectedTotal, versions.size(),
@@ -428,8 +418,7 @@ class VersionFamilyDefensiveTest {
                     assertFalse(versions.get(0).isCorrection());
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -450,13 +439,12 @@ class VersionFamilyDefensiveTest {
                     BiTemporalEvent<DefensiveEvent> firstChild = pair.getValue().get(0);
                     return eventStore.getAsOfTransactionTime(firstChild.getEventId(), Instant.now());
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNotNull(result, "getAsOfTransactionTime must return a result from correction chain");
                     assertTrue(result.getVersion() >= 1L,
                             "Result must have a valid version number");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -498,12 +486,11 @@ class VersionFamilyDefensiveTest {
                         new DefensiveEvent("c", "corr", 2), t, "correct")
                         .map(corr -> root))
                 .compose(root -> eventStore.getAsOfTransactionTime(root.getEventId(), farPast))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNull(result,
                             "getAsOfTransactionTime queried before any events must return null");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -527,13 +514,12 @@ class VersionFamilyDefensiveTest {
                     });
                 })
                 .compose(pair -> eventStore.getAsOfTransactionTime(pair.getKey().getEventId(), pair.getValue()))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNotNull(result, "Must return v1 at time between v1 and v2 creation");
                     assertEquals(1L, result.getVersion(),
                             "At a time between v1 and v2 creation, only v1 should be visible");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -551,13 +537,12 @@ class VersionFamilyDefensiveTest {
                     Instant txTime = root.getTransactionTime();
                     return eventStore.getAsOfTransactionTime(root.getEventId(), txTime);
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNotNull(result,
                             "getAsOfTransactionTime at exact transaction_time must return the event (<= semantics)");
                     assertEquals(1L, result.getVersion());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -588,20 +573,19 @@ class VersionFamilyDefensiveTest {
                                     return all;
                                 })))
                 .compose(all -> {
-                    // Query from C (sibling branch) at current time — should see v4 (D) as latest
+                    // Query from C (sibling branch) at current time should see v4 (D) as latest
                     String cId = all.get(2).getEventId();
                     return eventStore.getAsOfTransactionTime(cId, Instant.now())
                             .map(result -> Map.entry(all, result));
                 })
-                .onSuccess(pair -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                     BiTemporalEvent<DefensiveEvent> result = pair.getValue();
                     assertNotNull(result, "getAsOfTransactionTime from tree sibling must return a result");
                     assertEquals(4L, result.getVersion(),
                             "Latest version in tree family is v4 (D). "
                                     + "getAsOfTransactionTime from sibling C must resolve to the latest version.");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -625,7 +609,7 @@ class VersionFamilyDefensiveTest {
                         new DefensiveEvent("c2", "corr2", 3), t, reason2)
                         .map(c2 -> root))
                 .compose(root -> eventStore.getAllVersions(root.getEventId()))
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(3, versions.size());
 
                     // Root has no correction reason
@@ -647,8 +631,7 @@ class VersionFamilyDefensiveTest {
                             "Second correction must be marked as correction");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -665,7 +648,7 @@ class VersionFamilyDefensiveTest {
                 .eventType("SingleEvent").payload(new DefensiveEvent("solo", "only-event", 42)).validTime(t).execute()
                 .compose(solo -> eventStore.getAllVersions(solo.getEventId())
                         .map(versions -> Map.entry(solo, versions)))
-                .onSuccess(pair -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                     List<BiTemporalEvent<DefensiveEvent>> versions = pair.getValue();
                     assertEquals(1, versions.size(),
                             "Single event with no corrections must return exactly 1 version");
@@ -674,8 +657,7 @@ class VersionFamilyDefensiveTest {
                     assertNull(versions.get(0).getPreviousVersionId());
                     assertEquals(pair.getKey().getEventId(), versions.get(0).getEventId());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -690,14 +672,13 @@ class VersionFamilyDefensiveTest {
                 .eventType("SingleAsOf").payload(new DefensiveEvent("solo", "only-event", 42)).validTime(t).execute()
                 .compose(solo -> eventStore.getAsOfTransactionTime(solo.getEventId(), Instant.now())
                         .map(result -> Map.entry(solo, result)))
-                .onSuccess(pair -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                     BiTemporalEvent<DefensiveEvent> result = pair.getValue();
                     assertNotNull(result, "Single event must be returned by getAsOfTransactionTime");
                     assertEquals(pair.getKey().getEventId(), result.getEventId());
                     assertEquals(1L, result.getVersion());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -734,7 +715,7 @@ class VersionFamilyDefensiveTest {
                     List<BiTemporalEvent<DefensiveEvent>> famB = cf.resultAt(1);
                     return Map.entry(famA, famB);
                 }))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<DefensiveEvent>> famA = result.getKey();
                     List<BiTemporalEvent<DefensiveEvent>> famB = result.getValue();
 
@@ -753,8 +734,7 @@ class VersionFamilyDefensiveTest {
                             famB.stream().map(BiTemporalEvent::getVersion).collect(Collectors.toList()));
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -775,7 +755,7 @@ class VersionFamilyDefensiveTest {
                                 new DefensiveEvent("c2", "corr2", 3), sameTime, "correction 2"))
                         .map(c2 -> root))
                 .compose(root -> eventStore.getAllVersions(root.getEventId()))
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(3, versions.size());
 
                     // Even though all validTimes are identical, versions must be strictly increasing
@@ -790,8 +770,7 @@ class VersionFamilyDefensiveTest {
                     }
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -805,11 +784,13 @@ class VersionFamilyDefensiveTest {
         Instant t = Instant.now();
         String fakeId = UUID.randomUUID().toString();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection for non-existent event ID");
         eventStore.appendCorrection(fakeId, "NoSuchEvent",
                         new DefensiveEvent("x", "impossible", 0), t, "correcting nothing")
                 .onSuccess(result -> testContext.failNow(
                         "appendCorrection to non-existent event must fail, but succeeded with: " + result.getEventId()))
                 .onFailure(err -> testContext.verify(() -> {
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected non-existent event correction failure = {}", err.getMessage());
                     assertInstanceOf(IllegalArgumentException.class, err,
                             "Must fail with IllegalArgumentException, got: " + err.getClass().getName());
                     assertTrue(err.getMessage().contains("non-existent"),
@@ -826,12 +807,14 @@ class VersionFamilyDefensiveTest {
     void appendCorrectionNullReasonThrowsNpe(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null correctionReason");
         eventStore.appendBuilder()
                 .eventType("NullReasonTest").payload(new DefensiveEvent("r", "root", 1)).validTime(t).execute()
                 .compose(root -> {
                     assertThrows(NullPointerException.class,
                             () -> eventStore.appendCorrection(root.getEventId(), "NullReasonTest",
                                     new DefensiveEvent("c", "corr", 2), t, null));
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null correctionReason");
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -846,9 +829,11 @@ class VersionFamilyDefensiveTest {
     void appendCorrectionNullOriginalIdThrowsNpe(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null originalEventId");
         assertThrows(NullPointerException.class,
                 () -> eventStore.appendCorrection(null, "TestType",
                         new DefensiveEvent("c", "corr", 2), t, "some reason"));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null originalEventId");
         testContext.completeNow();
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -858,8 +843,10 @@ class VersionFamilyDefensiveTest {
     @Test
     @DisplayName("getAsOfTransactionTime with null asOfTime throws NullPointerException")
     void getAsOfTransactionTimeWithNullTimeFails(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime invoked with null asOfTime");
         assertThrows(NullPointerException.class,
                 () -> eventStore.getAsOfTransactionTime("any-id", null));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null asOfTime");
         testContext.completeNow();
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -882,7 +869,7 @@ class VersionFamilyDefensiveTest {
                         new DefensiveEvent("corrected-again", "Regulatory update to 110", 110), t, "regulatory")
                         .map(c2 -> root))
                 .compose(root -> eventStore.getAllVersions(root.getEventId()))
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(3, versions.size());
 
                     // Verify each version's payload is distinct and preserved
@@ -899,8 +886,7 @@ class VersionFamilyDefensiveTest {
                     assertEquals(110, versions.get(2).getPayload().getValue());
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -924,7 +910,7 @@ class VersionFamilyDefensiveTest {
                                 new DefensiveEvent("c2", "corr2", 3), t, "correction 2"))
                         .map(c2 -> root))
                 .compose(root -> eventStore.getAllVersions(root.getEventId()))
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(3, versions.size());
 
                     for (int i = 1; i < versions.size(); i++) {
@@ -937,8 +923,7 @@ class VersionFamilyDefensiveTest {
                     }
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -972,13 +957,12 @@ class VersionFamilyDefensiveTest {
                     String bId = all.get(1).getEventId();
                     return eventStore.getAllVersions(bId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(4, versions.size(),
                             "Chain model: getAllVersions from middle member B must return all 4 family members (A, B, C, D)");
                     assertEquals(1L, versions.get(0).getVersion());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1020,7 +1004,7 @@ class VersionFamilyDefensiveTest {
                     String eId = all.get(4).getEventId();
                     return eventStore.getAllVersions(eId);
                 })
-                .onSuccess(versions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                     assertEquals(5, versions.size(),
                             "Sequential chain: getAllVersions from deep leaf E must return all 5 members");
 
@@ -1030,8 +1014,7 @@ class VersionFamilyDefensiveTest {
                     assertEquals(5, uniqueVersions.size(), "All 5 version numbers must be unique");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1061,7 +1044,7 @@ class VersionFamilyDefensiveTest {
                     BiTemporalEvent<DefensiveEvent> asOfResult = cf.resultAt(1);
                     return Map.entry(allVersions, asOfResult);
                 }))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<DefensiveEvent>> allVersions = result.getKey();
                     BiTemporalEvent<DefensiveEvent> asOfResult = result.getValue();
 
@@ -1076,8 +1059,7 @@ class VersionFamilyDefensiveTest {
                             "Both methods must return the same event ID for the latest version");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1132,7 +1114,7 @@ class VersionFamilyDefensiveTest {
                         return List.of(atV1, atV2, atNow);
                     });
                 })
-                .onSuccess(results -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                     BiTemporalEvent<DefensiveEvent> atV1 = results.get(0);
                     BiTemporalEvent<DefensiveEvent> atV2 = results.get(1);
                     BiTemporalEvent<DefensiveEvent> atNow = results.get(2);
@@ -1150,8 +1132,7 @@ class VersionFamilyDefensiveTest {
                     assertEquals(3L, atNow.getVersion(), "At current time, latest version must be 3");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());

@@ -91,7 +91,8 @@ public class CriticalTradeConsumerService {
         log.info("Starting critical-trades consumer: {}", consumerInstanceId);
 
         // Subscribe to messages (filtering done in handler)
-        consumer.subscribe(this::processMessage);
+        consumer.subscribe(this::processMessage)
+                .onFailure(err -> log.error("Consumer subscription failed for topic", err));
 
         // Update consumer status in database
         updateConsumerStatus("RUNNING");

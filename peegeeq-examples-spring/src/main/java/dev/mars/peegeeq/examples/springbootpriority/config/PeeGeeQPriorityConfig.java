@@ -84,7 +84,7 @@ public class PeeGeeQPriorityConfig {
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager
-        manager.start();
+        manager.start().await();
         log.info("PeeGeeQ Manager started successfully");
 
         return manager;

@@ -2,11 +2,15 @@ package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -20,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026-04-04
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class BackfillRateLimitingUnitTest {
 
     private Vertx vertx;
@@ -32,9 +37,14 @@ class BackfillRateLimitingUnitTest {
     }
 
     @AfterEach
-    void tearDown() {
-        if (connectionManager != null) connectionManager.close();
-        if (vertx != null) vertx.close();
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> closeFuture = connectionManager != null
+                ? connectionManager.close()
+                : Future.succeededFuture();
+        closeFuture
+                .compose(v -> vertx != null ? vertx.close() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // =========================================================================
@@ -90,7 +100,7 @@ class BackfillRateLimitingUnitTest {
 
     @Test
     void startBackfill_zeroBatchDelay_accepted() {
-        // Zero delay should be accepted (no throttling) — will fail at DB level
+        // Zero delay should be accepted (no throttling) will fail at DB level
         // but should NOT fail at parameter validation
         BackfillService service = new BackfillService(connectionManager, "svc", vertx);
         var future = service.startBackfill("topic", "group", 100, 0, 0L);

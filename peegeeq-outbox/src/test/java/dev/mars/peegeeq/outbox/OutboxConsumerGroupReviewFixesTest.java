@@ -27,20 +27,21 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -50,20 +51,27 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Targeted tests for the four review fixes applied on 2026-03-30:
  * <ul>
- *   <li>Fix #6  — Per-member concurrency gate (maxConcurrency / inFlightCount)</li>
- *   <li>Fix #8  — Non-blocking {@code closeAsync()} lifecycle</li>
- *   <li>Fix #10 — Remove/route race (post-selection liveness check)</li>
- *   <li>Shared {@code ScheduledExecutorService} for filter retry</li>
+ *   <li>Fix #6  Per-member concurrency gate (maxConcurrency / inFlightCount)</li>
+ *   <li>Fix #8  Non-blocking {@code closeAsync()} lifecycle</li>
+ *   <li>Fix #10 Remove/route race (post-selection liveness check)</li>
+ *   <li>Shared Vert.x instance for filter retry timers</li>
  * </ul>
  * Also covers the weighted-average stats computation fix (#7).
  *
- * <p>These are fast in-process CORE tests — no database or Testcontainers.</p>
+ * <p>These are fast in-process CORE tests no database or Testcontainers.</p>
  */
 @Tag(TestCategories.CORE)
-@DisplayName("OutboxConsumerGroup — review fix coverage")
+@ExtendWith(VertxExtension.class)
+@DisplayName("OutboxConsumerGroup \u2014 review fix coverage")
 class OutboxConsumerGroupReviewFixesTest {
 
     private OutboxConsumerGroup<String> group;
+    private Vertx vertx;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+    }
 
     @AfterEach
     void tearDown() {
@@ -73,7 +81,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #6 — Per-member concurrency gate
+    // Fix #6 Per-member concurrency gate
     // ========================================================================
 
     @Nested
@@ -84,7 +92,7 @@ class OutboxConsumerGroupReviewFixesTest {
         @DisplayName("member with default maxConcurrency=1 rejects second concurrent message")
         void defaultMaxConcurrencyRejectsSecondMessage() {
             OutboxConsumerGroupMember<String> member = createMember("c1", msg -> {
-                // Return a future that never completes — simulates in-flight processing
+                // Return a future that never completes simulates in-flight processing
                 return Promise.<Void>promise().future();
             });
             member.start();
@@ -187,7 +195,7 @@ class OutboxConsumerGroupReviewFixesTest {
         }
 
         @Test
-        @DisplayName("concurrent processMessage calls at maxConcurrency=1 — only one succeeds in-flight")
+        @DisplayName("concurrent processMessage calls at maxConcurrency=1 only one succeeds in-flight")
         void concurrentProcessMessageRace() throws Exception {
             Promise<Void> completion = Promise.promise();
             OutboxConsumerGroupMember<String> member = createMember("c1", msg -> completion.future());
@@ -197,7 +205,6 @@ class OutboxConsumerGroupReviewFixesTest {
             CyclicBarrier barrier = new CyclicBarrier(threadCount);
             AtomicInteger accepted = new AtomicInteger();
             AtomicInteger rejected = new AtomicInteger();
-            CountDownLatch done = new CountDownLatch(threadCount);
 
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             try {
@@ -215,12 +222,11 @@ class OutboxConsumerGroupReviewFixesTest {
                             }
                         } catch (Exception e) {
                             // barrier timeout
-                        } finally {
-                            done.countDown();
                         }
                     });
                 }
-                assertTrue(done.await(10, TimeUnit.SECONDS));
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 assertEquals(1, accepted.get(),
                     "Exactly one thread should get through the concurrency gate");
                 assertEquals(threadCount - 1, rejected.get(),
@@ -235,7 +241,7 @@ class OutboxConsumerGroupReviewFixesTest {
         @DisplayName("inactive member rejects processMessage before concurrency check")
         void inactiveMemberRejectsProcessMessage() {
             OutboxConsumerGroupMember<String> member = createMember("c1", msg -> Future.succeededFuture());
-            // Do NOT start — member is inactive
+            // Do NOT start member is inactive
 
             Future<Void> result = member.processMessage(new SimpleMessage<>("msg-1", "t", "p"));
             assertTrue(result.failed());
@@ -245,7 +251,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #10 — Remove/route race (post-selection liveness check)
+    // Fix #10 Remove/route race (post-selection liveness check)
     // ========================================================================
 
     @Nested
@@ -254,7 +260,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("distributeMessage returns MessageFilteredException when selected member is removed")
-        void removedMemberCausesMessageFilteredException() throws Exception {
+        void removedMemberCausesMessageFilteredException() {
             group = createGroup("race-group", "test-topic");
 
             // Add two consumers whose hash routing will pick c1 for "target-msg"
@@ -297,7 +303,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("distributeMessage returns MessageFilteredException when selected member is deactivated")
-        void deactivatedMemberCausesFilteredException() throws Exception {
+        void deactivatedMemberCausesFilteredException() {
             group = createGroup("deactivate-group", "test-topic");
 
             // Use a single consumer so hash always selects it
@@ -314,7 +320,7 @@ class OutboxConsumerGroupReviewFixesTest {
             assertTrue(ok.succeeded());
             assertEquals(1, received.size());
 
-            // Now stop the member (deactivate) — but don't remove from map
+            // Now stop the member (deactivate) but don't remove from map
             member.stop();
             assertFalse(member.isActive());
 
@@ -348,21 +354,11 @@ class OutboxConsumerGroupReviewFixesTest {
             int messageCount = 50;
             AtomicInteger delivered = new AtomicInteger();
             AtomicInteger filtered = new AtomicInteger();
-            CountDownLatch done = new CountDownLatch(messageCount + 1);
 
             ExecutorService executor = Executors.newFixedThreadPool(4);
             try {
-                // Thread that removes c1 after a brief moment
-                executor.submit(() -> {
-                    try {
-                        Thread.sleep(5); // small delay
-                        group.removeConsumer("c1");
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } finally {
-                        done.countDown();
-                    }
-                });
+                // Schedule removeConsumer after a brief delay using Vert.x timer
+                vertx.setTimer(5, id -> group.removeConsumer("c1"));
 
                 // Threads that distribute messages
                 for (int i = 0; i < messageCount; i++) {
@@ -378,13 +374,12 @@ class OutboxConsumerGroupReviewFixesTest {
                             }
                         } catch (Exception e) {
                             // reflection exception
-                        } finally {
-                            done.countDown();
                         }
                     });
                 }
 
-                assertTrue(done.await(10, TimeUnit.SECONDS));
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 // Key invariant: total delivered + filtered == messageCount
                 assertEquals(messageCount, delivered.get() + filtered.get(),
                     "Every message should either be delivered or filtered");
@@ -395,7 +390,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #8 — Non-blocking close lifecycle
+    // Fix #8 Non-blocking close lifecycle
     // ========================================================================
 
     @Nested
@@ -414,6 +409,23 @@ class OutboxConsumerGroupReviewFixesTest {
 
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
             assertTrue(group.getConsumerIds().isEmpty());
+        }
+
+        @Test
+        @DisplayName("group closeAsync() returns completion future and clears members")
+        void groupCloseAsyncReturnsCompletionFuture() {
+            group = createGroup("close-async-group", "test-topic");
+            group.addConsumer("c1", msg -> Future.succeededFuture());
+            group.addConsumer("c2", msg -> Future.succeededFuture());
+            group.start();
+
+            Future<Void> result = group.closeAsync();
+
+            assertTrue(result.succeeded(), "closeAsync() should return a completed future in the CORE path");
+            assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
+            assertTrue(group.getConsumerIds().isEmpty(), "closeAsync() should clear members");
+
+            group = null;
         }
 
         @Test
@@ -480,83 +492,47 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Shared ScheduledExecutorService lifecycle
+    // Vert.x instance lifecycle (replaced shared ScheduledExecutorService tests)
     // ========================================================================
 
     @Nested
-    @DisplayName("Shared ScheduledExecutorService lifecycle")
-    class SharedSchedulerLifecycle {
+    @DisplayName("Vert.x instance lifecycle")
+    class VertxInstanceLifecycle {
 
         @Test
-        @DisplayName("group provides a non-null shared scheduler")
-        void groupProvidesSharedScheduler() {
-            group = createGroup("scheduler-group", "test-topic");
-            ScheduledExecutorService scheduler = group.getSharedFilterScheduler();
-            assertNotNull(scheduler, "Group should provide a shared filter scheduler");
-            assertFalse(scheduler.isShutdown());
+        @DisplayName("group provides a non-null Vertx instance")
+        void groupProvidesVertxInstance() {
+            group = createGroup("vertx-group", "test-topic");
+            Vertx groupVertx = group.getVertx();
+            assertNotNull(groupVertx, "Group should provide a Vertx instance");
         }
 
         @Test
-        @DisplayName("members added to group share the group's scheduler, not their own")
-        void membersShareGroupScheduler() {
-            group = createGroup("scheduler-group", "test-topic");
+        @DisplayName("closing a member does not affect the group's Vertx instance")
+        void closingMemberDoesNotAffectVertx() {
+            group = createGroup("vertx-group", "test-topic");
             var m1 = (OutboxConsumerGroupMember<String>) group.addConsumer("c1", msg -> Future.succeededFuture());
             var m2 = (OutboxConsumerGroupMember<String>) group.addConsumer("c2", msg -> Future.succeededFuture());
 
-            // Both members should reference the group's scheduler, not own independent ones
-            // We verify by checking that closing a member does NOT shut down the scheduler
-            ScheduledExecutorService groupScheduler = group.getSharedFilterScheduler();
             m1.close();
-            assertFalse(groupScheduler.isShutdown(),
-                "Closing a member should not shut down the shared scheduler");
+            // Vertx should still be usable after member close
+            assertNotNull(group.getVertx());
             m2.close();
-            assertFalse(groupScheduler.isShutdown(),
-                "Closing all members should not shut down the shared scheduler");
+            assertNotNull(group.getVertx());
         }
 
         @Test
-        @DisplayName("group close() shuts down the shared scheduler")
-        void groupCloseShutdownsScheduler() {
-            group = createGroup("scheduler-group", "test-topic");
-            ScheduledExecutorService scheduler = group.getSharedFilterScheduler();
-            group.addConsumer("c1", msg -> Future.succeededFuture());
-
-            assertFalse(scheduler.isShutdown());
-            group.close();
-            assertTrue(scheduler.isShutdown(), "Group close should shut down the shared scheduler");
-            group = null; // prevent double-close in tearDown
-        }
-
-        @Test
-        @DisplayName("standalone member (no parent group) creates its own scheduler and shuts it down on close")
-        void standaloneMemberOwnsScheduler() {
+        @DisplayName("standalone member (no parent group) closes without errors")
+        void standaloneMemberClosesCleanly() {
             OutboxConsumerGroupMember<String> member = new OutboxConsumerGroupMember<>(
                 "standalone", "test-group", "test-topic",
                 msg -> Future.succeededFuture(), null, null);
-            // Member without parent group should create its own scheduler
-            // Closing should shut down the scheduler without errors
             assertDoesNotThrow(member::close);
-        }
-
-        @Test
-        @DisplayName("shared scheduler is still usable after individual member close")
-        void sharedSchedulerUsableAfterMemberClose() {
-            group = createGroup("scheduler-group", "test-topic");
-            var m1 = (OutboxConsumerGroupMember<String>) group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.addConsumer("c2", msg -> Future.succeededFuture());
-
-            m1.close();
-
-            // Scheduler should still accept tasks for remaining members
-            ScheduledExecutorService scheduler = group.getSharedFilterScheduler();
-            assertFalse(scheduler.isShutdown());
-            assertDoesNotThrow(() ->
-                scheduler.schedule(() -> {}, 1, TimeUnit.MILLISECONDS));
         }
     }
 
     // ========================================================================
-    // Fix #7 — Weighted average stats computation
+    // Fix #7 Weighted average stats computation
     // ========================================================================
 
     @Nested
@@ -565,18 +541,18 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group avgProcessingTime is weighted by per-member processed count, not simple average")
-        void weightedAverageNotSimpleAverage() throws Exception {
+        void weightedAverageNotSimpleAverage() {
             group = createGroup("stats-group", "test-topic");
 
             // c1 processes 1 fast message, c2 processes 10 slow messages
-            // If simple avg: (fast_avg + slow_avg) / 2  — wrong
-            // If weighted:   (fast_total_ms + slow_total_ms) / 11  — correct
+            // If simple avg: (fast_avg + slow_avg) / 2  wrong
+            // If weighted:   (fast_total_ms + slow_total_ms) / 11  correct
 
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
             group.start();
 
-            // Route messages — with hash routing, different IDs go to different consumers
+            // Route messages with hash routing, different IDs go to different consumers
             // Send 1 message to c1, 10 to c2 (by finding IDs that route to each)
             // Instead, just use a single consumer approach for deterministic verification
             group.close();
@@ -613,7 +589,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group lastActiveAt is the most recent across all members")
-        void lastActiveAtIsMostRecent() throws Exception {
+        void lastActiveAtIsMostRecent() {
             group = createGroup("lastactive-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
@@ -631,7 +607,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("filtered messages increment totalMessagesFiltered in group stats")
-        void filteredMessagesIncrementGroupTotal() throws Exception {
+        void filteredMessagesIncrementGroupTotal() {
             group = createGroup("filtered-stats-group", "test-topic");
             group.setGroupFilter(msg -> false); // reject all
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -646,7 +622,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("handler failures increment totalFailed in group stats")
-        void handlerFailuresIncrementFailed() throws Exception {
+        void handlerFailuresIncrementFailed() {
             group = createGroup("failed-stats-group", "test-topic");
             group.addConsumer("c1", msg ->
                 Future.failedFuture(new RuntimeException("boom")));
@@ -699,7 +675,7 @@ class OutboxConsumerGroupReviewFixesTest {
     private OutboxConsumerGroup<String> createGroup(String groupName, String topic) {
         return new OutboxConsumerGroup<>(
             groupName, topic, String.class,
-            new StubDatabaseService(), null, null,
+            new StubDatabaseService(vertx), null, null,
             new PeeGeeQConfiguration("test"));
     }
 
@@ -709,15 +685,14 @@ class OutboxConsumerGroupReviewFixesTest {
             consumerId, "test-group", "test-topic", handler, null, null);
     }
 
-    @SuppressWarnings("unchecked")
-    private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message)
-            throws Exception {
-        Method method = OutboxConsumerGroup.class.getDeclaredMethod("distributeMessage", Message.class);
-        method.setAccessible(true);
-        return (Future<Void>) method.invoke(group, message);
+    private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message) {
+        return group.distributeMessage(message);
     }
 
     private static class StubDatabaseService implements DatabaseService {
+        private final io.vertx.core.Vertx vertx;
+        StubDatabaseService() { this(null); }
+        StubDatabaseService(io.vertx.core.Vertx vertx) { this.vertx = vertx; }
         @Override public Future<Void> initialize() { return Future.succeededFuture(); }
         @Override public Future<Void> start() { return Future.succeededFuture(); }
         @Override public Future<Void> stop() { return Future.succeededFuture(); }
@@ -728,7 +703,7 @@ class OutboxConsumerGroupReviewFixesTest {
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
         @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return null; }
+        @Override public io.vertx.core.Vertx getVertx() { return vertx; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }

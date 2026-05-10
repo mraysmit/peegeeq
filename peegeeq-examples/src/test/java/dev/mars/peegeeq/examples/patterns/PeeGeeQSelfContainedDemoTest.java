@@ -71,9 +71,6 @@ public class PeeGeeQSelfContainedDemoTest {
             logger.info("   > Username: {}", postgres.getUsername());
             logger.info("   > Host: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
 
-            // Configure PeeGeeQ to use the container
-            configureSystemPropertiesForContainer(postgres);
-
             // Run the demo functionality directly (since main class doesn't exist)
             logger.info("Running self-contained demo functionality");
             executeDemoFunctionality();
@@ -95,37 +92,6 @@ public class PeeGeeQSelfContainedDemoTest {
         logger.info("Self-contained demo completed successfully!");
     }
     
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private static void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        logger.info("  Configuring PeeGeeQ to use container database...");
-        
-        // Extract connection details from container
-        String host = postgres.getHost();
-        Integer port = postgres.getFirstMappedPort();
-        String database = postgres.getDatabaseName();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
-        
-        // Set system properties for PeeGeeQ configuration
-        System.setProperty("peegeeq.database.host", host);
-        System.setProperty("peegeeq.database.port", port.toString());
-        System.setProperty("peegeeq.database.name", database);
-        System.setProperty("peegeeq.database.username", username);
-        System.setProperty("peegeeq.database.password", password);
-        
-        // Enable all features for demo
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        System.setProperty("peegeeq.queue.dead-letter-enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-
-        logger.info("Configuration complete");
-    }
-
     private void executeDemoFunctionality() {
         logger.info("Executing self-contained demo functionality");
 

@@ -93,11 +93,11 @@ class WildcardPatternComprehensiveTest {
     @AfterAll
     static void tearDown(VertxTestContext testContext) throws Exception {
         Future<Void> closeStore = (eventStore != null)
-            ? eventStore.close().recover(err -> Future.succeededFuture())
+            ? eventStore.close().transform(ar -> Future.succeededFuture())
             : Future.succeededFuture();
         closeStore
             .compose(v -> (peeGeeQManager != null)
-                ? peeGeeQManager.closeReactive().recover(err -> Future.succeededFuture())
+                ? peeGeeQManager.closeReactive().transform(ar -> Future.succeededFuture())
                 : Future.succeededFuture())
             .onSuccess(v -> {
                 PgBiTemporalEventStore.clearCachedPools();
@@ -377,7 +377,7 @@ class WildcardPatternComprehensiveTest {
                 vertx.setTimer(3000, id -> timeout.tryComplete());
                 return Future.any(notified.future(), timeout.future()).mapEmpty();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 boolean receivedNotification = notified.future().isComplete();
                 if (shouldMatch) {
                     assertTrue(receivedNotification,
@@ -394,8 +394,7 @@ class WildcardPatternComprehensiveTest {
                 logger.info("  [{}] PASSED: pattern='{}' {} eventType='{}'",
                     testId, uniquePattern, shouldMatch ? "matched" : "correctly rejected", uniqueEventType);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
         if (testContext.failed()) {

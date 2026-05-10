@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -32,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,25 +75,22 @@ class ConsumerModeFailureTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
         // Ensure required schema exists for native queue tests
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-
         // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -107,6 +106,7 @@ class ConsumerModeFailureTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -144,17 +144,14 @@ class ConsumerModeFailureTest {
                     normalMessages.flag();
                     return Future.succeededFuture();
                 }
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Normal message 1")
+            })
+            .onSuccess(ignored -> producer.send("Normal message 1")
                     .compose(v -> producer.send("Message with exception"))
                     .compose(v -> producer.send("Normal message 2"))
                     .compose(v -> producer.send("Another exception message"))
                     .compose(v -> producer.send("Normal message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing (longer timeout to account for retries)
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should process non-exception messages successfully");
@@ -195,27 +192,24 @@ class ConsumerModeFailureTest {
             AtomicInteger consumer2Count = new AtomicInteger(0);
             Checkpoint messagesProcessed = testContext.checkpoint(2);
 
-            consumer1.subscribe(message -> {
-                consumer1Count.incrementAndGet();
-                logger.info("📨 Consumer 1 received message: {}", message.getPayload());
-                messagesProcessed.flag();
-                return Future.succeededFuture();
-            });
-
-            consumer2.subscribe(message -> {
-                consumer2Count.incrementAndGet();
-                logger.info("📨 Consumer 2 received message: {}", message.getPayload());
-                messagesProcessed.flag();
-                return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Collision test message 1")
+            Future.all(
+                consumer1.subscribe(message -> {
+                    consumer1Count.incrementAndGet();
+                    logger.info("📨 Consumer 1 received message: {}", message.getPayload());
+                    messagesProcessed.flag();
+                    return Future.succeededFuture();
+                }),
+                consumer2.subscribe(message -> {
+                    consumer2Count.incrementAndGet();
+                    logger.info("📨 Consumer 2 received message: {}", message.getPayload());
+                    messagesProcessed.flag();
+                    return Future.succeededFuture();
+                })
+            ).onSuccess(ignored -> producer.send("Collision test message 1")
                     .compose(v -> producer.send("Collision test message 2"))
                     .compose(v -> producer.send("Collision test message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages despite channel name collision");
@@ -254,15 +248,12 @@ class ConsumerModeFailureTest {
                 logger.info("📨 Processed message during partial failure test: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Recovery test message 1")
+            })
+            .onSuccess(ignored -> producer.send("Recovery test message 1")
                     .compose(v -> producer.send("Recovery test message 2"))
                     .compose(v -> producer.send("Recovery test message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages even with potential partial failures");
@@ -298,19 +289,13 @@ class ConsumerModeFailureTest {
                 logger.info("📨 Processed message during recovery test: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, send first message
-            vertx.setTimer(500, id -> {
-                producer.send("Before failure message")
-                    .onFailure(testContext::failNow);
-
+            })
+            .onSuccess(ignored -> {
+                producer.send("Before failure message").onFailure(testContext::failNow);
                 // Send second message after a delay to simulate recovery
-                vertx.setTimer(2000, id2 -> {
-                    producer.send("After recovery message")
-                        .onFailure(testContext::failNow);
-                });
-            });
+                vertx.setTimer(2000, id2 -> producer.send("After recovery message").onFailure(testContext::failNow));
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should recover and process messages after temporary failure");
@@ -346,17 +331,16 @@ class ConsumerModeFailureTest {
                 logger.debug("📨 Processed load test message {}: {}", count, message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 10; i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producer.send("Load test message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load without failures");

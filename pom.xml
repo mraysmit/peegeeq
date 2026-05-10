@@ -59,6 +59,7 @@
         <module>peegeeq-rest</module>
         <module>peegeeq-rest-client</module>
         <module>peegeeq-service-manager</module>
+        <module>peegeeq-pg-sidecar</module>
         <module>peegeeq-test-support</module>
         <module>peegeeq-performance-test-harness</module>
         <module>peegeeq-examples</module>
@@ -480,7 +481,7 @@
                 <!-- Empty groups means: run tests that don't match any tag -->
                 <test.groups></test.groups>
                 <!-- Exclude all known tags to isolate untagged tests -->
-                <test.excludedGroups>core,integration,performance,slow,smoke,flaky</test.excludedGroups>
+                <test.excludedGroups>core,integration,performance,slow,smoke</test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
             </properties>

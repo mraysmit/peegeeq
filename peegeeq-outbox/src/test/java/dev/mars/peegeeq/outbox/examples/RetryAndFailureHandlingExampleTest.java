@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -43,11 +44,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -119,7 +122,7 @@ class RetryAndFailureHandlingExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_retry_failure_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -131,23 +134,19 @@ class RetryAndFailureHandlingExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up Retry and Failure Handling Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create outbox factory - following established pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -163,6 +162,7 @@ class RetryAndFailureHandlingExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Retry and Failure Handling Example Test");
         
         if (queueFactory != null) {
@@ -173,34 +173,18 @@ class RetryAndFailureHandlingExampleTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            // Clear system properties
-            System.clearProperty("peegeeq.database.host");
-            System.clearProperty("peegeeq.database.port");
-            System.clearProperty("peegeeq.database.name");
-            System.clearProperty("peegeeq.database.username");
-            System.clearProperty("peegeeq.database.password");
-            System.clearProperty("peegeeq.database.schema");
-            System.clearProperty("peegeeq.queue.max-retries");
-            System.clearProperty("peegeeq.queue.polling-interval");
-            System.clearProperty("peegeeq.consumer.threads");
-            System.clearProperty("peegeeq.queue.batch-size");
-
-            logger.info("Retry and Failure Handling Example Test cleanup completed");
-            testContext.completeNow();
-        });
+        closeFuture
+                .onSuccess(v -> {
+                    logger.info("Retry and Failure Handling Example Test cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
     void testQuickFailureConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Quick Failure Configuration (2 retries) ===");
-        
-        // Configure for quick failure
-        System.setProperty("peegeeq.queue.max-retries", "2");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
-        System.setProperty("peegeeq.consumer.threads", "2");
-        System.setProperty("peegeeq.queue.batch-size", "1");
         
         runFailureScenario("quick-failure", new AlwaysFailingProcessor(), 2)
             .onSuccess(v -> {
@@ -215,12 +199,6 @@ class RetryAndFailureHandlingExampleTest {
     void testExtensiveRetriesConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Extensive Retries Configuration (8 retries) ===");
         
-        // Configure for extensive retries
-        System.setProperty("peegeeq.queue.max-retries", "8");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.3S");
-        System.setProperty("peegeeq.consumer.threads", "1");
-        System.setProperty("peegeeq.queue.batch-size", "1");
-        
         runFailureScenario("extensive-retries", new AlwaysFailingProcessor(), 8)
             .onSuccess(v -> {
                 logger.info("Extensive retries configuration test completed successfully!");
@@ -233,12 +211,6 @@ class RetryAndFailureHandlingExampleTest {
     @Test
     void testSuccessfulRetryConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Successful Retry Configuration (5 retries) ===");
-        
-        // Configure for moderate retries
-        System.setProperty("peegeeq.queue.max-retries", "5");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
-        System.setProperty("peegeeq.consumer.threads", "2");
-        System.setProperty("peegeeq.queue.batch-size", "1");
         
         runFailureScenario("successful-retry", new EventuallySuccessfulProcessor(3), 5)
             .onSuccess(v -> {

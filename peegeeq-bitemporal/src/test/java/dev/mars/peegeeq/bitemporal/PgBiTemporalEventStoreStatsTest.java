@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -39,6 +40,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -49,6 +52,7 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -74,6 +78,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class PgBiTemporalEventStoreStatsTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreStatsTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
@@ -138,22 +144,20 @@ class PgBiTemporalEventStoreStatsTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
         vertx = Vertx.vertx();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -165,7 +169,7 @@ class PgBiTemporalEventStoreStatsTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                .recover(err -> Future.succeededFuture(null))
+                .transform(ar -> Future.succeededFuture(null))
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
@@ -192,15 +196,6 @@ class PgBiTemporalEventStoreStatsTest {
                 .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -216,7 +211,7 @@ class PgBiTemporalEventStoreStatsTest {
     @Test
     void testGetStatsEmptyStoreReturnsZeroes(VertxTestContext testContext) throws Exception {
         eventStore.getStats()
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(0, stats.getTotalEvents());
                     assertEquals(0, stats.getTotalCorrections());
                     assertNull(stats.getOldestEventTime());
@@ -225,8 +220,7 @@ class PgBiTemporalEventStoreStatsTest {
                     assertTrue(stats.getStorageSizeBytes() >= 0);
                     assertEquals(0, stats.getUniqueAggregateCount());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -245,17 +239,16 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(knownTime)
                 .execute()
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertNotNull(stats.getOldestEventTime());
                     assertNotNull(stats.getNewestEventTime());
-                    // The Instant from stats must match the original — no timezone drift
+                    // The Instant from stats must match the original no timezone drift
                     assertEquals(knownTime, stats.getOldestEventTime(),
                             "oldest_event_time must match the exact Instant stored");
                     assertEquals(knownTime, stats.getNewestEventTime(),
                             "newest_event_time must match the exact Instant stored");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -277,13 +270,12 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(expectedInstant)
                 .execute()
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertNotNull(stats.getOldestEventTime());
                     assertEquals(expectedInstant, stats.getOldestEventTime(),
                             "Stats timestamp must represent the same instant regardless of storage offset");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -304,15 +296,14 @@ class PgBiTemporalEventStoreStatsTest {
                 .compose(v -> eventStore.appendBuilder()
                         .eventType("RangeTest").payload(new StatsTestEvent("r3", "newest", 3)).validTime(newest).execute())
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(3, stats.getTotalEvents());
                     assertEquals(oldest, stats.getOldestEventTime(),
                             "oldest_event_time should match the earliest valid_time");
                     assertEquals(newest, stats.getNewestEventTime(),
                             "newest_event_time should match the latest valid_time");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -330,15 +321,14 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(validTime)
                 .execute()
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(1, stats.getTotalEvents());
                     assertEquals(validTime, stats.getOldestEventTime());
                     assertEquals(validTime, stats.getNewestEventTime());
                     assertEquals(stats.getOldestEventTime(), stats.getNewestEventTime(),
                             "With one event, oldest and newest should be identical");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -361,12 +351,11 @@ class PgBiTemporalEventStoreStatsTest {
                         validTime.plus(1, ChronoUnit.HOURS),
                         "Data correction"))
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(2, stats.getTotalEvents(), "original + correction = 2 total");
                     assertEquals(1, stats.getTotalCorrections(), "exactly one correction");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -387,7 +376,7 @@ class PgBiTemporalEventStoreStatsTest {
                 .compose(v -> eventStore.appendBuilder()
                         .eventType("TypeC").payload(new StatsTestEvent("c1", "data", 4)).validTime(validTime).execute())
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(4, stats.getTotalEvents());
                     Map<String, Long> counts = stats.getEventCountsByType();
                     assertEquals(3, counts.size(), "should have 3 distinct event types");
@@ -395,8 +384,7 @@ class PgBiTemporalEventStoreStatsTest {
                     assertEquals(1L, counts.get("TypeB"));
                     assertEquals(1L, counts.get("TypeC"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -421,13 +409,12 @@ class PgBiTemporalEventStoreStatsTest {
                         .eventType("AggTest").payload(new StatsTestEvent("x4", "data", 4))
                         .validTime(validTime).aggregateId("agg-3").execute())
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(4, stats.getTotalEvents());
                     assertEquals(3, stats.getUniqueAggregateCount(),
                             "3 distinct aggregate IDs should be counted");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -445,12 +432,11 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(validTime)
                 .execute()
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertTrue(stats.getStorageSizeBytes() > 0,
                             "storage size should be positive when data exists");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -469,7 +455,7 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(validTime)
                 .execute()
                 .compose(appended -> eventStore.getStats().map(stats -> Map.entry(appended, stats)))
-                .onSuccess(pair -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                     Instant eventValidTime = pair.getKey().getValidTime();
                     Instant statsOldest = pair.getValue().getOldestEventTime();
                     Instant statsNewest = pair.getValue().getNewestEventTime();
@@ -481,8 +467,7 @@ class PgBiTemporalEventStoreStatsTest {
                     assertEquals(validTime, statsOldest,
                             "Stats oldest must equal the Instant we passed in");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -501,15 +486,14 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(preciseTime)
                 .execute()
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertNotNull(stats.getOldestEventTime());
                     // PostgreSQL TIMESTAMPTZ is microsecond-precise; truncate to micros for comparison
                     Instant expected = preciseTime.truncatedTo(ChronoUnit.MICROS);
                     assertEquals(expected, stats.getOldestEventTime(),
                             "Sub-second precision must be preserved through stats");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -533,14 +517,13 @@ class PgBiTemporalEventStoreStatsTest {
                         new StatsTestEvent("cr1", "corrected", 2),
                         correctionTime, "Correction extends time range"))
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     assertEquals(originalTime, stats.getOldestEventTime(),
                             "oldest should be the original event's valid_time");
                     assertEquals(correctionTime, stats.getNewestEventTime(),
                             "newest should be the correction's valid_time");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -552,10 +535,12 @@ class PgBiTemporalEventStoreStatsTest {
 
     @Test
     void testGetStatsOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getStats on closed store must fail");
         eventStore.close()
                 .compose(v -> eventStore.getStats())
                 .onSuccess(stats -> testContext.failNow("getStats() on closed store should fail"))
                 .onFailure(err -> testContext.verify(() -> {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store failure = {}", err.getMessage());
                     assertInstanceOf(IllegalStateException.class, err);
                     assertTrue(err.getMessage().contains("closed"),
                             "Error message should mention 'closed', got: " + err.getMessage());
@@ -576,14 +561,15 @@ class PgBiTemporalEventStoreStatsTest {
                 .validTime(Instant.now())
                 .execute()
                 .compose(v -> eventStore.getStats())
-                .onSuccess(stats -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                     Map<String, Long> counts = stats.getEventCountsByType();
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = eventCountsByType map is immutable");
                     assertThrows(UnsupportedOperationException.class,
                             () -> counts.put("injected", 99L),
                             "eventCountsByType map should be unmodifiable");
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected UnsupportedOperationException when mutating eventCountsByType");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

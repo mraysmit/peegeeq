@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -41,7 +42,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -64,15 +64,7 @@ public class OutboxQueueTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private Vertx vertx;
     private OutboxQueue<JsonObject> queue;
@@ -103,9 +95,7 @@ public class OutboxQueueTest {
         // Simplified cleanup - don't fail tests due to resource cleanup issues
         try {
             if (queue != null) {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                queue.close().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(2, TimeUnit.SECONDS);
+                queue.close().await();
             }
         } catch (Exception e) {
             logger.warn("Queue cleanup failed, continuing", e);
@@ -129,13 +119,8 @@ public class OutboxQueueTest {
         Checkpoint acknowledged = testContext.checkpoint();
 
         queue.acknowledge("test-message-id")
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    acknowledged.flag();
-                } else {
-                    testContext.failNow("Failed to acknowledge message: " + ar.cause().getMessage());
-                }
-            });
+            .onSuccess(v -> acknowledged.flag())
+            .onFailure(e -> testContext.failNow("Failed to acknowledge message: " + e.getMessage()));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to acknowledge message");
     }

@@ -5,12 +5,12 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -24,8 +24,7 @@ public class AsyncFilterRetryManager {
     
     private final String filterId;
     private final FilterErrorHandlingConfig config;
-    private final ScheduledExecutorService retryScheduler;
-    private final ExecutorService filterExecutor;
+    private final Vertx vertx;
     private final DeadLetterQueueManager deadLetterQueueManager;
     
     // Metrics
@@ -35,24 +34,23 @@ public class AsyncFilterRetryManager {
     private final AtomicInteger activeRetries = new AtomicInteger(0);
     
     public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config) {
-        this(filterId, config, new DeadLetterQueueManager(config));
+        this(filterId, config, (Vertx) null, new DeadLetterQueueManager(config));
+    }
+
+    public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config, Vertx vertx) {
+        this(filterId, config, vertx, new DeadLetterQueueManager(config));
     }
 
     // Visible for testing
     public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config, DeadLetterQueueManager deadLetterQueueManager) {
+        this(filterId, config, (Vertx) null, deadLetterQueueManager);
+    }
+
+    public AsyncFilterRetryManager(String filterId, FilterErrorHandlingConfig config, Vertx vertx, DeadLetterQueueManager deadLetterQueueManager) {
         this.filterId = filterId;
         this.config = config;
+        this.vertx = vertx;
         this.deadLetterQueueManager = deadLetterQueueManager;
-        this.retryScheduler = Executors.newScheduledThreadPool(2, r -> {
-            Thread t = new Thread(r, "async-retry-scheduler-" + filterId);
-            t.setDaemon(true);
-            return t;
-        });
-        this.filterExecutor = Executors.newCachedThreadPool(r -> {
-            Thread t = new Thread(r, "async-filter-executor-" + filterId);
-            t.setDaemon(true);
-            return t;
-        });
     }
     
     /**
@@ -83,48 +81,64 @@ public class AsyncFilterRetryManager {
                     Duration.between(startTime, Instant.now())));
         }
         
-        // Execute filter asynchronously via Promise + executor
-        Promise<FilterResult> filterPromise = Promise.promise();
-        filterExecutor.submit(() -> {
+        // Execute filter asynchronously via executeBlocking
+        Future<FilterResult> filterFuture;
+        if (vertx != null) {
+            filterFuture = vertx.executeBlocking(() -> {
+                totalRetryAttempts.incrementAndGet();
+                activeRetries.incrementAndGet();
+                try {
+                    logger.debug("Filter '{}' executing attempt {} for message {}", 
+                        filterId, attemptNumber + 1, message.getId());
+                    
+                    boolean result = filter.test(message);
+                    
+                    // Record success
+                    circuitBreaker.recordSuccess();
+                    successfulRetries.incrementAndGet();
+                    
+                    Duration totalTime = Duration.between(startTime, Instant.now());
+                    logger.debug("Filter '{}' succeeded on attempt {} for message {} (total time: {})", 
+                        filterId, attemptNumber + 1, message.getId(), totalTime);
+                    
+                    return FilterResult.accepted(result, attemptNumber + 1, totalTime);
+                } catch (Exception e) {
+                    circuitBreaker.recordFailure();
+                    FilterErrorHandlingConfig.ErrorClassification classification = config.classifyError(e);
+                    FilterErrorHandlingConfig.FilterErrorStrategy strategy = config.getStrategyForError(classification);
+                    
+                    logger.debug("Filter '{}' failed on attempt {} for message {} - Classification: {}, Strategy: {}, Error: {}", 
+                        filterId, attemptNumber + 1, message.getId(), classification, strategy, e.getMessage());
+                    
+                    throw new FilterException(e, classification, strategy, attemptNumber + 1);
+                } finally {
+                    activeRetries.decrementAndGet();
+                }
+            });
+        } else {
+            // No Vertx execute inline (for tests without Vert.x context)
             try {
                 totalRetryAttempts.incrementAndGet();
                 activeRetries.incrementAndGet();
                 
-                logger.debug("Filter '{}' executing attempt {} for message {}", 
-                    filterId, attemptNumber + 1, message.getId());
-                
                 boolean result = filter.test(message);
-                
-                // Record success
                 circuitBreaker.recordSuccess();
                 successfulRetries.incrementAndGet();
                 
                 Duration totalTime = Duration.between(startTime, Instant.now());
-                logger.debug("Filter '{}' succeeded on attempt {} for message {} (total time: {})", 
-                    filterId, attemptNumber + 1, message.getId(), totalTime);
-                
-                filterPromise.complete(FilterResult.accepted(result, attemptNumber + 1, totalTime));
-                
+                filterFuture = Future.succeededFuture(FilterResult.accepted(result, attemptNumber + 1, totalTime));
             } catch (Exception e) {
-                // Record failure
                 circuitBreaker.recordFailure();
-                
-                // Classify the error
                 FilterErrorHandlingConfig.ErrorClassification classification = config.classifyError(e);
                 FilterErrorHandlingConfig.FilterErrorStrategy strategy = config.getStrategyForError(classification);
-                
-                logger.debug("Filter '{}' failed on attempt {} for message {} - Classification: {}, Strategy: {}, Error: {}", 
-                    filterId, attemptNumber + 1, message.getId(), classification, strategy, e.getMessage());
-                
-                filterPromise.fail(new FilterException(e, classification, strategy, attemptNumber + 1));
-                
+                filterFuture = Future.failedFuture(new FilterException(e, classification, strategy, attemptNumber + 1));
             } finally {
                 activeRetries.decrementAndGet();
             }
-        });
+        }
         
         // Handle the result or retry
-        return filterPromise.future().compose(
+        return filterFuture.compose(
             result -> Future.succeededFuture(result),
             throwable -> {
                 // Extract the filter exception
@@ -185,7 +199,7 @@ public class AsyncFilterRetryManager {
                 if (attemptNumber >= config.getMaxRetries()) {
                     failedRetries.incrementAndGet();
                     Duration finalTime = Duration.between(startTime, Instant.now());
-                    logger.warn("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
+                    logger.error("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
                         filterId, message.getId(), attemptNumber + 1, originalError.getMessage());
 
                     // Send to dead letter queue asynchronously
@@ -197,7 +211,7 @@ public class AsyncFilterRetryManager {
             case DEAD_LETTER_IMMEDIATELY:
                 failedRetries.incrementAndGet();
                 Duration dlqTime = Duration.between(startTime, Instant.now());
-                logger.warn("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
+                logger.error("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
                     filterId, message.getId(), filterException.getClassification().name().toLowerCase(),
                     originalError.getMessage());
 
@@ -207,7 +221,7 @@ public class AsyncFilterRetryManager {
             default:
                 failedRetries.incrementAndGet();
                 Duration unknownTime = Duration.between(startTime, Instant.now());
-                logger.warn("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
+                logger.error("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
                 return Future.succeededFuture(
                     FilterResult.rejected("Unknown strategy: " + strategy, attemptNumber + 1, unknownTime));
         }
@@ -226,9 +240,22 @@ public class AsyncFilterRetryManager {
         logger.debug("Filter '{}' scheduling async retry {} for message {} after delay of {}", 
             filterId, attemptNumber + 1, message.getId(), currentDelay);
         
-        retryScheduler.schedule(() -> {
+        if (vertx != null) {
+            vertx.setTimer(currentDelay.toMillis(), id -> {
+                try {
+                    // Calculate next delay with exponential backoff
+                    Duration nextDelay = calculateNextDelay(currentDelay);
+                    
+                    executeFilterWithRetry(message, filter, circuitBreaker, attemptNumber + 1, nextDelay, startTime)
+                        .onSuccess(promise::complete)
+                        .onFailure(promise::fail);
+                } catch (Exception e) {
+                    promise.fail(e);
+                }
+            });
+        } else {
+            // No Vertx execute inline after delay (for tests without Vert.x context)
             try {
-                // Calculate next delay with exponential backoff
                 Duration nextDelay = calculateNextDelay(currentDelay);
                 
                 executeFilterWithRetry(message, filter, circuitBreaker, attemptNumber + 1, nextDelay, startTime)
@@ -237,7 +264,7 @@ public class AsyncFilterRetryManager {
             } catch (Exception e) {
                 promise.fail(e);
             }
-        }, currentDelay.toMillis(), TimeUnit.MILLISECONDS);
+        }
         
         return promise.future();
     }
@@ -301,22 +328,6 @@ public class AsyncFilterRetryManager {
      */
     public void shutdown() {
         logger.info("Shutting down async filter retry manager '{}'", filterId);
-
-        retryScheduler.shutdown();
-        filterExecutor.shutdown();
-
-        try {
-            if (!retryScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                retryScheduler.shutdownNow();
-            }
-            if (!filterExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
-                filterExecutor.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            retryScheduler.shutdownNow();
-            filterExecutor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
 
         // Close dead letter queue manager
         deadLetterQueueManager.close();

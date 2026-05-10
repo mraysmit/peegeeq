@@ -21,6 +21,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -43,6 +44,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -95,15 +97,13 @@ public class CausationIdSchemaValidationTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
         logger.info("Bitemporal schema created successfully");
 
-        // Set system properties for PeeGeeQ configuration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        // Set configuration properties for PeeGeeQ
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize PeeGeeQ Manager
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -127,14 +127,9 @@ public class CausationIdSchemaValidationTest {
         Future<Void> closeManagerFuture = peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
-                .recover(error -> Future.<Void>succeededFuture())
-                .compose(v -> closeManagerFuture.recover(error -> Future.<Void>succeededFuture()))
+                .transform(ar -> Future.<Void>succeededFuture())
+                .compose(v -> closeManagerFuture.transform(ar -> Future.<Void>succeededFuture()))
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
                     logger.info("Cleanup completed successfully");
                     testContext.completeNow();
                 })
@@ -154,14 +149,13 @@ public class CausationIdSchemaValidationTest {
                   AND column_name = $2
                 """,
                 Tuple.of("bitemporal_event_log", "causation_id"))
-                .onSuccess(row -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(row -> testContext.verify(() -> {
                     assertEquals("causation_id", row.getString("column_name"), "Column name should be causation_id");
                     assertEquals("character varying", row.getString("data_type"), "Data type should be VARCHAR");
                     assertEquals(255, row.getInteger("character_maximum_length"), "Max length should be 255");
                     logger.info("causation_id column exists with correct schema: VARCHAR(255)");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -187,7 +181,7 @@ public class CausationIdSchemaValidationTest {
                         "SELECT causation_id FROM bitemporal_event_log WHERE event_id = $1",
                         Tuple.of(event.getEventId()))
                         .map(row -> Map.entry(event, row.getString("causation_id"))))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<Map<String, Object>> event = result.getKey();
                     String storedCausationId = result.getValue();
                     assertNotNull(event, "Event should be successfully appended");
@@ -195,8 +189,7 @@ public class CausationIdSchemaValidationTest {
                     assertEquals(causationId, storedCausationId, "Stored causation_id should match");
                     logger.info("Trigger executed successfully and causation_id was stored: {}", storedCausationId);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -220,13 +213,12 @@ public class CausationIdSchemaValidationTest {
                         "CORR-123",
                         causationId,
                         "AGG-123")
-                .onSuccess(event -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                     assertNotNull(event, "Event should be successfully appended");
                     assertEquals(causationId, event.getCausationId(), "Causation ID should match");
                     logger.info("appendOwnTransaction method signature validated with causation_id parameter");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -235,7 +227,7 @@ public class CausationIdSchemaValidationTest {
         logger.info("🧪 Validating test schema has all expected columns matching production");
 
         listColumnNames("bitemporal_event_log")
-                .onSuccess(actualColumns -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(actualColumns -> testContext.verify(() -> {
                     String[] expectedColumns = {
                             "id", "event_id", "event_type", "valid_time", "transaction_time",
                             "payload", "headers", "version", "previous_version_id", "is_correction",
@@ -251,8 +243,7 @@ public class CausationIdSchemaValidationTest {
                     }
                     logger.info("Test schema has all required columns matching production");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     private Future<Row> querySingleRow(String sql, Tuple params) {

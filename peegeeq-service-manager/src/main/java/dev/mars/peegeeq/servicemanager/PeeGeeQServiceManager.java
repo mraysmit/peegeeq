@@ -90,12 +90,10 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
 
                     // Register this service manager with Consul (optional)
                     return registerSelfWithConsul()
-                        .recover(throwable -> {
+                        .onFailure(throwable ->
                             logger.warn("Failed to register with Consul (continuing without Consul): {}",
-                                    throwable.getMessage());
-                            // Continue even if Consul registration fails
-                            return Future.succeededFuture();
-                        });
+                                    throwable.getMessage()))
+                        .transform(ar -> Future.<Void>succeededFuture());
                 })
                 .compose(v -> {
                     logger.info("Service Manager registered with Consul");

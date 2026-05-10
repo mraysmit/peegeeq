@@ -115,7 +115,7 @@ class BiTemporalPerformanceParityTest {
                 }
                 return Future.succeededFuture();
             })
-            .recover(t -> Future.succeededFuture())
+            .transform(ar -> Future.succeededFuture())
             .compose(v -> cleanupDatabase())
             .onSuccess(v -> {
                 restoreTestProperties();
@@ -144,12 +144,11 @@ class BiTemporalPerformanceParityTest {
                 Instant rangeEnd = baseTime.plusSeconds(700);
                 return eventStore.query(EventQuery.builder().validTimeRange(new TemporalRange(rangeStart, rangeEnd)).build());
             })
-            .onSuccess(rangeEvents -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rangeEvents -> testContext.verify(() -> {
                 assertTrue(rangeEvents.size() > 0, "Time range query should return events");
                 assertTrue(rangeEvents.size() <= datasetSize, "Time range query should stay bounded");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         awaitSuccess(testContext, 60);
     }
@@ -174,13 +173,12 @@ class BiTemporalPerformanceParityTest {
                         return delayMillis(600).map(v3 -> baseline);
                     });
             })
-            .onSuccess(baseline -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(baseline -> testContext.verify(() -> {
                 long finalMemory = runtime.totalMemory() - runtime.freeMemory();
                 long totalIncrease = finalMemory - baseline;
                 assertTrue(totalIncrease < 450L * 1024 * 1024, "Final memory increase should remain reasonable");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         awaitSuccess(testContext, 90);
     }
@@ -211,13 +209,12 @@ class BiTemporalPerformanceParityTest {
         }
 
         chain
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - start;
                 double throughput = totalMessages * 1000.0 / Math.max(duration, 1);
                 assertTrue(throughput > 100, "Throughput should exceed 100 msg/sec");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         awaitSuccess(testContext, 90);
     }
@@ -229,7 +226,7 @@ class BiTemporalPerformanceParityTest {
         List<Long> latenciesNs = new ArrayList<>();
 
         appendWithLatency(0, messageCount, latenciesNs)
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 List<Long> sorted = new ArrayList<>(latenciesNs);
                 Collections.sort(sorted);
 
@@ -241,8 +238,7 @@ class BiTemporalPerformanceParityTest {
                 assertTrue(p95Ms < 2000, "P95 latency should remain bounded");
                 assertTrue(p99Ms < 3000, "P99 latency should remain bounded");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         awaitSuccess(testContext, 90);
     }
@@ -288,7 +284,7 @@ class BiTemporalPerformanceParityTest {
         long start = System.currentTimeMillis();
 
         appendMany("ResourceParity", "resource", totalMessages, Instant.now())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - start;
                 long finalMemory = runtime.totalMemory() - runtime.freeMemory();
                 long memoryIncrease = finalMemory - initialMemory;
@@ -299,8 +295,7 @@ class BiTemporalPerformanceParityTest {
                 assertTrue(throughputPerCore > 20, "Throughput per core should exceed 20 events/sec/core");
                 assertTrue(memoryIncrease < 300L * 1024 * 1024, "Memory increase should stay under 300MB");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         awaitSuccess(testContext, 90);
     }
@@ -313,15 +308,14 @@ class BiTemporalPerformanceParityTest {
         long start = System.currentTimeMillis();
 
         appendManyBatched("HighThroughputParity", totalEvents, batchSize, Instant.now())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - start;
                 double throughput = totalEvents * 1000.0 / Math.max(duration, 1);
                 logger.info("High-throughput parity: {} events in {} ms ({} events/sec)",
                     totalEvents, duration, String.format("%.1f", throughput));
                 assertTrue(throughput > 250, "Batched throughput should exceed 250 events/sec");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         awaitSuccess(testContext, 120);
     }

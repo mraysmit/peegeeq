@@ -155,10 +155,8 @@ public class ManagementApiHandler {
                         return queues;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to retrieve real queue data", e);
-                    return Future.failedFuture(new RuntimeException("Failed to retrieve queue data", e));
-                });
+                .onFailure(e ->
+                    logger.warn("Failed to retrieve real queue data", e));
     }
 
     private Future<JsonArray> getQueuesForSetup(String setupId) {
@@ -173,27 +171,35 @@ public class ManagementApiHandler {
                         String queueName = entry.getKey();
                         QueueFactory factory = entry.getValue();
                         queueFutures.add(
-                                getRealConsumerCount(setupResult, queueName).map(consumerCount -> {
-                                    long messageCount = getRealMessageCount(setupResult, queueName);
-                                    double messageRate = getRealMessageRate(setupResult, queueName);
-                                    double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
-                                    return new JsonObject()
-                                            .put("setupId", setupId)
-                                            .put("setup", setupId)
-                                            .put("queueName", queueName)
-                                            .put("name", queueName)
-                                            .put("type", factory.getImplementationType())
-                                            .put("status", factory.isHealthy() ? "active" : "error")
-                                            .put("messageCount", messageCount)
-                                            .put("messages", messageCount)
-                                            .put("consumerCount", consumerCount)
-                                            .put("consumers", consumerCount)
-                                            .put("messagesPerSecond", messageRate)
-                                            .put("messageRate", messageRate)
-                                            .put("errorRate", 0.0)
-                                            .put("createdAt", setupResult.getCreatedAt())
-                                            .put("updatedAt", Instant.now().toString());
-                                }));
+                                getRealConsumerCount(setupResult, queueName).compose(consumerCount ->
+                                    factory.countMessagesAsync(queueName)
+                                        .otherwise(0L)
+                                        .map(messageCount -> {
+                                            double messageRate = getRealMessageRate(setupResult, queueName);
+                                            double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                                            JsonObject statistics = new JsonObject()
+                                                    .put("totalMessages", messageCount)
+                                                    .put("activeConsumers", consumerCount)
+                                                    .put("messagesPerSecond", messageRate)
+                                                    .put("avgProcessingTimeMs", avgProcessingTime);
+                                            return new JsonObject()
+                                                    .put("setupId", setupId)
+                                                    .put("setup", setupId)
+                                                    .put("queueName", queueName)
+                                                    .put("name", queueName)
+                                                    .put("type", factory.getImplementationType())
+                                                    .put("implementationType", factory.getImplementationType())
+                                                    .put("status", factory.isHealthy() ? "active" : "error")
+                                                    .put("messageCount", messageCount)
+                                                    .put("messages", messageCount)
+                                                    .put("consumerCount", consumerCount)
+                                                    .put("consumers", consumerCount)
+                                                    .put("messageRate", messageRate)
+                                                    .put("errorRate", 0.0)
+                                                    .put("statistics", statistics)
+                                                    .put("createdAt", setupResult.getCreatedAt())
+                                                    .put("updatedAt", Instant.now().toString());
+                                        })));
                     }
                     if (queueFutures.isEmpty()) {
                         return Future.succeededFuture(new JsonArray());
@@ -206,9 +212,12 @@ public class ManagementApiHandler {
                         return queues;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -424,9 +433,12 @@ public class ManagementApiHandler {
                     }
                     return Future.succeededFuture(0L);
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get real event count for store {}: {}", storeName, e.getMessage());
-                    return Future.succeededFuture(0L);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get real event count for store {}: {}", storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -443,9 +455,12 @@ public class ManagementApiHandler {
                     }
                     return Future.succeededFuture(0L);
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
-                    return Future.succeededFuture(0L);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get real aggregate count for store {}: {}", storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -462,9 +477,12 @@ public class ManagementApiHandler {
                     }
                     return Future.succeededFuture(0L);
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get real correction count for store {}: {}", storeName, e.getMessage());
-                    return Future.succeededFuture(0L);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get real correction count for store {}: {}", storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -586,9 +604,12 @@ public class ManagementApiHandler {
                         return activities;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to get recent activity: {}", e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to get recent activity: {}", ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -624,9 +645,12 @@ public class ManagementApiHandler {
                                             }
                                             return activities;
                                         })
-                                        .recover(e -> {
-                                            logger.debug("Failed to query events from store {}: {}", storeName, e.getMessage());
-                                            return Future.succeededFuture(List.<JsonObject>of());
+                                        .transform(ar2 -> {
+                                            if (ar2.failed()) {
+                                                logger.debug("Failed to query events from store {}: {}", storeName, ar2.cause().getMessage());
+                                                return Future.succeededFuture(List.<JsonObject>of());
+                                            }
+                                            return Future.succeededFuture(ar2.result());
                                         }));
                     }
                     if (storeFutures.isEmpty()) {
@@ -640,9 +664,12 @@ public class ManagementApiHandler {
                         return results;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get setup result for {}: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(List.<JsonObject>of());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get setup result for {}: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(List.<JsonObject>of());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -747,10 +774,8 @@ public class ManagementApiHandler {
                         return consumerGroups;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to retrieve real consumer group data", e);
-                    return Future.failedFuture(new RuntimeException("Failed to retrieve consumer group data", e));
-                });
+                .onFailure(e ->
+                    logger.warn("Failed to retrieve real consumer group data", e));
     }
 
     private Future<JsonArray> getConsumerGroupsForSetup(String setupId) {
@@ -792,9 +817,12 @@ public class ManagementApiHandler {
                                                 }
                                                 return groups;
                                             })
-                                            .recover(e -> {
-                                                logger.debug("Failed to list subscriptions for topic {}: {}", queueName, e.getMessage());
-                                                return Future.succeededFuture(new JsonArray());
+                                            .transform(ar2 -> {
+                                                if (ar2.failed()) {
+                                                    logger.debug("Failed to list subscriptions for topic {}: {}", queueName, ar2.cause().getMessage());
+                                                    return Future.succeededFuture(new JsonArray());
+                                                }
+                                                return Future.succeededFuture(ar2.result());
                                             }));
                         }
                     }
@@ -810,9 +838,12 @@ public class ManagementApiHandler {
                         return consumerGroups;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -853,10 +884,8 @@ public class ManagementApiHandler {
                         return eventStores;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to retrieve real event store data", e);
-                    return Future.failedFuture(new RuntimeException("Failed to retrieve event store data", e));
-                });
+                .onFailure(e ->
+                    logger.warn("Failed to retrieve real event store data", e));
     }
 
     private Future<JsonArray> getEventStoresForSetup(String setupId) {
@@ -897,9 +926,12 @@ public class ManagementApiHandler {
                         return eventStores;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -948,9 +980,12 @@ public class ManagementApiHandler {
                                 return Future.succeededFuture();
                             });
                 })
-                .recover(e -> {
-                    logger.debug("Failed to retrieve message data (table may not exist): {}", e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to retrieve message data (table may not exist): {}", ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -1615,9 +1650,12 @@ public class ManagementApiHandler {
                         .map(subscriptions -> (int) subscriptions.stream()
                                 .filter(sub -> sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE)
                                 .count())
-                        .recover(e -> {
-                            logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
-                            return Future.succeededFuture(0);
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                logger.debug("Error getting real consumer count for queue {}: {}", queueName, ar.cause().getMessage());
+                                return Future.succeededFuture(0);
+                            }
+                            return Future.succeededFuture(ar.result());
                         });
             }
 
@@ -1653,28 +1691,33 @@ public class ManagementApiHandler {
                     }
 
                     getRealConsumerCount(setupResult, queueName)
-                            .onSuccess(consumerCount -> {
-                                long messageCount = getRealMessageCount(setupResult, queueName);
-                                double messageRate = getRealMessageRate(setupResult, queueName);
-                                double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                            .compose(consumerCount ->
+                                queueFactory.countMessagesAsync(queueName)
+                                    .otherwise(0L)
+                                    .map(messageCount -> {
+                                        double messageRate = getRealMessageRate(setupResult, queueName);
+                                        double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
 
-                                JsonObject statistics = new JsonObject()
-                                        .put("totalMessages", messageCount)
-                                        .put("activeConsumers", consumerCount)
-                                        .put("messagesPerSecond", messageRate)
-                                        .put("avgProcessingTimeMs", avgProcessingTime);
+                                        JsonObject statistics = new JsonObject()
+                                                .put("totalMessages", messageCount)
+                                                .put("activeConsumers", consumerCount)
+                                                .put("messagesPerSecond", messageRate)
+                                                .put("avgProcessingTimeMs", avgProcessingTime);
 
-                                JsonObject queueDetails = new JsonObject()
-                                        .put("name", queueName)
-                                        .put("setup", setupId)
-                                        .put("implementationType", queueFactory.getImplementationType())
-                                        .put("status", queueFactory.isHealthy() ? "active" : "error")
-                                        .put("statistics", statistics)
-                                        .put("durability", "durable")
-                                        .put("autoDelete", false)
-                                        .put("createdAt", setupResult.getCreatedAt())
-                                        .put("lastActivity", Instant.now().toString());
-
+                                        return new JsonObject()
+                                                .put("name", queueName)
+                                                .put("setup", setupId)
+                                                .put("implementationType", queueFactory.getImplementationType())
+                                                .put("status", queueFactory.isHealthy() ? "active" : "error")
+                                                .put("messages", messageCount)
+                                                .put("consumers", consumerCount)
+                                                .put("statistics", statistics)
+                                                .put("durability", "durable")
+                                                .put("autoDelete", false)
+                                                .put("createdAt", setupResult.getCreatedAt())
+                                                .put("lastActivity", Instant.now().toString());
+                                    }))
+                            .onSuccess(queueDetails -> {
                                 ctx.response()
                                         .setStatusCode(200)
                                         .putHeader("content-type", "application/json")
@@ -1730,9 +1773,12 @@ public class ManagementApiHandler {
                     Future<java.util.List<SubscriptionInfo>> subsFuture;
                     if (subscriptionService != null) {
                         subsFuture = subscriptionService.listSubscriptions(queueName)
-                                .recover(e -> {
-                                    logger.debug("Failed to list subscriptions for queue {}: {}", queueName, e.getMessage());
-                                    return Future.succeededFuture(java.util.List.of());
+                                .transform(ar -> {
+                                    if (ar.failed()) {
+                                        logger.debug("Failed to list subscriptions for queue {}: {}", queueName, ar.cause().getMessage());
+                                        return Future.succeededFuture(java.util.List.of());
+                                    }
+                                    return Future.succeededFuture(ar.result());
                                 });
                     } else {
                         subsFuture = Future.succeededFuture(java.util.List.of());

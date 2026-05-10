@@ -38,6 +38,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.vertx.sqlclient.Pool;
 
 import java.time.Instant;
@@ -58,6 +60,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class AppendBatchIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(AppendBatchIntegrationTest.class);
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
@@ -174,7 +178,6 @@ class AppendBatchIntegrationTest {
                 }
                 return Future.succeededFuture();
             })
-            .recover(t -> Future.succeededFuture())
             .compose(v -> cleanupDatabase())
             .onSuccess(v -> {
                 restoreTestProperties();
@@ -223,7 +226,7 @@ class AppendBatchIntegrationTest {
         }
 
         eventStore.appendBatch(events)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertEquals(5, results.size());
                 for (int i = 0; i < 5; i++) {
@@ -239,8 +242,7 @@ class AppendBatchIntegrationTest {
                     assertFalse(event.isCorrection());
                 }
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         awaitSuccess(testContext, 10);
     }
 
@@ -250,12 +252,11 @@ class AppendBatchIntegrationTest {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = new ArrayList<>();
 
         eventStore.appendBatch(events)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertTrue(results.isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         awaitSuccess(testContext, 10);
     }
 
@@ -263,12 +264,11 @@ class AppendBatchIntegrationTest {
     @DisplayName("appendBatch - returns empty list for null input")
     void testAppendBatch_NullList(VertxTestContext testContext) throws Exception {
         eventStore.appendBatch(null)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertTrue(results.isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         awaitSuccess(testContext, 10);
     }
 
@@ -287,14 +287,13 @@ class AppendBatchIntegrationTest {
         );
 
         eventStore.appendBatch(events)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertEquals(1, results.size());
                 assertEquals("single.event", results.get(0).getEventType());
                 assertEquals("single-id", results.get(0).getPayload().getId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         awaitSuccess(testContext, 10);
     }
 
@@ -318,19 +317,18 @@ class AppendBatchIntegrationTest {
 
         long startTime = System.currentTimeMillis();
         eventStore.appendBatch(events)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;
                 assertNotNull(results);
                 assertEquals(batchSize, results.size());
-                System.out.println("Batch of " + batchSize + " events inserted in " + duration + "ms");
+                logger.info("Batch of {} events inserted in {}ms", batchSize, duration);
                 long uniqueIds = results.stream()
                     .map(BiTemporalEvent::getEventId)
                     .distinct()
                     .count();
                 assertEquals(batchSize, uniqueIds);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         awaitSuccess(testContext, 30);
     }
 
@@ -363,11 +361,10 @@ class AppendBatchIntegrationTest {
                     .build();
                 return eventStore.query(query);
             })
-            .onSuccess(queried -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(queried -> testContext.verify(() -> {
                 assertEquals(2, queried.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         awaitSuccess(testContext, 10);
     }
 

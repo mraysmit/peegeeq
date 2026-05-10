@@ -2,25 +2,25 @@ package dev.mars.peegeeq.db;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -44,87 +44,68 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-02
  */
-@Tag(TestCategories.SLOW)
+@Tag(TestCategories.INTEGRATION)
 @DisplayName("Resource Leak Detection Tests")
-@Testcontainers
+@ExtendWith(SharedPostgresTestExtension.class)
 @Isolated("Resource leak detection must run in complete isolation")
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 public class ResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(ResourceLeakDetectionTest.class);
-    
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_pass");
-        container.withReuse(true);
-        return container;
+    private static PostgreSQLContainer getPostgres() {
+        return SharedPostgresTestExtension.getContainer();
     }
-    
+
     private PeeGeeQConfiguration configuration;
     private PeeGeeQManager testManager;
     private Set<Long> initialThreadIds;
     private int initialThreadCount;
-    
-    @BeforeAll
-    static void setUpDatabase() {
-        // Ensure TestContainers is started
-        postgres.start();
-    }
-    
+
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("[SETUP] Configuring database and starting PeeGeeQManager");
 
-        System.err.println("=== ResourceLeakDetectionTest.setUp() STARTED ===");
-        System.err.flush();
-
-        // Set up database connection properties from TestContainers BEFORE creating configuration
-        // Use the correct property names from peegeeq-default.properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // CRITICAL: Disable migrations to avoid duplicate key violations with shared TestContainer
-        System.setProperty("peegeeq.migration.enabled", "false");
+        // Build isolated configuration properties — never touch System.setProperty so that
+        // concurrent tests sharing the same JVM fork cannot observe partial state.
+        Properties testProps = PeeGeeQTestConfig.builder()
+            .from(getPostgres())
+            .property("peegeeq.database.pool.min-size", "1")
+            .property("peegeeq.database.pool.max-size", "3")
+            .property("peegeeq.database.pool.shared", "false")
+            .property("peegeeq.database.pool.idle-timeout-ms", "5000")
+            .property("peegeeq.database.pool.connection-timeout-ms", "30000")
+            // CRITICAL: Disable migrations to avoid duplicate key violations with shared TestContainer
+            .property("peegeeq.migration.enabled", "false")
+            .build();
 
         logger.info("TestContainers database: {}:{}/{}",
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+            getPostgres().getHost(), getPostgres().getFirstMappedPort(), getPostgres().getDatabaseName());
 
-        // Create configuration AFTER setting system properties
-        configuration = new PeeGeeQConfiguration();
+        configuration = new PeeGeeQConfiguration("default", testProps);
 
         // Capture initial thread state BEFORE creating any managers
         captureInitialThreadState();
 
-        logger.info("Test setup completed - initial thread count: {}", initialThreadCount);
-
-        System.err.println("=== ResourceLeakDetectionTest.setUp() COMPLETED ===");
-        System.err.flush();
+        logger.info("[SETUP] Complete initial thread count: {}", initialThreadCount);
     }
     
     @AfterEach
     void tearDown() throws Exception {
-        System.err.println("=== ResourceLeakDetectionTest.tearDown() STARTED ===");
-        System.err.flush();
-        
+        logger.info("[TEARDOWN] Closing resources and manager");
+
         // Close test manager if it wasn't closed in the test
         if (testManager != null) {
             try {
-                testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                testManager.closeReactive().await();
                 testManager = null;
-                logger.info("Test manager closed successfully in tearDown");
+                logger.info("[TEARDOWN] Manager closed successfully");
             } catch (Exception e) {
-                logger.error("Error closing test manager in tearDown", e);
+                logger.warn("[TEARDOWN] Manager close failed (may be expected if test already closed it): {}",
+                        e.getMessage());
             }
         }
-        
-        System.err.println("=== ResourceLeakDetectionTest.tearDown() COMPLETED ===");
-        System.err.flush();
+
+        logger.info("[TEARDOWN] Complete");
     }
     
     /**
@@ -152,17 +133,16 @@ public class ResourceLeakDetectionTest {
      */
     private void logThreadDetails(Set<Long> threadIds) {
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        logger.error("=== LEAKED THREAD DETAILS ===");
+        logger.warn("[LEAK DETECTION] Listing {} potentially leaked thread(s) this is diagnostic, not a production error:",
+                threadIds.size());
 
         for (Long threadId : threadIds) {
             ThreadInfo threadInfo = threadMXBean.getThreadInfo(threadId);
             if (threadInfo != null) {
-                logger.error("Thread ID: {}, Name: {}, State: {}",
+                logger.warn("[LEAK DETECTION]   Thread ID: {}, Name: {}, State: {}",
                     threadId, threadInfo.getThreadName(), threadInfo.getThreadState());
             }
         }
-
-        logger.error("=== END LEAKED THREAD DETAILS ===");
     }
 
     /**
@@ -198,7 +178,6 @@ public class ResourceLeakDetectionTest {
 
                 // Only count threads that are clearly related to PeeGeeQ-managed resources.
                 boolean peeGeeQRelated = threadName.contains("PeeGeeQ")
-                        || threadName.contains("HikariPool")
                         || threadName.contains("vert.x");
                 if (!peeGeeQRelated) {
                     logger.debug("Filtering out non-PeeGeeQ thread: {}", threadName);
@@ -227,12 +206,11 @@ public class ResourceLeakDetectionTest {
     @Test
     @DisplayName("Should not leak threads after manager close")
     void testNoThreadLeaksAfterClose() throws Exception {
-        System.err.println("=== TEST: testNoThreadLeaksAfterClose STARTED ===");
-        System.err.flush();
+        logger.info("[testNoThreadLeaksAfterClose] Starting leak detection test");
 
         // Create and start test manager
         testManager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
-        testManager.start();
+        testManager.start().await();
         logger.info("Test manager started successfully");
 
         // Capture threads while manager is running
@@ -244,22 +222,19 @@ public class ResourceLeakDetectionTest {
         assertTrue(runningThreadCount > initialThreadCount,
             "Manager should create additional threads (initial: " + initialThreadCount + ", running: " + runningThreadCount + ")");
 
-        // Close test manager
-        testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        // Close test manager closeReactive() includes vertx.close(), so the
+        // Vert.x runtime is gone after this returns. Post-shutdown delays must use
+        // Thread.sleep (the only option for JVM-level thread diagnostics without a
+        // reactive runtime).
+        testManager.closeReactive().await();
         testManager = null;
 
-        // Give threads time to shut down - increased wait time for HikariCP and Vert.x cleanup
-        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
+        // Give threads time to shut down
+        Thread.sleep(3000);
 
         // Force garbage collection to clean up any weak references
         System.gc();
-        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
-
-        // Wait for any remaining HikariCP threads from previous tests to terminate
-        waitForHikariCPThreadsToTerminate();
-
-        // Wait for Vert.x event loop shutdown to settle before leak accounting.
-        waitForVertxThreadsToTerminate();
+        Thread.sleep(1000);
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
@@ -284,146 +259,105 @@ public class ResourceLeakDetectionTest {
         leakedThreadIds = filterSystemThreads(leakedThreadIds);
 
         if (!leakedThreadIds.isEmpty()) {
-            logger.error("LEAKED THREADS DETECTED: {}", leakedThreadIds.size());
+            logger.warn("[LEAK DETECTION] Found {} leaked thread(s) after close test will fail:", leakedThreadIds.size());
             logThreadDetails(leakedThreadIds);
+        } else {
+            logger.info("[testNoThreadLeaksAfterClose] No thread leaks detected PASSED");
         }
 
         // Assert no thread leaks
         assertEquals(0, leakedThreadIds.size(),
             "No threads should be leaked after manager.close(). Leaked: " + leakedThreadIds.size());
-
-        System.err.println("=== TEST: testNoThreadLeaksAfterClose COMPLETED ===");
-        System.err.flush();
     }
     
     @Test
     @DisplayName("Should not leak Vert.x event loop threads")
     void testNoVertxEventLoopLeaks() throws Exception {
+        // Capture thread IDs before creating this test's manager
+        Set<Long> threadsBefore = getCurrentThreadIds();
+
         // Create and start test manager
         testManager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
-        testManager.start();
+        testManager.start().await();
 
-        // Close test manager
-        testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        // Capture thread IDs created by this manager's startup (including event loop threads)
+        Set<Long> threadsAfterStart = getCurrentThreadIds();
+        Set<Long> thisTestThreadIds = new HashSet<>(threadsAfterStart);
+        thisTestThreadIds.removeAll(threadsBefore);
+
+        // Close test manager Vert.x runtime is gone after this
+        testManager.closeReactive().await();
         testManager = null;
 
-        // Give threads time to shut down - increased wait time for Vert.x cleanup
-        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
-
-        // Force garbage collection
+        // Post-shutdown delays (no reactive runtime available)
+        Thread.sleep(3000);
         System.gc();
-        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
+        Thread.sleep(1000);
 
-        // Wait for any remaining HikariCP threads from previous tests to terminate
-        waitForHikariCPThreadsToTerminate();
-
-        // Wait for any remaining Vert.x threads from previous tests to terminate
-        waitForVertxThreadsToTerminate();
-
-        // Check for Vert.x event loop threads
+        // Check only the specific threads created by THIS test's manager
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        long[] threadIds = threadMXBean.getAllThreadIds();
 
-        Set<String> allVertxThreads = new HashSet<>();
-        for (long threadId : threadIds) {
+        Set<String> leakedEventLoopThreads = new HashSet<>();
+        for (long threadId : thisTestThreadIds) {
             ThreadInfo threadInfo = threadMXBean.getThreadInfo(threadId);
             if (threadInfo != null && threadInfo.getThreadName().contains("vert.x-eventloop")) {
-                allVertxThreads.add(threadInfo.getThreadName());
+                leakedEventLoopThreads.add(threadInfo.getThreadName() + " (id=" + threadId + ")");
             }
         }
 
-        // Since this test is @Isolated, any Vert.x threads detected are likely from other parallel tests
-        // that are still cleaning up. We'll be more lenient and only fail if there are an excessive number
-        // of threads (indicating a real leak from this test)
-        int maxAllowedVertxThreads = 5; // Allow some threads from other parallel tests
-
-        if (!allVertxThreads.isEmpty()) {
-            logger.warn("Detected {} Vert.x event loop threads (likely from other parallel tests): {}",
-                allVertxThreads.size(), allVertxThreads);
+        if (!leakedEventLoopThreads.isEmpty()) {
+            logger.error("This test's Vert.x event loop threads still alive after manager.close(): {}", leakedEventLoopThreads);
         }
 
-        // Only fail if there are excessive threads indicating a real leak
-        if (allVertxThreads.size() > maxAllowedVertxThreads) {
-            logger.error("Excessive Vert.x event loop threads detected: {}", allVertxThreads);
-            assertEquals(0, allVertxThreads.size(),
-                "Excessive Vert.x event loop threads detected (>" + maxAllowedVertxThreads + "). Found: " + allVertxThreads);
-        } else {
-            logger.info("Vert.x thread count ({}) is within acceptable range for parallel test execution", allVertxThreads.size());
-        }
+        assertEquals(0, leakedEventLoopThreads.size(),
+            "Vert.x event loop threads created by this test should not outlive manager.close(). Found: " + leakedEventLoopThreads);
     }
     
     @Test
     @DisplayName("Should not leak scheduler threads")
     void testNoSchedulerThreadLeaks() throws Exception {
+        // Capture thread IDs before creating this test's manager
+        Set<Long> threadsBefore = getCurrentThreadIds();
+
         // Create and start test manager
         testManager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
-        testManager.start();
+        testManager.start().await();
 
-        // Close test manager
-        testManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        // Capture thread IDs created by this manager's startup
+        Set<Long> threadsAfterStart = getCurrentThreadIds();
+        Set<Long> thisTestThreadIds = new HashSet<>(threadsAfterStart);
+        thisTestThreadIds.removeAll(threadsBefore);
+
+        // Close test manager Vert.x runtime is gone after this
+        testManager.closeReactive().await();
         testManager = null;
 
-        // Give threads time to shut down - increased wait time for HikariCP cleanup
-        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
-
-        // Force garbage collection
+        // Post-shutdown delays (no reactive runtime available)
+        Thread.sleep(3000);
         System.gc();
-        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
+        Thread.sleep(1000);
 
-        // Wait for any remaining HikariCP threads from previous tests to terminate
-        waitForHikariCPThreadsToTerminate();
-
-        // Check for scheduler threads
+        // Check only the specific threads created by THIS test's manager
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        long[] threadIds = threadMXBean.getAllThreadIds();
 
-        Set<String> schedulerThreads = new HashSet<>();
-        Set<String> currentTestThreads = new HashSet<>();
-        long currentTestTime = System.currentTimeMillis();
-
-        for (long threadId : threadIds) {
+        Set<String> leakedSchedulerThreads = new HashSet<>();
+        for (long threadId : thisTestThreadIds) {
             ThreadInfo threadInfo = threadMXBean.getThreadInfo(threadId);
             if (threadInfo != null &&
                 (threadInfo.getThreadName().contains("PeeGeeQ-") ||
                  threadInfo.getThreadName().contains("pool-"))) {
-
-                String threadName = threadInfo.getThreadName();
-                schedulerThreads.add(threadName);
-
-                // Filter threads from current test vs other parallel tests
-                if (threadName.contains("PeeGeeQ-Migration-")) {
-                    // Extract timestamp from thread name
-                    try {
-                        String timestampStr = threadName.substring(threadName.indexOf("PeeGeeQ-Migration-") + 18);
-                        timestampStr = timestampStr.substring(0, timestampStr.indexOf(" "));
-                        long threadTimestamp = Long.parseLong(timestampStr);
-
-                        // Only count threads created within the last 60 seconds (current test timeframe)
-                        if (currentTestTime - threadTimestamp < 60000) {
-                            currentTestThreads.add(threadName);
-                        } else {
-                            logger.debug("Ignoring thread from previous test: {} (age: {}ms)",
-                                threadName, currentTestTime - threadTimestamp);
-                        }
-                    } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
-                        // If we can't parse timestamp, assume it's from current test
-                        currentTestThreads.add(threadName);
-                    }
-                } else {
-                    // Non-PeeGeeQ threads are always counted
-                    currentTestThreads.add(threadName);
-                }
+                leakedSchedulerThreads.add(threadInfo.getThreadName() + " (id=" + threadId + ")");
             }
         }
 
-        if (!schedulerThreads.isEmpty()) {
-            logger.error("All scheduler threads detected: {}", schedulerThreads);
-            logger.error("Scheduler threads from current test: {}", currentTestThreads);
+        if (!leakedSchedulerThreads.isEmpty()) {
+            logger.error("This test's scheduler threads still alive after manager.close(): {}", leakedSchedulerThreads);
+        } else {
+            logger.info("[testNoSchedulerThreadLeaks] No scheduler thread leaks detected PASSED");
         }
 
-        assertEquals(0, currentTestThreads.size(),
-            "No scheduler threads should be leaked from current test. Found: " + currentTestThreads +
-            " (Total threads detected: " + schedulerThreads.size() + ")");
+        assertEquals(0, leakedSchedulerThreads.size(),
+            "No scheduler threads should be leaked from current test. Found: " + leakedSchedulerThreads);
     }
     
     @Test
@@ -433,20 +367,17 @@ public class ResourceLeakDetectionTest {
         for (int i = 0; i < 3; i++) {
             @SuppressWarnings("resource") // Closed via closeReactive() below
             PeeGeeQManager manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
-            manager.start();
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.start().await();
+            manager.closeReactive().await();
 
-            // Give threads time to shut down - increased wait time
-            testManager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
+            // Post-shutdown delay (no reactive runtime available)
+            Thread.sleep(2000);
         }
 
-        // Final cleanup wait - increased for thorough cleanup
-        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
+        // Final cleanup wait
+        Thread.sleep(3000);
         System.gc();
-        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
-
-        // Ensure background Vert.x cleanup from closeReactive has completed.
-        waitForVertxThreadsToTerminate();
+        Thread.sleep(1000);
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
@@ -459,8 +390,11 @@ public class ResourceLeakDetectionTest {
         leakedThreadIds = filterSystemThreads(leakedThreadIds);
 
         if (!leakedThreadIds.isEmpty()) {
-            logger.error("LEAKED THREADS DETECTED after multiple managers: {}", leakedThreadIds.size());
+            logger.warn("[LEAK DETECTION] Found {} leaked thread(s) after multiple managers test will fail:",
+                    leakedThreadIds.size());
             logThreadDetails(leakedThreadIds);
+        } else {
+            logger.info("[testMultipleManagerInstancesNoLeaks] No thread leaks detected PASSED");
         }
 
         assertEquals(0, leakedThreadIds.size(),
@@ -468,89 +402,8 @@ public class ResourceLeakDetectionTest {
     }
 
 
-    // Removed unused method findThreadById(long threadId)
-
-    /**
-     * Wait for HikariCP threads from previous tests to terminate.
-     * This is needed because ResourceLeakDetectionTest runs in isolation but may still
-     * detect threads from tests that ran before it.
-     */
-    private void waitForHikariCPThreadsToTerminate() {
-        logger.info("Waiting for any remaining HikariCP threads from previous tests to terminate...");
-
-        int maxWaitTime = 30000; // 30 seconds max wait for multiple HikariCP instances
-        int waitInterval = 500; // Check every 500ms
-        int totalWaitTime = 0;
-
-        while (totalWaitTime < maxWaitTime) {
-            boolean hikariThreadsFound = false;
-            Set<Thread> allThreads = Thread.getAllStackTraces().keySet();
-
-            for (Thread thread : allThreads) {
-                String threadName = thread.getName();
-                if ((threadName.contains("HikariPool") || threadName.contains("PeeGeeQ-Migration")) &&
-                    (threadName.contains("housekeeper") ||
-                     threadName.contains("connection adder") ||
-                     threadName.contains("connection closer"))) {
-                    hikariThreadsFound = true;
-                    logger.debug("Still waiting for HikariCP thread to terminate: {}", threadName);
-                    break;
-                }
-            }
-
-            if (!hikariThreadsFound) {
-                logger.info("All HikariCP threads from previous tests have terminated after {}ms", totalWaitTime);
-                break;
-            }
-
-            testManager.getVertx().timer(waitInterval).toCompletionStage().toCompletableFuture().join();
-            totalWaitTime += waitInterval;
-        }
-
-        if (totalWaitTime >= maxWaitTime) {
-            logger.warn("Some HikariCP threads may still be running after {}ms wait", maxWaitTime);
-        }
-    }
-
-    /**
-     * Wait for Vert.x threads from previous tests to terminate.
-     * This is needed because ResourceLeakDetectionTest runs in isolation but may still
-     * detect threads from tests that ran before it.
-     */
-    private void waitForVertxThreadsToTerminate() {
-        logger.info("Waiting for any remaining Vert.x threads from previous tests to terminate...");
-
-        int maxWaitTime = 30000; // 30 seconds max wait for multiple Vert.x instances
-        int waitInterval = 500; // Check every 500ms
-        int totalWaitTime = 0;
-
-        while (totalWaitTime < maxWaitTime) {
-            boolean vertxThreadsFound = false;
-            Set<Thread> allThreads = Thread.getAllStackTraces().keySet();
-
-            for (Thread thread : allThreads) {
-                String threadName = thread.getName();
-                if (threadName.contains("vert.x-eventloop")) {
-                    vertxThreadsFound = true;
-                    logger.debug("Still waiting for Vert.x thread to terminate: {}", threadName);
-                    break;
-                }
-            }
-
-            if (!vertxThreadsFound) {
-                logger.info("All Vert.x threads from previous tests have terminated after {}ms", totalWaitTime);
-                break;
-            }
-
-            testManager.getVertx().timer(waitInterval).toCompletionStage().toCompletableFuture().join();
-            totalWaitTime += waitInterval;
-        }
-
-        if (totalWaitTime >= maxWaitTime) {
-            logger.warn("Some Vert.x threads may still be running after {}ms wait", maxWaitTime);
-        }
-    }
 }
+
 
 
 

@@ -445,10 +445,4 @@ COMMENT ON FUNCTION update_consumer_group_index IS
 -- 11. MIGRATION COMPLETE
 -- ============================================================================
 
--- Insert schema version record
-INSERT INTO schema_version (version, description, checksum)
-VALUES ('V010', 'Consumer Group Fan-Out Support (Reference Counting Mode)',
-        md5('V010__Create_Consumer_Group_Fanout_Tables.sql'))
-ON CONFLICT (version) DO NOTHING;
-
 

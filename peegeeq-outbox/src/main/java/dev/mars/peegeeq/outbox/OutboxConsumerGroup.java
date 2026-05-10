@@ -27,18 +27,20 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -81,12 +83,17 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     private final AtomicLong totalMessagesFiltered = new AtomicLong(0);
 
-    // Shared scheduler for filter retry across all members — avoids one thread per member
-    private final ScheduledExecutorService sharedFilterScheduler;
+    // Vert.x instance for scheduling filter retry timers across all members
+    private final Vertx vertx;
 
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
     private volatile boolean startedWithSubscription;
+
+    // Partitioned consumption (OFFSET_WATERMARK mode) mirrors PgNativeConsumerGroup
+    private final PgConnectionManager connectionManager;
+    private final String connectionServiceId;
+    private volatile PartitionedConsumerEngine<T> partitionedEngine;
 
     /**
      * Builder for constructing {@link OutboxConsumerGroup} instances.
@@ -160,7 +167,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 throw new IllegalStateException("Only one of clientFactory or databaseService may be provided");
             }
             return new OutboxConsumerGroup<>(groupName, topic, payloadType,
-                    clientFactory, databaseService, objectMapper, metrics, configuration, clientId);
+                    clientFactory, databaseService, objectMapper, metrics, configuration, clientId,
+                    null, null);
         }
     }
 
@@ -172,34 +180,54 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
-        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, null);
+        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, null,
+                null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration, String clientId) {
-        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, clientId);
+        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, clientId,
+                null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               dev.mars.peegeeq.api.database.DatabaseService databaseService,
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
-        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, null);
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, null,
+                null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               dev.mars.peegeeq.api.database.DatabaseService databaseService,
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration, String clientId) {
-        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId);
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId,
+                null, null);
+    }
+
+    /**
+     * Constructor with partitioned-consumption support. When {@code connectionManager}
+     * and {@code connectionServiceId} are non-null, the group will detect OFFSET_WATERMARK
+     * topics on start and route through {@link PartitionedConsumerEngine}. Mirrors
+     * the corresponding native constructor.
+     */
+    public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                              dev.mars.peegeeq.api.database.DatabaseService databaseService,
+                              ObjectMapper objectMapper, MetricsProvider metrics,
+                              PeeGeeQConfiguration configuration, String clientId,
+                              PgConnectionManager connectionManager, String connectionServiceId) {
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId,
+                connectionManager, connectionServiceId);
     }
 
     private OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                PgClientFactory clientFactory,
                                dev.mars.peegeeq.api.database.DatabaseService databaseService,
                                ObjectMapper objectMapper, MetricsProvider metrics,
-                               PeeGeeQConfiguration configuration, String clientId) {
+                               PeeGeeQConfiguration configuration, String clientId,
+                               PgConnectionManager connectionManager, String connectionServiceId) {
         this.groupName = Objects.requireNonNull(groupName, "groupName");
         this.topic = Objects.requireNonNull(topic, "topic");
         this.payloadType = Objects.requireNonNull(payloadType, "payloadType");
@@ -209,15 +237,20 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.clientId = clientId;
+        this.connectionManager = connectionManager;
+        this.connectionServiceId = connectionServiceId;
         this.createdAt = Instant.now();
-        this.sharedFilterScheduler = Executors.newScheduledThreadPool(1, r -> {
-            Thread t = new Thread(r, "filter-retry-" + groupName);
-            t.setDaemon(true);
-            return t;
-        });
+        if (databaseService != null) {
+            this.vertx = databaseService.getVertx();
+        } else if (clientFactory != null) {
+            this.vertx = clientFactory.getConnectionManager().getVertx();
+        } else {
+            this.vertx = null;
+        }
 
-        logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {})",
-                groupName, topic, clientId != null ? clientId : "default");
+        logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {}, partitioned: {})",
+                groupName, topic, clientId != null ? clientId : "default",
+                connectionManager != null ? "enabled" : "disabled");
     }
 
     // -- Package-private accessors for testing and member construction --
@@ -226,8 +259,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         return state.get();
     }
 
-    ScheduledExecutorService getSharedFilterScheduler() {
-        return sharedFilterScheduler;
+    Vertx getVertx() {
+        return vertx;
     }
     
     @Override
@@ -306,7 +339,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 throw new IllegalStateException("Consumer group is closed");
             }
             if (current == State.ACTIVE || current == State.STARTING) {
-                // Already started or starting — idempotent
+                // Already started or starting idempotent
                 return;
             }
             throw new IllegalStateException("Cannot start consumer group in state: " + current);
@@ -330,7 +363,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             outboxConsumer.setConsumerGroupName(groupName);
 
             // Subscribe to messages and distribute them to group members
-            underlyingConsumer.subscribe(this::distributeMessage);
+            underlyingConsumer.subscribe(this::distributeMessage)
+                    .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                            groupName, topic, err.getMessage(), err));
 
             // Start all existing members
             members.values().forEach(OutboxConsumerGroupMember::start);
@@ -375,7 +410,35 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 .compose(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
                     startedWithSubscription = true;
-                    // Transition from STARTING to ACTIVE via the internal start path
+                    // After the subscription row exists, detect topic mode and route accordingly.
+                    // Mirrors PgNativeConsumerGroup#startInternal: if connectionManager is wired
+                    // and the topic is OFFSET_WATERMARK, start the partitioned engine; otherwise
+                    // fall back to the existing reference-counting (subscribe + distribute) path.
+                    if (connectionManager != null) {
+                        return PartitionedConsumerEngine.isOffsetWatermarkTopic(
+                                        connectionManager, connectionServiceId, topic)
+                                .transform(ar -> {
+                                    if (ar.failed()) {
+                                        logger.warn("Failed to detect topic mode for '{}', falling back to " +
+                                                "reference counting: {}", topic, ar.cause().getMessage());
+                                        return Future.succeededFuture(false);
+                                    }
+                                    return Future.succeededFuture(ar.result());
+                                })
+                                .compose(isOffsetWatermark -> {
+                                    if (isOffsetWatermark) {
+                                        return startPartitioned();
+                                    }
+                                    try {
+                                        startInternal();
+                                        return Future.<Void>succeededFuture();
+                                    } catch (Exception e) {
+                                        state.set(State.NEW);
+                                        return Future.<Void>failedFuture(e);
+                                    }
+                                });
+                    }
+                    // No connectionManager wired \u2014 always reference counting.
                     try {
                         startInternal();
                         return Future.<Void>succeededFuture();
@@ -384,10 +447,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                         return Future.failedFuture(e);
                     }
                 })
-                .recover(err -> {
-                    state.set(State.NEW);
-                    return Future.failedFuture(err);
-                });
+                .onFailure(err -> state.set(State.NEW));
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
@@ -402,7 +462,52 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
 
     /**
-     * Internal start logic — assumes state is already STARTING.
+     * Starts the partitioned consumption engine for OFFSET_WATERMARK topics.
+     * The engine handles join, fetch, dispatch, and commit internally.
+     * Mirrors {@code PgNativeConsumerGroup#startPartitioned}.
+     *
+     * @return future completing when the engine is started and members are active
+     */
+    private Future<Void> startPartitioned() {
+        String instanceId = groupName + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        partitionedEngine = new PartitionedConsumerEngine<>(
+                vertx, connectionManager, connectionServiceId,
+                topic, groupName, instanceId, payloadType, objectMapper
+        );
+
+        MessageHandler<T> handler = this::distributeMessage;
+
+        return partitionedEngine.start(handler)
+                .compose(v -> {
+                    if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
+                        logger.warn("Outbox consumer group '{}' was closed during startup, aborting", groupName);
+                        return partitionedEngine.stop()
+                                .onFailure(stopErr ->
+                                    logger.warn("Failed to stop engine during startup abort: {}", stopErr.getMessage()))
+                                .transform(ar -> Future.<Void>succeededFuture())
+                                .compose(v2 -> Future.<Void>failedFuture(
+                                        new IllegalStateException("Consumer group closed during startup")));
+                    }
+                    // Allow concurrent dispatch from multiple partitions:
+                    // each assigned partition may have one message in-flight simultaneously.
+                    int partitionCount = partitionedEngine.getAssignedPartitions().size();
+                    if (partitionCount > 1) {
+                        members.values().forEach(m -> m.setMaxConcurrency(partitionCount));
+                    }
+                    members.values().forEach(OutboxConsumerGroupMember::start);
+                    logger.info("Outbox consumer group '{}' started in OFFSET_WATERMARK mode with {} members",
+                            groupName, members.size());
+                    return Future.succeededFuture();
+                })
+                .onFailure(err -> {
+                    logger.error("Failed to start partitioned engine for outbox group '{}': {}",
+                            groupName, err.getMessage());
+                    state.compareAndSet(State.STARTING, State.NEW);
+                });
+    }
+
+    /**
+     * Internal start logic assumes state is already STARTING.
      * Transitions to ACTIVE on success.
      */
     private void startInternal() {
@@ -416,7 +521,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         }
         underlyingConsumer = outboxConsumer;
         outboxConsumer.setConsumerGroupName(groupName);
-        underlyingConsumer.subscribe(this::distributeMessage);
+        underlyingConsumer.subscribe(this::distributeMessage)
+                .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                        groupName, topic, err.getMessage(), err));
         members.values().forEach(OutboxConsumerGroupMember::start);
         state.set(State.ACTIVE);
         logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
@@ -425,7 +532,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     @Override
     public void stop() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
-            // Not active — nothing to stop
+            // Not active nothing to stop
             return;
         }
         stopInternal();
@@ -434,7 +541,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     @Override
     public Future<Void> stopGracefully() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
-            // Not active — nothing to stop
+            // Not active nothing to stop
             return Future.succeededFuture();
         }
 
@@ -443,48 +550,89 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                     groupName, topic);
             return databaseService.getSubscriptionService()
                     .cancel(topic, groupName)
-                    .recover(err -> {
+                    .onFailure(err ->
                         logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
-                                groupName, topic, err.getMessage());
-                        return Future.succeededFuture();
-                    })
-                    .map(v -> {
-                        stopInternal();
-                        return null;
-                    });
+                                groupName, topic, err.getMessage()))
+                    .transform(ar -> Future.<Void>succeededFuture())
+                    .compose(v -> stopInternal());
         }
 
-        stopInternal();
-        return Future.succeededFuture();
+        return stopInternal();
     }
 
     /**
-     * Internal stop logic — assumes state is already STOPPING.
-     * Transitions state to NEW on completion.
+     * Internal stop logic assumes state is already STOPPING.
+     * Transitions state to NEW on completion (or failure).
+     *
+     * @return a future that completes when the underlying consumer pool is closed
+     *         (or succeeds immediately if no async close is needed)
      */
-    private void stopInternal() {
+    private Future<Void> stopInternal() {
         try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
 
-            // Stop all members
-            members.values().forEach(OutboxConsumerGroupMember::stop);
+            // Await all in-flight member processing before closing the underlying consumer pool.
+            // Using stopAsync() ensures no message handler is abandoned mid-execution.
+            java.util.List<Future<Void>> memberStops = members.values().stream()
+                .map(m -> m.stopAsync().transform(ar -> Future.<Void>succeededFuture()))
+                .collect(java.util.stream.Collectors.toList());
 
-            // Stop the underlying consumer (non-blocking)
-            if (underlyingConsumer != null) {
-                underlyingConsumer.unsubscribe();
-                if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-                    oc.closeAsync();
-                } else {
-                    underlyingConsumer.close();
-                }
-                underlyingConsumer = null;
-            }
+            Future<Void> allMembersStopped = memberStops.isEmpty()
+                ? Future.succeededFuture()
+                : Future.all(memberStops).mapEmpty();
 
             startedWithSubscription = false;
-            logger.info("Outbox consumer group '{}' stopped", groupName);
-        } finally {
+
+            return allMembersStopped
+                .compose(v -> closeUnderlyingConsumerAsync(
+                    "Error closing outbox consumer for group '{}' during stop: {}", groupName))
+                .compose(v -> stopPartitionedEngineAsync())
+                .eventually(() -> {
+                    state.set(State.NEW);
+                    logger.info("Outbox consumer group '{}' stopped", groupName);
+                    return Future.succeededFuture();
+                });
+        } catch (Exception e) {
             state.set(State.NEW);
+            return Future.failedFuture(e);
         }
+    }
+
+    private Future<Void> closeUnderlyingConsumerAsync(String logMessage, String logGroupName) {
+        if (underlyingConsumer == null) {
+            return Future.succeededFuture();
+        }
+
+        underlyingConsumer.unsubscribe();
+
+        Future<Void> consumerClose;
+        if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
+            consumerClose = oc.closeAsync()
+                    .onFailure(err -> logger.warn(logMessage, logGroupName, err.getMessage()));
+        } else {
+            underlyingConsumer.close();
+            consumerClose = Future.succeededFuture();
+        }
+
+        underlyingConsumer = null;
+        return consumerClose;
+    }
+
+    /**
+     * Stops and clears the partitioned engine (if any). Safe to call when no engine
+     * was started \u2014 returns a succeeded future immediately. Always nulls the field
+     * so a subsequent {@link #start} starts cleanly.
+     */
+    private Future<Void> stopPartitionedEngineAsync() {
+        PartitionedConsumerEngine<T> engine = partitionedEngine;
+        if (engine == null) {
+            return Future.succeededFuture();
+        }
+        partitionedEngine = null;
+        return engine.stop()
+                .onFailure(err -> logger.warn("Error stopping partitioned engine for group '{}': {}",
+                        groupName, err.getMessage()))
+                .transform(ar -> Future.<Void>succeededFuture());
     }
     
     @Override
@@ -573,44 +721,44 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     
     @Override
     public void close() {
+        try {
+            closeAsync().await();
+        } catch (Exception e) {
+            logger.warn("Error while waiting for outbox consumer group '{}' to close: {}",
+                    groupName, e.getMessage());
+        }
+    }
+
+    Future<Void> closeAsync() {
         State prev = state.getAndSet(State.CLOSED);
         if (prev == State.CLOSED) {
-            return; // already closed
+            return Future.succeededFuture();
         }
 
         logger.info("Closing outbox consumer group '{}' for topic '{}'", groupName, topic);
 
+        Future<Void> consumerClose = Future.succeededFuture();
+
         // If we were active, stop first
-        if (prev == State.ACTIVE) {
+        if (prev == State.ACTIVE || prev == State.STARTING || prev == State.STOPPING) {
             // Stop the underlying consumer directly (no state transition since we're going to CLOSED)
             members.values().forEach(OutboxConsumerGroupMember::stop);
-            if (underlyingConsumer != null) {
-                underlyingConsumer.unsubscribe();
-                if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-                    oc.closeAsync();
-                } else {
-                    underlyingConsumer.close();
-                }
-                underlyingConsumer = null;
-            }
+            consumerClose = closeUnderlyingConsumerAsync(
+                    "Error closing outbox consumer during close for group '{}': {}", groupName);
         }
+
+        // Always tear down the partitioned engine (if any) regardless of prior state.
+        Future<Void> engineClose = stopPartitionedEngineAsync();
+
+        startedWithSubscription = false;
 
         // Close all members
         members.values().forEach(OutboxConsumerGroupMember::close);
         members.clear();
 
-        // Shutdown shared filter retry scheduler
-        sharedFilterScheduler.shutdown();
-        try {
-            if (!sharedFilterScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                sharedFilterScheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            sharedFilterScheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-
-        logger.info("Outbox consumer group '{}' closed", groupName);
+        return consumerClose
+                .compose(v -> engineClose)
+                .onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
     }
     
     /**
@@ -624,13 +772,47 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      *   <li>Handler processing failure → propagated as-is for retry/DLQ handling by OutboxConsumer</li>
      * </ul>
      */
-    private Future<Void> distributeMessage(Message<T> message) {
-        // Apply group-level filter first — permanent rejection
-        if (groupFilter != null && !groupFilter.test(message)) {
-            totalMessagesFiltered.incrementAndGet();
-            logger.debug("Message {} permanently rejected by outbox group filter", message.getId());
-            return Future.failedFuture(
-                    new RejectedMessageException(message.getId(), groupName, "rejected by group filter"));
+    Future<Void> distributeMessage(Message<T> message) {
+        // Create a child span from the message's traceparent for fan-out trace propagation.
+        // Parallel consumer group deliveries form a span tree visible in Jaeger/Zipkin.
+        Map<String, String> headers = message.getHeaders();
+        String traceparent = headers != null ? headers.get("traceparent") : null;
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(traceparent);
+        TraceCtx groupTrace = parentTrace.childSpan("consumer-group:" + groupName + "/process");
+        TraceContextUtil.mdcScope(groupTrace);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, groupName);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, message.getId());
+
+        // Apply group-level filter first permanent rejection.
+        // Wrap in try-catch: a throwing filter must not leak MDC context.
+        if (groupFilter != null) {
+            boolean accepted;
+            try {
+                accepted = groupFilter.test(message);
+            } catch (Exception e) {
+                totalMessagesFiltered.incrementAndGet();
+                logger.error("Group filter threw exception for message {} in group '{}', treating as rejection: {}",
+                        message.getId(), groupName, e.getMessage());
+                logger.debug("Group filter exception detail", e);
+                return Future.<Void>failedFuture(
+                        new RejectedMessageException(message.getId(), groupName,
+                                "group filter threw: " + e.getMessage()))
+                        .eventually(() -> {
+                            TraceContextUtil.clearTraceMDC();
+                            return Future.succeededFuture();
+                        });
+            }
+            if (!accepted) {
+                totalMessagesFiltered.incrementAndGet();
+                logger.debug("Message {} permanently rejected by outbox group filter", message.getId());
+                return Future.<Void>failedFuture(
+                        new RejectedMessageException(message.getId(), groupName, "rejected by group filter"))
+                        .eventually(() -> {
+                            TraceContextUtil.clearTraceMDC();
+                            return Future.succeededFuture();
+                        });
+            }
         }
         
         // Find eligible consumers (those whose filters accept the message)
@@ -644,8 +826,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             logger.debug("Message {} has no eligible consumers in outbox group '{}', resetting to PENDING",
                 message.getId(), groupName);
 
-            return Future.failedFuture(
-                    new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"));
+            return Future.<Void>failedFuture(
+                    new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"))
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         // Deterministic hash-based routing on message ID
@@ -656,15 +842,23 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         if (!members.containsValue(selectedConsumer) || !selectedConsumer.isActive()) {
             logger.debug("Selected consumer '{}' was removed or deactivated before dispatch, resetting message {} to PENDING",
                 selectedConsumer.getConsumerId(), message.getId());
-            return Future.failedFuture(
+            return Future.<Void>failedFuture(
                     new MessageFilteredException(message.getId(), groupName,
-                        "selected consumer removed before dispatch"));
+                        "selected consumer removed before dispatch"))
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         logger.debug("Distributing message {} to consumer '{}' in outbox group '{}'", 
             message.getId(), selectedConsumer.getConsumerId(), groupName);
         
-        return selectedConsumer.processMessage(message);
+        return selectedConsumer.processMessage(message)
+                .eventually(() -> {
+                    TraceContextUtil.clearTraceMDC();
+                    return Future.succeededFuture();
+                });
     }
     
     /**

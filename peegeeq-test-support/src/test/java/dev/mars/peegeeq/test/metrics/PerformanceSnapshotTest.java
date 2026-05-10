@@ -42,7 +42,7 @@ class PerformanceSnapshotTest {
     
     @Test
     void testBasicSnapshotCreation() {
-        System.err.println("=== TEST METHOD STARTED: testBasicSnapshotCreation ===");
+        logger.info("=== TEST METHOD STARTED: testBasicSnapshotCreation ===");
         logger.info("Testing basic snapshot creation");
         
         String testName = "basicTest";
@@ -70,13 +70,13 @@ class PerformanceSnapshotTest {
         assertEquals(1000L, snapshot.getAdditionalMetricAsLong("operations", 0L));
         assertEquals(10000.0, snapshot.getAdditionalMetricAsDouble("throughput", 0.0));
         
-        logger.info("✓ Basic snapshot creation test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testBasicSnapshotCreation ===");
+        logger.info("Basic snapshot creation test passed");
+        logger.info("=== TEST METHOD COMPLETED: testBasicSnapshotCreation ===");
     }
     
     @Test
     void testThroughputCalculation() {
-        System.err.println("=== TEST METHOD STARTED: testThroughputCalculation ===");
+        logger.info("=== TEST METHOD STARTED: testThroughputCalculation ===");
         logger.info("Testing throughput calculation");
         
         Instant startTime = Instant.now();
@@ -107,13 +107,13 @@ class PerformanceSnapshotTest {
         double calculatedThroughput = snapshot1.calculateThroughput(10000L);
         assertEquals(10000.0, calculatedThroughput, 0.1); // 10000 ops in 1 second
         
-        logger.info("✓ Throughput calculation test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testThroughputCalculation ===");
+        logger.info("Throughput calculation test passed");
+        logger.info("=== TEST METHOD COMPLETED: testThroughputCalculation ===");
     }
     
     @Test
     void testLatencyMetrics() {
-        System.err.println("=== TEST METHOD STARTED: testLatencyMetrics ===");
+        logger.info("=== TEST METHOD STARTED: testLatencyMetrics ===");
         logger.info("Testing latency metrics");
         
         Map<String, Double> latencyData = Map.of(
@@ -136,13 +136,13 @@ class PerformanceSnapshotTest {
         assertEquals(25.0, retrievedLatency.get("p95"));
         assertEquals(50.0, retrievedLatency.get("p99"));
         
-        logger.info("✓ Latency metrics test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testLatencyMetrics ===");
+        logger.info("Latency metrics test passed");
+        logger.info("=== TEST METHOD COMPLETED: testLatencyMetrics ===");
     }
     
     @Test
     void testSnapshotSummary() {
-        System.err.println("=== TEST METHOD STARTED: testSnapshotSummary ===");
+        logger.info("=== TEST METHOD STARTED: testSnapshotSummary ===");
         logger.info("Testing snapshot summary");
         
         Map<String, Object> additionalMetrics = Map.of(
@@ -164,13 +164,13 @@ class PerformanceSnapshotTest {
         assertTrue(summary.contains("success=true"));
         assertTrue(summary.contains("throughput=5000.00"));
         
-        logger.info("✓ Snapshot summary test passed: {}", summary);
-        System.err.println("=== TEST METHOD COMPLETED: testSnapshotSummary ===");
+        logger.info("Snapshot summary test passed: {}", summary);
+        logger.info("=== TEST METHOD COMPLETED: testSnapshotSummary ===");
     }
     
     @Test
     void testSnapshotEquality() {
-        System.err.println("=== TEST METHOD STARTED: testSnapshotEquality ===");
+        logger.info("=== TEST METHOD STARTED: testSnapshotEquality ===");
         logger.info("Testing snapshot equality");
         
         Instant startTime = Instant.now();
@@ -198,13 +198,13 @@ class PerformanceSnapshotTest {
         assertNotEquals(snapshot1, snapshot3);
         assertNotEquals(snapshot1.hashCode(), snapshot3.hashCode());
         
-        logger.info("✓ Snapshot equality test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testSnapshotEquality ===");
+        logger.info("Snapshot equality test passed");
+        logger.info("=== TEST METHOD COMPLETED: testSnapshotEquality ===");
     }
     
     @Test
     void testNullHandling() {
-        System.err.println("=== TEST METHOD STARTED: testNullHandling ===");
+        logger.info("=== TEST METHOD STARTED: testNullHandling ===");
         logger.info("Testing null handling");
         
         Instant startTime = Instant.now();
@@ -231,13 +231,13 @@ class PerformanceSnapshotTest {
             new PerformanceSnapshot("test", null, startTime, endTime, duration, true, null)
         );
         
-        logger.info("✓ Null handling test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testNullHandling ===");
+        logger.info("Null handling test passed");
+        logger.info("=== TEST METHOD COMPLETED: testNullHandling ===");
     }
     
     @Test
     void testMetricTypeConversion() {
-        System.err.println("=== TEST METHOD STARTED: testMetricTypeConversion ===");
+        logger.info("=== TEST METHOD STARTED: testMetricTypeConversion ===");
         logger.info("Testing metric type conversion");
         
         Map<String, Object> additionalMetrics = Map.of(
@@ -263,7 +263,7 @@ class PerformanceSnapshotTest {
         assertEquals(999L, snapshot.getAdditionalMetricAsLong("stringValue", 999L));
         assertEquals(888.0, snapshot.getAdditionalMetricAsDouble("missingValue", 888.0), 0.001);
         
-        logger.info("✓ Metric type conversion test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testMetricTypeConversion ===");
+        logger.info("Metric type conversion test passed");
+        logger.info("=== TEST METHOD COMPLETED: testMetricTypeConversion ===");
     }
 }

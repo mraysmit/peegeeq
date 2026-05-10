@@ -26,6 +26,8 @@ import dev.mars.peegeeq.outbox.OutboxProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -84,6 +86,19 @@ class PeeGeeQReactiveConfigTest {
 
     @Autowired
     private PeeGeeQManager manager;
+    private static PeeGeeQManager managerRef;
+
+    @AfterEach
+    void captureManager() {
+        managerRef = manager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (managerRef != null) {
+            managerRef.closeReactive().await();
+        }
+    }
 
     @Autowired
     private OutboxProducer<OrderEvent> orderEventProducer;

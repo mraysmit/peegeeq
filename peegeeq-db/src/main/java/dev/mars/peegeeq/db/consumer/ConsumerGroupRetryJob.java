@@ -40,6 +40,7 @@ public class ConsumerGroupRetryJob {
     private volatile long timerId = -1;
     private volatile boolean running = false;
     private final AtomicBoolean processingInProgress = new AtomicBoolean(false);
+    private volatile Future<Void> inFlightProcessing = null;
 
     private volatile TraceCtx lifecycleTrace;
 
@@ -107,10 +108,10 @@ public class ConsumerGroupRetryJob {
     /**
      * Stops the periodic retry job.
      */
-    public void stop() {
+    public Future<Void> stop() {
         if (!running) {
             logger.debug("ConsumerGroupRetryJob is not running, nothing to stop");
-            return;
+            return Future.succeededFuture();
         }
 
         TraceCtx stopTrace = lifecycleTrace != null ? lifecycleTrace : TraceCtx.createNew();
@@ -128,10 +129,34 @@ public class ConsumerGroupRetryJob {
             timerId = -1;
         }
 
+        Future<Void> pending = inFlightProcessing;
+        if (pending != null) {
+            try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
+                logger.info("Awaiting in-flight retry processing before stop completes");
+            }
+            return pending
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
+                                logger.warn("In-flight retry processing failed during stop: {}", ar.cause().getMessage());
+                            }
+                        }
+                        return Future.<Void>succeededFuture();
+                    })
+                    .map(v -> {
+                        try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
+                            logger.info("ConsumerGroupRetryJob stopped");
+                        }
+                        lifecycleTrace = null;
+                        return (Void) null;
+                    });
+        }
+
         try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
             logger.info("ConsumerGroupRetryJob stopped");
         }
         lifecycleTrace = null;
+        return Future.succeededFuture();
     }
 
     public boolean isRunning() {
@@ -176,7 +201,7 @@ public class ConsumerGroupRetryJob {
         TraceCtx trace = TraceCtx.createNew();
         long startMs = System.currentTimeMillis();
 
-        retryService.processFailedMessages()
+        Future<ConsumerGroupRetryService.RetryResult> processing = retryService.processFailedMessages()
                 .onSuccess(result -> {
                     totalRunCount.incrementAndGet();
                     totalRetried.addAndGet(result.retriedCount());
@@ -197,12 +222,28 @@ public class ConsumerGroupRetryJob {
                     totalRunCount.incrementAndGet();
                     totalFailures.incrementAndGet();
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        logger.error("Retry scan #{} failed ({}ms)",
-                                totalRunCount.get(), System.currentTimeMillis() - startMs, throwable);
+                        long durationMs = System.currentTimeMillis() - startMs;
+                        if (running) {
+                            logger.error("Retry scan #{} failed ({}ms)",
+                                    totalRunCount.get(), durationMs, throwable);
+                        } else {
+                            logger.debug("Retry scan #{} failed during shutdown ({}ms): {}",
+                                    totalRunCount.get(), durationMs, throwable.getMessage());
+                        }
+                    }
+                });
+
+        inFlightProcessing = processing
+                .<Void>mapEmpty()
+                .onFailure(e -> {
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.debug("Retry processing completed with failure (already logged above)");
                     }
                 })
+                .transform(ar -> Future.<Void>succeededFuture())
                 .eventually(() -> {
                     processingInProgress.set(false);
+                    inFlightProcessing = null;
                     return Future.succeededFuture();
                 });
     }

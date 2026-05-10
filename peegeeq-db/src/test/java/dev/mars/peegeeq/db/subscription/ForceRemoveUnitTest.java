@@ -19,12 +19,16 @@ package dev.mars.peegeeq.db.subscription;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -38,7 +42,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026-04-04
  */
 @Tag(TestCategories.CORE)
-@DisplayName("SubscriptionManager — force-remove unit tests")
+@DisplayName("SubscriptionManager force-remove unit tests")
+@ExtendWith(VertxExtension.class)
 class ForceRemoveUnitTest {
 
     private Vertx vertx;
@@ -53,9 +58,14 @@ class ForceRemoveUnitTest {
     }
 
     @AfterEach
-    void tearDown() {
-        if (connectionManager != null) connectionManager.close();
-        if (vertx != null) vertx.close();
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> closeFuture = connectionManager != null
+                ? connectionManager.close()
+                : Future.succeededFuture();
+        closeFuture
+                .compose(v -> vertx != null ? vertx.close() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // =========================================================================

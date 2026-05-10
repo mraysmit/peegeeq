@@ -124,12 +124,13 @@ public class QueueManagementAdvancedE2ETest {
         
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     if (webClient != null) {
                         webClient.close();
                     }
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             if (webClient != null) {
                 webClient.close();

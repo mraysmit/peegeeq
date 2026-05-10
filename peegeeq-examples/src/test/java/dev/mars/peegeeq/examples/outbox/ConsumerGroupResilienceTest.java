@@ -21,6 +21,8 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
@@ -91,28 +93,6 @@ class ConsumerGroupResilienceTest {
     private String testQueueName;
 
     /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
-    /**
-     * Clear system properties after test completion
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-    }
-
-    /**
      * Generate unique queue name for test independence
      */
     private String getUniqueQueueName(String baseName) {
@@ -128,15 +108,16 @@ class ConsumerGroupResilienceTest {
     
     @BeforeEach
     void setUp() throws Exception {
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Generate unique queue name for test independence
         testQueueName = getUniqueQueueName("order-events");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
 
         // Create queue factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -154,15 +135,13 @@ class ConsumerGroupResilienceTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
         if (manager != null) {
             manager.closeReactive().await();
         }
-
-        // Clear system properties
-        clearSystemProperties();
 
         logger.info("Resilience test teardown completed");
     }
@@ -177,8 +156,8 @@ class ConsumerGroupResilienceTest {
      */
     @Test
     void testConsumerFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println(" ===== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===== ");
-        System.out.println(" **INTENTIONAL TEST**  This test deliberately creates failing consumers to test recovery mechanisms");
+        logger.info("===== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST =====");
+        logger.info("INTENTIONAL TEST: This test deliberately creates failing consumers to test recovery mechanisms");
         logger.info("Testing consumer failure recovery");
 
         // Create consumer group with multiple consumers using unique names
@@ -192,7 +171,7 @@ class ConsumerGroupResilienceTest {
         AtomicInteger recoveredCount = new AtomicInteger(0);
 
         // Add a consumer that fails on certain messages
-        System.out.println("INTENTIONAL FAILURE: Adding consumer that will fail on specific messages");
+        logger.info("INTENTIONAL FAILURE: Adding consumer that will fail on specific messages");
         orderGroup.addConsumer("failing-consumer",
             createFailingHandler(successfulCount, failedCount, vertx),
             MessageFilter.byRegion(Set.of("US")));
@@ -208,7 +187,7 @@ class ConsumerGroupResilienceTest {
             "Both consumers should be active");
 
         // Send test messages that will trigger failures
-        System.out.println("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
+        logger.info("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
         sendFailureTestMessages();
 
         // Wait for processing and recovery using Vert.x periodic polling
@@ -234,8 +213,8 @@ class ConsumerGroupResilienceTest {
         });
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
-        System.out.println("**SUCCESS** Consumer failure recovery mechanisms worked correctly");
-        System.out.println(" ===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
+        logger.info("SUCCESS: Consumer failure recovery mechanisms worked correctly");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
         logger.info("Consumer failure recovery test completed successfully");
     }
     
@@ -272,7 +251,7 @@ class ConsumerGroupResilienceTest {
                 logger.info("  Messages processed: {}", processedCount.get());
                 logger.info("  Filter exceptions: {}", filteredCount.get());
 
-                assertTrue(processedCount.get() >= 0, "Some messages should be processed");
+                assertTrue(processedCount.get() > 0, "Some messages should be processed");
 
                 testGroup.close();
                 testContext.completeNow();
@@ -368,7 +347,7 @@ class ConsumerGroupResilienceTest {
             String orderId = event.getOrderId();
             if (orderId.endsWith("5") || orderId.endsWith("7")) {
                 failCount.incrementAndGet();
-                System.out.println(" **INTENTIONAL TEST FAILURE**  Simulating processing failure for order " + orderId);
+                logger.info("INTENTIONAL TEST FAILURE: Simulating processing failure for order {}", orderId);
                 logger.debug("[FailingConsumer]  INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
                 return Future.failedFuture(
                     new RuntimeException(" INTENTIONAL TEST FAILURE: Simulated processing failure for order " + orderId));
@@ -443,7 +422,7 @@ class ConsumerGroupResilienceTest {
                 String region = headers.get("region");
                 if ("INVALID".equals(region)) {
                     exceptionCount.incrementAndGet();
-                    System.out.println(" **INTENTIONAL TEST FAILURE**  Simulating filter exception for region: " + region);
+                    logger.info("INTENTIONAL TEST FAILURE: Simulating filter exception for region: {}", region);
                     throw new RuntimeException(" INTENTIONAL TEST FAILURE: Simulated filter exception for region: " + region);
                 }
 

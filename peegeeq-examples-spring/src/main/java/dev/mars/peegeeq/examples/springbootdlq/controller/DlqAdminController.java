@@ -20,11 +20,11 @@ import dev.mars.peegeeq.examples.springbootdlq.service.DlqManagementService;
 import dev.mars.peegeeq.examples.springbootdlq.service.PaymentProcessorService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.context.request.async.DeferredResult;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import io.vertx.core.Future;
 
 
 /**
@@ -56,54 +56,79 @@ public class DlqAdminController {
      * Get DLQ depth.
      */
     @GetMapping("/depth")
-    public Future<ResponseEntity<Map<String, Object>>> getDlqDepth() {
-        return dlqService.getDlqDepth().map(depth -> {
-            Map<String, Object> response = new HashMap<>();
-            response.put("depth", depth);
-            return ResponseEntity.ok(response);
-        });
+    public DeferredResult<ResponseEntity<Map<String, Object>>> getDlqDepth() {
+        DeferredResult<ResponseEntity<Map<String, Object>>> result = new DeferredResult<>();
+        dlqService.getDlqDepth()
+            .map(depth -> {
+                Map<String, Object> response = new HashMap<>();
+                response.put("depth", depth);
+                return (ResponseEntity<Map<String, Object>>) ResponseEntity.ok(response);
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
     
     /**
      * Get all DLQ messages.
      */
     @GetMapping("/messages")
-    public Future<ResponseEntity<List<Map<String, Object>>>> getDlqMessages() {
-        return dlqService.getDlqMessages().map(ResponseEntity::ok);
+    public DeferredResult<ResponseEntity<List<Map<String, Object>>>> getDlqMessages() {
+        DeferredResult<ResponseEntity<List<Map<String, Object>>>> result = new DeferredResult<>();
+        dlqService.getDlqMessages()
+            .map(messages -> (ResponseEntity<List<Map<String, Object>>>) ResponseEntity.ok(messages))
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
     
     /**
      * Reprocess a DLQ message.
      */
     @PostMapping("/reprocess/{id}")
-    public Future<ResponseEntity<Map<String, Object>>> reprocessMessage(@PathVariable Long id) {
-        return dlqService.reprocessDlqMessage(id).map(success -> {
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", success);
-            response.put("messageId", id);
-            return ResponseEntity.ok(response);
-        });
+    public DeferredResult<ResponseEntity<Map<String, Object>>> reprocessMessage(@PathVariable Long id) {
+        DeferredResult<ResponseEntity<Map<String, Object>>> result = new DeferredResult<>();
+        dlqService.reprocessDlqMessage(id)
+            .map(success -> {
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", success);
+                response.put("messageId", id);
+                return (ResponseEntity<Map<String, Object>>) ResponseEntity.ok(response);
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
     
     /**
      * Delete a DLQ message.
      */
     @DeleteMapping("/messages/{id}")
-    public Future<ResponseEntity<Map<String, Object>>> deleteMessage(@PathVariable Long id) {
-        return dlqService.deleteDlqMessage(id).map(success -> {
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", success);
-            response.put("messageId", id);
-            return ResponseEntity.ok(response);
-        });
+    public DeferredResult<ResponseEntity<Map<String, Object>>> deleteMessage(@PathVariable Long id) {
+        DeferredResult<ResponseEntity<Map<String, Object>>> result = new DeferredResult<>();
+        dlqService.deleteDlqMessage(id)
+            .map(success -> {
+                Map<String, Object> response = new HashMap<>();
+                response.put("success", success);
+                response.put("messageId", id);
+                return (ResponseEntity<Map<String, Object>>) ResponseEntity.ok(response);
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
     
     /**
      * Get DLQ statistics.
      */
     @GetMapping("/stats")
-    public Future<ResponseEntity<Map<String, Object>>> getDlqStats() {
-        return dlqService.getDlqStats().map(ResponseEntity::ok);
+    public DeferredResult<ResponseEntity<Map<String, Object>>> getDlqStats() {
+        DeferredResult<ResponseEntity<Map<String, Object>>> result = new DeferredResult<>();
+        dlqService.getDlqStats()
+            .map(stats -> (ResponseEntity<Map<String, Object>>) ResponseEntity.ok(stats))
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
     
     /**

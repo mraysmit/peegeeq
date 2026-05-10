@@ -150,5 +150,10 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     public QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
         return delegate.getQueueFactoryProviderForSetup(setupId);
     }
+
+    @Override
+    public Future<Void> close() {
+        return delegate.close();
+    }
 }
 

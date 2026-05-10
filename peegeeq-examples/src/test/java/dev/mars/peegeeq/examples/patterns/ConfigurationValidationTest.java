@@ -24,8 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,62 +63,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class ConfigurationValidationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(ConfigurationValidationTest.class);
 
-    private final Map<String, String> originalProperties = new HashMap<>();
-
     @BeforeEach
     void setUp() {
         logger.info("=== Setting up Configuration Validation Test ===");
-        saveOriginalProperties();
-    }
-
-    @AfterEach
-    void tearDown() {
-        logger.info("=== Tearing down Configuration Validation Test ===");
-        restoreOriginalProperties();
-    }
-
-    private void saveOriginalProperties() {
-        String[] propertiesToSave = {
-            "peegeeq.profile",
-            "peegeeq.database.host",
-            "peegeeq.database.port",
-            "peegeeq.database.name",
-            "peegeeq.database.username",
-            "peegeeq.database.password",
-            "peegeeq.queue.max-retries",
-            "peegeeq.consumer.threads", 
-            "peegeeq.queue.polling-interval",
-            "peegeeq.queue.batch-size"
-        };
-        
-        for (String property : propertiesToSave) {
-            String value = System.getProperty(property);
-            if (value != null) {
-                originalProperties.put(property, value);
-            }
-        }
-    }
-
-    private void restoreOriginalProperties() {
-        // Clear all test properties
-        System.clearProperty("peegeeq.profile");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.batch-size");
-        
-        // Restore original properties
-        originalProperties.forEach(System::setProperty);
     }
 
     /**
@@ -130,7 +80,6 @@ public class ConfigurationValidationTest {
      * is injected via environment variables.
      */
     @Test
-    @Order(1)
     void testSystemPropertiesOverrideConfigurationFiles() throws Exception {
         logger.info("=== Testing System Properties Override Configuration Files ===");
         
@@ -148,12 +97,13 @@ public class ConfigurationValidationTest {
         int overrideBatchSize = baseBatchSize + 10;
         Duration overridePollingInterval = basePollingInterval.plusSeconds(2);
         
-        System.setProperty("peegeeq.queue.max-retries", String.valueOf(overrideMaxRetries));
-        System.setProperty("peegeeq.queue.batch-size", String.valueOf(overrideBatchSize));
-        System.setProperty("peegeeq.queue.polling-interval", overridePollingInterval.toString());
+        Properties overrideProps = new Properties();
+        overrideProps.setProperty("peegeeq.queue.max-retries", String.valueOf(overrideMaxRetries));
+        overrideProps.setProperty("peegeeq.queue.batch-size", String.valueOf(overrideBatchSize));
+        overrideProps.setProperty("peegeeq.queue.polling-interval", overridePollingInterval.toString());
         
-        // Create new configuration that should pick up system property overrides
-        PeeGeeQConfiguration overriddenConfig = new PeeGeeQConfiguration("test");
+        // Create new configuration with explicit override properties
+        PeeGeeQConfiguration overriddenConfig = new PeeGeeQConfiguration("test", overrideProps);
         
         // BUSINESS VALIDATION: System properties must override file values
         assertEquals(overrideMaxRetries, overriddenConfig.getQueueConfig().getMaxRetries(),
@@ -180,23 +130,24 @@ public class ConfigurationValidationTest {
      * which is critical for connecting to different databases in dev/staging/production.
      */
     @Test
-    @Order(2)
     void testDatabaseConnectionPropertyOverrides() {
         logger.info("=== Testing Database Connection Property Overrides ===");
         
         // Set database connection properties (simulating Kubernetes ConfigMap/Secret injection)
-        System.setProperty("peegeeq.database.host", "prod-postgres.company.com");
-        System.setProperty("peegeeq.database.port", "5432");
-        System.setProperty("peegeeq.database.name", "peegeeq_production");
-        System.setProperty("peegeeq.database.username", "peegeeq_prod_user");
-        System.setProperty("peegeeq.database.password", "secure_prod_password");
+        Properties dbProps = new Properties();
+        dbProps.setProperty("peegeeq.database.host", "prod-postgres.company.com");
+        dbProps.setProperty("peegeeq.database.port", "5432");
+        dbProps.setProperty("peegeeq.database.name", "peegeeq_production");
+        dbProps.setProperty("peegeeq.database.username", "peegeeq_prod_user");
+        dbProps.setProperty("peegeeq.database.password", "secure_prod_password");
+        new PeeGeeQConfiguration("test", dbProps);
         
         // BUSINESS VALIDATION: Properties must be readable for database connection
-        assertEquals("prod-postgres.company.com", System.getProperty("peegeeq.database.host"),
+        assertEquals("prod-postgres.company.com", dbProps.getProperty("peegeeq.database.host"),
             "Database host must be configurable for multi-environment deployment");
-        assertEquals("5432", System.getProperty("peegeeq.database.port"),
+        assertEquals("5432", dbProps.getProperty("peegeeq.database.port"),
             "Database port must be configurable for different infrastructure setups");
-        assertEquals("peegeeq_production", System.getProperty("peegeeq.database.name"),
+        assertEquals("peegeeq_production", dbProps.getProperty("peegeeq.database.name"),
             "Database name must be configurable for environment isolation");
         
         logger.info("Database connection properties successfully configured for production environment");
@@ -210,18 +161,17 @@ public class ConfigurationValidationTest {
      * for development, staging, and production environments.
      */
     @Test
-    @Order(3)
     void testProfileBasedConfiguration() {
         logger.info("=== Testing Profile-Based Configuration ===");
         
         // Test explicit profile setting (production deployment scenario)
-        System.setProperty("peegeeq.profile", "production");
-        assertEquals("production", System.getProperty("peegeeq.profile"),
+        PeeGeeQConfiguration prodConfig = new PeeGeeQConfiguration("production");
+        assertEquals("production", prodConfig.getProfile(),
             "Profile must be settable for environment-specific configuration");
         
         // Test default profile behavior (development scenario)
-        System.clearProperty("peegeeq.profile");
-        String defaultProfile = System.getProperty("peegeeq.profile", "development");
+        PeeGeeQConfiguration devConfig = new PeeGeeQConfiguration("development");
+        String defaultProfile = devConfig.getProfile();
         assertTrue(defaultProfile.equals("development") || defaultProfile.equals("test"),
             "Default profile must be appropriate for development environment");
         
@@ -236,7 +186,6 @@ public class ConfigurationValidationTest {
      * which is important for documentation, automation, and developer experience.
      */
     @Test
-    @Order(4)
     void testConfigurationPropertyNamingConventions() {
         logger.info("=== Testing Configuration Property Naming Conventions ===");
         
@@ -271,13 +220,8 @@ public class ConfigurationValidationTest {
      * ensuring the configuration system works end-to-end in the application.
      */
     @Test
-    @Order(5)
     void testConfigurationFactoryIntegration() throws Exception {
         logger.info("=== Testing Configuration Factory Integration ===");
-        
-        // Set configuration properties
-        System.setProperty("peegeeq.queue.max-retries", "10");
-        System.setProperty("peegeeq.queue.batch-size", "25");
         
         // Test that factory provider can be created (configuration integration test)
         assertDoesNotThrow(() -> {

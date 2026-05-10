@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.rest.examples;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -58,7 +60,7 @@ public class ModernVertxCompositionExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_composition_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -119,9 +121,10 @@ public class ModernVertxCompositionExampleTest {
                 logger.info("Step 1: Simulating operation that will fail...");
                 return Future.<String>failedFuture("Simulated failure for testing");
             })
-            .recover(throwable -> {
-                logger.info("Recovered from failure: {}", throwable.getMessage());
-                assertEquals("Simulated failure for testing", throwable.getMessage());
+            .transform(ar -> {
+                assertTrue(ar.failed(), "Expected simulated failure");
+                logger.info("Recovered from failure: {}", ar.cause().getMessage());
+                assertEquals("Simulated failure for testing", ar.cause().getMessage());
                 return Future.succeededFuture("Recovered successfully");
             })
             .compose(result -> {
@@ -192,9 +195,11 @@ public class ModernVertxCompositionExampleTest {
                 logger.info("Step 5: Performing simulated health checks...");
                 return performSimulatedHealthChecks();
             })
-            .recover(throwable -> {
-                logger.warn("⚠️ Some simulated startup steps failed, continuing with degraded functionality: {}", 
-                           throwable.getMessage());
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("⚠️ Some simulated startup steps failed, continuing with degraded functionality: {}", 
+                               ar.cause().getMessage());
+                }
                 // Graceful degradation - continue even if some steps fail
                 return Future.succeededFuture();
             })
@@ -226,9 +231,12 @@ public class ModernVertxCompositionExampleTest {
                 logger.info("Simulated database setup created with config: {}", setupRequest.encodePrettily());
                 return Future.<Void>succeededFuture();
             })
-            .recover(throwable -> {
-                logger.warn("⚠️ Simulated database setup failed, using fallback configuration: {}", throwable.getMessage());
-                return performSimulatedFallbackDatabaseSetup();
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("⚠️ Simulated database setup failed, using fallback configuration: {}", ar.cause().getMessage());
+                    return performSimulatedFallbackDatabaseSetup();
+                }
+                return Future.succeededFuture();
             });
     }
     
@@ -248,8 +256,10 @@ public class ModernVertxCompositionExampleTest {
                 logger.info("Simulated service instances retrieved: 3");
                 return Future.<Void>succeededFuture();
             })
-            .recover(throwable -> {
-                logger.warn("⚠️ Some simulated service interactions failed: {}", throwable.getMessage());
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("⚠️ Some simulated service interactions failed: {}", ar.cause().getMessage());
+                }
                 return Future.<Void>succeededFuture(); // Continue despite failures
             });
     }

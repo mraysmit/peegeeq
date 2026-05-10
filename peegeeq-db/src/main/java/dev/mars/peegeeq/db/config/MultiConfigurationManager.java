@@ -169,10 +169,9 @@ public class MultiConfigurationManager {
                 logger.info("MultiConfigurationManager started successfully");
                 return Future.<Void>succeededFuture();
             })
-            .recover(e -> {
+            .onFailure(e -> {
                 state.set(State.STOPPED);
                 logger.error("MultiConfigurationManager failed to start, reverting to STOPPED", e);
-                return Future.failedFuture(e);
             });
     }
     
@@ -314,7 +313,7 @@ public class MultiConfigurationManager {
     public Future<Void> close() {
         State previous = state.getAndSet(State.CLOSING);
         if (previous == State.STOPPED || previous == State.CLOSING) {
-            logger.info("MultiConfigurationManager is already {} — skipping close", previous);
+            logger.info("MultiConfigurationManager is already {} skipping close", previous);
             closeOwnedMeterRegistry();
             return Future.succeededFuture();
         }
@@ -329,11 +328,9 @@ public class MultiConfigurationManager {
         }
 
         return Future.join(futures)
-            .compose(v -> Future.<Void>succeededFuture())
-            .recover(e -> {
-                logger.warn("Some configurations failed to close cleanly: {}", e.getMessage());
-                return Future.<Void>succeededFuture();
-            })
+            .onFailure(e ->
+                logger.warn("Some configurations failed to close cleanly: {}", e.getMessage()))
+            .transform(ar -> Future.<Void>succeededFuture())
             .eventually(() -> {
                 configurations.clear();
                 managers.clear();

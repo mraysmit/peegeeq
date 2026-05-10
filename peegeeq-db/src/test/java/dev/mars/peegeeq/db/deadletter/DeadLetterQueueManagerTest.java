@@ -34,8 +34,11 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +66,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 class DeadLetterQueueManagerTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManagerTest.class);
+
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private DeadLetterQueueManager dlqManager;
@@ -85,7 +90,10 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
@@ -101,10 +109,9 @@ class DeadLetterQueueManagerTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future<Void> cleanup = (reactivePool != null)
-            ? cleanupTestData().recover(e -> {
-                System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
-                return Future.succeededFuture();
-            })
+            ? cleanupTestData().onFailure(e -> {
+                logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
+            }).transform(ar -> Future.<Void>succeededFuture())
             : Future.succeededFuture();
 
         cleanup.compose(v -> {
@@ -120,8 +127,7 @@ class DeadLetterQueueManagerTest {
     private Future<Void> cleanupTestData() {
         return reactivePool.withTransaction(connection ->
             connection.query("DELETE FROM dead_letter_queue").execute()
-                .compose(result -> connection.query("DELETE FROM outbox").execute())
-                .compose(result -> connection.query("DELETE FROM queue_messages").execute())
+                .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic LIKE 'test-topic%'").execute())
         ).mapEmpty();
     }
 
@@ -130,12 +136,11 @@ class DeadLetterQueueManagerTest {
         assertNotNull(dlqManager);
 
         getStatistics()
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertTrue(stats.isEmpty());
                 assertEquals(0, stats.getTotalMessages());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -154,14 +159,13 @@ class DeadLetterQueueManagerTest {
         moveToDeadLetterQueue("outbox", 123L, "test-topic", "{\"message\": \"test payload\"}",
                 createdAt, "Test failure reason", 3, headers, "correlation-123", "test-group")
             .compose(v -> getStatistics())
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertEquals(1, stats.getTotalMessages());
                 assertEquals(1, stats.getUniqueTopics());
                 assertEquals(1, stats.getUniqueTables());
                 assertEquals(3.0, stats.getAverageRetryCount());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -177,12 +181,11 @@ class DeadLetterQueueManagerTest {
                 }
                 return getDeadLetterMessages("topic2", 10, 0);
             })
-            .onSuccess(topic2Messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(topic2Messages -> testContext.verify(() -> {
                 assertEquals(1, topic2Messages.size());
                 assertEquals("topic2", topic2Messages.get(0).getTopic());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -199,11 +202,10 @@ class DeadLetterQueueManagerTest {
                 assertEquals(2, firstPage.size());
                 return getAllDeadLetterMessages(2, 2);
             })
-            .onSuccess(secondPage -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(secondPage -> testContext.verify(() -> {
                 assertEquals(1, secondPage.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -215,7 +217,7 @@ class DeadLetterQueueManagerTest {
                 long messageId = messages.get(0).getId();
                 return getDeadLetterMessage(messageId);
             })
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertTrue(retrieved.isPresent());
                 DeadLetterMessage message = retrieved.get();
                 assertEquals("test-topic", message.getTopic());
@@ -224,18 +226,16 @@ class DeadLetterQueueManagerTest {
                 assertEquals("Test failure reason", message.getFailureReason());
                 assertEquals(3, message.getRetryCount());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testGetNonExistentDeadLetterMessage(VertxTestContext testContext) {
         getDeadLetterMessage(99999L)
-            .onSuccess(nonExistent -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(nonExistent -> testContext.verify(() -> {
                 assertFalse(nonExistent.isPresent());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -255,21 +255,19 @@ class DeadLetterQueueManagerTest {
                         return verifyMessageInOriginalTable("outbox", "test-topic");
                     });
             })
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertTrue(count > 0, "Message should exist in original table");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testReprocessNonExistentMessage(VertxTestContext testContext) {
         reprocessDeadLetterMessage(99999L, "Non-existent message")
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertFalse(result);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -289,21 +287,19 @@ class DeadLetterQueueManagerTest {
                         return getStatistics();
                     });
             })
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertEquals(0, stats.getTotalMessages());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testDeleteNonExistentMessage(VertxTestContext testContext) {
         deleteDeadLetterMessage(99999L, "Non-existent message")
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertFalse(result);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -318,7 +314,7 @@ class DeadLetterQueueManagerTest {
                 headers, "corr-4", "group-4"
             ))
             .compose(v -> getStatistics())
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertNotNull(stats, "Statistics should not be null");
                 assertEquals(4, stats.getTotalMessages());
                 assertEquals(3, stats.getUniqueTopics());
@@ -328,8 +324,7 @@ class DeadLetterQueueManagerTest {
                 assertNotNull(stats.getNewestFailure());
                 assertFalse(stats.isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -350,11 +345,10 @@ class DeadLetterQueueManagerTest {
                 assertEquals(2, (int) deletedCount);
                 return getStatistics();
             })
-            .onSuccess(afterCleanup -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(afterCleanup -> testContext.verify(() -> {
                 assertEquals(0, afterCleanup.getTotalMessages());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -365,11 +359,10 @@ class DeadLetterQueueManagerTest {
                 assertEquals(0, (int) deletedCount);
                 return getStatistics();
             })
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertEquals(1, stats.getTotalMessages());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -457,13 +450,12 @@ class DeadLetterQueueManagerTest {
 
         Future.all(futures)
             .compose(cf -> getStatistics())
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertNotNull(stats, "Statistics should not be null");
                 assertEquals(expectedMessages, stats.getTotalMessages());
                 assertEquals(topicCount, stats.getUniqueTopics());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private Future<Void> addTestDeadLetterMessage(String topic, String originalTable, long originalId) {
@@ -553,7 +545,10 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
@@ -576,7 +571,7 @@ class DeadLetterQueueManagerTest {
         reactiveDlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload,
                 originalCreatedAt, failureReason, retryCount, headers, correlationId, messageGroup)
             .compose(v -> getDeadLetterMessages(topic, 10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertFalse(messages.isEmpty());
                 DeadLetterMessage message = messages.get(0);
                 assertEquals(originalTable, message.getOriginalTable());
@@ -587,7 +582,6 @@ class DeadLetterQueueManagerTest {
                 assertEquals(correlationId, message.getCorrelationId());
                 assertEquals(messageGroup, message.getMessageGroup());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

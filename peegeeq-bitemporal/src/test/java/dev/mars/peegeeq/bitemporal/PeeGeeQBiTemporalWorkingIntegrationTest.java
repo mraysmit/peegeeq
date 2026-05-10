@@ -32,6 +32,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -100,14 +101,12 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         this.vertx = vertx;
         logger.info("Setting up working integration test...");
         
-        // Set system properties for PeeGeeQ configuration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.metrics.enabled", "true");
+        // Set configuration properties for PeeGeeQ
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.metrics.enabled", "true")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
@@ -115,7 +114,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         logger.info("ALL database tables created successfully");
 
         // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -173,15 +172,6 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         
         closeFuture
             .onSuccess(v -> {
-                // Clean up system properties
-                System.clearProperty("peegeeq.database.host");
-                System.clearProperty("peegeeq.database.port");
-                System.clearProperty("peegeeq.database.name");
-                System.clearProperty("peegeeq.database.username");
-                System.clearProperty("peegeeq.database.password");
-                System.clearProperty("peegeeq.migration.enabled");
-                System.clearProperty("peegeeq.metrics.enabled");
-                
                 logger.info("Working integration test teardown completed");
                 testContext.completeNow();
             })
@@ -204,7 +194,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             "test-type", "producer-consumer"
         );
         
-        // Subscribe to messages — assertions and completion happen here
+        // Subscribe to messages assertions and completion happen here
         consumer.subscribe(message -> {
             testContext.verify(() -> {
                 logger.info("Received PeeGeeQ message: {}", message.getPayload().getOrderId());

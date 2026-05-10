@@ -26,19 +26,28 @@ public class VertxTraceIdConverter extends ClassicConverter {
         }
 
         // 2. Try Vert.x Context (if we are on a Vert.x thread)
-        // Accessing static Vertx.currentContext() is safe here as logback
-        // appenders run in the same thread that logged the event.
-        Context ctx = Vertx.currentContext();
-        if (ctx != null) {
-            // Check for robust TraceCtx object
-            Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
-            if (traceObj instanceof TraceCtx) {
-                 return ((TraceCtx) traceObj).traceId();
-            }
-            // Fallback: Check if it's stored as a plain string under "traceId"
-            Object simpleTrace = ctx.get("traceId");
-            if (simpleTrace != null) {
-                return simpleTrace.toString();
+        // Accessing static Vertx.currentContext() can trigger Vert.x static initialization.
+        // If triggered from a concurrent non-Vertx thread (like ForkJoinPool during tests)
+        // while the logging framework is initializing, it can cause ExceptionInInitializerError.
+        // Therefore, we only query Vertx context if we are on a Vertx thread.
+        Thread currentThread = Thread.currentThread();
+        if (currentThread.getName().startsWith("vert.x-")) {
+            try {
+                Context ctx = Vertx.currentContext();
+                if (ctx != null) {
+                    // Check for robust TraceCtx object
+                    Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
+                    if (traceObj instanceof TraceCtx) {
+                         return ((TraceCtx) traceObj).traceId();
+                    }
+                    // Fallback: Check if it's stored as a plain string under "traceId"
+                    Object simpleTrace = ctx.get("traceId");
+                    if (simpleTrace != null) {
+                        return simpleTrace.toString();
+                    }
+                }
+            } catch (Throwable t) {
+                // Ignore Vertx initialization errors safely
             }
         }
         

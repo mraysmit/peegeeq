@@ -82,7 +82,7 @@ public class PeeGeeQDlqConfig {
             new SimpleMeterRegistry()
         );
         
-        manager.start();
+        manager.start().await();
         log.info("PeeGeeQ Manager started successfully with max retries: {}", properties.getMaxRetries());
         
         return manager;

@@ -19,53 +19,30 @@ package dev.mars.peegeeq.db.resilience;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Vertx;
-import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import io.vertx.junit5.Checkpoint;
-import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Comprehensive tests for CircuitBreakerManager.
+ * Tests for CircuitBreakerManager.
  *
- * This class is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
+ * CircuitBreakerManager is a pure registry and factory. Tests verify creation,
+ * caching, state inspection, forceOpen, and reset using the CircuitBreaker
+ * directly the same pattern used by production callers (see HealthCheckManager).
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
-@ExtendWith(VertxExtension.class)
 class CircuitBreakerManagerTest {
-
-    /**
-     * Custom exception for intentional test failures that doesn't generate stack traces.
-     * This makes test logs cleaner by avoiding confusing stack traces for expected failures.
-     */
-    private static class IntentionalTestFailureException extends RuntimeException {
-        public IntentionalTestFailureException(String message) {
-            super(message);
-        }
-
-        @Override
-        public synchronized Throwable fillInStackTrace() {
-            // Don't fill in stack trace for intentional test failures
-            return this;
-        }
-    }
 
     private CircuitBreakerManager circuitBreakerManager;
     private PeeGeeQConfiguration.CircuitBreakerConfig config;
@@ -73,15 +50,18 @@ class CircuitBreakerManagerTest {
     @BeforeEach
     void setUp() {
         config = new PeeGeeQConfiguration.CircuitBreakerConfig(
-            true,           // enabled
-            3,              // failureThreshold
-            Duration.ofSeconds(1), // waitDuration
-            10,             // ringBufferSize
-            50.0            // failureRateThreshold
+            true,
+            3,
+            Duration.ofSeconds(1),
+            10,
+            50.0
         );
-        
         circuitBreakerManager = new CircuitBreakerManager(config, new SimpleMeterRegistry());
     }
+
+    // -------------------------------------------------------------------------
+    // Kept tests these covered the API that survives unchanged
+    // -------------------------------------------------------------------------
 
     @Test
     void testCircuitBreakerManagerInitialization() {
@@ -90,229 +70,10 @@ class CircuitBreakerManagerTest {
     }
 
     @Test
-    void testDisabledCircuitBreaker() {
-        PeeGeeQConfiguration.CircuitBreakerConfig disabledConfig = 
-            new PeeGeeQConfiguration.CircuitBreakerConfig(false, 3, Duration.ofSeconds(1), 10, 50.0);
-        
-        CircuitBreakerManager disabledManager = new CircuitBreakerManager(disabledConfig, null);
-        
-        // Should execute without circuit breaker protection
-        String result = disabledManager.executeSupplier("test", () -> "success");
-        assertEquals("success", result);
-        
-        // Should not create any circuit breakers
-        assertTrue(disabledManager.getCircuitBreakerNames().isEmpty());
-    }
-
-    @Test
-    void testSuccessfulExecution() {
-        String result = circuitBreakerManager.executeSupplier("test-operation", () -> "success");
-        assertEquals("success", result);
-        
-        // Verify circuit breaker was created
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("test-operation"));
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            circuitBreakerManager.getMetrics("test-operation");
-        assertEquals("CLOSED", metrics.getState());
-        assertEquals(1, metrics.getSuccessfulCalls());
-        assertEquals(0, metrics.getFailedCalls());
-    }
-
-    /**
-     * Tests circuit breaker behavior when an operation intentionally fails.
-     * This test verifies that the circuit breaker properly tracks and reports
-     * failed operations without opening the circuit on a single failure.
-     *
-     * INTENTIONAL FAILURE TEST: This test deliberately throws an exception
-     * to verify that single failures are properly tracked by the circuit breaker.
-     */
-    @Test
-    void testFailedExecution() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately throws an exception to test circuit breaker failure tracking");
-
-        assertThrows(IntentionalTestFailureException.class, () -> {
-            System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Throwing exception to test circuit breaker");
-            circuitBreakerManager.executeSupplier("test-operation", () -> {
-                throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Test failure");
-            });
-        });
-
-        CircuitBreakerManager.CircuitBreakerMetrics metrics =
-            circuitBreakerManager.getMetrics("test-operation");
-        assertEquals("CLOSED", metrics.getState());
-        assertEquals(0, metrics.getSuccessfulCalls());
-        assertEquals(1, metrics.getFailedCalls());
-
-        System.out.println("**SUCCESS** Circuit breaker properly tracked the intentional failure");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
-    }
-
-    /**
-     * Tests circuit breaker opening behavior when multiple operations intentionally fail.
-     * This test verifies that the circuit breaker opens after reaching the failure threshold,
-     * protecting the system from cascading failures.
-     *
-     * INTENTIONAL FAILURE TEST: This test deliberately executes multiple failing operations
-     * to trigger the circuit breaker opening mechanism.
-     */
-    @Test
-    void testCircuitBreakerOpening() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER OPENING TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately executes multiple failures to open the circuit breaker");
-
-        String operationName = "failing-operation";
-
-        // Execute enough failures to open the circuit breaker
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Executing multiple failures to trigger circuit breaker opening");
-        for (int i = 0; i < 5; i++) {
-            final int failureIndex = i;
-            try {
-                circuitBreakerManager.executeSupplier(operationName, () -> {
-                    System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Simulated failure #" + failureIndex);
-                    throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Failure " + failureIndex);
-                });
-            } catch (RuntimeException e) {
-                // Expected
-            }
-        }
-
-        CircuitBreakerManager.CircuitBreakerMetrics metrics =
-            circuitBreakerManager.getMetrics(operationName);
-
-        // Circuit breaker should be open after enough failures
-        assertTrue(metrics.getState().equals("OPEN") || metrics.getFailedCalls() >= config.getFailureThreshold());
-
-        System.out.println("**SUCCESS** Circuit breaker properly opened after multiple failures");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
-    }
-
-    @Test
-    void testCircuitBreakerCallNotPermitted() {
-        String operationName = "blocked-operation";
-        
-        // Force circuit breaker to open
-        circuitBreakerManager.forceOpen(operationName);
-        
-        // Subsequent calls should be blocked
-        assertThrows(CallNotPermittedException.class, () -> {
-            circuitBreakerManager.executeSupplier(operationName, () -> "should not execute");
-        });
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            circuitBreakerManager.getMetrics(operationName);
-        assertEquals("OPEN", metrics.getState());
-        assertTrue(metrics.getNotPermittedCalls() > 0);
-    }
-
-    @Test
-    void testCircuitBreakerReset() {
-        String operationName = "reset-operation";
-        
-        // Cause some failures
-        for (int i = 0; i < 3; i++) {
-            try {
-                circuitBreakerManager.executeSupplier(operationName, () -> {
-                    throw new RuntimeException("Failure");
-                });
-            } catch (RuntimeException e) {
-                // Expected
-            }
-        }
-        
-        // Reset the circuit breaker
-        circuitBreakerManager.reset(operationName);
-        
-        // Should be able to execute successfully
-        String result = circuitBreakerManager.executeSupplier(operationName, () -> "success after reset");
-        assertEquals("success after reset", result);
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            circuitBreakerManager.getMetrics(operationName);
-        assertEquals("CLOSED", metrics.getState());
-    }
-
-    @Test
-    void testDatabaseOperationCircuitBreaker() {
-        String result = circuitBreakerManager.executeDatabaseOperation("select", () -> "query result");
-        assertEquals("query result", result);
-        
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("database-select"));
-    }
-
-    @Test
-    void testQueueOperationCircuitBreaker() {
-        String result = circuitBreakerManager.executeQueueOperation("outbox", "send", () -> "message sent");
-        assertEquals("message sent", result);
-        
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("outbox-send"));
-    }
-
-    @Test
-    void testRunnableExecution() {
-        AtomicInteger counter = new AtomicInteger(0);
-        
-        circuitBreakerManager.executeRunnable("test-runnable", counter::incrementAndGet);
-        
-        assertEquals(1, counter.get());
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("test-runnable"));
-    }
-
-    @Test
-    void testConcurrentCircuitBreakerAccess(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
-        // Test basic concurrent access with a simpler approach
-        int threadCount = 3;
-        int operationsPerThread = 5;
-        Checkpoint finishLatch = testContext.checkpoint(threadCount);
-        AtomicInteger successCount = new AtomicInteger(0);
-
-        // Create threads that each perform multiple operations
-        for (int i = 0; i < threadCount; i++) {
-            final int threadId = i;
-            new Thread(() -> {
-                try {
-                    // Each thread performs multiple operations sequentially
-                    for (int j = 0; j < operationsPerThread; j++) {
-                        final int operationId = j;
-                        String result = circuitBreakerManager.executeSupplier("concurrent-operation",
-                            () -> "success-" + threadId + "-" + operationId);
-                        if (result.startsWith("success")) {
-                            successCount.incrementAndGet();
-                        }
-                        // Small delay to ensure operations are distinct
-                        vertx.timer(1).toCompletionStage().toCompletableFuture().join();
-                    }
-                } catch (Exception e) {
-                    // Log any unexpected exceptions
-                    System.err.println("Thread " + threadId + " failed: " + e.getMessage());
-                } finally {
-                    finishLatch.flag();
-                }
-            }, "ConcurrentTest-" + i).start();
-        }
-
-        // Wait for all threads to complete
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Test timed out");
-
-        // Verify basic concurrent functionality
-        assertTrue(successCount.get() >= threadCount,
-            "Should have at least " + threadCount + " successes, got " + successCount.get());
-
-        // Verify circuit breaker was created and is working
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("concurrent-operation"));
-
-        CircuitBreakerManager.CircuitBreakerMetrics metrics =
-            circuitBreakerManager.getMetrics("concurrent-operation");
-        assertEquals("CLOSED", metrics.getState());
-        assertTrue(metrics.getSuccessfulCalls() >= threadCount);
-    }
-
-    @Test
     void testCircuitBreakerMetricsForNonExistentBreaker() {
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
+        CircuitBreakerManager.CircuitBreakerMetrics metrics =
             circuitBreakerManager.getMetrics("non-existent");
-        
+
         assertNotNull(metrics);
         assertTrue(metrics.isEnabled());
         assertEquals("UNKNOWN", metrics.getState());
@@ -322,136 +83,102 @@ class CircuitBreakerManagerTest {
 
     @Test
     void testDisabledCircuitBreakerMetrics() {
-        PeeGeeQConfiguration.CircuitBreakerConfig disabledConfig = 
+        PeeGeeQConfiguration.CircuitBreakerConfig disabledConfig =
             new PeeGeeQConfiguration.CircuitBreakerConfig(false, 3, Duration.ofSeconds(1), 10, 50.0);
-        
+
         CircuitBreakerManager disabledManager = new CircuitBreakerManager(disabledConfig, null);
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
+
+        CircuitBreakerManager.CircuitBreakerMetrics metrics =
             disabledManager.getMetrics("any-operation");
-        
+
         assertNotNull(metrics);
         assertFalse(metrics.isEnabled());
         assertEquals("DISABLED", metrics.getState());
     }
 
+    // -------------------------------------------------------------------------
+    // New tests verify the factory API using CircuitBreaker directly
+    // -------------------------------------------------------------------------
+
     @Test
-    void testCircuitBreakerConfiguration() {
-        // Test that configuration is properly applied
-        String operationName = "config-test";
-        
-        // Execute operations to build up metrics
-        for (int i = 0; i < 5; i++) {
-            circuitBreakerManager.executeSupplier(operationName, () -> "success");
-        }
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            circuitBreakerManager.getMetrics(operationName);
-        
-        assertEquals(5, metrics.getSuccessfulCalls());
-        assertEquals(0, metrics.getFailedCalls());
-        assertEquals(0.0f, metrics.getFailureRate());
+    void testGetCircuitBreaker_createsAndCaches() {
+        CircuitBreaker first = circuitBreakerManager.getCircuitBreaker("cb-cache-test");
+        CircuitBreaker second = circuitBreakerManager.getCircuitBreaker("cb-cache-test");
+
+        assertNotNull(first);
+        assertSame(first, second, "Same instance must be returned on second call");
+        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("cb-cache-test"));
     }
 
     @Test
-    void testCircuitBreakerStateTransitions() throws InterruptedException {
-        String operationName = "state-transition-test";
-        
-        // Start with successful operations (CLOSED state)
-        for (int i = 0; i < 3; i++) {
-            circuitBreakerManager.executeSupplier(operationName, () -> "success");
-        }
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            circuitBreakerManager.getMetrics(operationName);
-        assertEquals("CLOSED", metrics.getState());
-        
-        // Cause failures to open the circuit
-        for (int i = 0; i < 10; i++) {
-            try {
-                circuitBreakerManager.executeSupplier(operationName, () -> {
-                    throw new RuntimeException("Failure");
-                });
-            } catch (RuntimeException e) {
-                // Expected
-            }
-        }
-        
-        metrics = circuitBreakerManager.getMetrics(operationName);
-        // Should be OPEN or have high failure rate
-        assertTrue(metrics.getState().equals("OPEN") || metrics.getFailureRate() > 50.0f);
+    void testGetCircuitBreaker_disabledReturnsNull() {
+        PeeGeeQConfiguration.CircuitBreakerConfig disabledConfig =
+            new PeeGeeQConfiguration.CircuitBreakerConfig(false, 3, Duration.ofSeconds(1), 10, 50.0);
+        CircuitBreakerManager disabledManager = new CircuitBreakerManager(disabledConfig, null);
+
+        assertNull(disabledManager.getCircuitBreaker("any-name"));
+        assertTrue(disabledManager.getCircuitBreakerNames().isEmpty());
     }
 
     @Test
-    void testCircuitBreakerWithNullMeterRegistry() {
-        CircuitBreakerManager managerWithoutMetrics = new CircuitBreakerManager(config, null);
-        
-        // Should still work without metrics registry
-        String result = managerWithoutMetrics.executeSupplier("test", () -> "success");
-        assertEquals("success", result);
+    void testForceOpen_circuitBreakerRefusesPermission() {
+        circuitBreakerManager.forceOpen("forced-open");
+
+        CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker("forced-open");
+        assertFalse(cb.tryAcquirePermission(), "OPEN circuit breaker must refuse permission");
+
+        CircuitBreakerManager.CircuitBreakerMetrics metrics =
+            circuitBreakerManager.getMetrics("forced-open");
+        assertEquals("OPEN", metrics.getState());
     }
 
     @Test
-    void testCircuitBreakerMetricsToString() {
-        String operationName = "metrics-string-test";
-        
-        circuitBreakerManager.executeSupplier(operationName, () -> "success");
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            circuitBreakerManager.getMetrics(operationName);
-        
-        String metricsString = metrics.toString();
-        assertNotNull(metricsString);
-        assertTrue(metricsString.contains("CLOSED"));
-        assertTrue(metricsString.contains("successfulCalls=1"));
-        assertTrue(metricsString.contains("failedCalls=0"));
-        assertTrue(metricsString.contains("enabled=true"));
+    void testReset_returnsCircuitBreakerToClosed() {
+        circuitBreakerManager.forceOpen("reset-test");
+
+        circuitBreakerManager.reset("reset-test");
+
+        CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker("reset-test");
+        assertTrue(cb.tryAcquirePermission(), "CLOSED circuit breaker must grant permission after reset");
+        // Release the acquired permission since we are not executing a real call
+        cb.onSuccess(0, TimeUnit.NANOSECONDS);
+
+        assertEquals("CLOSED", circuitBreakerManager.getMetrics("reset-test").getState());
     }
 
     @Test
-    void testCircuitBreakerWithCustomConfiguration() {
-        PeeGeeQConfiguration.CircuitBreakerConfig customConfig = 
-            new PeeGeeQConfiguration.CircuitBreakerConfig(
-                true,
-                2,              // Lower failure threshold
-                Duration.ofMillis(500), // Shorter wait duration
-                5,              // Smaller ring buffer
-                30.0            // Lower failure rate threshold
-            );
-        
-        CircuitBreakerManager customManager = new CircuitBreakerManager(customConfig, new SimpleMeterRegistry());
-        
-        String operationName = "custom-config-test";
-        
-        // Should work with custom configuration
-        String result = customManager.executeSupplier(operationName, () -> "success");
-        assertEquals("success", result);
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics = 
-            customManager.getMetrics(operationName);
-        assertEquals("CLOSED", metrics.getState());
+    void testMetrics_recordedViaDirectCircuitBreakerCalls() {
+        CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker("metrics-test");
+
+        // Bracket pattern required by Resilience4j for metrics to be recorded:
+        // tryAcquirePermission() → execute → onSuccess() / onError()
+        cb.tryAcquirePermission();
+        cb.onSuccess(1, TimeUnit.NANOSECONDS);
+
+        cb.tryAcquirePermission();
+        cb.onSuccess(1, TimeUnit.NANOSECONDS);
+
+        cb.tryAcquirePermission();
+        cb.onError(1, TimeUnit.NANOSECONDS, new RuntimeException("simulated"));
+
+        CircuitBreakerManager.CircuitBreakerMetrics metrics =
+            circuitBreakerManager.getMetrics("metrics-test");
+
+        assertEquals(2, metrics.getSuccessfulCalls());
+        assertEquals(1, metrics.getFailedCalls());
     }
 
     @Test
-    void testMultipleCircuitBreakers() {
-        // Test that multiple circuit breakers can be managed independently
-        String op1 = "operation-1";
-        String op2 = "operation-2";
-        
-        circuitBreakerManager.executeSupplier(op1, () -> "result1");
-        circuitBreakerManager.executeSupplier(op2, () -> "result2");
-        
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains(op1));
-        assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains(op2));
-        assertEquals(2, circuitBreakerManager.getCircuitBreakerNames().size());
-        
-        CircuitBreakerManager.CircuitBreakerMetrics metrics1 = 
-            circuitBreakerManager.getMetrics(op1);
-        CircuitBreakerManager.CircuitBreakerMetrics metrics2 = 
-            circuitBreakerManager.getMetrics(op2);
-        
-        assertEquals(1, metrics1.getSuccessfulCalls());
-        assertEquals(1, metrics2.getSuccessfulCalls());
+    void testMultipleCircuitBreakers_independentState() {
+        circuitBreakerManager.getCircuitBreaker("cb-a");
+        circuitBreakerManager.getCircuitBreaker("cb-b");
+
+        circuitBreakerManager.forceOpen("cb-a");
+
+        assertEquals("OPEN",   circuitBreakerManager.getMetrics("cb-a").getState());
+        assertEquals("CLOSED", circuitBreakerManager.getMetrics("cb-b").getState());
+        assertTrue(circuitBreakerManager.getCircuitBreaker("cb-b").tryAcquirePermission());
+        // Release the acquired permission
+        circuitBreakerManager.getCircuitBreaker("cb-b").onSuccess(0, TimeUnit.NANOSECONDS);
     }
 }
-

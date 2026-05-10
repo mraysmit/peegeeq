@@ -13,5 +13,11 @@
 -- Fork prevention (at most one successor per event) is enforced separately
 -- by idx_bitemporal_no_fork (V014).
 
-CREATE UNIQUE INDEX idx_bitemporal_version_family_unique
-    ON bitemporal_event_log(COALESCE(previous_version_id, event_id), version);
+DO $$
+BEGIN
+    IF to_regclass(current_schema() || '.bitemporal_event_log') IS NOT NULL THEN
+        EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS idx_bitemporal_version_family_unique
+            ON bitemporal_event_log(COALESCE(previous_version_id, event_id), version)';
+    END IF;
+END $$;
+

@@ -88,7 +88,7 @@ public class PeeGeeQRetryConfig {
         
         // Create and start PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration(profile), meterRegistry);
-        manager.start();
+        manager.start().await();
         
         log.info("PeeGeeQ Manager started successfully with max retries: {}", properties.getMaxRetries());
         

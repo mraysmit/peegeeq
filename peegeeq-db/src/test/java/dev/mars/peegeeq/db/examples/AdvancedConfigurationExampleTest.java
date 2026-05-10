@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.parallel.Isolated;
 
-import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,6 +46,7 @@ public class AdvancedConfigurationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(AdvancedConfigurationExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     private static final String DB_URL_KEY = "PEEGEEQ_DB_URL";
     private static final String DB_USERNAME_KEY = "PEEGEEQ_DB_USERNAME";
@@ -58,36 +59,41 @@ public class AdvancedConfigurationExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Set database properties from TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
+        containerProps = new Properties();
+        containerProps.setProperty("peegeeq.database.host", postgres.getHost());
+        containerProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        containerProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        containerProps.setProperty("peegeeq.database.username", postgres.getUsername());
+        containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
+        containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
+        containerProps.setProperty("peegeeq.database.schema", "public");
+        containerProps.setProperty("peegeeq.database.pool.max-size", "3");
+        containerProps.setProperty("peegeeq.database.pool.shared", "false");
+        containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        containerProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        containerProps.setProperty("peegeeq.migration.enabled", "false");
+        containerProps.setProperty("peegeeq.migration.auto-migrate", "false");
 
         logger.info("✓ Advanced Configuration Example Test setup completed");
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down Advanced Configuration Example Test");
 
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     clearTestProperties();
-                    logger.info("✓ Advanced Configuration Example Test teardown completed");
+                    logger.info("\u2713 Advanced Configuration Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             clearTestProperties();
-            logger.info("✓ Advanced Configuration Example Test teardown completed");
+            logger.info("\u2713 Advanced Configuration Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -215,7 +221,7 @@ public class AdvancedConfigurationExampleTest {
      * Validates database connection pool optimization and tuning
      */
     @Test
-    void testDatabaseConnectionPooling(VertxTestContext testContext) throws InterruptedException {
+    void testDatabaseConnectionPooling(VertxTestContext testContext) {
         logger.info("=== Testing Database Connection Pooling ===");
 
         String[] environments = {"development", "staging", "production"};
@@ -225,13 +231,15 @@ public class AdvancedConfigurationExampleTest {
             chain = chain.compose(v -> {
                 logger.info("--- Testing {} Pool Configuration ---", environment.toUpperCase());
 
-                System.setProperty("peegeeq.database.pool.min-size", String.valueOf(getMinPoolSize(environment)));
-                System.setProperty("peegeeq.database.pool.max-size", String.valueOf(getMaxPoolSize(environment)));
-                System.setProperty("peegeeq.database.pool.connection-timeout", String.valueOf(getConnectionTimeout(environment)));
-                System.setProperty("peegeeq.database.pool.idle-timeout", String.valueOf(getIdleTimeout(environment)));
-                System.setProperty("peegeeq.database.pool.max-lifetime", String.valueOf(getMaxLifetime(environment)));
+                Properties envProps = new Properties();
+                containerProps.forEach((k, val) -> envProps.setProperty(k.toString(), val.toString()));
+                envProps.setProperty("peegeeq.database.pool.min-size", String.valueOf(getMinPoolSize(environment)));
+                envProps.setProperty("peegeeq.database.pool.max-size", String.valueOf(getMaxPoolSize(environment)));
+                envProps.setProperty("peegeeq.database.pool.connection-timeout", String.valueOf(getConnectionTimeout(environment)));
+                envProps.setProperty("peegeeq.database.pool.idle-timeout", String.valueOf(getIdleTimeout(environment)));
+                envProps.setProperty("peegeeq.database.pool.max-lifetime", String.valueOf(getMaxLifetime(environment)));
 
-                PeeGeeQConfiguration config = new PeeGeeQConfiguration(environment);
+                PeeGeeQConfiguration config = new PeeGeeQConfiguration(environment, envProps);
                 manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
                 return manager.start()
                     .compose(started -> {
@@ -262,8 +270,6 @@ public class AdvancedConfigurationExampleTest {
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -392,11 +398,6 @@ public class AdvancedConfigurationExampleTest {
         System.clearProperty(DB_USERNAME_KEY);
         System.clearProperty(DB_PASSWORD_KEY);
         System.clearProperty(MONITORING_ENABLED_KEY);
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.database.pool.connection-timeout");
-        System.clearProperty("peegeeq.database.pool.idle-timeout");
-        System.clearProperty("peegeeq.database.pool.max-lifetime");
         System.clearProperty("peegeeq.queue.max-retries");
         System.clearProperty("peegeeq.queue.batch-size");
         System.clearProperty("peegeeq.queue.polling-interval");

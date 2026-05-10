@@ -25,7 +25,9 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -44,12 +46,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -60,7 +59,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * This test validates that the StuckMessageRecoveryManager correctly identifies
  * and recovers messages that are stuck in PROCESSING state due to consumer crashes.
  */
-@Tag(TestCategories.FLAKY)  // Long to OffsetDateTime coercion error - needs investigation
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class StuckMessageRecoveryIntegrationTest {
@@ -71,7 +70,7 @@ public class StuckMessageRecoveryIntegrationTest {
     private static final PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");
@@ -87,6 +86,7 @@ public class StuckMessageRecoveryIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -94,16 +94,10 @@ public class StuckMessageRecoveryIntegrationTest {
         testTopic = "recovery-test-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Set up database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -112,16 +106,14 @@ public class StuckMessageRecoveryIntegrationTest {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         
         // Get reactive pool for verification queries
-        CountDownLatch poolLatch = new CountDownLatch(1);
-        manager.getDatabaseService().getConnectionProvider()
+        reactivePool = manager.getDatabaseService().getConnectionProvider()
             .getReactivePool("peegeeq-main")
-            .onSuccess(pool -> { reactivePool = pool; poolLatch.countDown(); })
-            .onFailure(e -> poolLatch.countDown());
-        assertTrue(poolLatch.await(5, TimeUnit.SECONDS));
+            .await();
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }
@@ -132,17 +124,8 @@ public class StuckMessageRecoveryIntegrationTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
     }
 
 
@@ -157,14 +140,9 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Create a dedicated recovery manager for testing with a very short timeout
         // Get the reactive pool from the manager's database service
-        CountDownLatch poolLatch1 = new CountDownLatch(1);
-        AtomicReference<io.vertx.sqlclient.Pool> poolRef1 = new AtomicReference<>();
-        manager.getDatabaseService().getConnectionProvider()
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
             .getReactivePool("peegeeq-main")
-            .onSuccess(p -> { poolRef1.set(p); poolLatch1.countDown(); })
-            .onFailure(e -> poolLatch1.countDown());
-        assertTrue(poolLatch1.await(5, TimeUnit.SECONDS));
-        io.vertx.sqlclient.Pool pool = poolRef1.get();
+            .await();
         StuckMessageRecoveryManager testRecoveryManager =
             new StuckMessageRecoveryManager(pool, Duration.ofSeconds(2), true);
 
@@ -176,9 +154,7 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("Sent {} test messages", messageCount);
 
         // Wait for messages to be persisted
-        CountDownLatch timerLatch1 = new CountDownLatch(1);
-        vertx.timer(1000).onComplete(ar -> timerLatch1.countDown());
-        timerLatch1.await(3, TimeUnit.SECONDS);
+        vertx.timer(1000).await();
 
         // Verify messages are in PENDING state
         int pendingCount = countMessagesByStatus("PENDING");
@@ -205,28 +181,18 @@ public class StuckMessageRecoveryIntegrationTest {
         assertTrue(processingCount > 0, "Should have messages stuck in PROCESSING state after crash");
 
         // Wait for messages to be considered stuck (longer than the recovery timeout)
-        CountDownLatch timerLatch2 = new CountDownLatch(1);
-        vertx.timer(3000).onComplete(ar -> timerLatch2.countDown());
-        timerLatch2.await(5, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
 
         // Now test the recovery mechanism
         logger.info("Running stuck message recovery...");
-        CountDownLatch recoveryLatch = new CountDownLatch(1);
-        AtomicInteger recoveredRef = new AtomicInteger(0);
-        testRecoveryManager.recoverStuckMessages()
-            .onSuccess(count -> { recoveredRef.set(count); recoveryLatch.countDown(); })
-            .onFailure(e -> recoveryLatch.countDown());
-        assertTrue(recoveryLatch.await(10, TimeUnit.SECONDS));
-        int recoveredCount = recoveredRef.get();
+        int recoveredCount = testRecoveryManager.recoverStuckMessages().await();
 
         // Verify that messages were recovered
         assertTrue(recoveredCount > 0, "Recovery manager should have recovered stuck messages");
         logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Wait for recovery to complete
-        CountDownLatch timerLatch3 = new CountDownLatch(1);
-        vertx.timer(1000).onComplete(ar -> timerLatch3.countDown());
-        timerLatch3.await(3, TimeUnit.SECONDS);
+        vertx.timer(1000).await();
 
         // Verify messages are back in PENDING state
         int pendingAfterRecovery = countMessagesByStatus("PENDING");
@@ -239,13 +205,7 @@ public class StuckMessageRecoveryIntegrationTest {
             "Should have fewer PROCESSING messages after recovery");
 
         // Verify recovery statistics
-        CountDownLatch statsLatch = new CountDownLatch(1);
-        AtomicReference<StuckMessageRecoveryManager.RecoveryStats> statsRef = new AtomicReference<>();
-        testRecoveryManager.getRecoveryStats()
-            .onSuccess(s -> { statsRef.set(s); statsLatch.countDown(); })
-            .onFailure(e -> statsLatch.countDown());
-        assertTrue(statsLatch.await(10, TimeUnit.SECONDS));
-        StuckMessageRecoveryManager.RecoveryStats stats = statsRef.get();
+        StuckMessageRecoveryManager.RecoveryStats stats = testRecoveryManager.getRecoveryStats().await();
         assertTrue(stats.isEnabled(), "Recovery should be enabled");
         logger.info("Recovery stats: {}", stats);
 
@@ -263,14 +223,9 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Create a recovery manager with recovery disabled
         // Get the reactive pool from the manager's database service
-        CountDownLatch poolLatch2 = new CountDownLatch(1);
-        AtomicReference<io.vertx.sqlclient.Pool> poolRef2 = new AtomicReference<>();
-        manager.getDatabaseService().getConnectionProvider()
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
             .getReactivePool("peegeeq-main")
-            .onSuccess(p -> { poolRef2.set(p); poolLatch2.countDown(); })
-            .onFailure(e -> poolLatch2.countDown());
-        assertTrue(poolLatch2.await(5, TimeUnit.SECONDS));
-        io.vertx.sqlclient.Pool pool = poolRef2.get();
+            .await();
         StuckMessageRecoveryManager disabledRecoveryManager =
             new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), false);
 
@@ -282,13 +237,7 @@ public class StuckMessageRecoveryIntegrationTest {
         verifyMessageStatus(stuckMessageId, "PROCESSING");
 
         // Try recovery with disabled manager
-        CountDownLatch recoveryLatch2 = new CountDownLatch(1);
-        AtomicInteger recoveredRef2 = new AtomicInteger(0);
-        disabledRecoveryManager.recoverStuckMessages()
-            .onSuccess(count -> { recoveredRef2.set(count); recoveryLatch2.countDown(); })
-            .onFailure(e -> recoveryLatch2.countDown());
-        assertTrue(recoveryLatch2.await(10, TimeUnit.SECONDS));
-        int recoveredCount = recoveredRef2.get();
+        int recoveredCount = disabledRecoveryManager.recoverStuckMessages().await();
 
         // Should not recover anything
         assertEquals(0, recoveredCount, "Disabled recovery manager should not recover any messages");
@@ -297,13 +246,7 @@ public class StuckMessageRecoveryIntegrationTest {
         verifyMessageStatus(stuckMessageId, "PROCESSING");
 
         // Stats should show disabled
-        CountDownLatch statsLatch2 = new CountDownLatch(1);
-        AtomicReference<StuckMessageRecoveryManager.RecoveryStats> statsRef2 = new AtomicReference<>();
-        disabledRecoveryManager.getRecoveryStats()
-            .onSuccess(s -> { statsRef2.set(s); statsLatch2.countDown(); })
-            .onFailure(e -> statsLatch2.countDown());
-        assertTrue(statsLatch2.await(10, TimeUnit.SECONDS));
-        StuckMessageRecoveryManager.RecoveryStats stats = statsRef2.get();
+        StuckMessageRecoveryManager.RecoveryStats stats = disabledRecoveryManager.getRecoveryStats().await();
         assertFalse(stats.isEnabled(), "Recovery should be disabled");
 
         logger.info("Disabled recovery test completed successfully");
@@ -315,19 +258,14 @@ public class StuckMessageRecoveryIntegrationTest {
      */
     @Test
     void testStuckMessageRecoveryWithThreadCrash(Vertx vertx) throws Exception {
-        System.out.println("TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
+        logger.info("TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
         logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
 
         // Create recovery manager with short timeout for testing
         // Get the reactive pool from the manager's database service
-        CountDownLatch poolLatch3 = new CountDownLatch(1);
-        AtomicReference<io.vertx.sqlclient.Pool> poolRef3 = new AtomicReference<>();
-        manager.getDatabaseService().getConnectionProvider()
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
             .getReactivePool("peegeeq-main")
-            .onSuccess(p -> { poolRef3.set(p); poolLatch3.countDown(); })
-            .onFailure(e -> poolLatch3.countDown());
-        assertTrue(poolLatch3.await(5, TimeUnit.SECONDS));
-        io.vertx.sqlclient.Pool pool = poolRef3.get();
+            .await();
         StuckMessageRecoveryManager testRecoveryManager =
             new StuckMessageRecoveryManager(pool, Duration.ofSeconds(3), true);
 
@@ -342,19 +280,11 @@ public class StuckMessageRecoveryIntegrationTest {
         assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
 
         // Wait for the message to be considered stuck (timeout is 3 seconds)
-        CountDownLatch timerLatch4 = new CountDownLatch(1);
-        vertx.timer(4000).onComplete(ar -> timerLatch4.countDown());
-        timerLatch4.await(6, TimeUnit.SECONDS);
+        vertx.timer(4000).await();
 
         // Test recovery
         logger.info("Running stuck message recovery...");
-        CountDownLatch recoveryLatch3 = new CountDownLatch(1);
-        AtomicInteger recoveredRef3 = new AtomicInteger(0);
-        testRecoveryManager.recoverStuckMessages()
-            .onSuccess(count -> { recoveredRef3.set(count); recoveryLatch3.countDown(); })
-            .onFailure(e -> recoveryLatch3.countDown());
-        assertTrue(recoveryLatch3.await(10, TimeUnit.SECONDS));
-        int recoveredCount = recoveredRef3.get();
+        int recoveredCount = testRecoveryManager.recoverStuckMessages().await();
         logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Verify recovery worked
@@ -392,31 +322,22 @@ public class StuckMessageRecoveryIntegrationTest {
         Instant now = Instant.now();
         Instant stuckTime = now.minus(Duration.ofMinutes(10));
 
-        AtomicLong messageId = new AtomicLong(-1);
-        
-        CountDownLatch insertLatch = new CountDownLatch(1);
-        reactivePool.withConnection(conn -> 
+        long messageId = reactivePool.withConnection(conn -> 
             conn.preparedQuery(insertSql)
-                .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"", 
-                    stuckTime.toEpochMilli(), now.toEpochMilli()))
+                .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"",
+                    stuckTime.atOffset(ZoneOffset.UTC), now.atOffset(ZoneOffset.UTC)))
                 .map(rows -> {
                     if (rows.size() > 0) {
                         long id = rows.iterator().next().getLong("id");
-                        messageId.set(id);
                         logger.info("Successfully inserted message with ID: {}", id);
                         return id;
                     } else {
                         throw new RuntimeException("Failed to insert stuck message - no ID returned");
                     }
                 })
-        ).onComplete(ar -> insertLatch.countDown());
-        assertTrue(insertLatch.await(5, TimeUnit.SECONDS));
-
-        if (messageId.get() == -1) {
-            throw new RuntimeException("Failed to insert stuck message");
-        }
+        ).await();
         
-        return messageId.get();
+        return messageId;
     }
 
     /**
@@ -425,7 +346,6 @@ public class StuckMessageRecoveryIntegrationTest {
     private void verifyMessageStatus(long messageId, String expectedStatus) throws Exception {
         logger.info("Looking for message with ID: {}", messageId);
 
-        CountDownLatch verifyLatch = new CountDownLatch(1);
         reactivePool.withConnection(conn -> {
             // First, let's see all messages in the database
             String allSql = "SELECT id, topic, status, processed_at FROM outbox ORDER BY id";
@@ -456,8 +376,7 @@ public class StuckMessageRecoveryIntegrationTest {
                         "Message " + messageId + " should have status: " + expectedStatus);
                     return null;
                 });
-        }).onComplete(ar -> verifyLatch.countDown());
-        assertTrue(verifyLatch.await(5, TimeUnit.SECONDS));
+        }).await();
     }
 
     /**
@@ -466,24 +385,17 @@ public class StuckMessageRecoveryIntegrationTest {
     private int countMessagesByStatus(String status) throws Exception {
         String sql = "SELECT COUNT(*) as count FROM outbox WHERE topic = $1 AND status = $2";
         
-        AtomicInteger count = new AtomicInteger(0);
-        
-        CountDownLatch countLatch = new CountDownLatch(1);
-        reactivePool.withConnection(conn ->
+        return reactivePool.withConnection(conn ->
             conn.preparedQuery(sql).execute(Tuple.of(testTopic, status))
                 .map(rows -> {
                     if (rows.size() > 0) {
                         int c = rows.iterator().next().getInteger("count");
-                        count.set(c);
                         logger.debug("Found {} messages with status '{}' for topic '{}'", c, status, testTopic);
                         return c;
                     }
                     return 0;
                 })
-        ).onComplete(ar -> countLatch.countDown());
-        assertTrue(countLatch.await(5, TimeUnit.SECONDS));
-        
-        return count.get();
+        ).await();
     }
 
     /**
@@ -492,10 +404,7 @@ public class StuckMessageRecoveryIntegrationTest {
      * @return the number of messages that were forced into PROCESSING state
      */
     private int forceMessagesIntoProcessingState(int maxMessages) throws Exception {
-        AtomicInteger updatedCount = new AtomicInteger(0);
-        
-        CountDownLatch forceLatch = new CountDownLatch(1);
-        reactivePool.withConnection(conn -> {
+        return reactivePool.withConnection(conn -> {
             // First, let's see what messages exist
             String selectSql = "SELECT id, topic, status, payload::text as payload_text FROM outbox WHERE topic = $1";
             return conn.preparedQuery(selectSql).execute(Tuple.of(testTopic))
@@ -523,18 +432,14 @@ public class StuckMessageRecoveryIntegrationTest {
                     logger.info("Executing update for topic: {}, maxMessages: {}", testTopic, maxMessages);
                     
                     return conn.preparedQuery(updateSql)
-                        .execute(Tuple.of(stuckTime.toEpochMilli(), testTopic, maxMessages));
+                        .execute(Tuple.of(stuckTime.atOffset(ZoneOffset.UTC), testTopic, maxMessages));
                 })
                 .map(updateRows -> {
                     int updated = updateRows.rowCount();
-                    updatedCount.set(updated);
                     logger.info("Forced {} messages from PENDING to PROCESSING state", updated);
                     return updated;
                 });
-        }).onComplete(ar -> forceLatch.countDown());
-        assertTrue(forceLatch.await(5, TimeUnit.SECONDS));
-        
-        return updatedCount.get();
+        }).await();
     }
 
 }

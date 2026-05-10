@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -48,7 +49,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -97,22 +98,33 @@ class PeeGeeQExampleTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up PeeGeeQ Example Test ===");
         
         // Display PeeGeeQ logo
-        System.out.println();
-        System.out.println("    ____            ______            ____");
-        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
-        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
-        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
-        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
-        System.out.println();
-        System.out.println("PostgreSQL Event-Driven Queue System");
-        System.out.println("JUnit Test - TestContainers PostgreSQL");
-        System.out.println();
+        logger.info("");
+        logger.info("    ____            ______            ____");
+        logger.info("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        logger.info("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        logger.info(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
+        logger.info("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        logger.info("");
+        logger.info("PostgreSQL Event-Driven Queue System");
+        logger.info("JUnit Test - TestContainers PostgreSQL");
+        logger.info("");
 
         // Configure PeeGeeQ to use the container
-        configureSystemPropertiesForContainer(postgres);
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.pool.min-size", "5")
+                .property("peegeeq.database.pool.max-size", "20")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.migration.auto-migrate", "true")
+                .property("peegeeq.health.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "false")
+                .property("peegeeq.dead-letter.enabled", "true")
+                .build();
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
@@ -123,25 +135,21 @@ class PeeGeeQExampleTest {
         );
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         
         logger.info("PeeGeeQ Example Test setup completed");
     }
 
     @AfterEach
     void tearDown() throws Exception {
-        logger.info("🧹 Cleaning up PeeGeeQ Example Test");
+        logger.info("Tearing down: closing resources and manager");
+        logger.info("Cleaning up PeeGeeQ Example Test");
         
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-        
-        // Clear system properties
-        clearSystemProperties();
-        
+
         logger.info("PeeGeeQ Example Test cleanup completed");
     }
 
@@ -154,7 +162,7 @@ class PeeGeeQExampleTest {
         // Verify configuration is working
         PeeGeeQConfiguration config = manager.getConfiguration();
         assertNotNull(config, "Configuration should not be null");
-        assertEquals("development", config.getProfile(), "Profile should be development");
+        assertEquals("default", config.getProfile(), "Profile should be default");
         
         logger.info("Configuration test completed successfully!");
     }
@@ -239,62 +247,13 @@ class PeeGeeQExampleTest {
         assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "System monitoring should complete");
     }
 
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        logger.info("  Configuring PeeGeeQ to use container database...");
-
-        // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Set additional configuration for comprehensive testing
-        System.setProperty("peegeeq.database.pool.min-size", "5");
-        System.setProperty("peegeeq.database.pool.max-size", "20");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "false"); // Disabled for testing
-        System.setProperty("peegeeq.dead-letter.enabled", "true");
-
-        logger.info("  System properties configured for container database");
-    }
-
-    /**
-     * Clears all system properties set for testing.
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.metrics.enabled");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.migration.auto-migrate");
-        System.clearProperty("peegeeq.health.enabled");
-        System.clearProperty("peegeeq.circuit-breaker.enabled");
-        System.clearProperty("peegeeq.dead-letter.enabled");
-    }
-
     private void demonstrateConfiguration(PeeGeeQManager manager) {
         logger.info("\n === Configuration Demo ===");
 
         PeeGeeQConfiguration config = manager.getConfiguration();
-        logger.info("🏷Profile: {}", config.getProfile());
+        logger.info("Profile: {}", config.getProfile());
 
-        logger.info("📊 Database Configuration:");
+        logger.info("Database Configuration:");
         logger.info("> Host: {}", config.getString("peegeeq.database.host", "localhost"));
         logger.info("> Port: {}", config.getInt("peegeeq.database.port", 5432));
         logger.info("> Database: {}", config.getString("peegeeq.database.name", "peegeeq"));
@@ -302,7 +261,7 @@ class PeeGeeQExampleTest {
         logger.info("> Pool Min Size: {}", config.getInt("peegeeq.database.pool.min-size", 5));
         logger.info("> Pool Max Size: {}", config.getInt("peegeeq.database.pool.max-size", 20));
 
-        logger.info("⚙️ Feature Configuration:");
+        logger.info("Feature Configuration:");
         logger.info("> Metrics Enabled: {}", config.getBoolean("peegeeq.metrics.enabled", true));
         logger.info("> Health Checks Enabled: {}", config.getBoolean("peegeeq.health.enabled", true));
         logger.info("> Circuit Breaker Enabled: {}", config.getCircuitBreakerConfig().isEnabled());
@@ -346,7 +305,7 @@ class PeeGeeQExampleTest {
         }
 
         var summary = metrics.getSummary();
-        logger.info("📊 Metrics Summary:");
+        logger.info("Metrics Summary:");
         logger.info("Messages Sent: {}", summary.getMessagesSent());
         logger.info("Messages Processed: {}", summary.getMessagesProcessed());
         logger.info("Messages Failed: {}", summary.getMessagesFailed());
@@ -359,33 +318,33 @@ class PeeGeeQExampleTest {
         logger.info("=== Circuit Breaker Demo ===");
 
         var circuitBreakerManager = manager.getCircuitBreakerManager();
+        var cb = circuitBreakerManager.getCircuitBreaker("test-operation");
+
+        if (cb == null) {
+            logger.info("Circuit breaker is disabled, skipping demo");
+            return;
+        }
 
         // Simulate successful operations
         logger.info("Simulating successful operations...");
         for (int i = 0; i < 5; i++) {
-            final int operationId = i;
-            String result = circuitBreakerManager.executeSupplier("test-operation", () -> {
-                // Simulate successful operation
-                return "Success " + operationId;
-            });
-            logger.debug("Circuit breaker result: {}", result);
+            if (cb.tryAcquirePermission()) {
+                cb.onSuccess(1, java.util.concurrent.TimeUnit.NANOSECONDS);
+                logger.debug("Circuit breaker: success recorded");
+            }
         }
 
         // Simulate some failures
         logger.info("Simulating failed operations...");
         for (int i = 0; i < 3; i++) {
-            final int operationId = i;
-            try {
-                circuitBreakerManager.executeSupplier("test-operation", () -> {
-                    throw new RuntimeException("Simulated failure " + operationId);
-                });
-            } catch (Exception e) {
-                logger.debug("Expected failure: {}", e.getMessage());
+            if (cb.tryAcquirePermission()) {
+                cb.onError(1, java.util.concurrent.TimeUnit.NANOSECONDS, new RuntimeException("Simulated failure " + i));
+                logger.debug("Circuit breaker: failure recorded");
             }
         }
 
         var metrics = circuitBreakerManager.getMetrics("test-operation");
-        logger.info("🔌 Circuit Breaker Metrics:");
+        logger.info("Circuit Breaker Metrics:");
         logger.info("State: {}", metrics.getState());
         logger.info("Successful Calls: {}", metrics.getSuccessfulCalls());
         logger.info("Failed Calls: {}", metrics.getFailedCalls());
@@ -426,7 +385,7 @@ class PeeGeeQExampleTest {
             // Wait for operations to complete using Vert.x timer
             vertx.setTimer(2000, id -> {
                 var metrics = backpressureManager.getMetrics();
-                logger.info("🚦 Backpressure Metrics:");
+                logger.info("Backpressure Metrics:");
                 logger.info("Max Concurrent Operations: {}", metrics.getMaxConcurrentOperations());
                 logger.info("Available Permits: {}", metrics.getAvailablePermits());
                 logger.info("Active Operations: {}", metrics.getActiveOperations());
@@ -470,7 +429,7 @@ class PeeGeeQExampleTest {
         headers2.put("source", "user-service");
         headers2.put("version", "2.1");
 
-        // Simulate messages that failed processing — fire-and-forget, timer delay ensures completion
+        // Simulate messages that failed processing fire-and-forget, timer delay ensures completion
         dlqManager.moveToDeadLetterQueue("outbox_messages", 1001L, "order-processing",
             Map.of("orderId", "12345", "customerId", "cust-001", "amount", 99.99),
             Instant.now().minus(Duration.ofMinutes(5)), "Payment processing failed", 3,

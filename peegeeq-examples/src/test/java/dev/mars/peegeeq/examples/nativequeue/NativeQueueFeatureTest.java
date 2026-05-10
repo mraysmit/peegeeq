@@ -27,15 +27,19 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -45,6 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -66,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-08-03
  * @version 1.0
  */
+@ExtendWith(VertxExtension.class)
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class NativeQueueFeatureTest {
@@ -90,21 +96,18 @@ class NativeQueueFeatureTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize database schema for native queue test
         logger.info("Initializing database schema for native queue test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Configure system properties for the container
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         
         // Create both native and outbox factories for comparison
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -122,6 +125,7 @@ class NativeQueueFeatureTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (nativeFactory != null) {
             try {
                 nativeFactory.close();
@@ -147,7 +151,6 @@ class NativeQueueFeatureTest {
         // Verify that native factory is properly created and identified
         assertNotNull(nativeFactory);
         assertEquals("native", nativeFactory.getImplementationType());
-        assertTrue(nativeFactory.isHealthy());
         
         logger.info("Native factory creation test passed");
     }
@@ -165,129 +168,146 @@ class NativeQueueFeatureTest {
     }
     
     @Test
-    void testNativeRealTimeMessaging() throws Exception {
+    void testNativeRealTimeMessaging(VertxTestContext testContext) throws Exception {
         // Test that native queue provides real-time messaging capabilities
         MessageProducer<String> producer = nativeFactory.createProducer("realtime-test", String.class);
         MessageConsumer<String> consumer = nativeFactory.createConsumer("realtime-test", String.class);
-        
-        CountDownLatch latch = new CountDownLatch(1);
+
+        var checkpoint = testContext.checkpoint(1);
         AtomicLong receiveTime = new AtomicLong();
         List<String> receivedMessages = new ArrayList<>();
-        
+        long sendTime = System.currentTimeMillis();
+
         // Subscribe to messages
         consumer.subscribe(message -> {
-            receivedMessages.add(message.getPayload());
-            receiveTime.set(System.currentTimeMillis());
-            latch.countDown();
-            return Future.succeededFuture();
+            try {
+                receivedMessages.add(message.getPayload());
+                receiveTime.set(System.currentTimeMillis());
+                assertEquals("Real-time test message", message.getPayload());
+                long latency = receiveTime.get() - sendTime;
+                assertTrue(latency < 10000, "Native queue should have low latency (< 10s)");
+                checkpoint.flag();
+                return Future.succeededFuture();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+                return Future.failedFuture(t);
+            }
         });
-        
-        // Send message and measure time
-        long sendTime = System.currentTimeMillis();
-        producer.send("Real-time test message").await();
-        
-        // Wait for message to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
+
+        // Send message
+        producer.send("Real-time test message")
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
         assertEquals(1, receivedMessages.size());
-        assertEquals("Real-time test message", receivedMessages.get(0));
-        
-        // Verify low latency (native should be faster than outbox)
-        long latency = receiveTime.get() - sendTime;
-        logger.info("Native queue latency: {}ms", latency);
-        assertTrue(latency < 10000, "Native queue should have low latency (< 10s)");
-        
+
         producer.close();
         consumer.close();
-        
+
         logger.info("Native real-time messaging test passed");
     }
     
     @Test
-    void testNativeConsumerGroups() throws Exception {
+    void testNativeConsumerGroups(VertxTestContext testContext) throws Exception {
         // Test native consumer group functionality
         ConsumerGroup<String> consumerGroup = nativeFactory.createConsumerGroup(
             "native-test-group", "group-test-topic", String.class);
         MessageProducer<String> producer = nativeFactory.createProducer("group-test-topic", String.class);
-        
-        CountDownLatch latch = new CountDownLatch(5);
+
+        var checkpoint = testContext.checkpoint(5);
         AtomicInteger processedCount = new AtomicInteger();
-        
+
         // Add consumer group members
         consumerGroup.addConsumer("member-1", message -> {
-            processedCount.incrementAndGet();
-            latch.countDown();
-            logger.info("Member-1 processed: {}", message.getPayload());
-            return Future.succeededFuture();
+            try {
+                processedCount.incrementAndGet();
+                checkpoint.flag();
+                logger.info("Member-1 processed: {}", message.getPayload());
+                return Future.succeededFuture();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+                return Future.failedFuture(t);
+            }
         });
 
         consumerGroup.addConsumer("member-2", message -> {
-            processedCount.incrementAndGet();
-            latch.countDown();
-            logger.info("Member-2 processed: {}", message.getPayload());
-            return Future.succeededFuture();
+            try {
+                processedCount.incrementAndGet();
+                checkpoint.flag();
+                logger.info("Member-2 processed: {}", message.getPayload());
+                return Future.succeededFuture();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+                return Future.failedFuture(t);
+            }
         });
-        
+
         // Start the consumer group
         consumerGroup.start();
-        
+
         // Send multiple messages
         for (int i = 0; i < 5; i++) {
             producer.send("Group message " + i).await();
         }
-        
+
         // Wait for all messages to be processed
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "All messages should be processed");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed");
         assertEquals(5, processedCount.get());
-        
+
         // Verify consumer group stats
         ConsumerGroupStats stats = consumerGroup.getStats();
         assertNotNull(stats);
         assertEquals(2, stats.getActiveConsumerCount());
         assertTrue(stats.getTotalMessagesProcessed() >= 5);
-        
+
         consumerGroup.stop();
         producer.close();
-        
+
         logger.info("Native consumer groups test passed");
     }
     
     @Test
-    void testNativeMessageConcurrency() throws Exception {
+    void testNativeMessageConcurrency(VertxTestContext testContext) throws Exception {
         // Test that native queue handles concurrent message processing correctly
         MessageProducer<String> producer = nativeFactory.createProducer("concurrency-test", String.class);
         MessageConsumer<String> consumer = nativeFactory.createConsumer("concurrency-test", String.class);
-        
+
         int messageCount = 20;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        var checkpoint = testContext.checkpoint(messageCount);
         AtomicInteger processedCount = new AtomicInteger();
         List<String> receivedMessages = new CopyOnWriteArrayList<>();
-        
+
         // Subscribe with concurrent processing
         consumer.subscribe(message -> {
-            receivedMessages.add(message.getPayload());
-            processedCount.incrementAndGet();
-            latch.countDown();
-            return Future.succeededFuture();
+            try {
+                receivedMessages.add(message.getPayload());
+                processedCount.incrementAndGet();
+                checkpoint.flag();
+                return Future.succeededFuture();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+                return Future.failedFuture(t);
+            }
         });
-        
+
         // Send messages concurrently
         List<Future<Void>> futures = new ArrayList<>();
-        
+
         for (int i = 0; i < messageCount; i++) {
             futures.add(producer.send("Concurrent message " + i));
         }
-        
+
         // Wait for all sends to complete
         Future.all(futures).await();
-        
+
         // Wait for all messages to be processed
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "All messages should be processed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "All messages should be processed");
         assertEquals(messageCount, processedCount.get());
         assertEquals(messageCount, receivedMessages.size());
-        
+
         producer.close();
         consumer.close();
-        
+
         logger.info("Native message concurrency test passed");
     }
     

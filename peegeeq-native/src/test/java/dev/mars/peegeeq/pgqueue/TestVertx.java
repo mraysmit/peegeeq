@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.pgqueue;
 
 import io.vertx.core.Handler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -16,6 +18,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public class TestVertx {
     
+    private static final Logger logger = LoggerFactory.getLogger(TestVertx.class);
+
     private final List<Handler<Void>> pendingContextHandlers = new ArrayList<>();
     private final AtomicBoolean executeImmediately = new AtomicBoolean(true);
     
@@ -48,7 +52,7 @@ public class TestVertx {
                     handler.handle(null);
                 } catch (Exception e) {
                     // Log but don't rethrow to avoid breaking tests
-                    System.err.println("Error executing pending handler: " + e.getMessage());
+                    logger.warn("Error executing pending handler: {}", e.getMessage());
                 }
             }
         }
@@ -81,7 +85,7 @@ public class TestVertx {
                 action.handle(null);
             } catch (Exception e) {
                 // Log but don't rethrow to avoid breaking tests
-                System.err.println("Error executing context handler: " + e.getMessage());
+                logger.warn("Error executing context handler: {}", e.getMessage());
             }
         } else {
             // Queue for manual execution in complex test scenarios

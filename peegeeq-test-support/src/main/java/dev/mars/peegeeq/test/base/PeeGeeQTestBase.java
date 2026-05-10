@@ -2,7 +2,7 @@ package dev.mars.peegeeq.test.base;
 
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
+import dev.mars.peegeeq.test.metrics.TestSupportMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -21,7 +21,7 @@ import java.util.HashMap;
  * 
  * This class provides:
  * - Standardized TestContainers setup with different performance profiles
- * - Integrated metrics collection using PeeGeeQMetrics
+ * - Integrated metrics collection for shared test utilities
  * - Consistent test configuration and cleanup
  * - Support for parameterized testing with different PostgreSQL configurations
  * 
@@ -34,7 +34,7 @@ import java.util.HashMap;
  *     void testSomething() {
  *         // Container and metrics are already set up
  *         String jdbcUrl = getJdbcUrl();
- *         PeeGeeQMetrics metrics = getMetrics();
+ *         TestSupportMetrics metrics = getMetrics();
  *         
  *         // Your test logic here
  *     }
@@ -51,7 +51,7 @@ public abstract class PeeGeeQTestBase {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQTestBase.class);
     
     protected PostgreSQLContainer container;
-    protected PeeGeeQMetrics metrics;
+    protected TestSupportMetrics metrics;
     protected MeterRegistry meterRegistry;
     protected String testInstanceId;
     protected PerformanceProfile currentProfile;
@@ -188,10 +188,7 @@ public abstract class PeeGeeQTestBase {
         
         meterRegistry = new SimpleMeterRegistry();
         
-        // Create metrics instance without database connection for now
-        // Tests that need database-connected metrics should override this
-        metrics = new PeeGeeQMetrics((io.vertx.sqlclient.Pool) null, testInstanceId);
-        metrics.bindTo(meterRegistry);
+        metrics = new TestSupportMetrics(meterRegistry, testInstanceId);
         
         logger.debug("Metrics setup complete for instance: {}", testInstanceId);
     }
@@ -267,9 +264,9 @@ public abstract class PeeGeeQTestBase {
     /**
      * Get the metrics instance for this test.
      * 
-     * @return PeeGeeQMetrics instance
+     * @return TestSupportMetrics instance
      */
-    protected PeeGeeQMetrics getMetrics() {
+    protected TestSupportMetrics getMetrics() {
         return metrics;
     }
     

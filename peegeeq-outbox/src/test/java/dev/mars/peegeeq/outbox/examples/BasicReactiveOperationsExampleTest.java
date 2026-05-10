@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -24,6 +25,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -31,6 +33,7 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 
@@ -61,7 +64,7 @@ public class BasicReactiveOperationsExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_outbox_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -74,23 +77,18 @@ public class BasicReactiveOperationsExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Basic Reactive Operations Example Test");
         
         // Set database properties from TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
         // Create outbox factory
@@ -108,6 +106,7 @@ public class BasicReactiveOperationsExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Basic Reactive Operations Example Test");
         
         try {
@@ -119,7 +118,9 @@ public class BasicReactiveOperationsExampleTest {
         }
         
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -143,13 +144,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API
         orderProducer.send(testOrder)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Simple reactive send completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Simple reactive send completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -174,13 +172,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API with headers
         orderProducer.send(testOrder, headers)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Reactive send with headers completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Reactive send with headers completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -204,13 +199,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API with correlation ID
         orderProducer.send(testOrder, headers, correlationId)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Reactive send with correlation ID completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Reactive send with correlation ID completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -239,13 +231,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API with all parameters
         orderProducer.send(testOrder, headers, correlationId, messageGroup)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Full parameter reactive send completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Full parameter reactive send completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -275,23 +264,20 @@ public class BasicReactiveOperationsExampleTest {
         
         // Wait for all operations to complete
         Future.all(sendFutures)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    long endTime = System.currentTimeMillis();
-                    long totalTime = endTime - startTime;
-                    double avgTimePerMessage = (double) totalTime / messageCount;
-                    
-                    // Validate performance characteristics
-                    assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
-                    assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
-                    
-                    logger.info("✓ Performance validation completed successfully");
-                    logger.info("Total time: {}ms, Average per message: {}ms", totalTime, String.format("%.2f", avgTimePerMessage));
-                    logger.info("Messages processed: {}, Rate: {} msg/sec", messageCount, String.format("%.2f", (messageCount * 1000.0) / totalTime));
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                long endTime = System.currentTimeMillis();
+                long totalTime = endTime - startTime;
+                double avgTimePerMessage = (double) totalTime / messageCount;
+                
+                // Validate performance characteristics
+                assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
+                assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
+                
+                logger.info("✓ Performance validation completed successfully");
+                logger.info("Total time: {}ms, Average per message: {}ms", totalTime, String.format("%.2f", avgTimePerMessage));
+                logger.info("Messages processed: {}, Rate: {} msg/sec", messageCount, String.format("%.2f", (messageCount * 1000.0) / totalTime));
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

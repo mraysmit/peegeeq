@@ -19,6 +19,7 @@ package dev.mars.peegeeq.examples.springbootconsumer;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -55,6 +56,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 
 /**
  * Integration tests for Spring Boot Consumer Example.
@@ -156,10 +158,21 @@ public class OrderConsumerServiceTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Order Consumer Service Test resources");
-        // Container cleanup is handled by SharedTestContainers
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
         log.info("Order Consumer Service Test cleanup complete");
     }
 

@@ -1,5 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Tests for message response structure and validation.
  *
@@ -9,6 +12,8 @@ package dev.mars.peegeeq.rest.handlers;
 /*
 @Tag(TestCategories.CORE)
 class MessageResponseValidationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageResponseValidationTest.class);
 
     @BeforeEach
     void setUp() {
@@ -153,32 +158,32 @@ class MessageResponseValidationTest {
     void testExpectedConsumptionApiUsage() {
         // This test documents how the Phase 3 consumption API would be used
         
-        System.out.println("📚 Phase 3 Message Consumption API Documentation:");
-        System.out.println();
+        logger.info("Phase 3 Message Consumption API Documentation:");
+        logger.info("");
         
-        System.out.println("🔹 Get Next Message (Polling):");
-        System.out.println("GET /api/v1/queues/{setupId}/{queueName}/messages/next");
-        System.out.println("Query Parameters:");
-        System.out.println("  - timeout: Maximum wait time in milliseconds (default: 30000)");
-        System.out.println("  - maxWait: Maximum polling wait in milliseconds (default: 5000)");
-        System.out.println("  - consumerGroup: Optional consumer group name");
-        System.out.println();
+        logger.info("Get Next Message (Polling):");
+        logger.info("GET /api/v1/queues/{setupId}/{queueName}/messages/next");
+        logger.info("Query Parameters:");
+        logger.info("  - timeout: Maximum wait time in milliseconds (default: 30000)");
+        logger.info("  - maxWait: Maximum polling wait in milliseconds (default: 5000)");
+        logger.info("  - consumerGroup: Optional consumer group name");
+        logger.info("");
         
-        System.out.println("🔹 Get Multiple Messages (Batch Polling):");
-        System.out.println("GET /api/v1/queues/{setupId}/{queueName}/messages");
-        System.out.println("Query Parameters:");
-        System.out.println("  - limit: Maximum number of messages to retrieve (1-100, default: 10)");
-        System.out.println("  - timeout: Maximum wait time in milliseconds (default: 5000)");
-        System.out.println("  - consumerGroup: Optional consumer group name");
-        System.out.println();
+        logger.info("Get Multiple Messages (Batch Polling):");
+        logger.info("GET /api/v1/queues/{setupId}/{queueName}/messages");
+        logger.info("Query Parameters:");
+        logger.info("  - limit: Maximum number of messages to retrieve (1-100, default: 10)");
+        logger.info("  - timeout: Maximum wait time in milliseconds (default: 5000)");
+        logger.info("  - consumerGroup: Optional consumer group name");
+        logger.info("");
         
-        System.out.println("🔹 Acknowledge Message:");
-        System.out.println("DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}");
-        System.out.println("Marks a message as successfully processed");
-        System.out.println();
+        logger.info("Acknowledge Message:");
+        logger.info("DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}");
+        logger.info("Marks a message as successfully processed");
+        logger.info("");
         
-        System.out.println("🔹 Expected Response Format (Single Message):");
-        System.out.println("""
+        logger.info("Expected Response Format (Single Message):");
+        logger.info("""
             {
               "message": "Message retrieved successfully",
               "queueName": "orders",
@@ -191,10 +196,10 @@ class MessageResponseValidationTest {
               "messageType": "OrderCreated"
             }
             """);
-        System.out.println();
+        logger.info("");
         
-        System.out.println("🔹 Expected Response Format (Multiple Messages):");
-        System.out.println("""
+        logger.info("Expected Response Format (Multiple Messages):");
+        logger.info("""
             {
               "message": "Messages retrieved successfully",
               "queueName": "orders",
@@ -221,10 +226,10 @@ class MessageResponseValidationTest {
               ]
             }
             """);
-        System.out.println();
+        logger.info("");
         
-        System.out.println("🔹 No Messages Available Response (204 No Content):");
-        System.out.println("""
+        logger.info("No Messages Available Response (204 No Content):");
+        logger.info("""
             {
               "message": "No messages available",
               "queueName": "orders",
@@ -240,34 +245,34 @@ class MessageResponseValidationTest {
     void testConsumptionWorkflowDocumentation() {
         // Document the typical consumption workflow
         
-        System.out.println("🔄 Phase 3 Message Consumption Workflow:");
-        System.out.println();
+        logger.info("Phase 3 Message Consumption Workflow:");
+        logger.info("");
         
-        System.out.println("1️⃣ **Poll for Messages**");
-        System.out.println("   GET /api/v1/queues/my-setup/orders/messages/next?timeout=30000");
-        System.out.println("   → Returns message or 204 No Content");
-        System.out.println();
+        logger.info("1. Poll for Messages");
+        logger.info("   GET /api/v1/queues/my-setup/orders/messages/next?timeout=30000");
+        logger.info("   -> Returns message or 204 No Content");
+        logger.info("");
         
-        System.out.println("2️⃣ **Process Message**");
-        System.out.println("   → Application processes the message payload");
-        System.out.println("   → Handle business logic, database updates, etc.");
-        System.out.println();
+        logger.info("2. Process Message");
+        logger.info("   -> Application processes the message payload");
+        logger.info("   -> Handle business logic, database updates, etc.");
+        logger.info("");
         
-        System.out.println("3️⃣ **Acknowledge Message**");
-        System.out.println("   DELETE /api/v1/queues/my-setup/orders/messages/{messageId}");
-        System.out.println("   → Confirms successful processing");
-        System.out.println("   → Message is removed from queue");
-        System.out.println();
+        logger.info("3. Acknowledge Message");
+        logger.info("   DELETE /api/v1/queues/my-setup/orders/messages/{messageId}");
+        logger.info("   -> Confirms successful processing");
+        logger.info("   -> Message is removed from queue");
+        logger.info("");
         
-        System.out.println("🔁 **Repeat Process**");
-        System.out.println("   → Continue polling for new messages");
-        System.out.println("   → Handle errors with appropriate HTTP status codes");
-        System.out.println();
+        logger.info("Repeat Process");
+        logger.info("   -> Continue polling for new messages");
+        logger.info("   -> Handle errors with appropriate HTTP status codes");
+        logger.info("");
         
-        System.out.println("⚡ **Batch Processing Alternative**");
-        System.out.println("   GET /api/v1/queues/my-setup/orders/messages?limit=10");
-        System.out.println("   → Process multiple messages at once");
-        System.out.println("   → Acknowledge each message individually");
+        logger.info("Batch Processing Alternative");
+        logger.info("   GET /api/v1/queues/my-setup/orders/messages?limit=10");
+        logger.info("   -> Process multiple messages at once");
+        logger.info("   -> Acknowledge each message individually");
         
         assertTrue(true, "Phase 3 consumption workflow documented");
     }

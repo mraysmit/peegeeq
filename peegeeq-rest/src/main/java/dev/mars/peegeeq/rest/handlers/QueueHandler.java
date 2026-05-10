@@ -147,11 +147,8 @@ public class QueueHandler {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("🚫 EXPECTED: Setup not found for queue operation: {} (setup: {})",
+                        logger.debug("Setup not found for queue operation: {} (setup: {})",
                                    queueName, setupId);
-                    } else if (isTestScenario(setupId, throwable)) {
-                        logger.info("🧪 EXPECTED TEST ERROR - Error sending message to queue: {} (setup: {}) - {}",
-                                   queueName, setupId, throwable.getMessage());
                     } else {
                         logger.error("Error sending message to queue: " + queueName, throwable);
                     }
@@ -236,13 +233,16 @@ public class QueueHandler {
                     // Send all messages (propagate same trace context to all messages in batch)
                     List<Future<String>> futures = batchRequest.getMessages().stream()
                         .map(msgReq -> sendMessageWithProducer(producer, msgReq, ctx)
-                            .recover(throwable -> {
-                                if (batchRequest.isFailOnError()) {
-                                    return Future.failedFuture(new RuntimeException("Batch failed at message: " + throwable.getMessage(), throwable));
-                                } else {
-                                    logger.warn("Failed to send message in batch: {}", throwable.getMessage());
-                                    return Future.succeededFuture("FAILED:" + throwable.getMessage());
+                            .transform(ar -> {
+                                if (ar.failed()) {
+                                    if (batchRequest.isFailOnError()) {
+                                        return Future.<String>failedFuture(new RuntimeException("Batch failed at message: " + ar.cause().getMessage(), ar.cause()));
+                                    } else {
+                                        logger.error("Failed to send message in batch: {}", ar.cause().getMessage());
+                                        return Future.succeededFuture("FAILED:" + ar.cause().getMessage());
+                                    }
                                 }
+                                return Future.succeededFuture(ar.result());
                             }))
                         .collect(Collectors.toList());
 
@@ -284,13 +284,7 @@ public class QueueHandler {
                         successCount, failureCount, queueName, setupId);
                 })
                 .onFailure(throwable -> {
-                    // Check if this is an intentional test error
-                    if (isTestScenario(setupId, throwable)) {
-                        logger.info("🧪 EXPECTED TEST ERROR - Error sending batch messages to queue: {} (setup: {}) - {}",
-                                   queueName, setupId, throwable.getMessage());
-                    } else {
-                        logger.error("Error sending batch messages to queue: " + queueName, throwable);
-                    }
+                    logger.error("Error sending batch messages to queue: " + queueName, throwable);
                     sendError(ctx, 500, "Failed to send batch messages: " + throwable.getMessage());
                 })
                 .onComplete(ar -> {
@@ -342,56 +336,57 @@ public class QueueHandler {
                     boolean isHealthy = queueFactory.isHealthy();
                     String implementationType = queueFactory.getImplementationType();
 
-                    // Get real statistics from the database via QueueFactory.getStats()
-                    dev.mars.peegeeq.api.messaging.QueueStats stats = queueFactory.getStats(queueName);
+                    // Get real statistics from the database via QueueFactory.getStatsAsync()
+                    queueFactory.getStatsAsync(queueName)
+                        .onSuccess(stats -> {
+                            try {
+                                // Build response with real statistics
+                                JsonObject response = new JsonObject()
+                                    .put("queueName", queueName)
+                                    .put("setupId", setupId)
+                                    .put("implementationType", implementationType)
+                                    .put("healthy", isHealthy)
+                                    .put("totalMessages", stats.getTotalMessages())
+                                    .put("pendingMessages", stats.getPendingMessages())
+                                    .put("processedMessages", stats.getProcessedMessages())
+                                    .put("inFlightMessages", stats.getInFlightMessages())
+                                    .put("deadLetteredMessages", stats.getDeadLetteredMessages())
+                                    .put("messagesPerSecond", stats.getMessagesPerSecond())
+                                    .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
+                                    .put("successRatePercent", stats.getSuccessRatePercent())
+                                    .put("timestamp", System.currentTimeMillis());
 
-                    try {
-                        // Build response with real statistics
-                        JsonObject response = new JsonObject()
-                            .put("queueName", queueName)
-                            .put("setupId", setupId)
-                            .put("implementationType", implementationType)
-                            .put("healthy", isHealthy)
-                            .put("totalMessages", stats.getTotalMessages())
-                            .put("pendingMessages", stats.getPendingMessages())
-                            .put("processedMessages", stats.getProcessedMessages())
-                            .put("inFlightMessages", stats.getInFlightMessages())
-                            .put("deadLetteredMessages", stats.getDeadLetteredMessages())
-                            .put("messagesPerSecond", stats.getMessagesPerSecond())
-                            .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
-                            .put("successRatePercent", stats.getSuccessRatePercent())
-                            .put("timestamp", System.currentTimeMillis());
+                                // Add optional timing fields if available
+                                if (stats.getCreatedAt() != null) {
+                                    response.put("firstMessageAt", stats.getCreatedAt().toString());
+                                }
+                                if (stats.getLastMessageAt() != null) {
+                                    response.put("lastMessageAt", stats.getLastMessageAt().toString());
+                                }
 
-                        // Add optional timing fields if available
-                        if (stats.getCreatedAt() != null) {
-                            response.put("firstMessageAt", stats.getCreatedAt().toString());
-                        }
-                        if (stats.getLastMessageAt() != null) {
-                            response.put("lastMessageAt", stats.getLastMessageAt().toString());
-                        }
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
-                                   queueName, implementationType, isHealthy,
-                                   stats.getTotalMessages(), stats.getPendingMessages());
-                    } catch (Exception e) {
-                        logger.error("Error serializing queue stats", e);
-                        sendError(ctx, 500, "Internal server error");
-                    }
+                                logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
+                                           queueName, implementationType, isHealthy,
+                                           stats.getTotalMessages(), stats.getPendingMessages());
+                            } catch (Exception e) {
+                                logger.error("Error serializing queue stats", e);
+                                sendError(ctx, 500, "Internal server error");
+                            }
+                        })
+                        .onFailure(e -> {
+                            logger.error("Error getting async queue stats for {}", queueName, e);
+                            sendError(ctx, 500, "Failed to get queue stats: " + e.getMessage());
+                        });
                 })
                 .onFailure(throwable -> {
-                    // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("EXPECTED: Setup not found for queue stats: {} (setup: {})",
+                        logger.debug("Setup not found for queue stats: {} (setup: {})",
                                    queueName, setupId);
-                    } else if (isTestScenario(setupId, throwable)) {
-                        logger.info("EXPECTED TEST ERROR - Error getting queue stats: {} (setup: {}) - {}",
-                                   queueName, setupId, throwable.getMessage());
                     } else {
                         logger.error("Error getting queue stats: " + queueName, throwable);
                     }
@@ -697,25 +692,6 @@ public class QueueHandler {
     private boolean isSetupNotFoundError(Throwable throwable) {
         return throwable != null &&
                throwable.getClass().getSimpleName().equals("SetupNotFoundException");
-    }
-
-    /**
-     * Determines if an error is part of an intentional test scenario
-     */
-    private boolean isTestScenario(String setupId, Throwable throwable) {
-        // Check for test setup IDs
-        if (setupId != null && (setupId.equals("non-existent-setup") || setupId.startsWith("test-"))) {
-            return true;
-        }
-
-        // Check for test-related error messages
-        String message = throwable.getMessage();
-        if (message != null && (message.contains("Setup not found: non-existent-setup") ||
-                               message.contains("INTENTIONAL TEST FAILURE"))) {
-            return true;
-        }
-
-        return false;
     }
 
     /**

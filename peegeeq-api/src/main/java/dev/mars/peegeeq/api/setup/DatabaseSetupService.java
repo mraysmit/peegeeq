@@ -51,6 +51,21 @@ public interface DatabaseSetupService extends ServiceProvider {
     Future<Set<String>> getAllActiveSetupIds();
 
     /**
+     * Closes the service and releases all managed resources (active setups, connection pools,
+     * background timers). Implementations should close all active {@code PeeGeeQManager}
+     * instances so that periodic timers (e.g. depth cache refresh) are cancelled before the
+     * underlying database becomes unreachable.
+     *
+     * <p>The default implementation is a no-op that returns a pre-succeeded Future, preserving
+     * backward compatibility for existing implementations that manage their own lifecycle.
+     *
+     * @return a Future that completes when all resources have been released
+     */
+    default Future<Void> close() {
+        return Future.succeededFuture();
+    }
+
+    /**
      * Adds a factory registration callback that will be invoked during setup.
      * This allows implementation modules to register their queue factories without
      * creating direct dependencies.

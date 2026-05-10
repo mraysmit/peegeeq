@@ -61,16 +61,18 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     
     @Override
     public Future<Pool> getReactivePool(String clientId) {
+        String resolvedClientId = clientId != null ? clientId : PeeGeeQDefaults.DEFAULT_POOL_ID;
         try {
-            // Resolve null clientId to default pool ID - ConcurrentHashMap doesn't allow null keys
-            String resolvedClientId = clientId != null ? clientId : PeeGeeQDefaults.DEFAULT_POOL_ID;
-
             // Get the client configurations from the factory
-            var connectionConfig = clientFactory.getConnectionConfig(clientId);
-            var poolConfig = clientFactory.getPoolConfig(clientId);
+            var connectionConfig = clientFactory.getConnectionConfig(resolvedClientId);
+            var poolConfig = clientFactory.getPoolConfig(resolvedClientId);
 
             if (connectionConfig == null || poolConfig == null) {
-                return Future.failedFuture(new IllegalArgumentException("Client not found: " + clientId));
+                if (clientFactory.getAvailableClients().isEmpty()) {
+                    return Future.failedFuture(new IllegalStateException(
+                            "Connection provider is closed or shutting down"));
+                }
+                return Future.failedFuture(new IllegalArgumentException("Client not found: " + resolvedClientId));
             }
 
             // Get the reactive pool from the connection manager
@@ -80,11 +82,11 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
                 poolConfig
             );
 
-            logger.debug("Retrieved reactive pool for client: {}", clientId);
+            logger.debug("Retrieved reactive pool for client: {}", resolvedClientId);
             return Future.succeededFuture(pool);
         } catch (Exception e) {
-            logger.error("Failed to get reactive pool for client: {}", clientId, e);
-            return Future.failedFuture(new IllegalArgumentException("Client not found: " + clientId, e));
+            logger.error("Failed to get reactive pool for client: {}", resolvedClientId, e);
+            return Future.failedFuture(e);
         }
     }
 
@@ -147,9 +149,12 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
                     .map(rowSet -> true)
                     .eventually(connection::close); // Always close the connection
             })
-            .recover(error -> {
-                logger.warn("Health check failed for client: {}: {}", clientId, error.getMessage());
-                return Future.succeededFuture(false);
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("Health check failed for client: {}: {}", clientId, ar.cause().getMessage());
+                    return Future.succeededFuture(false);
+                }
+                return Future.succeededFuture(ar.result());
             });
     }
 

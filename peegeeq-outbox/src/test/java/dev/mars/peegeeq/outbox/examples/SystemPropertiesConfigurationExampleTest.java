@@ -22,6 +22,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -59,7 +60,7 @@ public class SystemPropertiesConfigurationExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_sysprops_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -70,6 +71,7 @@ public class SystemPropertiesConfigurationExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -92,6 +94,7 @@ public class SystemPropertiesConfigurationExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down System Properties Configuration Example Test");
         
         // Restore original system properties
@@ -218,7 +221,7 @@ public class SystemPropertiesConfigurationExampleTest {
         // Initialize PeeGeeQ with current system properties
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         try (PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry())) {
-            manager.start();
+            manager.start().await();
             
             // Log the current configuration
             logCurrentConfiguration(config);

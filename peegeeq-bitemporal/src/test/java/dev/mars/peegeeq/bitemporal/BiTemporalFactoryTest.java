@@ -6,6 +6,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 class BiTemporalFactoryTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(BiTemporalFactoryTest.class);
 
     @Test
     void testFactoryClassExists() {
@@ -63,8 +67,10 @@ class BiTemporalFactoryTest {
         PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration());
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(Vertx.vertx(), manager);
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = factory rejects schema-qualified table name");
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> factory.createEventStore(String.class, "tenant_a.bitemporal_event_log"));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected validation failure = {}", exception.getMessage());
 
         assertTrue(exception.getMessage().contains("unqualified"),
                 "Expected unqualified table-name validation message");
@@ -75,7 +81,9 @@ class BiTemporalFactoryTest {
         PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration());
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(Vertx.vertx(), manager);
 
-        assertThrows(IllegalArgumentException.class,
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = factory rejects invalid table identifier");
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> factory.createEventStore(String.class, "bad-table-name"));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected validation failure = {}", exception.getMessage());
     }
 }

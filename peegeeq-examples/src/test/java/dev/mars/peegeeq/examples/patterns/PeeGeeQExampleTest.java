@@ -19,10 +19,13 @@ package dev.mars.peegeeq.examples.patterns;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -39,6 +42,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.Map;
+import java.util.Properties;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -80,6 +84,7 @@ class PeeGeeQExampleTest {
     
     @BeforeEach
     void setUpStreams(Vertx vertx) {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         this.vertx = vertx;
         System.setOut(new PrintStream(outContent));
         System.setErr(new PrintStream(errContent));
@@ -89,14 +94,6 @@ class PeeGeeQExampleTest {
     void restoreStreams() {
         System.setOut(originalOut);
         System.setErr(originalErr);
-        
-        // Clean up any system properties that might have been set
-        System.clearProperty("peegeeq.profile");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
     }
     
     // NOTE: Configuration validation tests have been consolidated into
@@ -115,20 +112,18 @@ class PeeGeeQExampleTest {
             postgres.start();
             logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
 
-            // Configure system properties to use the container
-            System.setProperty("peegeeq.database.host", postgres.getHost());
-            System.setProperty("peegeeq.database.port", postgres.getFirstMappedPort().toString());
-            System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-            System.setProperty("peegeeq.database.username", postgres.getUsername());
-            System.setProperty("peegeeq.database.password", postgres.getPassword());
-            System.setProperty("peegeeq.profile", "test");
+            // Configure database connection properties
+            Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
             // Run the example functionality directly (since main class doesn't exist)
             try {
                 logger.info("Starting PeeGeeQ Example functionality test");
 
+                // Initialize database schema before starting manager
+                PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+
                 // Test basic PeeGeeQ functionality instead of calling non-existent main
-                runAllDemonstrations();
+                runAllDemonstrations(testProps);
 
                 logger.info("PeeGeeQExample test completed successfully");
 
@@ -159,11 +154,22 @@ class PeeGeeQExampleTest {
             logger.info("   > Username: {}", postgres.getUsername());
             logger.info("   > Host: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
 
-            // Configure PeeGeeQ to use the container
-            configureSystemPropertiesForContainer(postgres);
+            // Configure database connection properties
+            Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                    .property("peegeeq.database.pool.min-size", "2")
+                    .property("peegeeq.database.pool.max-size", "10")
+                    .property("peegeeq.metrics.enabled", "true")
+                    .property("peegeeq.health.enabled", "true")
+                    .property("peegeeq.circuit-breaker.enabled", "true")
+                    .property("peegeeq.migration.enabled", "true")
+                    .property("peegeeq.migration.auto-migrate", "true")
+                    .build();
+
+            // Initialize database schema before starting manager
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
             // Run comprehensive demonstrations
-            runAllDemonstrations();
+            runAllDemonstrations(testProps);
 
         } catch (Exception e) {
             logger.error("XX Failed to run comprehensive PeeGeeQ demo", e);
@@ -174,42 +180,15 @@ class PeeGeeQExampleTest {
     }
 
     /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        logger.info("⚙️  Configuring PeeGeeQ to use container database...");
-
-        // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Configure for test environment
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-
-        logger.info("Configuration complete");
-    }
-
-    /**
      * Runs all PeeGeeQ feature demonstrations.
      */
-    private void runAllDemonstrations() {
+    private void runAllDemonstrations(Properties testProps) {
         logger.info("...Starting PeeGeeQ feature demonstrations...");
 
-        try (PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry())) {
+        try (PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry())) {
 
             // Start the manager
-            manager.start();
+            manager.start().await();
             logger.info("PeeGeeQ Manager started successfully");
 
             // Run all demonstrations
@@ -296,28 +275,22 @@ class PeeGeeQExampleTest {
         logger.info("=== Circuit Breaker Demo ===");
 
         var circuitBreakerManager = manager.getCircuitBreakerManager();
+        var cb = circuitBreakerManager.getCircuitBreaker("demo-operation");
 
-        // Simulate successful operations
+        // Simulate successful operations using the production caller pattern:
+        // tryAcquirePermission() → execute → onSuccess() / onError()
         for (int i = 0; i < 5; i++) {
-            final int index = i;
-            try {
-                String result = circuitBreakerManager.executeSupplier("demo-operation",
-                    () -> "Success " + index);
-                logger.info("Circuit breaker result: {}", result);
-            } catch (Exception e) {
-                logger.warn("Circuit breaker operation failed: {}", e.getMessage());
+            if (cb.tryAcquirePermission()) {
+                cb.onSuccess(1, java.util.concurrent.TimeUnit.NANOSECONDS);
+                logger.info("Circuit breaker: success recorded");
             }
         }
 
         // Simulate some failures
         for (int i = 0; i < 3; i++) {
-            final int index = i;
-            try {
-                circuitBreakerManager.executeSupplier("demo-operation", () -> {
-                    throw new RuntimeException("Simulated failure " + index);
-                });
-            } catch (Exception e) {
-                logger.info("Circuit breaker caught failure: {}", e.getMessage());
+            if (cb.tryAcquirePermission()) {
+                cb.onError(1, java.util.concurrent.TimeUnit.NANOSECONDS, new RuntimeException("Simulated failure " + i));
+                logger.info("Circuit breaker: failure recorded");
             }
         }
 

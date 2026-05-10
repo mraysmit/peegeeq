@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -30,48 +29,33 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
-@ResourceLock("system-properties")
 public class PgQueueConfigurationCoreTest {
 
     private PeeGeeQConfiguration peeGeeQConfig;
-    private Properties originalPeeGeeQProperties;
 
     @BeforeEach
     void setUp() {
-        // Save only peegeeq.* properties and clear them for deterministic test setup.
-        originalPeeGeeQProperties = new Properties();
-        System.getProperties().entrySet().stream()
-            .filter(entry -> entry.getKey().toString().startsWith("peegeeq."))
-            .forEach(entry -> originalPeeGeeQProperties.put(entry.getKey(), entry.getValue()));
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
+        Properties testProps = new Properties();
+        testProps.setProperty("peegeeq.database.host", "localhost");
+        testProps.setProperty("peegeeq.database.port", "5432");
+        testProps.setProperty("peegeeq.database.name", "testdb");
+        testProps.setProperty("peegeeq.database.username", "testuser");
+        testProps.setProperty("peegeeq.database.password", "testpass");
+        testProps.setProperty("peegeeq.database.pool.max-size", "32");
+        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
+        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "600000");
+        testProps.setProperty("peegeeq.metrics.instance-id", "test-instance");
+        testProps.setProperty("peegeeq.metrics.enabled", "true");
+        testProps.setProperty("peegeeq.health.enabled", "true");
+        testProps.setProperty("peegeeq.health.check-interval", "PT1M");
+        testProps.setProperty("peegeeq.migration.enabled", "false");
 
-        // Create a test configuration
-        String testProfile = "test-pgqueue-config";
-        System.setProperty("peegeeq.database.host", "localhost");
-        System.setProperty("peegeeq.database.port", "5432");
-        System.setProperty("peegeeq.database.name", "testdb");
-        System.setProperty("peegeeq.database.username", "testuser");
-        System.setProperty("peegeeq.database.password", "testpass");
-        System.setProperty("peegeeq.database.pool.max-size", "32");  // Fixed: use correct property key
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "600000");
-        System.setProperty("peegeeq.metrics.instance-id", "test-instance");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.health.check-interval", "PT1M");
-        System.setProperty("peegeeq.migration.enabled", "false");
-
-        peeGeeQConfig = new PeeGeeQConfiguration(testProfile);
+        peeGeeQConfig = new PeeGeeQConfiguration("test-pgqueue-config", testProps);
     }
 
     @AfterEach
     void tearDown() {
-        // Restore only peegeeq.* properties to avoid clobbering unrelated global JVM state.
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-        originalPeeGeeQProperties.forEach((key, value) ->
-            System.setProperty(key.toString(), value.toString()));
+        // No System properties to clean up
     }
 
     @Test

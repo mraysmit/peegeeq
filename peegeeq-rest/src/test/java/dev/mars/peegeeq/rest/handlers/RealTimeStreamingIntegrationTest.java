@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
@@ -67,7 +68,7 @@ class RealTimeStreamingIntegrationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_streaming_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -119,10 +120,11 @@ class RealTimeStreamingIntegrationTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -161,14 +163,13 @@ class RealTimeStreamingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queue and event store created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -227,7 +228,7 @@ class RealTimeStreamingIntegrationTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint returned status: {}", status);
 
@@ -246,7 +247,7 @@ class RealTimeStreamingIntegrationTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE endpoint request failed: {}", err.getMessage());
                 httpClient.close();
@@ -272,7 +273,7 @@ class RealTimeStreamingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(10000)
             .sendJsonObject(createRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Consumer group creation response status: {}", status);
 
@@ -287,8 +288,7 @@ class RealTimeStreamingIntegrationTest {
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -301,7 +301,7 @@ class RealTimeStreamingIntegrationTest {
         client.get(TEST_PORT, "localhost", path)
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Consumer group list response status: {}", status);
 
@@ -315,8 +315,7 @@ class RealTimeStreamingIntegrationTest {
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -330,7 +329,7 @@ class RealTimeStreamingIntegrationTest {
             .addQueryParam("limit", "10")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Event store events response status: {}", status);
 
@@ -344,8 +343,7 @@ class RealTimeStreamingIntegrationTest {
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -358,7 +356,7 @@ class RealTimeStreamingIntegrationTest {
         client.get(TEST_PORT, "localhost", path)
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Event store stats response status: {}", status);
 
@@ -372,8 +370,7 @@ class RealTimeStreamingIntegrationTest {
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -384,7 +381,7 @@ class RealTimeStreamingIntegrationTest {
         client.get(TEST_PORT, "localhost", "/api/v1/management/overview")
             .timeout(10000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Management overview response status: {}", status);
 
@@ -395,8 +392,7 @@ class RealTimeStreamingIntegrationTest {
                 logger.info("Overview: {}", body.encode());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -407,7 +403,7 @@ class RealTimeStreamingIntegrationTest {
         client.get(TEST_PORT, "localhost", "/api/v1/health")
             .timeout(5000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Health endpoint response status: {}", status);
 
@@ -419,7 +415,6 @@ class RealTimeStreamingIntegrationTest {
                 logger.info("Health: {}", body.encode());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

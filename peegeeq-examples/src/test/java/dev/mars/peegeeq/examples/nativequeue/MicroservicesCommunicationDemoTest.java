@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -26,11 +27,14 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 
-import java.util.concurrent.CountDownLatch;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Microservices Communication Patterns for PeeGeeQ.
@@ -46,8 +50,10 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@org.junit.jupiter.api.extension.ExtendWith(VertxExtension.class)
 class MicroservicesCommunicationDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(MicroservicesCommunicationDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -281,33 +287,23 @@ class MicroservicesCommunicationDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
-        System.out.println("\n🔗 Setting up Microservices Communication Demo Test");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        logger.info("Setting up Microservices Communication Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for microservices communication test
-        System.out.println("🔧 Initializing database schema for microservices communication test");
+        logger.info("Initializing database schema for microservices communication test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with microservices configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -318,34 +314,30 @@ class MicroservicesCommunicationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for microservices communication pattern testing");
+        logger.info("Setup complete - Ready for microservices communication pattern testing");
     }
 
     @AfterEach
     void tearDown() {
-        System.out.println("🧹 Cleaning up Microservices Communication Demo Test");
+        logger.info("Tearing down: closing resources and manager");
+        logger.info("Cleaning up Microservices Communication Demo Test");
 
         if (manager != null) {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     @Test
-    @Order(1)
     @DisplayName("Request-Response Pattern - Synchronous-style Communication Over Async Messaging")
-    void testRequestResponsePattern() throws Exception {
-        System.out.println("\n🔄 Testing Request-Response Pattern");
+    void testRequestResponsePattern(VertxTestContext testContext) throws Exception {
+        logger.info("Test: request response pattern");
+        logger.info("Testing Request-Response Pattern");
 
         String requestQueue = "microservices-request-queue";
         String responseQueue = "microservices-response-queue";
@@ -354,8 +346,8 @@ class MicroservicesCommunicationDemoTest {
         Map<String, MicroserviceSimulator> services = new HashMap<>();
         AtomicInteger requestsProcessed = new AtomicInteger(0);
         AtomicInteger responsesReceived = new AtomicInteger(0);
-        CountDownLatch requestLatch = new CountDownLatch(3);
-        CountDownLatch responseLatch = new CountDownLatch(3);
+        var requestCheckpoint = testContext.checkpoint(3);
+        var responseCheckpoint = testContext.checkpoint(3);
 
         // Initialize services
         services.put("inventory-service", new MicroserviceSimulator("inventory-service"));
@@ -372,8 +364,7 @@ class MicroservicesCommunicationDemoTest {
         requestConsumer.subscribe(message -> {
             ServiceMessage request = message.getPayload();
 
-            System.out.println("🔄 Processing request: " + request.messageType +
-                             " for service: " + request.targetService);
+            logger.info("Processing request: {} for service: {}", request.messageType, request.targetService);
 
             // Get service simulator
             MicroserviceSimulator service = services.get(request.targetService);
@@ -382,12 +373,13 @@ class MicroservicesCommunicationDemoTest {
                 ServiceMessage response = service.processMessage(request);
 
                 // Send response back
-                responseProducer.send(response);
+                responseProducer.send(response)
+                        .onFailure(testContext::failNow);
 
                 requestsProcessed.incrementAndGet();
             }
 
-            requestLatch.countDown();
+            requestCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -395,17 +387,16 @@ class MicroservicesCommunicationDemoTest {
         responseConsumer.subscribe(message -> {
             ServiceMessage response = message.getPayload();
 
-            System.out.println("🔄 Received response: " + response.messageType +
-                             " from service: " + response.sourceService);
+            logger.info("Received response: {} from service: {}", response.messageType, response.sourceService);
 
             responses.put(response.correlationId, response);
             responsesReceived.incrementAndGet();
-            responseLatch.countDown();
+            responseCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         // Send requests to different services
-        System.out.println("📤 Sending requests to microservices...");
+        logger.info("Sending requests to microservices...");
 
         String correlationId1 = "corr-001";
         String correlationId2 = "corr-002";
@@ -419,7 +410,8 @@ class MicroservicesCommunicationDemoTest {
             "req-001", correlationId1, "order-service", "inventory-service",
             "InventoryCheckRequest", inventoryPayload, responseQueue
         );
-        requestProducer.send(inventoryRequest);
+        requestProducer.send(inventoryRequest)
+                .onFailure(testContext::failNow);
 
         // Request 2: Process payment
         Map<String, Object> paymentPayload = new HashMap<>();
@@ -429,7 +421,8 @@ class MicroservicesCommunicationDemoTest {
             "req-002", correlationId2, "order-service", "payment-service",
             "PaymentProcessRequest", paymentPayload, responseQueue
         );
-        requestProducer.send(paymentRequest);
+        requestProducer.send(paymentRequest)
+                .onFailure(testContext::failNow);
 
         // Request 3: Schedule shipping
         Map<String, Object> shippingPayload = new HashMap<>();
@@ -439,11 +432,11 @@ class MicroservicesCommunicationDemoTest {
             "req-003", correlationId3, "order-service", "shipping-service",
             "ShippingScheduleRequest", shippingPayload, responseQueue
         );
-        requestProducer.send(shippingRequest);
+        requestProducer.send(shippingRequest)
+                .onFailure(testContext::failNow);
 
         // Wait for all requests and responses
-        assertTrue(requestLatch.await(30, TimeUnit.SECONDS), "Should process all requests");
-        assertTrue(responseLatch.await(30, TimeUnit.SECONDS), "Should receive all responses");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");
 
         // Verify request-response pattern
         assertEquals(3, requestsProcessed.get(), "Should have processed 3 requests");
@@ -467,18 +460,18 @@ class MicroservicesCommunicationDemoTest {
         assertEquals("ShippingScheduleResponse", shippingResponse.messageType, "Should be shipping response");
         assertEquals(true, shippingResponse.payload.get("scheduled"), "Shipping should be scheduled");
 
-        System.out.println("📊 Request-Response Results:");
-        System.out.println("  Requests processed: " + requestsProcessed.get());
-        System.out.println("  Responses received: " + responsesReceived.get());
+        logger.info("Request-Response Results:");
+        logger.info("  Requests processed: {}", requestsProcessed.get());
+        logger.info("  Responses received: {}", responsesReceived.get());
         for (MicroserviceSimulator service : services.values()) {
-            System.out.println("  " + service.serviceName + " processed: " + service.messagesProcessed.get() + " messages");
+            logger.info("  {} processed: {} messages", service.serviceName, service.messagesProcessed.get());
         }
 
         // Cleanup
         requestConsumer.close();
         responseConsumer.close();
 
-        System.out.println("Request-Response Pattern test completed successfully");
+        logger.info("Request-Response Pattern test completed successfully");
     }
 }
 

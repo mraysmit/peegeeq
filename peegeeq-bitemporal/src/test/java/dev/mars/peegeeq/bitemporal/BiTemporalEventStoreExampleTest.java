@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -48,6 +49,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -113,15 +115,11 @@ class BiTemporalEventStoreExampleTest {
         logger.info("=== Setting up Bi-Temporal Event Store Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", sharedPostgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", sharedPostgres.getUsername());
-        System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(sharedPostgres)
+                .schema("public")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -129,7 +127,7 @@ class BiTemporalEventStoreExampleTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration(), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start()
                 .compose(v -> {
                     logger.info("PeeGeeQ Manager started successfully");
@@ -158,18 +156,8 @@ class BiTemporalEventStoreExampleTest {
         }
 
         closeChain
-                .recover(error -> {
-                    logger.warn("Bi-Temporal Event Store Example Test cleanup encountered an error: {}", error.getMessage());
-                    return Future.<Void>succeededFuture();
-                })
+                .onFailure(error -> logger.warn("Bi-Temporal Event Store Example Test cleanup encountered an error: {}", error.getMessage()))
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.database.schema");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
                     logger.info("Bi-Temporal Event Store Example Test cleanup completed");
                     testContext.completeNow();
                 })
@@ -185,10 +173,7 @@ class BiTemporalEventStoreExampleTest {
                 .query("TRUNCATE TABLE bitemporal_event_log CASCADE")
                 .execute()
                 .map(rows -> (Void) null)
-                .recover(error -> {
-                    logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage());
-                    return Future.succeededFuture((Void) null);
-                });
+                .onFailure(error -> logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage()));
     }
     
     @Test
@@ -212,7 +197,7 @@ class BiTemporalEventStoreExampleTest {
                 .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2).validTime(validTime2).execute())
                 .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event3).validTime(validTime3).execute())
                 .compose(v -> eventStore.query(EventQuery.all()))
-                .onSuccess(allEvents -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(allEvents -> testContext.verify(() -> {
                     logger.info("Successfully appended 3 events with bi-temporal dimensions");
                     List<BiTemporalEvent<OrderEvent>> matchingEvents = allEvents.stream()
                             .filter(event -> List.of("order-001", "order-002", "order-003").contains(event.getPayload().getOrderId()))
@@ -227,8 +212,7 @@ class BiTemporalEventStoreExampleTest {
                     }
                     logger.info("Append-only event storage test completed successfully!");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -255,7 +239,7 @@ class BiTemporalEventStoreExampleTest {
                             .execute();
                 })
                 .compose(v -> eventStore.query(EventQuery.all()))
-                .onSuccess(allVersions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(allVersions -> testContext.verify(() -> {
                     logger.info("📋 Corrected event stored: {}", correctedEvent);
                     List<BiTemporalEvent<OrderEvent>> order004Events = allVersions.stream()
                             .filter(event -> "order-004".equals(event.getPayload().getOrderId()))
@@ -270,8 +254,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("Event corrections and versioning test completed successfully!");
                     logger.info("   📊 Preserved audit trail with {} versions", order004Events.size());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -299,7 +282,7 @@ class BiTemporalEventStoreExampleTest {
                 .compose(pointInTimeView -> eventStore.query(
                                 EventQuery.builder().validTimeRange(new TemporalRange(rangeStart, rangeEnd)).build())
                         .map(rangeView -> Map.entry(pointInTimeView, rangeView)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<OrderEvent>> pointInTimeView = result.getKey();
                     List<BiTemporalEvent<OrderEvent>> rangeView = result.getValue();
                     assertEquals(2, pointInTimeView.size(), "Point-in-time view should show 2 events");
@@ -309,8 +292,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("   📊 Point-in-time view: {} events, Range view: {} events",
                             pointInTimeView.size(), rangeView.size());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -332,7 +314,7 @@ class BiTemporalEventStoreExampleTest {
                 .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event1).validTime(Instant.now()).execute())
                 .compose(storedEvent1 -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2).validTime(Instant.now()).execute()
                         .map(storedEvent2 -> Map.entry(storedEvent1, storedEvent2)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<OrderEvent> storedEvent1 = result.getKey();
                     BiTemporalEvent<OrderEvent> storedEvent2 = result.getValue();
                     assertNotNull(storedEvent1, "First event should be stored");
@@ -342,8 +324,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("Real-time event subscriptions test completed successfully!");
                     logger.info("   📊 Subscription setup and event storage verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -359,7 +340,7 @@ class BiTemporalEventStoreExampleTest {
                 .validTime(Instant.now())
                 .execute()
                 .compose(v -> eventStore.query(EventQuery.all()))
-                .onSuccess(events -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                     BiTemporalEvent<OrderEvent> testEvent = events.stream()
                             .filter(event -> "order-010".equals(event.getPayload().getOrderId()))
                             .findFirst()
@@ -374,8 +355,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("Type-safe event handling test completed successfully!");
                     logger.info("   📋 Event details: {}", payload);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     /**

@@ -12,10 +12,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,14 +52,8 @@ public class AsyncFilterRetryManagerTest {
         Message<String> message = createMessage("test-1");
         Predicate<Message<String>> filter = msg -> true;
 
-        Future<AsyncFilterRetryManager.FilterResult> future = 
-            retryManager.executeFilterWithRetry(message, filter, circuitBreaker);
-
-        CountDownLatch latch1 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef1 = new AtomicReference<>();
-        future.onSuccess(r -> { resultRef1.set(r); latch1.countDown(); }).onFailure(e -> latch1.countDown());
-        assertTrue(latch1.await(1, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result = resultRef1.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, filter, circuitBreaker).await();
         
         assertTrue(result.isAccepted());
         assertEquals(AsyncFilterRetryManager.FilterResult.Status.ACCEPTED, result.getStatus());
@@ -82,14 +73,8 @@ public class AsyncFilterRetryManagerTest {
             return true;
         };
 
-        Future<AsyncFilterRetryManager.FilterResult> future = 
-            retryManager.executeFilterWithRetry(message, filter, circuitBreaker);
-
-        CountDownLatch latch2 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef2 = new AtomicReference<>();
-        future.onSuccess(r -> { resultRef2.set(r); latch2.countDown(); }).onFailure(e -> latch2.countDown());
-        assertTrue(latch2.await(1, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result = resultRef2.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, filter, circuitBreaker).await();
         
         assertTrue(result.isAccepted());
         assertEquals(AsyncFilterRetryManager.FilterResult.Status.ACCEPTED, result.getStatus());
@@ -105,14 +90,8 @@ public class AsyncFilterRetryManagerTest {
             throw new RuntimeException("Permanent failure");
         };
 
-        Future<AsyncFilterRetryManager.FilterResult> future = 
-            retryManager.executeFilterWithRetry(message, filter, circuitBreaker);
-
-        CountDownLatch latch3 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef3 = new AtomicReference<>();
-        future.onSuccess(r -> { resultRef3.set(r); latch3.countDown(); }).onFailure(e -> latch3.countDown());
-        assertTrue(latch3.await(1, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result = resultRef3.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, filter, circuitBreaker).await();
         
         assertFalse(result.isAccepted());
         // 1 initial + 3 retries = 4 attempts
@@ -131,14 +110,8 @@ public class AsyncFilterRetryManagerTest {
         }
         assertFalse(circuitBreaker.allowRequest());
 
-        Future<AsyncFilterRetryManager.FilterResult> future = 
-            retryManager.executeFilterWithRetry(message, filter, circuitBreaker);
-
-        CountDownLatch latch4 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef4 = new AtomicReference<>();
-        future.onSuccess(r -> { resultRef4.set(r); latch4.countDown(); }).onFailure(e -> latch4.countDown());
-        assertTrue(latch4.await(1, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result = resultRef4.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, filter, circuitBreaker).await();
         
         assertFalse(result.isAccepted());
         assertEquals("Circuit breaker open", result.getReason());
