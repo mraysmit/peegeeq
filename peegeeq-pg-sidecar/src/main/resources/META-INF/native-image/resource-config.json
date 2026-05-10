@@ -1,0 +1,13 @@
+{
+  "resources": {
+    "includes": [
+      { "pattern": "logback.xml" },
+      { "pattern": "logback-test.xml" },
+      { "pattern": "META-INF/services/io.vertx.core.spi.VerticleFactory" },
+      { "pattern": "META-INF/services/io.vertx.core.spi.VertxServiceProvider" },
+      { "pattern": "META-INF/services/com.ongres.scram.client.ScramClient" },
+      { "pattern": "META-INF/services/com.ongres.scram.common.ScramMechanisms" },
+      { "pattern": "META-INF/services/io.vertx.pgclient.spi.PgDriver" }
+    ]
+  }
+}
