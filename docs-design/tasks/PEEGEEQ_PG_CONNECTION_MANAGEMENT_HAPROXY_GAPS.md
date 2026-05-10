@@ -10,6 +10,10 @@ improving the HAProxy failover stack.  The architectural context, conceptual ove
 and sidecar usage guide are in
 [PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md](PEEGEEQ_PG_CONNECTION_MANAGEMENT_HAPROXY.md).
 
+For an overview of all available resiliency options (from simplest to most complete),
+see the **Resiliency Options at a Glance** grid in the Executive Summary of the main document.
+The gaps below apply at different layers of that stack and are noted per-section.
+
 ---
 
 ## 1. Gap Analysis
@@ -99,11 +103,19 @@ docker-compose use two independent PostgreSQL instances with no streaming replic
 automatic promotion occurs.  The setup is correct for its purpose (connection-level failover
 testing).
 
-**Recommendation for production with streaming replication and automatic promotion**: add
-Patroni (or repmgr) to manage promotion with fencing, and replace the plain TCP check with
-`httpchk GET /primary` against Patroni's REST port as shown in §4 of the main document.
-For environments that use manual promotion or a managed service endpoint, HAProxy alone is
-sufficient.
+**Recommendation for production with streaming replication and automatic promotion**: there
+are two viable paths depending on whether you want to introduce Patroni:
+
+- **Option 4 (HAProxy + Patroni)**: add Patroni to manage promotion with fencing and
+  `pg_rewind`, and replace the plain TCP check with `httpchk GET /primary` against Patroni's
+  REST port as shown in §4 of the main document.  This is the industry-standard approach.
+- **Option 5 (HAProxy + Consul monitor)**: the native PeeGeeQ path — implement
+  `PgFailoverMonitor` + `PgPrimaryElector` in `peegeeq-service-manager` to manage promotion
+  via Consul session locking.  Re-uses the Consul cluster already required by the service
+  manager.  See [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md).
+
+For environments that use manual promotion (DBA-driven), HAProxy + `httpchk` + the pg-sidecar
+(Option 3) is sufficient and requires no additional automation.
 
 ---
 
@@ -278,7 +290,7 @@ existing integration suite.
 | 1.1 | No circuit breaker on pool ops | Phase 2 | MEDIUM | `PgConnectionManager` + `PeeGeeQManager` wiring | New `CircuitBreakerPoolIntegrationTest` |
 | 1.3 | No streaming replication test | Phase 3 | LOW | None | New `HaProxyReplicationFailoverTest` |
 | 1.4 | PgBouncer transaction mode untested | Phase 4 | LOW | None | New `PgBouncerTransactionModeTest` |
-| 1.5 | Split-brain with replication + auto-promotion | Ops/infra | LOW–MEDIUM (specific conditions only) | Add Patroni if using auto-promotion with replication | N/A |
+| 1.5 | Split-brain with replication + auto-promotion | Ops/infra | LOW–MEDIUM (specific conditions only) | Choose Option 4 (Patroni) or Option 5 (Consul monitor) from the resiliency grid | N/A |
 
 Phases 1 and 3 can be worked in parallel (different modules, no shared files).  Phase 2
 depends on Phase 1 being stable (pool changes affect the same `PgConnectionManager`).

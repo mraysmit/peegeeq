@@ -1,8 +1,7 @@
 # PeeGeeq Connection Management and HAProxy Failover 
 
-**Author**: Mark A Ray-Smith Cityline Ltd.
+**Author**: Mark A Ray-Smith Cityline Ltd.  
 **Date**: Aug 26, 2025  
-**Status**: COMPLETE  
 **Version**: 1.1 (updated May 6, 2026 — incorporates architecture review)
 
 ---
@@ -68,20 +67,19 @@ requirements, then follow the detail links.
 
 ### Reading the table
 
-- **Option 1** — no proxy process at all; the application points at a single FQDN or virtual IP that DBA/DevOps re-points to the new primary after failover.  The Vert.x pool reconnects automatically once the FQDN resolves to the live node.  Suitable for development and non-critical workloads.
-- **Option 3** — adds semantic primary detection (`pg_is_in_recovery()` via sidecar) without
-  requiring Patroni.  Correct for production with manual failover.
-- **Option 4** — full Patroni stack; the industry-standard approach for PostgreSQL HA.
-  Requires an external DCS.
-- **Option 5** — the native PeeGeeQ path: re-uses the Consul cluster that
-  `peegeeq-service-manager` already requires.  Avoids introducing Patroni.  The
-  `PgFailoverMonitor` and `PgPrimaryElector` components are **proposed** (see
-  [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md)).
-- **Option 6** — offloads all HA concerns to the cloud provider; simplest operational model
-  for cloud deployments.
+- **Option 1 (single managed FQDN)** — no proxy process at all; the application points at a single FQDN or virtual IP that DBA/DevOps re-points to the new primary after failover.  The Vert.x pool reconnects automatically once the FQDN resolves to the live node.  Suitable for development and non-critical workloads.
+- **Option 2 (HAProxy + `pgsql-check`)** — adds TCP-level health checking and automatic re-routing away from a dead node, but cannot distinguish primary from replica.  The standby remains read-only; a DBA must still promote manually.
+- **Option 3 (HAProxy + sidecar)** — adds semantic primary detection (`pg_is_in_recovery()`) without requiring Patroni.  HAProxy routes only to the true write primary.  Correct for production with manual failover.
+- **Option 4 (HAProxy + Patroni)** — full Patroni stack; the industry-standard approach for PostgreSQL HA.  Requires an external DCS.  Provides automatic promotion, fencing, and `pg_rewind` for safe re-join.
+- **Option 5 (Consul monitor)** — the native PeeGeeQ path: re-uses the Consul cluster that `peegeeq-service-manager` already requires.  Avoids introducing Patroni.  The `PgFailoverMonitor` and `PgPrimaryElector` components are **proposed** (see [PEEGEEQ_FAILOVER_CONSUL_DESIGN.md](../peegeeq-service-manager/docs/PEEGEEQ_FAILOVER_CONSUL_DESIGN.md)).
 
-In all cases, point `peegeeq.database.host` and `peegeeq.database.port` at the proxy,
-load-balancer, or managed writer endpoint — never directly at a PostgreSQL node.
+In all cases, point `peegeeq.database.host` and `peegeeq.database.port` at the proxy or load-balancer endpoint — never directly at a PostgreSQL node.
+
+> **And JDBC?** The PostgreSQL JDBC driver supports a multi-host URL
+> (`jdbc:postgresql://host1,host2/db?targetServerType=primary`) that provides client-side
+> failover without a proxy.  This pattern is not applicable to PeeGeeQ — JDBC is a blocking
+> synchronous protocol incompatible with the Vert.x reactive model — and has significant
+> structural weaknesses in distributed systems.  See [Appendix B](#appendix-b-the-jdbc-multi-host-failover-pattern-historical-reference) for details.
 
 `HealthCheckManager` updates a health status map and optionally short-circuits its own
 periodic checks via the circuit breaker — it does not stop the `Pool` or gate business
@@ -886,6 +884,8 @@ cached by Docker).  Expected run time: under 30 seconds.
 
 ## 1. The Core Problem
 
+HAProxy is a battle-tested TCP/HTTP load balancer commonly placed in front of a PostgreSQL primary-replica pair to give the application a single, stable connection endpoint that survives a node failure.
+
 `option pgsql-check` and plain TCP checks both verify that PostgreSQL is **alive**.
 Both the primary and any replica pass these checks.
 Neither tells HAProxy which node is the **write primary**.
@@ -1063,7 +1063,9 @@ java -Dpg.host=localhost -Dpg.port=5432 -Dpg.user=haproxy_check \
 - No additional language runtime on the node — the JVM is already required for PeeGeeQ.
 - Uses `io.vertx.pgclient` (same driver as PeeGeeQ) — consistent behaviour, no new
   PostgreSQL dependency.
-- Can be compiled to a GraalVM native image if a minimal-footprint sidecar is required.
+- **Built as a GraalVM native image** for production deployments: instant startup (~10 ms),
+  minimal memory footprint (~15 MB RSS), no JVM on the node required.  The fat-jar form
+  is retained for development and debugging.  See §7.3 for the native build command.
 - The `haproxy_check` user needs no password and only the `SELECT pg_is_in_recovery()`
   privilege — same as the Python version.
 
@@ -1153,7 +1155,7 @@ Key characteristics:
 
 | Approach | Complexity | Extra process required | Automatic promotion | Split-brain safe |
 |----------|------------|------------------------|--------------------|--------------------|
-| Custom HTTP sidecar (§3.1) | Very low | Yes — tiny Python/shell | No | No |
+| Custom HTTP sidecar (§3.1) | Very low | Yes — `peegeeq-pg-sidecar` (Vert.x Java fat-jar) | No | No |
 | HAProxy `agent-check` (§3.2) | Low | Yes — shell + socat/xinetd | No | No |
 | repmgr + repmgrd (§3.3) | Medium | Yes — repmgrd daemon | Yes (with witness) | Partial |
 | Consul-based monitor (see `PG_FAILOVER_CONSUL_DESIGN.md`) | Medium | No (uses existing Consul) | Yes | Yes (with fencing) |
@@ -1372,3 +1374,80 @@ curl -o /dev/null -s -w "%{http_code}\n" http://localhost:8008/primary
 ---
 
 *End of document.*
+
+---
+
+## Appendix B: The JDBC Multi-Host Failover Pattern (Historical Reference)
+
+This appendix documents a client-side failover pattern that exists in the JDBC world.
+**It is not applicable to PeeGeeQ** and is recorded here only as context for readers
+who have encountered it in older systems.
+
+### The Pattern
+
+The PostgreSQL JDBC driver (version 42.2+) supports a multi-host connection URL:
+
+```
+jdbc:postgresql://host1:5432,host2:5432/database?targetServerType=primary
+```
+
+The driver iterates the host list on each connection attempt, queries
+`pg_is_in_recovery()` internally, and connects to the first node matching
+`targetServerType`:
+
+| `targetServerType` | Behaviour |
+|---|---|
+| `primary` | Only the write primary |
+| `preferPrimary` | Primary first, any node as fallback |
+| `secondary` | Only a replica |
+| `any` | First available node |
+
+No proxy process, no sidecar, no DCS — the failover logic lives entirely inside the
+JDBC driver.
+
+### Why It Is Not Used in PeeGeeQ
+
+**Not applicable to PeeGeeQ**: PeeGeeQ is designed as a pure reactive system built on Vert.x.
+JDBC is a blocking, synchronous protocol — every query occupies a thread until a response
+arrives.  In a reactive event-loop architecture, blocking a thread stalls the entire loop and
+defeats the purpose of the non-blocking model.  PeeGeeQ therefore forbids JDBC entirely:
+`DriverManager`, `PreparedStatement`, `ResultSet`, and JDBC URL strings are all banned.
+PeeGeeQ uses the Vert.x reactive pgclient (`io.vertx.pgclient`) exclusively, which
+configures hosts via `PgConnectOptions`, not a URL string.  The reactive client has no
+built-in equivalent of `targetServerType`.
+
+### Why It Is Not a Sound Pattern for Distributed Systems
+
+Even in JDBC codebases, this pattern has structural problems that make it unsuitable for
+modern microservice architectures:
+
+1. **Uncoordinated failover across services**: each microservice instance independently
+   iterates the host list on its next connection attempt.  After a primary failure, different
+   service instances may connect to different nodes during the promotion window — some still
+   seeing the old primary (if it partially recovers), others reaching the new primary.  The
+   application cluster has no shared view of which node is authoritative.
+
+2. **No fencing**: the driver cannot fence the old primary.  If the old primary comes back
+   before promotion is complete, some connections will re-attach to it and accept writes
+   concurrently with the new primary — data divergence.
+
+3. **Per-process host-list management**: every service process must be configured with the
+   full host list.  Adding or removing a PostgreSQL node requires a configuration change and
+   restart of every service instance.  In contrast, a single HAProxy instance absorbs the
+   topology change without touching application configuration.
+
+4. **Promotion race**: the driver retries connection to the next host only when the current
+   attempt fails.  During the promotion window (old primary gone, new primary not yet
+   accepting connections) all instances will exhaust their retry loop simultaneously, creating
+   a thundering-herd reconnect storm against the new primary.
+
+5. **No semantic health signal for routing**: the driver's host iteration is connection-scoped.
+   Once connected, there is no ongoing check that the chosen node remains the primary.  A
+   long-lived connection pool will silently keep connections to a node that has been demoted,
+   routing write queries to a replica that will reject them with `ERROR: cannot execute ... in
+   a read-only transaction`.
+
+**Conclusion**: an external proxy (HAProxy) or a monitor with a distributed lock (Consul) is
+the correct abstraction boundary for database-tier failover in a multi-service architecture.
+The proxy is the single, shared point of truth about which node is the primary; all service
+instances benefit automatically without any per-service failover logic.
