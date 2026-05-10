@@ -20,11 +20,13 @@ import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
-import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -34,14 +36,13 @@ import org.junit.jupiter.api.Tag;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration tests for RuntimeDatabaseSetupService using TestContainers.
  * Verifies the full wiring of native, outbox, and bitemporal modules.
  */
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -65,33 +66,33 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
     private String testSetupId;
 
     @BeforeAll
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         testSetupId = "runtime-integration-test-" + System.currentTimeMillis();
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
         logger.info("=== Starting Runtime Integration Tests ===");
         logger.info("Test Setup ID: {}", testSetupId);
         logger.info("PostgreSQL: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
+        testContext.completeNow();
     }
 
     @AfterAll
-    void tearDown() {
-        if (setupService != null && testSetupId != null) {
-            try {
-                setupService.destroySetup(testSetupId)
-                        .toCompletionStage()
-                        .toCompletableFuture()
-                        .get(10, TimeUnit.SECONDS);
-                logger.info("Test setup destroyed");
-            } catch (Exception e) {
-                logger.warn("Failed to destroy test setup: {}", e.getMessage());
-            }
+    void tearDown(VertxTestContext testContext) {
+        if (setupService != null) {
+            setupService.close()
+                    .onSuccess(v -> {
+                        setupService = null;
+                        testContext.completeNow();
+                    })
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
     @Test
     @Order(1)
     @DisplayName("createCompleteSetup - creates setup with native and outbox factories")
-    void createCompleteSetup_createsSetupWithFactories() throws Exception {
+    void createCompleteSetup_createsSetupWithFactories(VertxTestContext ctx) {
         // Given
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
                 .host(postgres.getHost())
@@ -118,57 +119,54 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                 Map.of()
         );
 
-        // When
-        DatabaseSetupResult result = setupService.createCompleteSetup(request)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(30, TimeUnit.SECONDS);
+        // When / Then
+        setupService.createCompleteSetup(request)
+                .onSuccess(result -> {
+                    ctx.verify(() -> {
+                        assertNotNull(result, "Setup result should not be null");
+                        assertEquals(testSetupId, result.getSetupId(), "Setup ID should match");
+                        assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Status should be ACTIVE");
 
-        // Then
-        assertNotNull(result, "Setup result should not be null");
-        assertEquals(testSetupId, result.getSetupId(), "Setup ID should match");
-        assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Status should be ACTIVE");
+                        Map<String, QueueFactory> factories = result.getQueueFactories();
+                        assertNotNull(factories, "Queue factories should not be null");
+                        assertFalse(factories.isEmpty(), "Should have at least one queue factory");
+                        assertTrue(factories.containsKey("testqueue"), "Should have testqueue factory");
 
-        // Verify queue factories are registered
-        Map<String, QueueFactory> factories = result.getQueueFactories();
-        assertNotNull(factories, "Queue factories should not be null");
-        assertFalse(factories.isEmpty(), "Should have at least one queue factory");
-        assertTrue(factories.containsKey("testqueue"), "Should have testqueue factory");
-
-        QueueFactory factory = factories.get("testqueue");
-        assertNotNull(factory, "Queue factory should not be null");
-        logger.info("Queue factory type: {}", factory.getImplementationType());
-
-        logger.info("Setup created successfully with {} queue factories", factories.size());
+                        QueueFactory factory = factories.get("testqueue");
+                        assertNotNull(factory, "Queue factory should not be null");
+                        logger.info("Queue factory type: {}", factory.getImplementationType());
+                        logger.info("Setup created successfully with {} queue factories", factories.size());
+                    });
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @Test
     @Order(2)
     @DisplayName("getSetupStatus - returns ACTIVE for existing setup")
-    void getSetupStatus_returnsActiveForExistingSetup() throws Exception {
-        // When
-        DatabaseSetupStatus status = setupService.getSetupStatus(testSetupId)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(10, TimeUnit.SECONDS);
-
-        // Then
-        assertEquals(DatabaseSetupStatus.ACTIVE, status, "Status should be ACTIVE");
+    void getSetupStatus_returnsActiveForExistingSetup(VertxTestContext ctx) {
+        setupService.getSetupStatus(testSetupId)
+                .onSuccess(status -> {
+                    ctx.verify(() -> assertEquals(DatabaseSetupStatus.ACTIVE, status, "Status should be ACTIVE"));
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @Test
     @Order(3)
     @DisplayName("getAllActiveSetupIds - includes test setup")
-    void getAllActiveSetupIds_includesTestSetup() throws Exception {
-        // When
-        Set<String> activeIds = setupService.getAllActiveSetupIds()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(10, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(activeIds, "Active IDs should not be null");
-        assertTrue(activeIds.contains(testSetupId), "Should contain test setup ID");
+    void getAllActiveSetupIds_includesTestSetup(VertxTestContext ctx) {
+        setupService.getAllActiveSetupIds()
+                .onSuccess(activeIds -> {
+                    ctx.verify(() -> {
+                        assertNotNull(activeIds, "Active IDs should not be null");
+                        assertTrue(activeIds.contains(testSetupId), "Should contain test setup ID");
+                    });
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 }
 

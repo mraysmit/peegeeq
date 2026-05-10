@@ -3,8 +3,15 @@
 Audit date: 2026-04-13  
 Branch: `feature/fanout-trace-propagation`
 
-This document catalogues error-swallowing patterns found across the PeeGeeQ codebase
-that prevent runtime failures from surfacing in tests. Organised by severity.
+> **This is a mandatory standards document.**  
+> Every pattern listed here must be eliminated from all test code. There are no exceptions.
+> Severity labels (CRITICAL, SERIOUS, HIGH, MEDIUM, LOW) describe the *blast radius* of
+> each violation — how quickly it causes test failures, masks bugs, or leaks resources.
+> They do not create a schedule or a class of acceptable violations. A LOW-severity
+> violation is still a violation and must be fixed. A violation is either present or absent.
+
+This document catalogues error-swallowing and test-integrity patterns found across the PeeGeeQ codebase
+that prevent runtime failures from surfacing in tests. Organised by severity of impact.
 
 ---
 
@@ -167,16 +174,20 @@ try { vertx.close(); } catch (Exception ignored) {}
 
 ### Assessment
 
-These are concentrated in test teardown (`@AfterEach`, `@AfterAll`). In teardown code,
-swallowing close errors is generally acceptable best-effort cleanup. However, some
-are in test bodies:
+These are concentrated in test teardown (`@AfterEach`, `@AfterAll`). Empty catch blocks
+are never acceptable — even in teardown, silent swallowing hides resource leaks and
+causes subsequent tests to fail with unrelated errors. At minimum every catch block must
+log the error at WARN level so teardown failures are visible in test output. The two
+occurrences in test bodies are a harder violation and must either propagate the exception
+or call `testContext.failNow(e)` if inside a `VertxTestContext` scope:
 
 | File | Line | Context |
 |---|---|---|
-| `PartitionedNativeConsumerIntegrationTest.java` | 122 | Test body not teardown |
-| `ResilienceSmokeTest.java` | 118, 200 | Test body not teardown |
+| `PartitionedNativeConsumerIntegrationTest.java` | 122 | Test body — must log or fail |
+| `ResilienceSmokeTest.java` | 118, 200 | Test body — must log or fail |
 
-These should log or fail the test instead of silently continuing.
+**Fix for teardown:** Replace `catch (Exception ignored) {}` with `catch (Exception e) { logger.warn("Close failed", e); }`  
+**Fix for test body:** Replace with `catch (Exception e) { testContext.failNow(e); }`
 
 ---
 
@@ -255,7 +266,7 @@ Add consecutive failure tracking (matching `DeadConsumerDetectionJob`'s pattern)
 
 ---
 
-## LOW: Production `.onFailure(log)` Terminal Handlers
+## NOT AN ANTIPATTERN: Production `.onFailure(log)` Terminal Handlers
 
 These are in `PgConnectionProvider.java` (lines 98, 106, 114):
 
@@ -751,7 +762,9 @@ six executable examples (three anti-pattern proofs, three safe-pattern counterpa
 
 ## Summary of Required Actions
 
-| Priority | Action | Scope |
+> **All items below are mandatory.** Severity describes the impact of the violation — the higher the severity, the faster it causes test failures or masks production bugs. Every item must be addressed regardless of severity level.
+
+| Severity | Required Action | Scope |
 |---|---|---|
 | CRITICAL | Replace bare `onSuccess` containing assertions or throwing calls with `testContext.succeeding(v -> testContext.verify(...))` — the canonical pattern from Vert.x JUnit 5 docs | All test classes with bare `onSuccess` callbacks |
 | CRITICAL | Replace `assertTrue(true, ...)` with real assertions or delete test | 27 tests |
@@ -790,6 +803,9 @@ six executable examples (three anti-pattern proofs, three safe-pattern counterpa
 | SERIOUS | Guard `@AfterEach` grace timer so `closeReactive()` is always called even when the Vertx event loop is dead | `BaseIntegrationTest.tearDownBaseIntegration()` 33% of teardowns silently skip `closeReactive()` |
 | LOW | Remove `System.gc()` from `BaseIntegrationTest.@AfterEach` | `BaseIntegrationTest.tearDownBaseIntegration()` GC-based resource cleanup is not deterministic |
 | HIGH | Add contract tests for `BaseIntegrationTest` pool configuration so property-key regressions are caught automatically | New test class `BaseIntegrationTestPoolConfigContractCoreTest` (`@Tag(CORE)`) |
+| SERIOUS | Remove manual `Vertx.vertx()` creation in classes annotated with `@ExtendWith(VertxExtension.class)` — either remove the extension or remove the manual instance | `ServiceDiscoveryExampleTest` and any class with both |
+| SERIOUS | Fix `@AfterEach` teardown to close resources in strict reverse-construction order using nested `finally` blocks | All integration tests with multi-resource teardown |
+| MEDIUM | Wrap code between `new VertxTestContext()` creation and `awaitCompletion` in `try/finally` to prevent orphaned contexts | Any test creating inline `VertxTestContext` instances |
 
 ---
 
@@ -1634,3 +1650,295 @@ checks of co-running tests fail if the health check counts indiscriminately. The
 is never to serialize tests with `@ResourceLock` that treats the symptom by removing
 concurrency. The fix is to make the health check correct so it is immune to concurrent
 producers by design, exactly as it must be in production.
+
+---
+
+## SERIOUS: Manual `Vertx.vertx()` Creation in Tests That Already Have `@ExtendWith(VertxExtension.class)`
+
+Added: 2026-05-09
+
+### What Happens
+
+`VertxExtension` creates and manages one `Vertx` instance per test. It injects it into
+method parameters (`Vertx vertx`, `VertxTestContext testContext`) and closes it after
+each test in `@AfterEach` during extension cleanup. When a test class has
+`@ExtendWith(VertxExtension.class)` but also calls `vertx = Vertx.vertx()` in its own
+`@BeforeEach`, the result is **two separate Vertx instances**:
+
+1. The one managed by `VertxExtension` — injected into method parameters, closed by the extension.
+2. The one created manually in `@BeforeEach` — stored in a field, only closed if the test's own `@AfterEach` runs to completion.
+
+If `@AfterEach` throws or if the extension's close fires before the test's own teardown,
+the manual instance leaks: its event-loop thread survives past the test, its `Pool`
+connections are not released, and timers it owns continue firing into the next test.
+
+### Real-World Instance
+
+`ServiceDiscoveryExampleTest` (`peegeeq-examples`):
+
+```java
+@ExtendWith(VertxExtension.class)   // VertxExtension creates + manages a Vertx instance
+@Testcontainers
+public class ServiceDiscoveryExampleTest {
+
+    private Vertx vertx;            // WRONG: field shadows VertxExtension's managed instance
+
+    @BeforeEach
+    void setUp() throws Exception {
+        vertx = Vertx.vertx();      // WRONG: creates a second, unmanaged Vertx instance
+        client = WebClient.create(vertx);
+        ...
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        ...
+        vertx.close().await();      // closes the manual instance, but VertxExtension
+                                    // also closes its own instance (different object)
+    }
+}
+```
+
+`RestApiExampleTest` has the same pattern without `@ExtendWith(VertxExtension.class)`,
+so the manual creation is correct there — but for any class that already has the extension,
+every `Vertx.vertx()` in `@BeforeEach` is a duplicate instance.
+
+### Correct Patterns
+
+**Option A — Use VertxExtension fully (preferred for integration tests using PeeGeeQ APIs)**
+
+Let `VertxExtension` manage the instance. Declare it as a method parameter in `@BeforeEach`:
+
+```java
+@ExtendWith(VertxExtension.class)
+public class MyTest {
+
+    private WebClient client;
+
+    @BeforeEach
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        // vertx is injected and managed by VertxExtension — do NOT create a second one
+        client = WebClient.create(vertx);
+        // setup complete; call testContext.completeNow() if setUp is async via Future
+        testContext.completeNow();
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (client != null) client.close();
+        // Do NOT call vertx.close() — VertxExtension owns this lifecycle
+    }
+}
+```
+
+**Option B — Self-managed Vertx (for tests without VertxExtension)**
+
+Remove `@ExtendWith(VertxExtension.class)` when you need full control over the Vertx
+lifecycle (e.g., tests that deploy verticles, need custom Vertx options, or manage
+their own teardown order):
+
+```java
+// No @ExtendWith(VertxExtension.class)
+public class MyTest {
+
+    private Vertx vertx;
+    private WebClient client;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        vertx = Vertx.vertx();
+        client = WebClient.create(vertx);
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (client != null) client.close();
+        if (vertx != null) vertx.close().await();
+    }
+}
+```
+
+**Rule:** Never mix `@ExtendWith(VertxExtension.class)` with a manually-created `Vertx`
+instance stored in a field. Pick one owner. `VertxExtension` is the correct choice when
+tests receive `VertxTestContext` as a method parameter; self-managed is the correct
+choice when the test controls its own `Vertx` options and teardown sequence.
+
+---
+
+## SERIOUS: Wrong Resource Close Order in `@AfterEach`
+
+Added: 2026-05-09
+
+### What Happens
+
+Resources in PeeGeeQ form a dependency chain: consumers use producers use the pool use
+the connection manager use the Vertx event loop. Closing an outer resource before an
+inner one causes the inner resource to fail mid-operation — pooled connections are torn
+out from under active consumers, producing `"Client not found"` errors, `NullPointerException`
+on in-flight futures, or leaked event-loop threads.
+
+### Correct Teardown Order
+
+Close in strict reverse-construction order, innermost consumers first, outermost
+infrastructure last:
+
+```
+1. Message consumers      (stop receiving; let in-flight messages drain)
+2. Message producers      (stop sending)
+3. OutboxFactory / consumer group   (close managed lifecycle objects)
+4. PgConnectionManager / secondary pools  (release pool connections)
+5. PeeGeeQManager / primary pool    (closeReactive().await())
+6. Vertx                  (vertx.close().await() — only if self-managed, not VertxExtension)
+```
+
+Each step must complete before the next starts. Use `.await()` for synchronous teardown
+or chain with `.compose()` for reactive teardown.
+
+### Anti-Pattern: Independent `try/catch` Blocks With No Guaranteed Ordering
+
+```java
+// WRONG: if block 1 throws, blocks 2 and 3 are still reached but in wrong order;
+// if block 2 throws unexpectedly, block 3 may not run at all without finally
+@AfterEach
+void tearDown() throws Exception {
+    try {
+        consumer.close();           // step 1
+    } catch (Exception e) { ... }
+
+    try {
+        outboxFactory.close();      // step 3 before pool — WRONG ORDER if pool closes first
+    } catch (Exception e) { ... }
+
+    try {
+        manager.closeReactive().await();    // step 5
+    } catch (Exception e) { ... }
+}
+```
+
+### Correct Pattern: `finally` Chains Guarantee Execution
+
+```java
+@AfterEach
+void tearDown() throws Exception {
+    try {
+        if (consumer != null) consumer.close();
+        if (producer != null) producer.close();
+    } finally {
+        try {
+            if (outboxFactory != null) outboxFactory.close();
+        } finally {
+            try {
+                if (connectionManager != null) connectionManager.close();
+            } finally {
+                if (manager != null) {
+                    manager.closeReactive().await();
+                }
+                // Do NOT close vertx if @ExtendWith(VertxExtension.class) is present
+            }
+        }
+    }
+}
+```
+
+Or, equivalently, use a reactive teardown chain:
+
+```java
+@AfterEach
+void tearDown(VertxTestContext testContext) {
+    Future.<Void>succeededFuture()
+        .compose(v -> consumer != null ? consumer.close() : Future.succeededFuture())
+        .compose(v -> producer != null ? producer.close() : Future.succeededFuture())
+        .compose(v -> outboxFactory != null ? outboxFactory.closeAsync() : Future.succeededFuture())
+        .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+        .onComplete(ar -> testContext.completeNow());
+}
+```
+
+**Rule:** Every resource that depends on another must be closed before it. In `@AfterEach`,
+an exception closing a resource at level N must not prevent the close of the resource at
+level N+1. Use nested `finally` blocks or a reactive chain to guarantee this.
+
+---
+
+## MEDIUM: `VertxTestContext` Orphan — Context Created But `awaitCompletion` Not Reachable
+
+Added: 2026-05-09
+
+### What Happens
+
+`VertxTestContext` is designed to be created, used to register async checkpoints, and
+then drained by `awaitCompletion(timeout, unit)`. If an exception is thrown, or a
+synchronous assertion fails, between context creation and the `awaitCompletion` call,
+the context is abandoned:
+
+- `completeNow()` or `failNow()` called from background callbacks after the method
+  returns have no effect on the test — the result has already been determined.
+- Any checkpoints that were never flagged silently expire without surfacing in the test
+  report.
+- If the same background future later attempts a second callback on the abandoned
+  context, it throws `IllegalStateException: Test context already completed`.
+
+### Real-World Instance
+
+`TransactionalOutboxAnalysisTest.testOutboxTransactionParticipation()` (simplified):
+
+```java
+VertxTestContext msgContext = new VertxTestContext();    // created
+var msgCheckpoint = msgContext.checkpoint();
+
+consumer.subscribe(message -> {
+    msgCheckpoint.flag();                                // background: may fire after throw below
+    return Future.succeededFuture();
+});
+
+someAssertion();    // WRONG: if this throws, the line below is never reached
+                    // msgContext is now orphaned
+
+assertTrue(msgContext.awaitCompletion(10, TimeUnit.SECONDS), "...");   // unreachable
+```
+
+If `someAssertion()` throws `AssertionError`, JUnit marks the test failed at that line,
+but `msgCheckpoint.flag()` may still fire from the subscribe callback after the test
+exits. This causes a secondary `IllegalStateException` in the log with no clear
+attribution.
+
+### Correct Pattern: Guard the Context Lifetime With `try/finally`
+
+```java
+VertxTestContext msgContext = new VertxTestContext();
+var msgCheckpoint = msgContext.checkpoint();
+
+consumer.subscribe(message -> {
+    msgCheckpoint.flag();
+    return Future.succeededFuture();
+});
+
+try {
+    someAssertion();    // if this throws, awaitCompletion still runs in finally
+} finally {
+    assertTrue(msgContext.awaitCompletion(10, TimeUnit.SECONDS),
+        "Subscriber should have received the message");
+    if (msgContext.failed()) throw new AssertionError(msgContext.causeOfFailure());
+}
+```
+
+Or, avoid inline `VertxTestContext` creation entirely: pass the enclosing test's
+`VertxTestContext` (the one injected by `VertxExtension`) down to the subscribe handler
+and use its checkpoints:
+
+```java
+// Prefer: use the injected testContext directly
+void testOutboxTransactionParticipation(VertxTestContext testContext) throws Exception {
+    var msgCheckpoint = testContext.checkpoint();   // flagged in subscribe → test completes
+    consumer.subscribe(message -> {
+        msgCheckpoint.flag();
+        return Future.succeededFuture();
+    });
+    ...
+}
+```
+
+**Rule:** Never create a `new VertxTestContext()` unless the injected `VertxTestContext`
+cannot be used (e.g., a second round of async work mid-test after the first has already
+been drained). When a standalone context is unavoidable, always wrap the code between
+creation and `awaitCompletion` in `try/finally` so the drain always runs.

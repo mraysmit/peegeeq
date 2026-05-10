@@ -2,7 +2,7 @@
 
 Created: 2026-05-07  
 Branch: `feature/offset-watermark-phase1`  
-Status: **IN PROGRESS** — Phases 0a–4 ✅ complete; Phase 5 next
+Status: **IN PROGRESS** — Phases 0a–7 ✅ complete; Phase 8 next
 
 ---
 
@@ -535,29 +535,34 @@ Select-String 'ResourceLock' peegeeq-db\src\test\java\dev\mars\peegeeq\db\infras
 
 ---
 
-### Phase 5 — `peegeeq-bitemporal` tests [Problem B]
+### Phase 5 — `peegeeq-bitemporal` tests [Problem B] ✅ COMPLETE
 
-**Change:** Migrate all `peegeeq-bitemporal` test classes from System.setProperty to
+**Change:** Migrated all 18 affected test classes in `peegeeq-bitemporal` from System.setProperty to
 `PeeGeeQTestConfig.builder()` + 2-arg constructor.
+
+Also fixed a pre-existing BOM (UTF-8 byte order mark) in 7 test files and a mismatched parenthesis
+in `PgBiTemporalEventStoreComplexTest.testGetByIdNonExistent` that was exposed by recompilation.
 
 **Positive test:**
 ```powershell
-mvn test -pl peegeeq-bitemporal -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\phase5.txt
-Select-String "BUILD" logs\phase5.txt   # must show SUCCESS
+mvn test -pl peegeeq-bitemporal -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\phase5-bitemporal-20260512.txt
+# BUILD SUCCESS — all tests pass, 0 failures
 ```
 
 **Negative test:**
 ```powershell
 Get-ChildItem -Recurse -Filter *.java peegeeq-bitemporal\src\test |
-    Select-String 'System\.(set|clear)Property.*"peegeeq\.'
-# must return nothing
+    ForEach-Object { $content = Get-Content $_.FullName -Raw; if ($content -match 'System\.(set|clear)Property.*"peegeeq\.') { $_.Name } }
+# Returns nothing — clean
 ```
 
 ---
 
-### Phase 6 — `peegeeq-outbox` tests [Problem B]
+### Phase 6 — `peegeeq-outbox` tests [Problem B] ✅ COMPLETE
 
 **Change:** Migrate all 60 affected test files in `peegeeq-outbox`.
+
+**Result:** BUILD SUCCESS — Tests run: 425, Failures: 0, Errors: 0, Skipped: 1 (12:34 min). Log: `logs/phase6-outbox-integration-20260515.txt`.
 
 **Positive test:**
 ```powershell
@@ -574,9 +579,11 @@ Get-ChildItem -Recurse -Filter *.java peegeeq-outbox\src\test |
 
 ---
 
-### Phase 7 — `peegeeq-native` tests [Problem B]
+### Phase 7 — `peegeeq-native` tests [Problem B] ✅ COMPLETE
 
-**Change:** Migrate all 39 affected test files in `peegeeq-native`.
+**Result:** 174 tests run, 0 failures, 0 errors — BUILD SUCCESS (2026-05-09)
+
+**Change:** Migrated all affected test files in `peegeeq-native` to `PeeGeeQTestConfig.builder().from(postgres).[.property(k,v)]*.build()` + `new PeeGeeQConfiguration("default", testProps)`. Zero remaining `System.setProperty/clearProperty("peegeeq.*")` in `peegeeq-native/src/test`.
 
 **Positive test:**
 ```powershell
