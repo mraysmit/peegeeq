@@ -1903,4 +1903,48 @@ public class EventStoreIntegrationTest {
                 })
                 .onFailure(testContext::failNow);
     }
+
+    @Test
+    @DisplayName("EventStore - Query with inverted validTime range (from after to) returns error")
+    void testQueryEventsWithInvertedValidTimeRange_returnsEmpty(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test: Query with inverted validTime range ===");
+
+        Instant now = Instant.now();
+
+        // Store an event so the store is not empty
+        JsonObject event = new JsonObject()
+                .put("eventType", "RangeTestEvent")
+                .put("payload", new JsonObject().put("key", "value"))
+                .put("validTime", now.toString());
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                .sendJsonObject(event)
+                .compose(storeResponse -> {
+                    logger.info("Stored event: {} - {}", storeResponse.statusCode(), storeResponse.bodyAsString());
+                    assertEquals(201, storeResponse.statusCode(), "Event should be stored before range test");
+
+                    // Query with inverted range: validTimeFrom is 1 hour in the FUTURE, validTimeTo is 2 hours in the PAST
+                    Instant invertedFrom = now.plusSeconds(3600);  // future
+                    Instant invertedTo   = now.minusSeconds(7200); // past (before from)
+                    logger.info("Querying with inverted range: validTimeFrom={}, validTimeTo={}", invertedFrom, invertedTo);
+
+                    return webClient.get(TEST_PORT, "localhost", "/api/v1/eventstores/" + testSetupId + "/test_events/events")
+                            .addQueryParam("validTimeFrom", invertedFrom.toString())
+                            .addQueryParam("validTimeTo", invertedTo.toString())
+                            .send();
+                })
+                .onSuccess(queryResponse -> {
+                    testContext.verify(() -> {
+                        logger.info("Inverted range query response: {} - {}", queryResponse.statusCode(), queryResponse.bodyAsString());
+
+                        // Server validates that start time cannot be after end time — returns error response
+                        assertTrue(queryResponse.statusCode() == 400 || queryResponse.statusCode() == 500,
+                                "Inverted time range should return a 4xx or 5xx error, got: " + queryResponse.statusCode());
+
+                        logger.info("Inverted valid time range correctly rejected with status {}", queryResponse.statusCode());
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
+    }
 }
