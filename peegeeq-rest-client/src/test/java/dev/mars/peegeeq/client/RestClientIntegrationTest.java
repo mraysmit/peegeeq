@@ -24,10 +24,8 @@ import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -40,7 +38,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -138,7 +135,7 @@ class RestClientIntegrationTest {
     @Test
     @Order(1)
     @DisplayName("createSetup - creates database setup via REST API")
-    void createSetup_success(VertxTestContext testContext) throws Exception {
+    void createSetup_success(VertxTestContext testContext) {
         JsonObject setupRequest = new JsonObject()
                 .put("setupId", testSetupId)
                 .put("databaseConfig", new JsonObject()
@@ -166,10 +163,8 @@ class RestClientIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(30000)
                 .sendJsonObject(setupRequest)
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(201, response.statusCode(),
                                 "Should return 201 Created: " + response.bodyAsString());
                         JsonObject body = response.bodyAsJsonObject();
@@ -178,22 +173,19 @@ class RestClientIntegrationTest {
                         logger.info("Setup created successfully: {}", body);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(2)
     @DisplayName("listSetups - lists all setups via REST API")
-    void listSetups_success(VertxTestContext testContext) throws Exception {
+    void listSetups_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject body = response.bodyAsJsonObject();
@@ -204,22 +196,19 @@ class RestClientIntegrationTest {
                         logger.info("Listed {} setups: {}", body.getInteger("count"), setupIds);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(3)
     @DisplayName("getSetupStatus - gets setup status via REST API")
-    void getSetupStatus_success(VertxTestContext testContext) throws Exception {
+    void getSetupStatus_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/status")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject status = response.bodyAsJsonObject();
@@ -227,15 +216,14 @@ class RestClientIntegrationTest {
                         logger.info("Setup status: {}", status);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(4)
     @DisplayName("sendMessage - sends message to queue via REST API")
-    void sendMessage_success(VertxTestContext testContext) throws Exception {
+    void sendMessage_success(VertxTestContext testContext) {
         JsonObject messageRequest = new JsonObject()
                 .put("payload", new JsonObject()
                         .put("orderId", "12345")
@@ -249,10 +237,8 @@ class RestClientIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendJsonObject(messageRequest)
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject result = response.bodyAsJsonObject();
@@ -260,23 +246,20 @@ class RestClientIntegrationTest {
                         logger.info("Message sent: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(5)
     @DisplayName("getQueueDetails - gets queue details via REST API")
-    void getQueueDetails_success(VertxTestContext testContext) throws Exception {
+    void getQueueDetails_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/queues/" + testSetupId + "/orders")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject details = response.bodyAsJsonObject();
@@ -284,23 +267,20 @@ class RestClientIntegrationTest {
                         logger.info("Queue details: {}", details);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(6)
     @DisplayName("getHealth - gets health status via REST API")
-    void getHealth_success(VertxTestContext testContext) throws Exception {
+    void getHealth_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/setups/" + testSetupId + "/health")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject health = response.bodyAsJsonObject();
@@ -308,15 +288,14 @@ class RestClientIntegrationTest {
                         logger.info("Health status: {}", health);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(7)
     @DisplayName("appendEvent - appends event to event store via REST API")
-    void appendEvent_success(VertxTestContext testContext) throws Exception {
+    void appendEvent_success(VertxTestContext testContext) {
         JsonObject eventRequest = new JsonObject()
                 .put("eventType", "OrderCreated")
                 .put("eventData", new JsonObject()
@@ -329,10 +308,8 @@ class RestClientIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendJsonObject(eventRequest)
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(201, response.statusCode(),
                                 "Should return 201 Created: " + response.bodyAsString());
                         JsonObject result = response.bodyAsJsonObject();
@@ -340,25 +317,22 @@ class RestClientIntegrationTest {
                         logger.info("Event appended: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(8)
     @DisplayName("queryEvents - queries events from event store via REST API")
-    void queryEvents_success(VertxTestContext testContext) throws Exception {
+    void queryEvents_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/eventstores/" + testSetupId + "/order-events/events")
                 .addQueryParam("eventType", "OrderCreated")
                 .addQueryParam("limit", "10")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject result = response.bodyAsJsonObject();
@@ -366,15 +340,14 @@ class RestClientIntegrationTest {
                         logger.info("Events queried: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(9)
     @DisplayName("createConsumerGroup - creates consumer group via REST API")
-    void createConsumerGroup_success(VertxTestContext testContext) throws Exception {
+    void createConsumerGroup_success(VertxTestContext testContext) {
         JsonObject groupRequest = new JsonObject()
                 .put("groupName", "order-processors");
 
@@ -383,10 +356,8 @@ class RestClientIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendJsonObject(groupRequest)
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(201, response.statusCode(),
                                 "Should return 201 Created: " + response.bodyAsString());
                         JsonObject result = response.bodyAsJsonObject();
@@ -394,23 +365,20 @@ class RestClientIntegrationTest {
                         logger.info("Consumer group created: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(10)
     @DisplayName("listConsumerGroups - lists consumer groups via REST API")
-    void listConsumerGroups_success(VertxTestContext testContext) throws Exception {
+    void listConsumerGroups_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/queues/" + testSetupId + "/orders/consumer-groups")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject result = response.bodyAsJsonObject();
@@ -419,23 +387,20 @@ class RestClientIntegrationTest {
                         logger.info("Consumer groups: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(11)
     @DisplayName("getEventStoreStats - gets event store statistics via REST API")
-    void getEventStoreStats_success(VertxTestContext testContext) throws Exception {
+    void getEventStoreStats_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/eventstores/" + testSetupId + "/order-events/stats")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject stats = response.bodyAsJsonObject();
@@ -443,9 +408,8 @@ class RestClientIntegrationTest {
                         logger.info("Event store stats: {}", stats);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -455,17 +419,15 @@ class RestClientIntegrationTest {
     @Test
     @Order(12)
     @DisplayName("listDeadLetters - lists dead letter messages via REST API")
-    void listDeadLetters_success(VertxTestContext testContext) throws Exception {
+    void listDeadLetters_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/setups/" + testSetupId + "/deadletter/messages")
                 .addQueryParam("offset", "0")
                 .addQueryParam("limit", "10")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         // Response is a JsonArray of dead letter messages
@@ -474,23 +436,20 @@ class RestClientIntegrationTest {
                         logger.info("Dead letters: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(13)
     @DisplayName("getDlqStats - gets DLQ statistics via REST API")
-    void getDlqStats_success(VertxTestContext testContext) throws Exception {
+    void getDlqStats_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/setups/" + testSetupId + "/deadletter/stats")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         JsonObject stats = response.bodyAsJsonObject();
@@ -498,9 +457,8 @@ class RestClientIntegrationTest {
                         logger.info("DLQ stats: {}", stats);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -510,15 +468,13 @@ class RestClientIntegrationTest {
     @Test
     @Order(15)
     @DisplayName("listComponentHealth - lists component health via REST API")
-    void listComponentHealth_success(VertxTestContext testContext) throws Exception {
+    void listComponentHealth_success(VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost",
                 "/api/v1/setups/" + testSetupId + "/health/components")
                 .timeout(10000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         assertEquals(200, response.statusCode(),
                                 "Should return 200 OK: " + response.bodyAsString());
                         // Response is a JsonArray of component health entries
@@ -527,30 +483,26 @@ class RestClientIntegrationTest {
                         logger.info("Component health: {}", result);
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @Order(100)
     @DisplayName("deleteSetup - deletes setup via REST API")
-    void deleteSetup_success(VertxTestContext testContext) throws Exception {
+    void deleteSetup_success(VertxTestContext testContext) {
         webClient.delete(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId)
                 .timeout(30000)
                 .send()
-                .onComplete(ar -> {
+                .onSuccess(response -> {
                     testContext.verify(() -> {
-                        assertTrue(ar.succeeded(), "HTTP request should succeed");
-                        HttpResponse<Buffer> response = ar.result();
                         // Accept 200 or 204 for delete
                         assertTrue(response.statusCode() == 200 || response.statusCode() == 204,
                                 "Should return 200 or 204: " + response.statusCode());
                         logger.info("Setup deleted successfully");
                     });
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })
+                .onFailure(testContext::failNow);
     }
 }
