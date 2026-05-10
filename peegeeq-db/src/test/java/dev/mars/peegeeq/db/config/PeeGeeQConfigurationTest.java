@@ -340,4 +340,40 @@ public class PeeGeeQConfigurationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
         assertEquals("test-host", config.getString("peegeeq.database.host"));
     }
+
+    @Test
+    void testPlaceholderResolutionWithDefault() {
+        // ${UNSET_VAR:my-default} should resolve to "my-default" when the env var is not set
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.host",     "${PEEGEEQ_TEST_UNSET_HOST:placeholder-host}");
+        overrides.setProperty("peegeeq.database.port",     "5433");
+        overrides.setProperty("peegeeq.database.name",     "${PEEGEEQ_TEST_UNSET_DB:placeholder-db}");
+        overrides.setProperty("peegeeq.database.username", "${PEEGEEQ_TEST_UNSET_USER:placeholder-user}");
+        overrides.setProperty("peegeeq.database.password", "${PEEGEEQ_TEST_UNSET_PWD:s3cr3t}");
+        overrides.setProperty("peegeeq.database.schema",   "${PEEGEEQ_TEST_UNSET_SCHEMA:placeholder-schema}");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
+
+        assertEquals("placeholder-host",   config.getString("peegeeq.database.host"));
+        assertEquals("placeholder-db",     config.getString("peegeeq.database.name"));
+        assertEquals("placeholder-user",   config.getString("peegeeq.database.username"));
+        assertEquals("s3cr3t",             config.getString("peegeeq.database.password"));
+        assertEquals("placeholder-schema", config.getString("peegeeq.database.schema"));
+    }
+
+    @Test
+    void testPlaceholderResolutionLeavesUnknownVarUnchangedWhenNoDefault() {
+        // ${UNSET_VAR} with no default and env var not set → value kept as-is
+        // We override the host with a known placeholder that has no default, then verify
+        // the raw placeholder string is preserved (and the WARN is logged).
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.host",     "test-host"); // keep valid
+        overrides.setProperty("peegeeq.test.placeholder",  "${PEEGEEQ_TEST_UNSET_NO_DEFAULT}");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
+
+        // Value should remain as the literal placeholder string since the env var is absent
+        assertEquals("${PEEGEEQ_TEST_UNSET_NO_DEFAULT}",
+            config.getString("peegeeq.test.placeholder", ""));
+    }
 }
