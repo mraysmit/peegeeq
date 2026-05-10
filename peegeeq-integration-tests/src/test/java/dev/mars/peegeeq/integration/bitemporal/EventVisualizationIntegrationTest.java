@@ -94,7 +94,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                     .addQueryParam("causationId", rootId)
                     .send();
             })
-            .onComplete(testContext.succeeding(response -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 JsonObject body = response.bodyAsJsonObject();
                 if (body == null) {
@@ -112,7 +112,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                 
                 cleanupSetup(setupId);
                 testContext.completeNow();
-            }));
+            })));
     }
 
     @Test
@@ -179,7 +179,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                     .addQueryParam("eventType", "order.placed")
                     .send();
             })
-            .onComplete(testContext.succeeding(response -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 JsonArray aggregates = response.bodyAsJsonObject().getJsonArray("aggregates");
                 
@@ -189,7 +189,7 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                 
                 cleanupSetup(setupId);
                 testContext.completeNow();
-            }));
+            })));
     }
 
     private void cleanupSetup(String setupId) {
