@@ -17,6 +17,7 @@ package dev.mars.peegeeq.integration.smoke;
 
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
@@ -166,6 +167,112 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
             }));
     }
 
+    /**
+     * Verifies that a bi-temporal correction can be appended to an existing event
+     * and that the version lineage is correctly reflected in the API response.
+     *
+     * <h3>What is being tested</h3>
+     * The correction pipeline:
+     * <ul>
+     *   <li>The original event is stored and receives a stable {@code eventId}.</li>
+     *   <li>A correction is posted to
+     *       {@code POST /api/v1/eventstores/{setupId}/{storeName}/events/{eventId}/corrections}.</li>
+     *   <li>The response carries {@code correctionEventId}, {@code originalEventId},
+     *       a {@code version} of at least 2, and the round-tripped {@code correctionReason}.</li>
+     * </ul>
+     *
+     * <h3>Coverage gap addressed</h3>
+     * Corrections were previously tested only inside the {@code peegeeq-rest} module's own
+     * integration test ({@code EventStoreIntegrationTest}), which uses an in-process setup.
+     * This test exercises the same path through the fully deployed REST server against a real
+     * PostgreSQL Testcontainer, matching the smoke-test tier contract.
+     *
+     * <h3>Test flow</h3>
+     * <ol>
+     *   <li>Create a PeeGeeQ event store setup via the REST API.</li>
+     *   <li>Append an original {@code PriceSet} event with price 89.99; capture {@code eventId}.</li>
+     *   <li>POST a correction for that event with price 99.99 and a {@code correctionReason}.</li>
+     *   <li>Assert the correction response returns 201 with {@code correctionEventId},
+     *       {@code originalEventId}, {@code version >= 2}, and the original reason text.</li>
+     * </ol>
+     */
+    @Test
+    @DisplayName("Should append correction to event and verify version lineage")
+    void testAppendCorrectionToEvent(VertxTestContext testContext) {
+        logger.info("=== TEST: Append correction to bi-temporal event (setupId will be logged below) ===");
+        String setupId = generateSetupId();
+        JsonObject setupRequest = createEventStoreSetupRequest(setupId, EVENT_STORE_NAME);
+
+        webClient.post("/api/v1/database-setup/create")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(setupRequest)
+            .compose(setupResponse -> {
+                logger.info("Event store setup created: {} (status={})", setupId, setupResponse.statusCode());
+                String aggregateId = "order-corr-" + System.currentTimeMillis();
+                logger.info("Appending original PriceSet event (aggregateId={}, price=89.99)", aggregateId);
+                JsonObject originalEvent = new JsonObject()
+                    .put("aggregateId", aggregateId)
+                    .put("eventType", "PriceSet")
+                    .put("eventData", new JsonObject().put("price", 89.99))
+                    .put("validFrom", Instant.now().toString())
+                    .put("correlationId", "corr-" + setupId);
+
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME + "/events")
+                    .putHeader("content-type", "application/json")
+                    .sendJsonObject(originalEvent);
+            })
+            .compose(appendResponse -> {
+                int status = appendResponse.statusCode();
+                logger.info("Original event appended: {} - {}", status, appendResponse.bodyAsString());
+                if (status != 200 && status != 201) {
+                    return Future.failedFuture(new AssertionError(
+                        "Expected 200/201 for original event append, got " + status));
+                }
+
+                String eventId = appendResponse.bodyAsJsonObject().getString("eventId");
+                if (eventId == null) {
+                    return Future.failedFuture(new AssertionError(
+                        "Original event append response missing eventId"));
+                }
+                logger.info("Original event stored with eventId={}, posting correction (price=99.99)", eventId);
+                JsonObject correctionRequest = new JsonObject()
+                    .put("eventData", new JsonObject().put("price", 99.99))
+                    .put("correctionReason", "Original price was incorrect")
+                    .put("validFrom", Instant.now().toString())
+                    .put("correlationId", "corr-" + setupId);
+
+                return webClient.post("/api/v1/eventstores/" + setupId + "/" + EVENT_STORE_NAME
+                        + "/events/" + eventId + "/corrections")
+                    .putHeader("content-type", "application/json")
+                    .sendJsonObject(correctionRequest);
+            })
+            .onComplete(testContext.succeeding(response -> {
+                testContext.verify(() -> {
+                    int statusCode = response.statusCode();
+                    logger.info("Correction response: {} - {}", statusCode, response.bodyAsString());
+
+                    assertEquals(201, statusCode, "Expected 201 for correction, got " + statusCode);
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body.getString("correctionEventId"),
+                        "Correction response must include correctionEventId");
+                    assertNotNull(body.getString("originalEventId"),
+                        "Correction response must include originalEventId");
+                    assertTrue(body.getInteger("version") >= 2,
+                        "Correction version must be >= 2, got " + body.getInteger("version"));
+                    assertEquals("Original price was incorrect", body.getString("correctionReason"),
+                        "correctionReason must match");
+
+                    logger.info("Correction verified: correctionEventId={}, originalEventId={}, version={}",
+                        body.getString("correctionEventId"), body.getString("originalEventId"),
+                        body.getInteger("version"));
+                    logger.info("=== TEST PASSED: testAppendCorrectionToEvent ===");
+                    cleanupSetup(setupId);
+                });
+                testContext.completeNow();
+            }));
+    }
+
     private JsonObject createEventStoreSetupRequest(String setupId, String eventStoreName) {
         return new JsonObject()
             .put("setupId", setupId)
@@ -190,13 +297,7 @@ class BiTemporalEventStoreSmokeTest extends SmokeTestBase {
     private void cleanupSetup(String setupId) {
         webClient.delete("/api/v1/setups/" + setupId)
             .send()
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    logger.info("Setup deleted: {}", setupId);
-                } else {
-                    logger.warn("Failed to delete setup: {}", setupId, ar.cause());
-                }
-            });
+            .onFailure(err -> logger.warn("Failed to delete setup: {}", setupId, err));
     }
 }
 
