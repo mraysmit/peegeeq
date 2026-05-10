@@ -39,9 +39,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.time.Duration;
 
 import io.vertx.junit5.VertxTestContext;
 
@@ -119,7 +117,10 @@ public class PostgresNoticeHandlerIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         return connectionManager.getOrCreateReactivePool("test-notice-handler", connectionConfig, poolConfig);
@@ -127,97 +128,56 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should handle RAISE INFO with PeeGeeQ code")
-    void testRaiseInfoWithPeeGeeQCode(VertxTestContext testContext) throws Exception {
+    void testRaiseInfoWithPeeGeeQCode(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        // Execute SQL that raises INFO with PeeGeeQ code
-        // Use withConnection to ensure notice handler is attached
         connectionManager.withConnection("test-notice-handler", conn ->
             conn.query("DO $$ BEGIN RAISE INFO 'Test PeeGeeQ info message' USING DETAIL = 'PGQINF0001'; END $$")
                 .execute()
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double peeGeeQInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                assertTrue(peeGeeQInfoCount > 0, "PeeGeeQ info counter should be incremented");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute RAISE INFO", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Query should succeed");
-
-        // Verify metrics were incremented
-        double peeGeeQInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        assertTrue(peeGeeQInfoCount > 0, "PeeGeeQ info counter should be incremented");
+            })));
     }
-
-
-
 
     @Test
     @DisplayName("Should handle RAISE NOTICE statements")
-    void testRaiseNotice(VertxTestContext testContext) throws Exception {
+    void testRaiseNotice(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        // Execute SQL that raises NOTICE
         connectionManager.withConnection("test-notice-handler", conn ->
             conn.query("DO $$ BEGIN RAISE NOTICE 'This is a standard PostgreSQL notice'; END $$")
                 .execute()
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double otherNoticeCount = meterRegistry.counter("peegeeq.notice.other").count();
+                assertTrue(otherNoticeCount > 0, "Other notice counter should be incremented");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute RAISE NOTICE", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Query should succeed");
-
-        // Verify metrics were incremented
-        double otherNoticeCount = meterRegistry.counter("peegeeq.notice.other").count();
-        assertTrue(otherNoticeCount > 0, "Other notice counter should be incremented");
+            })));
     }
 
     @Test
     @DisplayName("Should handle RAISE WARNING statements")
-    void testRaiseWarning(VertxTestContext testContext) throws Exception {
+    void testRaiseWarning(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        // Execute SQL that raises WARNING
         connectionManager.withConnection("test-notice-handler", conn ->
             conn.query("DO $$ BEGIN RAISE WARNING 'This is a PostgreSQL warning'; END $$")
                 .execute()
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
+                assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute RAISE WARNING", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Query should succeed");
-
-        // Verify metrics were incremented
-        double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
-        assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
+            })));
     }
 
     @Test
     @DisplayName("Should handle actual PostgreSQL warnings from deprecated syntax")
-    void testActualPostgresWarning(VertxTestContext testContext) throws Exception {
+    void testActualPostgresWarning(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
         // Create a function that uses deprecated syntax to trigger a real PostgreSQL warning
         // Note: This may not generate a warning in all PostgreSQL versions
@@ -236,28 +196,17 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("SELECT test_warning_function()").execute())
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
+                assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute function with warning", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Query should succeed");
-
-        // Verify metrics were incremented
-        double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
-        assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
+            })));
     }
 
     @Test
     @DisplayName("Should handle multiple notice types in sequence")
-    void testMultipleNoticeTypes(VertxTestContext testContext) throws Exception {
+    void testMultipleNoticeTypes(VertxTestContext testContext) {
         pool = createPool();
-        AtomicInteger successCount = new AtomicInteger(0);
 
         // Create a function that raises multiple types of notices
         String createFunction = """
@@ -276,59 +225,40 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("SELECT test_multiple_notices()").execute())
         )
-            .onSuccess(result -> {
-                successCount.incrementAndGet();
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double peeGeeQInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                double otherNoticeCount = meterRegistry.counter("peegeeq.notice.other").count();
+                double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
+                assertTrue(peeGeeQInfoCount > 0, "PeeGeeQ info counter should be incremented");
+                assertTrue(otherNoticeCount > 0, "Other notice counter should be incremented");
+                assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute function with multiple notices", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertEquals(1, successCount.get(), "Query should succeed");
-
-        // Verify all notice types were captured
-        double peeGeeQInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        double otherNoticeCount = meterRegistry.counter("peegeeq.notice.other").count();
-        double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
-
-        assertTrue(peeGeeQInfoCount > 0, "PeeGeeQ info counter should be incremented");
-        assertTrue(otherNoticeCount > 0, "Other notice counter should be incremented");
-        assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
+            })));
     }
 
     @Test
     @DisplayName("Should not interfere with error propagation")
-    void testErrorPropagation(VertxTestContext testContext) throws Exception {
+    void testErrorPropagation(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean errorReceived = new AtomicBoolean(false);
 
         // Execute SQL that will cause an error
         connectionManager.withConnection("test-notice-handler", conn ->
             conn.query("SELECT * FROM non_existent_table").execute()
         )
-            .onSuccess(result -> {
-                logger.error("Query should have failed but succeeded");
-                testContext.completeNow();
-            })
-            .onFailure(err -> {
+            .onSuccess(result -> testContext.failNow(new AssertionError("Query should have failed but succeeded")))
+            .onFailure(err -> testContext.verify(() -> {
                 logger.info("Correctly received error: {}", err.getMessage());
-                errorReceived.set(true);
+                assertNotNull(err, "Error should be propagated correctly");
                 testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(errorReceived.get(), "Error should be propagated correctly");
+            }));
     }
 
     @Test
     @DisplayName("Should capture infrastructure schema creation messages")
-    void testInfrastructureSchemaCreation(VertxTestContext testContext) throws Exception {
+    void testInfrastructureSchemaCreation(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+        final double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
 
         // Create a test schema using the same pattern as the infrastructure templates
         String createSchemaSQL = """
@@ -349,31 +279,20 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP SCHEMA IF EXISTS test_infra_schema CASCADE").execute())
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                assertTrue(finalInfoCount > initialInfoCount,
+                        "PeeGeeQ info counter should increase after schema creation");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to create schema", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Schema creation should succeed");
-
-        // Verify the info message was captured
-        double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        assertTrue(finalInfoCount > initialInfoCount,
-                "PeeGeeQ info counter should increase after schema creation");
+            })));
     }
 
     @Test
     @DisplayName("Should capture infrastructure table creation messages")
-    void testInfrastructureTableCreation(VertxTestContext testContext) throws Exception {
+    void testInfrastructureTableCreation(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+        final double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
 
         // Create a test table using the same pattern as the infrastructure templates
         String createTableSQL = """
@@ -398,81 +317,52 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP TABLE IF EXISTS public.test_infra_table CASCADE").execute())
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                assertTrue(finalInfoCount > initialInfoCount,
+                        "PeeGeeQ info counter should increase after table creation");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to create table", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Table creation should succeed");
-
-        // Verify the info messages were captured
-        double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        assertTrue(finalInfoCount > initialInfoCount,
-                "PeeGeeQ info counter should increase after table creation");
+            })));
     }
 
     @Test
     @DisplayName("Should capture infrastructure index creation messages")
-    void testInfrastructureIndexCreation(VertxTestContext testContext) throws Exception {
+    void testInfrastructureIndexCreation(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        // First create a table for the index
+        final double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+
+        // First create a table for the index, then create the index
         connectionManager.withConnection("test-notice-handler", conn ->
             conn.query("CREATE TABLE IF NOT EXISTS public.test_index_table (id BIGSERIAL PRIMARY KEY, topic VARCHAR(255))")
                 .execute()
-        )
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(5, TimeUnit.SECONDS);
-
-        double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-
-        // Create an index with info logging
-        String createIndexSQL = """
-            DO $$
-            BEGIN
-                CREATE INDEX IF NOT EXISTS idx_test_index_table_topic ON public.test_index_table(topic);
-                RAISE NOTICE '[PGQINF0553] Created index: idx_test_index_table_topic';
-            END
-            $$;
-            """;
-
-        connectionManager.withConnection("test-notice-handler", conn ->
-            conn.query(createIndexSQL)
-                .execute()
+                .compose(v -> {
+                    String createIndexSQL = """
+                        DO $$
+                        BEGIN
+                            CREATE INDEX IF NOT EXISTS idx_test_index_table_topic ON public.test_index_table(topic);
+                            RAISE NOTICE '[PGQINF0553] Created index: idx_test_index_table_topic';
+                        END
+                        $$;
+                        """;
+                    return conn.query(createIndexSQL).execute();
+                })
                 .compose(v -> conn.query("DROP TABLE IF EXISTS public.test_index_table CASCADE").execute())
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                assertTrue(finalInfoCount > initialInfoCount,
+                        "PeeGeeQ info counter should increase after index creation");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to create index", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Index creation should succeed");
-
-        // Verify the info message was captured
-        double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        assertTrue(finalInfoCount > initialInfoCount,
-                "PeeGeeQ info counter should increase after index creation");
+            })));
     }
 
     @Test
     @DisplayName("Should capture multiple infrastructure operations")
-    void testMultipleInfrastructureOperations(VertxTestContext testContext) throws Exception {
+    void testMultipleInfrastructureOperations(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
-        double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+        final double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
 
         // Simulate a complete infrastructure setup with multiple operations
         String multiOpSQL = """
@@ -512,35 +402,24 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP SCHEMA IF EXISTS test_multi_schema CASCADE").execute())
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                double messagesReceived = finalInfoCount - initialInfoCount;
+                assertTrue(messagesReceived >= 4,
+                        "Should receive at least 4 PeeGeeQ info messages (schema, table, index, function), got: " + messagesReceived);
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute multiple operations", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Multiple operations should succeed");
-
-        // Verify multiple info messages were captured
-        double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        double messagesReceived = finalInfoCount - initialInfoCount;
-        assertTrue(messagesReceived >= 4,
-                "Should receive at least 4 PeeGeeQ info messages (schema, table, index, function), got: " + messagesReceived);
+            })));
     }
 
     @Test
     @DisplayName("Should preserve tracing context in infrastructure messages")
-    void testTracingContextPreservation(VertxTestContext testContext) throws Exception {
+    void testTracingContextPreservation(VertxTestContext testContext) {
         pool = createPool();
-        AtomicBoolean success = new AtomicBoolean(false);
 
         // This test verifies that info messages can be correlated with operations for tracing
         String correlationId = "trace-" + System.currentTimeMillis();
 
-        double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+        final double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
 
         String tracedSQL = """
             DO $$
@@ -564,21 +443,11 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP SCHEMA IF EXISTS test_trace_schema CASCADE").execute())
         )
-            .onSuccess(result -> {
-                success.set(true);
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
+                assertTrue(finalInfoCount > initialInfoCount,
+                        "PeeGeeQ info counter should increase for traced operations");
                 testContext.completeNow();
-            })
-            .onFailure(err -> {
-                logger.error("Failed to execute traced operations", err);
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertTrue(success.get(), "Traced operations should succeed");
-
-        // Verify messages were captured
-        double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
-        assertTrue(finalInfoCount > initialInfoCount,
-                "PeeGeeQ info counter should increase for traced operations");
+            })));
     }
 }

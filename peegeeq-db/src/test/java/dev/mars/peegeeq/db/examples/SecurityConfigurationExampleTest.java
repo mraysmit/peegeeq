@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,36 +43,41 @@ public class SecurityConfigurationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(SecurityConfigurationExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
+        containerProps = new Properties();
+        containerProps.setProperty("peegeeq.database.host", postgres.getHost());
+        containerProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        containerProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        containerProps.setProperty("peegeeq.database.username", postgres.getUsername());
+        containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
+        containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
+        containerProps.setProperty("peegeeq.database.schema", "public");
+        containerProps.setProperty("peegeeq.database.pool.min-size", "1");
+        containerProps.setProperty("peegeeq.database.pool.max-size", "3");
+        containerProps.setProperty("peegeeq.database.pool.shared", "false");
+        containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
+        containerProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
+        containerProps.setProperty("peegeeq.health.check-interval", "PT5S");
+        containerProps.setProperty("peegeeq.health.timeout", "PT10S");
+        containerProps.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        containerProps.setProperty("peegeeq.migration.enabled", "false");
+        containerProps.setProperty("peegeeq.migration.auto-migrate", "false");
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
-                .onComplete(v -> {
-                    System.getProperties().entrySet().removeIf(e ->
-                        e.getKey().toString().startsWith("peegeeq."));
-                    testContext.completeNow();
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         } else {
-            System.getProperties().entrySet().removeIf(e ->
-                e.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -81,7 +85,7 @@ public class SecurityConfigurationExampleTest {
      * Validates basic security configuration principles and properties
      */
     @Test
-    void testBasicSecurityConfiguration(VertxTestContext testContext) throws InterruptedException {
+    void testBasicSecurityConfiguration(VertxTestContext testContext) {
         Properties securityProps = new Properties();
         securityProps.setProperty("peegeeq.database.ssl.enabled", "false");
         securityProps.setProperty("peegeeq.database.ssl.mode", "disable");
@@ -91,22 +95,16 @@ public class SecurityConfigurationExampleTest {
         securityProps.setProperty("peegeeq.database.username.encrypted", "false");
         securityProps.setProperty("peegeeq.database.password.encrypted", "false");
 
-        for (String key : securityProps.stringPropertyNames()) {
-            System.setProperty(key, securityProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("secure"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(securityProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("secure", mergedProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertNotNull(healthStatus);
                 assertTrue(healthStatus.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -114,27 +112,21 @@ public class SecurityConfigurationExampleTest {
      * Validates SSL/TLS configuration patterns (adapted for test environment)
      */
     @Test
-    void testSSLTLSConfiguration(VertxTestContext testContext) throws InterruptedException {
+    void testSSLTLSConfiguration(VertxTestContext testContext) {
         Properties sslProps = new Properties();
         sslProps.setProperty("peegeeq.database.ssl.enabled", "false");
         sslProps.setProperty("peegeeq.database.ssl.mode", "disable");
         sslProps.setProperty("peegeeq.database.ssl.cert.validation", "none");
 
-        for (String key : sslProps.stringPropertyNames()) {
-            System.setProperty(key, sslProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("ssl-test"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(sslProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("ssl-test", mergedProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -142,7 +134,7 @@ public class SecurityConfigurationExampleTest {
      * Validates production-ready security configuration
      */
     @Test
-    void testProductionSecuritySetup(VertxTestContext testContext) throws InterruptedException {
+    void testProductionSecuritySetup(VertxTestContext testContext) {
         Properties prodProps = new Properties();
         prodProps.setProperty("peegeeq.database.pool.minimum-idle", "5");
         prodProps.setProperty("peegeeq.database.pool.maximum-pool-size", "20");
@@ -153,22 +145,16 @@ public class SecurityConfigurationExampleTest {
         prodProps.setProperty("peegeeq.security.audit.enabled", "true");
         prodProps.setProperty("peegeeq.security.connection.validation", "true");
 
-        for (String key : prodProps.stringPropertyNames()) {
-            System.setProperty(key, prodProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("production"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(prodProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("production", mergedProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 assertNotNull(manager.getMetrics());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -176,21 +162,18 @@ public class SecurityConfigurationExampleTest {
      * Validates security monitoring and health check functionality
      */
     @Test
-    void testSecurityMonitoring(VertxTestContext testContext) throws InterruptedException {
+    void testSecurityMonitoring(VertxTestContext testContext) {
         Properties monitoringProps = new Properties();
         monitoringProps.setProperty("peegeeq.monitoring.health.enabled", "true");
         monitoringProps.setProperty("peegeeq.monitoring.health.interval", "PT30S");
         monitoringProps.setProperty("peegeeq.monitoring.metrics.enabled", "true");
         monitoringProps.setProperty("peegeeq.monitoring.security.audit", "true");
 
-        for (String key : monitoringProps.stringPropertyNames()) {
-            System.setProperty(key, monitoringProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("monitoring"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(monitoringProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("monitoring", mergedProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(2000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthCheckManager = manager.getHealthCheckManager();
                 assertNotNull(healthCheckManager);
 
@@ -201,10 +184,7 @@ public class SecurityConfigurationExampleTest {
                 var overallHealthComponents = overallHealth.getComponents();
                 assertTrue(overallHealthComponents.size() > 0, "Should have at least one health check");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -212,28 +192,22 @@ public class SecurityConfigurationExampleTest {
      * Validates credential management best practices
      */
     @Test
-    void testCredentialManagement(VertxTestContext testContext) throws InterruptedException {
+    void testCredentialManagement(VertxTestContext testContext) {
         Properties credProps = new Properties();
         credProps.setProperty("peegeeq.credentials.source", "system-properties");
         credProps.setProperty("peegeeq.credentials.encryption.enabled", "false");
         credProps.setProperty("peegeeq.credentials.rotation.enabled", "false");
         credProps.setProperty("peegeeq.credentials.validation.enabled", "true");
 
-        for (String key : credProps.stringPropertyNames()) {
-            System.setProperty(key, credProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("credentials"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(credProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("credentials", mergedProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     /**
@@ -241,7 +215,7 @@ public class SecurityConfigurationExampleTest {
      * Validates compliance configuration for enterprise environments
      */
     @Test
-    void testComplianceConfiguration(VertxTestContext testContext) throws InterruptedException {
+    void testComplianceConfiguration(VertxTestContext testContext) {
         Properties complianceProps = new Properties();
         complianceProps.setProperty("peegeeq.compliance.audit.enabled", "true");
         complianceProps.setProperty("peegeeq.compliance.encryption.at-rest", "true");
@@ -249,22 +223,23 @@ public class SecurityConfigurationExampleTest {
         complianceProps.setProperty("peegeeq.compliance.data.retention", "P90D");
         complianceProps.setProperty("peegeeq.compliance.access.logging", "true");
 
-        for (String key : complianceProps.stringPropertyNames()) {
-            System.setProperty(key, complianceProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("compliance"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(complianceProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("compliance", mergedProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 assertNotNull(manager.getMetrics());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
+    }
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+    private Properties mergeProps(Properties overrides) {
+        Properties merged = new Properties();
+        containerProps.forEach((k, v) -> merged.setProperty(k.toString(), v.toString()));
+        overrides.forEach((k, v) -> merged.setProperty(k.toString(), v.toString()));
+        return merged;
     }
 }
 

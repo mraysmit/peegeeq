@@ -20,7 +20,9 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -30,9 +32,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -41,9 +45,9 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Tests 3 consumer-group-specific metrics:</p>
  * <ol>
- *   <li>{@code peegeeq.completions.total} — counter per topic+group in CompletionTracker</li>
- *   <li>{@code peegeeq.blocked.messages} — gauge per topic+group from blocked message stats</li>
- *   <li>{@code peegeeq.detection.run.duration.seconds} — gauge from detection job stats</li>
+ *   <li>{@code peegeeq.completions.total} - counter per topic+group in CompletionTracker</li>
+ *   <li>{@code peegeeq.blocked.messages} - gauge per topic+group from blocked message stats</li>
+ *   <li>{@code peegeeq.detection.run.duration.seconds} - gauge from detection job stats</li>
  * </ol>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -77,7 +81,10 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -90,68 +97,71 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
         logger.info("RemainingPrometheusMetricsIntegrationTest setup complete");
     }
 
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        if (connectionManager != null) {
+            connectionManager.close()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
     // ========================================================================
     // Metric 1: peegeeq.completions.total (counter per topic+group)
     // ========================================================================
 
     @Test
-    void testCompletionCounterIncrementsOnMarkCompleted() {
+    void testCompletionCounterIncrementsOnMarkCompleted(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing completion counter increments on markCompleted ===");
 
         String topic = "test-completion-counter-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "counter-group";
-
-        // Create topic, subscribe
-        awaitFuture(topicConfigService.createTopic(TopicConfig.builder()
-                .topic(topic)
-                .semantics(TopicSemantics.PUB_SUB)
-                .build()));
-
-        awaitFuture(subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()));
-
-        // Create completion tracker WITH meter registry
         CompletionTracker tracker = new CompletionTracker(connectionManager, SERVICE_ID, meterRegistry);
 
-        // Publish a message
-        long messageId = awaitFuture(insertMessage(topic, new JsonObject().put("test", true)));
-
-        // Mark completed
-        awaitFuture(tracker.markCompleted(messageId, groupName, topic));
-
-        // Verify counter exists and incremented
-        Counter counter = meterRegistry.find("peegeeq.completions.total")
-                .tag("topic", topic)
-                .tag("group", groupName)
-                .counter();
-        assertNotNull(counter, "Completion counter should be registered");
-        assertEquals(1.0, counter.count(), "Counter should be 1 after one completion");
-
-        logger.info("Completion counter test passed: count={}", counter.count());
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .build())
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", true)))
+            .compose(messageId -> tracker.markCompleted(messageId, groupName, topic))
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    Counter counter = meterRegistry.find("peegeeq.completions.total")
+                            .tag("topic", topic)
+                            .tag("group", groupName)
+                            .counter();
+                    assertNotNull(counter, "Completion counter should be registered");
+                    assertEquals(1.0, counter.count(), "Counter should be 1 after one completion");
+                    logger.info("Completion counter test passed: count={}", counter.count());
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCompletionCounterWithoutRegistryStillWorks() {
+    void testCompletionCounterWithoutRegistryStillWorks(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing completion tracker works without meter registry ===");
 
         String topic = "test-no-registry-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "no-registry-group";
-
-        awaitFuture(topicConfigService.createTopic(TopicConfig.builder()
-                .topic(topic)
-                .semantics(TopicSemantics.PUB_SUB)
-                .build()));
-
-        awaitFuture(subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()));
-
-        // Create tracker WITHOUT registry (existing constructor)
         CompletionTracker tracker = new CompletionTracker(connectionManager, SERVICE_ID);
 
-        long messageId = awaitFuture(insertMessage(topic, new JsonObject().put("test", true)));
-
-        // Should not throw
-        awaitFuture(tracker.markCompleted(messageId, groupName, topic));
-
-        logger.info("Completion tracker without registry test passed");
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .build())
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", true)))
+            .compose(messageId -> tracker.markCompleted(messageId, groupName, topic))
+            .onSuccess(v -> {
+                logger.info("Completion tracker without registry test passed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -159,45 +169,44 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
     // ========================================================================
 
     @Test
-    void testBlockedMessagesGaugeAfterRefresh() {
+    void testBlockedMessagesGaugeAfterRefresh(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing blocked messages gauge after refresh ===");
 
         String topic = "test-blocked-gauge-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "blocked-gauge-group";
-
-        awaitFuture(topicConfigService.createTopic(TopicConfig.builder()
-                .topic(topic)
-                .semantics(TopicSemantics.PUB_SUB)
-                .messageRetentionHours(24)
-                .build()));
-
-        awaitFuture(subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()));
-
-        // Create metrics and bind
         ConsumerGroupMetrics metrics = new ConsumerGroupMetrics(detector);
         metrics.bindTo(meterRegistry);
 
-        // Publish messages
-        for (int i = 0; i < 3; i++) {
-            awaitFuture(insertMessage(topic, new JsonObject().put("index", i)));
-        }
-
-        // Mark subscription as DEAD so messages become blocked
-        awaitFuture(setSubscriptionDead(topic, groupName));
-
-        // Refresh metrics
-        awaitFuture(metrics.refresh());
-
-        // Verify blocked messages gauge exists
-        Gauge blockedGauge = meterRegistry.find("peegeeq.blocked.messages")
-                .tag("topic", topic)
-                .tag("group", groupName)
-                .gauge();
-        assertNotNull(blockedGauge, "Blocked messages gauge should exist for dead group");
-        assertTrue(blockedGauge.value() >= 3,
-                "Blocked messages gauge should be >= 3, actual: " + blockedGauge.value());
-
-        logger.info("Blocked messages gauge test passed: value={}", blockedGauge.value());
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> {
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 0; i < 3; i++) {
+                    final int idx = i;
+                    chain = chain.compose(ignored -> insertMessage(topic, new JsonObject().put("index", idx)).mapEmpty());
+                }
+                return chain;
+            })
+            .compose(v -> setSubscriptionDead(topic, groupName))
+            .compose(v -> metrics.refresh())
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    Gauge blockedGauge = meterRegistry.find("peegeeq.blocked.messages")
+                            .tag("topic", topic)
+                            .tag("group", groupName)
+                            .gauge();
+                    assertNotNull(blockedGauge, "Blocked messages gauge should exist for dead group");
+                    assertTrue(blockedGauge.value() >= 3,
+                            "Blocked messages gauge should be >= 3, actual: " + blockedGauge.value());
+                    logger.info("Blocked messages gauge test passed: value={}", blockedGauge.value());
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -205,10 +214,9 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
     // ========================================================================
 
     @Test
-    void testDetectionRunDurationGaugeAfterRefresh() {
+    void testDetectionRunDurationGaugeAfterRefresh(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing detection run duration gauge ===");
 
-        // Create metrics with detection job stats access
         DeadConsumerGroupCleanup cleanup = new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID);
         DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
                 manager.getVertx(), detector, cleanup, 60_000);
@@ -217,34 +225,32 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
         metrics.setDetectionJob(job);
         metrics.bindTo(meterRegistry);
 
-        // Start the job — it runs once immediately via runDetection()
         job.start();
 
-        // Wait for the immediate first run to complete
-        awaitFuture(manager.getVertx().timer(2000).mapEmpty());
+        job.runDetectionOnce()
+            .compose(v -> metrics.refresh())
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    Gauge durationGauge = meterRegistry.find("peegeeq.detection.run.duration.seconds")
+                            .gauge();
+                    assertNotNull(durationGauge, "Detection run duration gauge should exist");
+                    assertTrue(durationGauge.value() >= 0,
+                            "Detection duration should be non-negative, actual: " + durationGauge.value());
 
-        // Refresh metrics
-        awaitFuture(metrics.refresh());
+                    Gauge runCountGauge = meterRegistry.find("peegeeq.detection.runs.total")
+                            .gauge();
+                    assertNotNull(runCountGauge, "Detection run count gauge should exist");
+                    assertTrue(runCountGauge.value() >= 1,
+                            "Detection run count should be >= 1, actual: " + runCountGauge.value());
 
-        // Verify detection duration gauge exists and has a value
-        Gauge durationGauge = meterRegistry.find("peegeeq.detection.run.duration.seconds")
-                .gauge();
-        assertNotNull(durationGauge, "Detection run duration gauge should exist");
-        assertTrue(durationGauge.value() >= 0,
-                "Detection duration should be non-negative, actual: " + durationGauge.value());
-
-        // Run count gauge
-        Gauge runCountGauge = meterRegistry.find("peegeeq.detection.runs.total")
-                .gauge();
-        assertNotNull(runCountGauge, "Detection run count gauge should exist");
-        assertTrue(runCountGauge.value() >= 1,
-                "Detection run count should be >= 1, actual: " + runCountGauge.value());
-
-        // Clean up
-        job.stop();
-
-        logger.info("Detection run duration gauge test passed: duration={}s, runs={}",
-                durationGauge.value(), runCountGauge.value());
+                    job.stop();
+                    logger.info("Detection run duration gauge test passed: duration={}s, runs={}",
+                            durationGauge.value(), runCountGauge.value());
+                    
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================

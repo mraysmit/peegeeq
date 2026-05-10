@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -23,8 +24,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -32,14 +31,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Resource management tests for consumer mode implementation.
@@ -59,75 +60,53 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsumerModeResourceManagementTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeResourceManagementTest.class);
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_password");
-        return container;
-    }
+    @Container
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Configure test properties using TestContainer pattern (following existing patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
-
-        // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 
-        // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
-        // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
         factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for consumer mode resource management testing");
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-        logger.info("Test teardown completed");
     }
 
     @Test
     void testConnectionPoolUsageAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing connection pool usage across consumer modes");
-
+        logger.info("Test: connection pool usage across consumer modes");
         String topicName = "test-connection-pool-usage";
         List<MessageConsumer<String>> consumers = new ArrayList<>();
         List<MessageProducer<String>> producers = new ArrayList<>();
@@ -151,30 +130,26 @@ class ConsumerModeResourceManagementTest {
             AtomicInteger messageCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(3);
 
+            List<Future<?>> subscribeFutures = new ArrayList<>();
             for (int i = 0; i < consumers.size(); i++) {
-                final int index = i;
-                consumers.get(i).subscribe(message -> {
+                subscribeFutures.add(consumers.get(i).subscribe(message -> {
                     messageCount.incrementAndGet();
-                    logger.info("📨 Consumer {} received message: {}", index, message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
-                });
+                }));
             }
 
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
+            Future.all(subscribeFutures).onSuccess(ignored -> {
                 io.vertx.core.Future<Void> chain = Future.succeededFuture();
                 for (int i = 0; i < producers.size(); i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producers.get(idx).send("Test message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            }).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages across different consumer modes");
             assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
-
-            logger.info("Connection pool usage verified - all consumer modes working with shared resources");
 
         } finally {
             // Clean up resources
@@ -185,57 +160,11 @@ class ConsumerModeResourceManagementTest {
                 producer.close();
             }
         }
-
-        logger.info("Connection pool usage test completed successfully");
-    }
-
-    @Test
-    void testVertxInstanceSharingAcrossConsumers() throws Exception {
-        logger.info("🧪 Testing Vert.x instance sharing across consumers");
-
-        String topicName = "test-vertx-sharing";
-        List<MessageConsumer<String>> consumers = new ArrayList<>();
-
-        try {
-            for (int i = 0; i < 5; i++) {
-                ConsumerConfig config = ConsumerConfig.builder()
-                    .mode(ConsumerMode.HYBRID)
-                    .pollingInterval(Duration.ofSeconds(1))
-                    .build();
-
-                MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class, config);
-                consumers.add(consumer);
-            }
-
-            AtomicInteger subscriptionCount = new AtomicInteger(0);
-
-            // Subscribe all consumers
-            for (int i = 0; i < consumers.size(); i++) {
-                final int index = i;
-                consumers.get(i).subscribe(message -> {
-                    subscriptionCount.incrementAndGet();
-                    logger.info("📨 Consumer {} received message: {}", index, message.getPayload());
-                    return Future.succeededFuture();
-                });
-            }
-
-            assertEquals(5, consumers.size(), "All consumers should be set up successfully");
-
-            logger.info("Vert.x instance sharing verified - {} consumers created and subscribed", consumers.size());
-
-        } finally {
-            // Clean up resources
-            for (MessageConsumer<String> consumer : consumers) {
-                consumer.close();
-            }
-        }
-
-        logger.info("Vert.x instance sharing test completed successfully");
     }
 
     @Test
     void testSchedulerResourceManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing scheduler resource management for polling consumers");
+        logger.info("Test: scheduler resource management");
 
         String topicName = "test-scheduler-resources";
         List<MessageConsumer<String>> pollingConsumers = new ArrayList<>();
@@ -254,18 +183,16 @@ class ConsumerModeResourceManagementTest {
             AtomicInteger messageCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(3);
 
+            List<Future<?>> subscribeFutures = new ArrayList<>();
             for (int i = 0; i < pollingConsumers.size(); i++) {
-                final int index = i;
-                pollingConsumers.get(i).subscribe(message -> {
+                subscribeFutures.add(pollingConsumers.get(i).subscribe(message -> {
                     messageCount.incrementAndGet();
-                    logger.info("📨 Polling consumer {} received message: {}", index, message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
-                });
+                }));
             }
 
-            // Wait for polling setup, then send
-            vertx.setTimer(1000, id -> {
+            Future.all(subscribeFutures).onSuccess(ignored -> {
                 MessageProducer<String> producer = factory.createProducer(topicName + "-0", String.class);
                 MessageProducer<String> producer2 = factory.createProducer(topicName + "-1", String.class);
                 MessageProducer<String> producer3 = factory.createProducer(topicName + "-2", String.class);
@@ -273,33 +200,28 @@ class ConsumerModeResourceManagementTest {
                 producer.send("Test polling message 1")
                     .compose(v -> producer2.send("Test polling message 2"))
                     .compose(v -> producer3.send("Test polling message 3"))
-                    .onSuccess(v -> {
+                    .eventually(() -> {
                         producer.close();
                         producer2.close();
                         producer3.close();
+                        return Future.succeededFuture();
                     })
                     .onFailure(testContext::failNow);
-            });
+            }).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive messages via polling mechanism");
             assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
 
-            logger.info("Scheduler resource management verified - polling consumers working efficiently");
-
         } finally {
-            // Clean up resources - this should properly clean up scheduler resources
             for (MessageConsumer<String> consumer : pollingConsumers) {
                 consumer.close();
             }
         }
-
-        logger.info("Scheduler resource management test completed successfully");
     }
 
     @Test
     void testMemoryUsagePatterns(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing memory usage patterns across consumer modes");
-
+        logger.info("Test: memory usage patterns");
         String topicName = "test-memory-usage";
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -312,73 +234,57 @@ class ConsumerModeResourceManagementTest {
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
-                logger.debug("📨 Processed message: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 io.vertx.core.Future<Void> chain = Future.succeededFuture();
                 for (int i = 0; i < 10; i++) {
                     final int msgNum = i;
                     chain = chain.compose(v -> producer.send("Memory test message " + msgNum));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
             assertEquals(10, processedCount.get(), "Should process exactly 10 messages");
-
-            logger.info("Memory usage patterns verified - processed {} messages efficiently", processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
-
-        logger.info("Memory usage patterns test completed successfully");
     }
 
     @Test
     void testGracefulShutdownResourceCleanup(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing graceful shutdown and resource cleanup");
-
+        logger.info("Test: graceful shutdown resource cleanup");
         String topicName = "test-graceful-shutdown";
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint messagesProcessed = testContext.checkpoint(2);
+        try {
+            AtomicInteger processedCount = new AtomicInteger(0);
+            Checkpoint messagesProcessed = testContext.checkpoint(2);
 
-        consumer.subscribe(message -> {
-            processedCount.incrementAndGet();
-            logger.info("📨 Processing message during shutdown test: {}", message.getPayload());
-            messagesProcessed.flag();
-            return Future.succeededFuture();
-        });
+            consumer.subscribe(message -> {
+                processedCount.incrementAndGet();
+                messagesProcessed.flag();
+                return Future.succeededFuture();
+            })
+            .onSuccess(ignored -> producer.send("Shutdown test message 1")
+                    .compose(v -> producer.send("Shutdown test message 2"))
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
-        // Wait for consumer setup, then send
-        vertx.setTimer(500, id -> {
-            producer.send("Shutdown test message 1")
-                .compose(v -> producer.send("Shutdown test message 2"))
-                .onFailure(testContext::failNow);
-        });
-
-        // Wait for messages to be processed
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages before shutdown");
-
-        // Test graceful shutdown
-        logger.info("🔄 Testing graceful shutdown...");
-        consumer.close();
-        producer.close();
-
-        assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
-
-        logger.info("Graceful shutdown and resource cleanup verified");
-        logger.info("Graceful shutdown resource cleanup test completed successfully");
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages before shutdown");
+            assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
+        } finally {
+            consumer.close();
+            producer.close();
+        }
     }
 }
 

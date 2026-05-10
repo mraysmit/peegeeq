@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.WebSocket;
@@ -65,7 +66,7 @@ class WebSocketHandlerTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_websocket_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -115,10 +116,11 @@ class WebSocketHandlerTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -152,14 +154,13 @@ class WebSocketHandlerTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queue created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -205,9 +206,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                // WebSocket endpoint might not be implemented yet - that's OK
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -253,8 +253,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -296,10 +296,11 @@ class WebSocketHandlerTest {
                     });
                 });
 
-                // Set a timeout to complete if no subscription confirmation
+                // Fail the test if the expected 'subscribed' response never arrives.
                 vertx.setTimer(5000, id -> {
                     ws.close();
-                    testContext.completeNow();
+                    testContext.failNow(new AssertionError(
+                        "WebSocket subscription confirmation not received within 5 s"));
                 });
 
                 ws.exceptionHandler(err -> {
@@ -308,8 +309,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -351,10 +352,11 @@ class WebSocketHandlerTest {
                     });
                 });
 
-                // Set a timeout to complete if no configuration confirmation
+                // Fail the test if the expected 'configured' response never arrives.
                 vertx.setTimer(5000, id -> {
                     ws.close();
-                    testContext.completeNow();
+                    testContext.failNow(new AssertionError(
+                        "WebSocket configuration confirmation not received within 5 s"));
                 });
 
                 ws.exceptionHandler(err -> {
@@ -363,8 +365,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -379,7 +381,7 @@ class WebSocketHandlerTest {
         client.get(TEST_PORT, "localhost", wsPath)
             .timeout(5000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 // WebSocket endpoints typically return 400 or 426 for non-WebSocket requests
                 // or 404 if not implemented
                 int status = response.statusCode();
@@ -389,7 +391,7 @@ class WebSocketHandlerTest {
                 assertTrue(status >= 200 || status >= 400,
                     "Endpoint should respond with some status code");
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("HTTP request to WebSocket endpoint failed: {}", err.getMessage());
                 testContext.completeNow();

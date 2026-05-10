@@ -21,6 +21,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -32,15 +33,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,7 +60,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 public class PgConnectionManagerCloseLogLevelTest {
 
-    private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
+    private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerCloseLogLevelTest.class);
+    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
     @Container
@@ -85,23 +88,22 @@ public class PgConnectionManagerCloseLogLevelTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         connManagerLogger.detachAppender(logCapture);
         logCapture.stop();
 
         if (connectionManager != null) {
             connectionManager.close()
-                    .recover(t -> Future.succeededFuture())
-                    .onComplete(v -> testContext.completeNow());
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(e -> testContext.completeNow());
         } else {
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Negative: clean close with DB alive produces no ERROR")
-    void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
+    void testCleanCloseNoErrorLogs(VertxTestContext testContext) {
         PgConnectionConfig config = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -112,6 +114,9 @@ public class PgConnectionManagerCloseLogLevelTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(2)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create a pool
@@ -119,7 +124,7 @@ public class PgConnectionManagerCloseLogLevelTest {
 
         logCapture.clear();
         connectionManager.close()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasPoolCloseError = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("pools failed to close cleanly"));
@@ -128,15 +133,13 @@ public class PgConnectionManagerCloseLogLevelTest {
 
                     connectionManager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+                })));
     }
 
     @Test
     @DisplayName("Positive: close after DB shutdown produces ERROR when pools fail to close")
-    void testCloseAfterDbShutdownLogsError(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testCloseAfterDbShutdownLogsError(Vertx vertx, VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Some pools failed to close cleanly') is EXPECTED this test deliberately stops the DB container to verify error-level pool close failure logging");
         // Create a dedicated container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -156,6 +159,9 @@ public class PgConnectionManagerCloseLogLevelTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(2)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         PgConnectionManager ownConnMgr = new PgConnectionManager(vertx);
@@ -179,8 +185,8 @@ public class PgConnectionManagerCloseLogLevelTest {
                     ownCapture.clear();
                     return ownConnMgr.close();
                 })
-                .onComplete(ar -> testContext.verify(() -> {
-                    // closeAsync() completes via .recover() even when pools fail
+                .onComplete(testContext.succeeding(ar -> testContext.verify(() -> {
+                    // closeAsync() completes via .mapEmpty() even when pools fail
                     List<ILoggingEvent> errors = ownCapture.eventsAtLevel(Level.ERROR);
                     List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);
 
@@ -193,28 +199,23 @@ public class PgConnectionManagerCloseLogLevelTest {
                     logger.detachAppender(ownCapture);
                     ownCapture.stop();
                     testContext.completeNow();
-                }));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })));
     }
 
     @Test
     @DisplayName("Negative: close with no pools produces no ERROR")
-    void testCloseWithNoPoolsNoError(VertxTestContext testContext) throws InterruptedException {
+    void testCloseWithNoPoolsNoError(VertxTestContext testContext) {
         // Don't create any pools
         logCapture.clear();
         connectionManager.close()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     assertTrue(errors.isEmpty(),
                             "Closing with no pools should produce no ERROR logs");
 
                     connectionManager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+                })));
     }
 
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {
@@ -226,9 +227,11 @@ public class PgConnectionManagerCloseLogLevelTest {
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
-                    .filter(e -> e.getLevel().equals(level))
-                    .toList();
+            synchronized (events) {
+                return events.stream()
+                        .filter(e -> e.getLevel().equals(level))
+                        .toList();
+            }
         }
 
         void clear() {

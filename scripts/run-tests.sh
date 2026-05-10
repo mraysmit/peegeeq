@@ -81,7 +81,7 @@ show_usage() {
     echo "  performance   Load and throughput tests (~10-15 minutes per module)"
     echo "  smoke         Ultra-fast basic verification (~30 seconds per module)"
     echo "  slow          Long-running comprehensive tests (~15+ minutes per module)"
-    echo "  all           All tests except flaky (~20+ minutes per module)"
+    echo "  all           All tests (~20+ minutes per module)"
     echo ""
     echo "Available Modules:"
     for module in "${CATEGORIZED_MODULES[@]}"; do

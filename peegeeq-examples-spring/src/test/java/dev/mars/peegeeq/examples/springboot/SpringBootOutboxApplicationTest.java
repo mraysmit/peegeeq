@@ -24,6 +24,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -52,7 +53,6 @@ import org.slf4j.LoggerFactory;
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootOutboxApplication.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
@@ -60,6 +60,7 @@ import org.slf4j.LoggerFactory;
         "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
     }
 )
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
 class SpringBootOutboxApplicationTest {
     
@@ -74,17 +75,12 @@ class SpringBootOutboxApplicationTest {
     }
 
     @BeforeAll
-    static void setupSchema() throws Exception {
+    static void setupSchema() {
         logger.info("Initializing database schema for Spring Boot outbox application test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(
-            postgres.getJdbcUrl(),
-            postgres.getUsername(),
-            postgres.getPassword(),
-            SchemaComponent.ALL
-        );
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
-    
+
     /**
      * Test that the Spring Boot application context loads successfully.
      * This is a smoke test to ensure all beans are created and wired correctly.

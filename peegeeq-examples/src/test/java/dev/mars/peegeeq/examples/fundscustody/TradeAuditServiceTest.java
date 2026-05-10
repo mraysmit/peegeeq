@@ -8,6 +8,8 @@ import dev.mars.peegeeq.examples.fundscustody.model.ChangeReport;
 import dev.mars.peegeeq.examples.fundscustody.model.CorrectionAudit;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeAuditService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -30,6 +32,12 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 class TradeAuditServiceTest extends FundsCustodyTestBase {
+
+    private Future<Void> delay(Vertx vertx, long ms) {
+        Promise<Void> p = Promise.promise();
+        vertx.setTimer(ms, id -> p.complete());
+        return p.future();
+    }
     
     private TradeAuditService auditService;
     
@@ -41,280 +49,191 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
     }
     
     @Test
-    void testGetCorrectionsInPeriod(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testGetCorrectionsInPeriod(Vertx vertx, VertxTestContext testContext) {
         String fundId = "FUND-001";
         LocalDate tradeDate = LocalDate.of(2025, 10, 1);
-        
-        // Record a trade
+
         TradeRequest tradeRequest = new TradeRequest(
-            fundId,
-            "AAPL",
-            TradeType.BUY,
-            new BigDecimal("100"),
-            new BigDecimal("150.00"),
-            Currency.USD,
-            tradeDate,
-            tradeDate.plusDays(2),  // T+2 settlement
-            "BROKER-A"
+            fundId, "AAPL", TradeType.BUY,
+            new BigDecimal("100"), new BigDecimal("150.00"),
+            Currency.USD, tradeDate, tradeDate.plusDays(2), "BROKER-A"
         );
 
-        String tradeId = tradeService.recordTrade(tradeRequest)
+        tradeService.recordTrade(tradeRequest)
             .map(event -> event.getPayload().tradeId())
-            .await();
-
-        vertx.setTimer(100, id1 -> {
-            try {
-                // Cancel the trade (correction)
+            .compose(tradeId -> {
                 Instant correctionTime = Instant.now();
-                CancellationRequest cancelRequest = new CancellationRequest(
-                    "Price error - should be 155.00",
-                    "auditor1"
-                );
-
-                tradeService.cancelTrade(tradeId, cancelRequest)
-                    .await();
-                
-                vertx.setTimer(100, id2 -> {
-                    try {
-                        // Query corrections in period
+                return delay(vertx, 100)
+                    .compose(v -> cancelTradeAsync(tradeId, "Price error - should be 155.00"))
+                    .compose(v -> delay(vertx, 100))
+                    .compose(v -> {
                         Instant periodStart = correctionTime.minus(1, ChronoUnit.HOURS);
                         Instant periodEnd = correctionTime.plus(1, ChronoUnit.HOURS);
-                        
-                        List<CorrectionAudit> corrections = auditService
-                            .getCorrectionsInPeriod(fundId, periodStart, periodEnd)
-                            .await();
-                        
-                        // Verify
-                        assertNotNull(corrections);
-                        assertEquals(1, corrections.size());
-                        
-                        CorrectionAudit audit = corrections.get(0);
-                        assertEquals(tradeId, audit.tradeId());
-                        assertEquals(fundId, audit.fundId());
-                        assertEquals("AAPL", audit.securityId());
-                        assertEquals(tradeDate, audit.tradeDate());
-                        assertEquals("Price error - should be 155.00", audit.reason());
-                        assertEquals("auditor1", audit.correctedBy());
-                        assertNotNull(audit.correctedAt());
-                        testContext.completeNow();
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                });
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+                        return auditService.getCorrectionsInPeriod(fundId, periodStart, periodEnd);
+                    })
+                    .map(corrections -> new Object[]{ tradeId, corrections });
+            })
+            .onSuccess(result -> testContext.verify(() -> {
+                String tradeId = (String) result[0];
+                @SuppressWarnings("unchecked")
+                List<CorrectionAudit> corrections = (List<CorrectionAudit>) result[1];
+                assertNotNull(corrections);
+                assertEquals(1, corrections.size());
+                CorrectionAudit audit = corrections.get(0);
+                assertEquals(tradeId, audit.tradeId());
+                assertEquals(fundId, audit.fundId());
+                assertEquals("AAPL", audit.securityId());
+                assertEquals(tradeDate, audit.tradeDate());
+                assertEquals("Price error - should be 155.00", audit.reason());
+                assertEquals("auditor1", audit.correctedBy());
+                assertNotNull(audit.correctedAt());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testGetCorrectionsAffectingValidPeriod(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testGetCorrectionsAffectingValidPeriod(Vertx vertx, VertxTestContext testContext) {
         String fundId = "FUND-002";
-        
-        // Record trades on different dates
+
         LocalDate date1 = LocalDate.of(2025, 9, 15);
         LocalDate date2 = LocalDate.of(2025, 9, 20);
         LocalDate date3 = LocalDate.of(2025, 10, 5);
-        
-        String tradeId1 = recordAndGetTradeId(fundId, "MSFT", date1);
-        String tradeId2 = recordAndGetTradeId(fundId, "GOOGL", date2);
-        String tradeId3 = recordAndGetTradeId(fundId, "AMZN", date3);
-        
-        vertx.setTimer(100, id1 -> {
-            try {
-                // Cancel trades (corrections)
-                cancelTrade(tradeId1, "Correction 1");
-                cancelTrade(tradeId2, "Correction 2");
-                cancelTrade(tradeId3, "Correction 3");
-                
-                vertx.setTimer(100, id2 -> {
-                    try {
-                        // Query corrections affecting September trades
-                        LocalDate validStart = LocalDate.of(2025, 9, 1);
-                        LocalDate validEnd = LocalDate.of(2025, 9, 30);
-                        
-                        List<CorrectionAudit> corrections = auditService
-                            .getCorrectionsAffectingValidPeriod(fundId, validStart, validEnd)
-                            .await();
-                        
-                        // Verify - should only include September trades
-                        assertNotNull(corrections);
-                        assertEquals(2, corrections.size());
-                        
-                        List<String> correctedTradeIds = corrections.stream()
-                            .map(CorrectionAudit::tradeId)
-                            .toList();
-                        
-                        assertTrue(correctedTradeIds.contains(tradeId1));
-                        assertTrue(correctedTradeIds.contains(tradeId2));
-                        assertFalse(correctedTradeIds.contains(tradeId3)); // October trade excluded
-                        testContext.completeNow();
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                });
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+
+        recordAndGetTradeIdAsync(fundId, "MSFT", date1)
+            .compose(tradeId1 -> recordAndGetTradeIdAsync(fundId, "GOOGL", date2)
+                .compose(tradeId2 -> recordAndGetTradeIdAsync(fundId, "AMZN", date3)
+                    .compose(tradeId3 -> delay(vertx, 100)
+                        .compose(v -> cancelTradeAsync(tradeId1, "Correction 1"))
+                        .compose(v -> cancelTradeAsync(tradeId2, "Correction 2"))
+                        .compose(v -> cancelTradeAsync(tradeId3, "Correction 3"))
+                        .compose(v -> delay(vertx, 100))
+                        .compose(v -> {
+                            LocalDate validStart = LocalDate.of(2025, 9, 1);
+                            LocalDate validEnd = LocalDate.of(2025, 9, 30);
+                            return auditService.getCorrectionsAffectingValidPeriod(fundId, validStart, validEnd);
+                        })
+                        .map(corrections -> new Object[]{ tradeId1, tradeId2, tradeId3, corrections })
+                    )
+                )
+            )
+            .onSuccess(result -> testContext.verify(() -> {
+                String tradeId1 = (String) result[0];
+                String tradeId2 = (String) result[1];
+                String tradeId3 = (String) result[2];
+                @SuppressWarnings("unchecked")
+                List<CorrectionAudit> corrections = (List<CorrectionAudit>) result[3];
+                assertNotNull(corrections);
+                assertEquals(2, corrections.size());
+                List<String> correctedTradeIds = corrections.stream().map(CorrectionAudit::tradeId).toList();
+                assertTrue(correctedTradeIds.contains(tradeId1));
+                assertTrue(correctedTradeIds.contains(tradeId2));
+                assertFalse(correctedTradeIds.contains(tradeId3));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testGetTradeCorrectionHistory(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testGetTradeCorrectionHistory(Vertx vertx, VertxTestContext testContext) {
         String fundId = "FUND-003";
         LocalDate tradeDate = LocalDate.of(2025, 10, 1);
-        
-        // Record a trade
-        String tradeId = recordAndGetTradeId(fundId, "TSLA", tradeDate);
-        
-        vertx.setTimer(100, id1 -> {
-            try {
-                // Cancel it (first correction)
-                cancelTrade(tradeId, "First correction - wrong quantity");
-                
-                vertx.setTimer(100, id2 -> {
-                    try {
-                        // Query correction history
-                        List<CorrectionAudit> history = auditService
-                            .getTradeCorrectionHistory(tradeId)
-                            .await();
-                        
-                        // Verify
-                        assertNotNull(history);
-                        assertEquals(1, history.size());
-                        
-                        CorrectionAudit audit = history.get(0);
-                        assertEquals(tradeId, audit.tradeId());
-                        assertEquals("First correction - wrong quantity", audit.reason());
-                        testContext.completeNow();
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                });
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+
+        recordAndGetTradeIdAsync(fundId, "TSLA", tradeDate)
+            .compose(tradeId -> delay(vertx, 100)
+                .compose(v -> cancelTradeAsync(tradeId, "First correction - wrong quantity"))
+                .compose(v -> delay(vertx, 100))
+                .compose(v -> auditService.getTradeCorrectionHistory(tradeId))
+                .map(history -> new Object[]{ tradeId, history })
+            )
+            .onSuccess(result -> testContext.verify(() -> {
+                String tradeId = (String) result[0];
+                @SuppressWarnings("unchecked")
+                List<CorrectionAudit> history = (List<CorrectionAudit>) result[1];
+                assertNotNull(history);
+                assertEquals(1, history.size());
+                CorrectionAudit audit = history.get(0);
+                assertEquals(tradeId, audit.tradeId());
+                assertEquals("First correction - wrong quantity", audit.reason());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testGetChangesBetween(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testGetChangesBetween(Vertx vertx, VertxTestContext testContext) {
         String fundId = "FUND-004";
         LocalDate tradeDate = LocalDate.of(2025, 10, 1);
-        
-        // Capture initial state
+
         Instant time1 = Instant.now();
-        
-        vertx.setTimer(100, id1 -> {
-            try {
-                // Record first trade
-                String tradeId1 = recordAndGetTradeId(fundId, "NVDA", tradeDate);
-                
-                vertx.setTimer(100, id2 -> {
-                    try {
-                        // Capture state after first trade
-                        Instant time2 = Instant.now();
-                        
-                        vertx.setTimer(100, id3 -> {
-                            try {
-                                // Record second trade
-                                String tradeId2 = recordAndGetTradeId(fundId, "AMD", tradeDate);
-                                
-                                vertx.setTimer(100, id4 -> {
-                                    try {
-                                        // Cancel first trade
-                                        cancelTrade(tradeId1, "Correction");
-                                        
-                                        vertx.setTimer(100, id5 -> {
-                                            try {
-                                                // Capture final state
-                                                Instant time3 = Instant.now();
-                                                
-                                                // Query changes between time1 and time2 (should show 1 new trade)
-                                                ChangeReport changes1 = auditService
-                                                    .getChangesBetween(fundId, time1, time2)
-                                                    .await();
-                                                
-                                                assertNotNull(changes1);
-                                                assertTrue(changes1.hasNewTrades());
-                                                assertFalse(changes1.hasCorrections());
-                                                assertEquals(1, changes1.newTrades().size());
-                                                assertEquals(0, changes1.correctedTrades().size());
-                                                
-                                                // Query changes between time2 and time3 (should show 1 new trade + 1 correction)
-                                                ChangeReport changes2 = auditService
-                                                    .getChangesBetween(fundId, time2, time3)
-                                                    .await();
-                                                
-                                                assertNotNull(changes2);
-                                                assertTrue(changes2.hasChanges());
-                                                assertTrue(changes2.hasNewTrades());
-                                                assertTrue(changes2.hasCorrections());
-                                                assertEquals(1, changes2.newTrades().size());
-                                                assertEquals(1, changes2.correctedTrades().size());
-                                                testContext.completeNow();
-                                            } catch (Exception e) {
-                                                testContext.failNow(e);
-                                            }
-                                        });
-                                    } catch (Exception e) {
-                                        testContext.failNow(e);
-                                    }
-                                });
-                            } catch (Exception e) {
-                                testContext.failNow(e);
-                            }
-                        });
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                });
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+
+        delay(vertx, 100)
+            .compose(v -> recordAndGetTradeIdAsync(fundId, "NVDA", tradeDate))
+            .compose(tradeId1 -> {
+                Instant time2 = Instant.now();
+                return delay(vertx, 100)
+                    .compose(v -> recordAndGetTradeIdAsync(fundId, "AMD", tradeDate))
+                    .compose(tradeId2 -> delay(vertx, 100)
+                        .compose(v -> cancelTradeAsync(tradeId1, "Correction"))
+                        .compose(v -> delay(vertx, 100))
+                        .compose(v -> {
+                            Instant time3 = Instant.now();
+                            return auditService.getChangesBetween(fundId, time1, time2)
+                                .compose(changes1 -> auditService.getChangesBetween(fundId, time2, time3)
+                                    .map(changes2 -> new Object[]{ changes1, changes2 }));
+                        })
+                    );
+            })
+            .onSuccess(result -> testContext.verify(() -> {
+                ChangeReport changes1 = (ChangeReport) result[0];
+                ChangeReport changes2 = (ChangeReport) result[1];
+                assertNotNull(changes1);
+                assertTrue(changes1.hasNewTrades());
+                assertFalse(changes1.hasCorrections());
+                assertEquals(1, changes1.newTrades().size());
+                assertEquals(0, changes1.correctedTrades().size());
+                assertNotNull(changes2);
+                assertTrue(changes2.hasChanges());
+                assertTrue(changes2.hasNewTrades());
+                assertTrue(changes2.hasCorrections());
+                assertEquals(1, changes2.newTrades().size());
+                assertEquals(1, changes2.correctedTrades().size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testNoCorrectionsInPeriod() throws Exception {
+    void testNoCorrectionsInPeriod(Vertx vertx, VertxTestContext testContext) {
         String fundId = "FUND-005";
-        
-        // Query empty period
+
         Instant periodStart = Instant.now().minus(1, ChronoUnit.HOURS);
         Instant periodEnd = Instant.now();
-        
-        List<CorrectionAudit> corrections = auditService
-            .getCorrectionsInPeriod(fundId, periodStart, periodEnd)
-            .await();
-        
-        assertNotNull(corrections);
-        assertTrue(corrections.isEmpty());
+
+        auditService.getCorrectionsInPeriod(fundId, periodStart, periodEnd)
+            .onSuccess(corrections -> testContext.verify(() -> {
+                assertNotNull(corrections);
+                assertTrue(corrections.isEmpty());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     // Helper methods
-    
-    private String recordAndGetTradeId(String fundId, String securityId, LocalDate tradeDate)
-            throws Exception {
-        TradeRequest request = new TradeRequest(
-            fundId,
-            securityId,
-            TradeType.BUY,
-            new BigDecimal("100"),
-            new BigDecimal("100.00"),
-            Currency.USD,
-            tradeDate,
-            tradeDate.plusDays(2),  // T+2 settlement
-            "BROKER-A"
-        );
 
+    private Future<String> recordAndGetTradeIdAsync(String fundId, String securityId, LocalDate tradeDate) {
+        TradeRequest request = new TradeRequest(
+            fundId, securityId, TradeType.BUY,
+            new BigDecimal("100"), new BigDecimal("100.00"),
+            Currency.USD, tradeDate, tradeDate.plusDays(2), "BROKER-A"
+        );
         return tradeService.recordTrade(request)
-            .map(event -> event.getPayload().tradeId())
-            .await();
+            .map(event -> event.getPayload().tradeId());
     }
 
-    private void cancelTrade(String tradeId, String reason) throws Exception {
+    private Future<Void> cancelTradeAsync(String tradeId, String reason) {
         CancellationRequest request = new CancellationRequest(reason, "auditor1");
-        tradeService.cancelTrade(tradeId, request).await();
+        return tradeService.cancelTrade(tradeId, request).mapEmpty();
     }
 }
 

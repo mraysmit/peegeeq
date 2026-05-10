@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -23,11 +24,13 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Deterministic retry IT (pending):
@@ -48,22 +51,21 @@ public class RetryableErrorIT {
         return container;
     }
 
+    private static final Logger logger = LoggerFactory.getLogger(RetryableErrorIT.class);
+
     private PeeGeeQManager manager;
     private PgNativeQueueFactory factory;
 
     @BeforeEach
     void setUp() throws Exception {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
         initializeSchemaWithRetryTrigger();
 
-        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("retryable-error-test");
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("retryable-error-test", testProps);
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         factory = new PgNativeQueueFactory(databaseService);
@@ -71,11 +73,10 @@ public class RetryableErrorIT {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (factory != null) factory.close();
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
@@ -87,13 +88,12 @@ public class RetryableErrorIT {
                 new ConsumerConfig.Builder().mode(ConsumerMode.HYBRID).consumerThreads(1).build());
 
         consumer.subscribe(msg -> {
+        logger.info("Test: consumer retries on40 p01 and succeeds");
             testContext.completeNow();
             return Future.succeededFuture();
         });
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("one").onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS));
+        producer.send("one").await();
 
         // Should still process successfully even though the first claim attempt fails with 40P01
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be processed after one retry");

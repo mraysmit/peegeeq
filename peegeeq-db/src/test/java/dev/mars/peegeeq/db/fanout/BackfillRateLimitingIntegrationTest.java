@@ -18,6 +18,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -27,10 +28,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -57,7 +58,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
     private Vertx vertx;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         vertx = manager.getVertx();
         connectionManager = new PgConnectionManager(vertx, null);
 
@@ -72,7 +73,10 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -84,8 +88,17 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         logger.info("Test setup complete");
     }
 
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        if (connectionManager != null) {
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
     // =========================================================================
-    // Rate-limited backfill — delay slows throughput
+    // Rate-limited backfill delay slows throughput
     // =========================================================================
 
     /**
@@ -99,7 +112,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
      * - Delayed backfill should take at least 200ms longer (2 inter-batch pauses)
      */
     @Test
-    void testBatchDelaySlowsThroughput(VertxTestContext testContext) throws InterruptedException {
+    void testBatchDelaySlowsThroughput(VertxTestContext testContext) {
         String topicBase = "test-rate-limit-" + UUID.randomUUID().toString().substring(0, 8);
         String topicNoDelay = topicBase + "-nodelay";
         String topicWithDelay = topicBase + "-delay";
@@ -142,7 +155,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 long delayElapsed = times[1];
 
                 // With 3 batches and 100ms delay between batches, delayed should be
-                // at least 150ms longer (conservative to avoid flakiness — 2 delays × 75ms margin)
+                // at least 150ms longer (conservative to avoid flakiness 2 delays × 75ms margin)
                 long minimumDifference = 150L;
                 long actualDifference = delayElapsed - noDelayElapsed;
 
@@ -157,14 +170,13 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 testContext.completeNow();
             })));
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 
     /**
      * Verifies that zero-delay backfill completes identically to legacy (no-delay) behavior.
      */
     @Test
-    void testZeroDelayCompletesNormally(VertxTestContext testContext) throws InterruptedException {
+    void testZeroDelayCompletesNormally(VertxTestContext testContext) {
         String topic = "test-zero-delay-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-zero-delay";
         int messageCount = 10;
@@ -178,7 +190,6 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 testContext.completeNow();
             })));
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 
     /**
@@ -186,12 +197,12 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
      * The delay between batches should not prevent cancellation from being detected.
      */
     @Test
-    void testCancellationDuringDelayedBackfill(VertxTestContext testContext) throws InterruptedException {
+    void testCancellationDuringDelayedBackfill(VertxTestContext testContext) {
         String topic = "test-cancel-delay-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-cancel-delay";
         int messageCount = 100;
         int batchSize = 10; // 10 batches
-        long delayMs = 200L; // 200ms between batches — total ~1.8s of delays
+        long delayMs = 200L; // 200ms between batches total ~1.8s of delays
 
         createTopicWithSubscriberAndMessages(topic, messageCount)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
@@ -221,7 +232,6 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 testContext.completeNow();
             })));
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 
     /**
@@ -229,7 +239,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
      * still work correctly via the Vertx-aware constructor.
      */
     @Test
-    void testLegacyOverloadsStillWork(VertxTestContext testContext) throws InterruptedException {
+    void testLegacyOverloadsStillWork(VertxTestContext testContext) {
         String topic = "test-legacy-compat-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-legacy";
         int messageCount = 5;
@@ -243,7 +253,6 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 testContext.completeNow();
             })));
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
     }
 
     // =========================================================================

@@ -24,7 +24,9 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -43,10 +45,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Unit tests for Outbox Consumer Group subscription and handler features.
@@ -69,16 +74,10 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Outbox Consumer Group Subscription Features")
 class OutboxConsumerGroupSubscriptionTest {
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupSubscriptionTest.class);
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -86,28 +85,18 @@ class OutboxConsumerGroupSubscriptionTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Set test properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
 
-        // Ensure required schema exists for outbox tests (creates tables in public schema)
-        // Use QUEUE_ALL to initialize all queue tables required by PeeGeeQManager health checks
-        // Also include CONSUMER_GROUP_FANOUT for subscription management tables (outbox_topic_subscriptions)
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
 
-        // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
-        // Create factory and producer for outbox
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register the outbox factory
         OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
         factory = provider.createFactory("outbox", databaseService);
@@ -116,6 +105,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and clearing system properties");
         if (producer != null) {
             producer.close();
         }
@@ -123,9 +113,7 @@ class OutboxConsumerGroupSubscriptionTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
@@ -145,6 +133,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
+        logger.info("Test: start with options  from now");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -170,13 +159,11 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should start with FROM_BEGINNING position")
         void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
-            // Send historical messages
             for (int i = 0; i < 5; i++) {
-                producer.send("Historical-" + i).onFailure(testContext::failNow);
+        logger.info("Test: start with options  from beginning");
+                producer.send("Historical-" + i).await();
             }
-            java.util.concurrent.CountDownLatch histLatch = new java.util.concurrent.CountDownLatch(1);
-            vertx.timer(1000).onComplete(ar -> histLatch.countDown());
-            histLatch.await(5, TimeUnit.SECONDS);
+            vertx.timer(1000).await();
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -201,30 +188,22 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should start with FROM_TIMESTAMP position")
         void testStartWithOptions_FromTimestamp(Vertx vertx, VertxTestContext testContext) throws Exception {
-            Instant beforeTimestamp = Instant.now();
-            java.util.concurrent.CountDownLatch t1 = new java.util.concurrent.CountDownLatch(1);
-            vertx.timer(100).onComplete(ar -> t1.countDown());
-            t1.await(5, TimeUnit.SECONDS);
+            vertx.timer(100).await();
 
             for (int i = 0; i < 3; i++) {
-                producer.send("Before-" + i).onFailure(testContext::failNow);
+        logger.info("Test: start with options  from timestamp");
+                producer.send("Before-" + i).await();
             }
 
-            java.util.concurrent.CountDownLatch t2 = new java.util.concurrent.CountDownLatch(1);
-            vertx.timer(100).onComplete(ar -> t2.countDown());
-            t2.await(5, TimeUnit.SECONDS);
+            vertx.timer(100).await();
             Instant cutoffTimestamp = Instant.now();
-            java.util.concurrent.CountDownLatch t3 = new java.util.concurrent.CountDownLatch(1);
-            vertx.timer(100).onComplete(ar -> t3.countDown());
-            t3.await(5, TimeUnit.SECONDS);
+            vertx.timer(100).await();
 
             for (int i = 0; i < 3; i++) {
-                producer.send("After-" + i).onFailure(testContext::failNow);
+                producer.send("After-" + i).await();
             }
 
-            java.util.concurrent.CountDownLatch t4 = new java.util.concurrent.CountDownLatch(1);
-            vertx.timer(1000).onComplete(ar -> t4.countDown());
-            t4.await(5, TimeUnit.SECONDS);
+            vertx.timer(1000).await();
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -262,6 +241,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should fail with IllegalStateException if already active")
         void testStartWithOptions_AlreadyActive(VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with options  null parameter");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -293,6 +273,7 @@ class OutboxConsumerGroupSubscriptionTest {
             group.start(options)
                 .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
                 .onFailure(e -> testContext.verify(() -> {
+        logger.info("Test: start with options  after close");
                     assertInstanceOf(IllegalStateException.class, e);
                     testContext.completeNow();
                 }));
@@ -308,6 +289,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
+        logger.info("Test: start with options  delegates to standard start");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -337,6 +319,7 @@ class OutboxConsumerGroupSubscriptionTest {
             group1.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW).build())
                 .compose(v -> {
+        logger.info("Test: start with options  multiple positions");
                     testContext.verify(() -> assertTrue(group1.isActive()));
                     group1.close();
                     // FROM_BEGINNING
@@ -357,12 +340,11 @@ class OutboxConsumerGroupSubscriptionTest {
                     return group3.start(SubscriptionOptions.defaults())
                         .map(v3 -> group3);
                 })
-                .onSuccess(group3 -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(group3 -> testContext.verify(() -> {
                     assertTrue(group3.isActive());
                     group3.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         }
@@ -396,6 +378,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should return ConsumerGroupMember")
         void testSetMessageHandler_ReturnsConsumerGroupMember() {
+        logger.info("Test: set message handler  creates default consumer");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -403,7 +386,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 msg -> Future.succeededFuture());
 
             assertNotNull(member);
-            assertTrue(member instanceof ConsumerGroupMember);
+            assertInstanceOf(ConsumerGroupMember.class, member);
             assertEquals("test-group", member.getGroupName());
             assertEquals("test-topic", member.getTopic());
 
@@ -419,15 +402,16 @@ class OutboxConsumerGroupSubscriptionTest {
             Checkpoint messageCheckpoint = testContext.checkpoint(2);
 
             group.setMessageHandler(msg -> {
+        logger.info("Test: set message handler  processes messages");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
 
             group.start();
 
-            producer.send("Message-1").onFailure(testContext::failNow);
-            producer.send("Message-2").onFailure(testContext::failNow);
-            producer.send("Message-3").onFailure(testContext::failNow);
+            producer.send("Message-1").await();
+            producer.send("Message-2").await();
+            producer.send("Message-3").await();
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -451,6 +435,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should throw NullPointerException with null handler")
         void testSetMessageHandler_NullHandler() {
+        logger.info("Test: set message handler  called twice");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -475,6 +460,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should work with start()")
         void testSetMessageHandler_IntegrationWithStart(VertxTestContext testContext) throws Exception {
+        logger.info("Test: set message handler  after close");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -486,8 +472,8 @@ class OutboxConsumerGroupSubscriptionTest {
 
             group.start();
 
-            producer.send("Test-1").onFailure(testContext::failNow);
-            producer.send("Test-2").onFailure(testContext::failNow);
+            producer.send("Test-1").await();
+            producer.send("Test-2").await();
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
@@ -498,13 +484,11 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should work with start(SubscriptionOptions)")
         void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
-            // Send historical messages
             for (int i = 0; i < 3; i++) {
-                producer.send("Historical-" + i).onFailure(testContext::failNow);
+        logger.info("Test: set message handler  integration with start options");
+                producer.send("Historical-" + i).await();
             }
-            java.util.concurrent.CountDownLatch histLatch2 = new java.util.concurrent.CountDownLatch(1);
-            vertx.timer(1000).onComplete(ar -> histLatch2.countDown());
-            histLatch2.await(5, TimeUnit.SECONDS);
+            vertx.timer(1000).await();
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -535,6 +519,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             Checkpoint messageCheckpoint = testContext.checkpoint(5);
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
+        logger.info("Test: set message handler  statistics");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -542,7 +527,7 @@ class OutboxConsumerGroupSubscriptionTest {
             group.start();
 
             for (int i = 0; i < 5; i++) {
-                producer.send("Message-" + i).onFailure(testContext::failNow);
+                producer.send("Message-" + i).await();
             }
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -567,7 +552,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             ExecutorService executor = Executors.newFixedThreadPool(5);
-            CountDownLatch startSignal = new CountDownLatch(1);
+            CyclicBarrier startBarrier = new CyclicBarrier(6);
 
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
@@ -575,9 +560,10 @@ class OutboxConsumerGroupSubscriptionTest {
 
             List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
+        logger.info("Test: set message handler  thread safety");
                 futures.add(executor.submit(() -> {
                     try {
-                        startSignal.await();
+                        startBarrier.await();
                         group.setMessageHandler(msg -> Future.succeededFuture());
                         successCount.incrementAndGet();
                     } catch (IllegalStateException e) {
@@ -589,7 +575,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 }));
             }
 
-            startSignal.countDown();
+            startBarrier.await();
 
             for (java.util.concurrent.Future<?> future : futures) {
                 future.get(5, TimeUnit.SECONDS);
@@ -599,7 +585,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertEquals(4, failureCount.get());
 
             for (Exception e : exceptions) {
-                assertTrue(e instanceof IllegalStateException);
+                assertInstanceOf(IllegalStateException.class, e);
             }
 
             executor.shutdown();

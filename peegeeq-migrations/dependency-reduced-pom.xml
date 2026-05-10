@@ -120,10 +120,6 @@
       <scope>test</scope>
       <exclusions>
         <exclusion>
-          <artifactId>peegeeq-db</artifactId>
-          <groupId>dev.mars</groupId>
-        </exclusion>
-        <exclusion>
           <artifactId>testcontainers-jdbc</artifactId>
           <groupId>org.testcontainers</groupId>
         </exclusion>

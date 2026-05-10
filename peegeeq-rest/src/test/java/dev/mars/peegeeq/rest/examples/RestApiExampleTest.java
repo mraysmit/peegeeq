@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.rest.examples;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -34,8 +36,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -61,7 +61,7 @@ public class RestApiExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_rest_demo");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -100,20 +100,8 @@ public class RestApiExampleTest {
         
         if (vertx != null) {
             try {
-                CountDownLatch vertxCloseLatch = new CountDownLatch(1);
-                vertx.close()
-                    .onSuccess(v -> {
-                        logger.info("Vert.x closed successfully");
-                        vertxCloseLatch.countDown();
-                    })
-                    .onFailure(throwable -> {
-                        logger.warn("⚠️ Error closing Vert.x", throwable);
-                        vertxCloseLatch.countDown();
-                    });
-
-                if (!vertxCloseLatch.await(5, TimeUnit.SECONDS)) {
-                    logger.warn("⚠️ Vert.x close timed out");
-                }
+                vertx.close().await();
+                logger.info("Vert.x closed successfully");
             } catch (Exception e) {
                 logger.warn("⚠️ Error during Vert.x cleanup", e);
             }

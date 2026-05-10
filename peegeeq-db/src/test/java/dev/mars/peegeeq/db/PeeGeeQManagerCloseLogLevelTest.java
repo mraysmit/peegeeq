@@ -21,8 +21,10 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +33,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -64,13 +67,14 @@ import static org.junit.jupiter.api.Assertions.*;
  * Negative tests: clean close → verify no ERROR logged in cleanup chain.
  */
 @Tag(TestCategories.INTEGRATION)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 @ExtendWith(VertxExtension.class)
+@Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
 public class PeeGeeQManagerCloseLogLevelTest {
 
-    private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseLogLevelTest.class);
+    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
-    @SuppressWarnings("resource")
     @Container
     static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_test")
@@ -84,6 +88,9 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
     @org.junit.jupiter.api.BeforeAll
     static void initDb() {
+        if (!postgres.isRunning()) {
+            postgres.start();
+        }
         initializeSchemaFor(postgres);
     }
 
@@ -99,36 +106,36 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         managerLogger.detachAppender(logCapture);
         logCapture.stop();
 
         if (manager != null) {
             manager.closeReactive()
-                    .recover(t -> Future.succeededFuture())
-                    .onComplete(v -> {
-                        clearSystemProperties();
-                        testContext.completeNow();
-                    });
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
-            clearSystemProperties();
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Negative: clean close with DB alive produces no ERROR from cleanup chain")
-    void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
-        setSystemProperties();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+    void testCleanCloseNoErrorLogs(VertxTestContext testContext) {
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         manager.start()
                 .compose(v -> {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     List<String> errorMessages = errors.stream()
                             .map(ILoggingEvent::getFormattedMessage)
@@ -149,15 +156,14 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     // Manager reference set to null so tearDown doesn't double-close
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })));
     }
 
     @Test
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
-    void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) throws InterruptedException {
+    void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED this test deliberately stops the DB container to verify error-level close failure logging");
         // Use a separate container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -168,18 +174,26 @@ public class PeeGeeQManagerCloseLogLevelTest {
         ownContainer.start();
         initializeSchemaFor(ownContainer);
 
-        setSystemPropertiesFor(ownContainer);
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(ownContainer)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         manager.start()
-                .compose(v -> {
-                    // Stop the database to cause close failures
+                .compose(v -> Vertx.currentContext().owner().<Void>executeBlocking(() -> {
+                    // Stop the database off the event loop to avoid blocking it
                     ownContainer.stop();
+                    return null;
+                }))
+                .compose(v -> {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
-                    // closeReactive() should complete (via .recover()) even with failures
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                    // closeReactive() should complete (via .eventually()) even with failures
                     // The key assertion: failures are logged at ERROR, not WARN
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);
@@ -196,21 +210,23 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     // closeReactive() completed successfully (chained recovers)
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
+                })));
     }
 
     @Test
     @DisplayName("Positive: close without start produces no ERROR (stop() is a no-op when not started)")
-    void testCloseWithoutStartNoStopError(VertxTestContext testContext) throws InterruptedException {
-        setSystemProperties();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+    void testCloseWithoutStartNoStopError(VertxTestContext testContext) {
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         logCapture.clear();
         manager.closeReactive()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasStopError = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("stop() failed during close"));
@@ -219,25 +235,27 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })));
     }
 
     @Test
     @DisplayName("Negative: Vert.x close with RejectedExecutionException stays at WARN/DEBUG, not ERROR")
-    void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) throws InterruptedException {
-        setSystemProperties();
+    void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) {
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
         // Manager owns its own Vert.x (default constructor path)
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         manager.start()
                 .compose(v -> {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     // If Vert.x close produces a RejectedExecutionException (expected during shutdown),
                     // it should be at DEBUG, not ERROR
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
@@ -248,41 +266,10 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })));
     }
 
     // --- Helpers ---
-
-    private void setSystemProperties() {
-        setSystemPropertiesFor(postgres);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void setSystemPropertiesFor(PostgreSQLContainer container) {
-        Properties props = new Properties();
-        props.setProperty("peegeeq.database.host", container.getHost());
-        props.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        props.setProperty("peegeeq.database.name", container.getDatabaseName());
-        props.setProperty("peegeeq.database.username", container.getUsername());
-        props.setProperty("peegeeq.database.password", container.getPassword());
-        props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.database.schema", "public");
-        props.setProperty("peegeeq.database.pool.min-size", "1");
-        props.setProperty("peegeeq.database.pool.max-size", "5");
-        props.setProperty("peegeeq.health.check-interval", "PT5S");
-        props.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
-        props.setProperty("peegeeq.migration.enabled", "false");
-        props.setProperty("peegeeq.migration.auto-migrate", "false");
-        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
-    }
-
-    private void clearSystemProperties() {
-        System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
-    }
 
     private void initializeSchema() {
         initializeSchemaFor(postgres);
@@ -421,7 +408,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     /**
-     * Log capture appender using logback's AppenderBase — same pattern used
+     * Log capture appender using logback's AppenderBase same pattern used
      * in the existing ObservabilitySystemIntegrationTest.
      */
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {
@@ -433,13 +420,17 @@ public class PeeGeeQManagerCloseLogLevelTest {
         }
 
         List<ILoggingEvent> snapshot() {
-            return new ArrayList<>(events);
+            synchronized (events) {
+                return new ArrayList<>(events);
+            }
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
-                    .filter(e -> e.getLevel().equals(level))
-                    .toList();
+            synchronized (events) {
+                return events.stream()
+                        .filter(e -> e.getLevel().equals(level))
+                        .toList();
+            }
         }
 
         void clear() {

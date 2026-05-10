@@ -4,6 +4,8 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.examples.fundscustody.events.NAVEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeCancelledEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
@@ -32,6 +34,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Base test class for funds & custody examples.
@@ -54,6 +58,8 @@ import java.util.concurrent.TimeUnit;
 @ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public abstract class FundsCustodyTestBase {
+
+    private static final Logger logger = LoggerFactory.getLogger(FundsCustodyTestBase.class);
 
     protected Vertx vertx;
 
@@ -98,15 +104,14 @@ public abstract class FundsCustodyTestBase {
                     .map(countResult -> {
                         int remainingRows = countResult.iterator().next().getInteger("count");
                         if (remainingRows > 0) {
-                            System.out.println("WARNING: Database cleanup incomplete - " + 
-                                remainingRows + " rows remaining");
+                            logger.warn("Database cleanup incomplete - {} rows remaining", remainingRows);
                         }
                         return null;
                     })
                     .onFailure(throwable -> {
                         // Table might not exist yet, which is fine
                         if (!throwable.getMessage().contains("does not exist")) {
-                            System.out.println("Cleanup operation warning: " + throwable.getMessage());
+                            logger.warn("Cleanup operation warning: {}", throwable.getMessage());
                         }
                     })
             ).await();
@@ -124,8 +129,8 @@ public abstract class FundsCustodyTestBase {
             // Cleanup failures are often expected (table doesn't exist yet)
             String message = e.getMessage();
             if (message == null || !message.contains("does not exist")) {
-                System.out.println("Database cleanup info: " + e.getClass().getSimpleName() + 
-                    " - " + (message != null ? message : "No message available"));
+                logger.info("Database cleanup info: {} - {}", e.getClass().getSimpleName(),
+                    (message != null ? message : "No message available"));
             }
         }
     }
@@ -159,19 +164,14 @@ public abstract class FundsCustodyTestBase {
         System.setProperty("db.password", postgres.getPassword());
 
         // Configure PeeGeeQ to use the TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         // Initialize PeeGeeQ manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create event stores
         factory = new BiTemporalEventStoreFactory(vertx, manager);
@@ -190,12 +190,13 @@ public abstract class FundsCustodyTestBase {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Close event stores
         if (tradeEventStore != null) {
             try {
                 tradeEventStore.close();
             } catch (Exception e) {
-                System.err.println("Error closing trade event store: " + e.getMessage());
+                logger.warn("Error closing trade event store: {}", e.getMessage());
             }
         }
 
@@ -203,7 +204,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 cancellationEventStore.close();
             } catch (Exception e) {
-                System.err.println("Error closing cancellation event store: " + e.getMessage());
+                logger.warn("Error closing cancellation event store: {}", e.getMessage());
             }
         }
 
@@ -211,7 +212,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 navEventStore.close();
             } catch (Exception e) {
-                System.err.println("Error closing NAV event store: " + e.getMessage());
+                logger.warn("Error closing NAV event store: {}", e.getMessage());
             }
         }
 
@@ -221,7 +222,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("Error closing PeeGeeQ manager: " + e.getMessage());
+                logger.warn("Error closing PeeGeeQ manager: {}", e.getMessage());
             }
         }
 
@@ -241,12 +242,6 @@ public abstract class FundsCustodyTestBase {
         System.clearProperty("db.database");
         System.clearProperty("db.username");
         System.clearProperty("db.password");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.health-check.queue-checks-enabled");
     }
 }
 

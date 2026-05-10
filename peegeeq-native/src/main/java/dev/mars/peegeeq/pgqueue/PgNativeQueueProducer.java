@@ -309,19 +309,23 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                             .mapEmpty()
                             .otherwise(ignored -> (Void) null);
                         })
-                        .recover(error -> {
-                                // Check if this is a duplicate idempotency key error (Phase 2: Message Deduplication)
-                                // PostgreSQL error code 23505 = unique_violation
-                                String errorMsg = error.getMessage();
-                                if (errorMsg != null && errorMsg.contains("idx_queue_messages_idempotency_key")) {
-                                    logger.info("Duplicate idempotency key detected for topic {}: {} - message already exists",
-                                            topic, idempotencyKey);
-                                    // Return success - message already exists with this idempotency key
-                                    // This is the expected behavior for idempotent operations
-                                    return io.vertx.core.Future.succeededFuture((Object) null);
+                        .transform(ar -> {
+                                if (ar.failed()) {
+                                    Throwable error = ar.cause();
+                                    // Check if this is a duplicate idempotency key error (Phase 2: Message Deduplication)
+                                    // PostgreSQL error code 23505 = unique_violation
+                                    String errorMsg = error.getMessage();
+                                    if (errorMsg != null && errorMsg.contains("idx_queue_messages_idempotency_key")) {
+                                        logger.info("Duplicate idempotency key detected for topic {}: {} - message already exists",
+                                                topic, idempotencyKey);
+                                        // Return success - message already exists with this idempotency key
+                                        // This is the expected behavior for idempotent operations
+                                        return io.vertx.core.Future.succeededFuture((Object) null);
+                                    }
+                                    // Re-throw other errors
+                                    return io.vertx.core.Future.failedFuture(error);
                                 }
-                                // Re-throw other errors
-                                return io.vertx.core.Future.failedFuture(error);
+                                return io.vertx.core.Future.succeededFuture(ar.result());
                             }))
                     .onFailure(error -> logger.error("Failed to send message to topic {}: {}", topic,
                             error.getMessage()));

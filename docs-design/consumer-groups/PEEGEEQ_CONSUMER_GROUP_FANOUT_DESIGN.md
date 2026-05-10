@@ -53,9 +53,9 @@ This document describes both **implemented features** and **future enhancements*
 | Zero-Subscription Protection | ✅ | Complete | `ZeroSubscriptionValidator` | Retention + blocking |
 | Cleanup | ✅ | Complete | SQL function | Fanout-aware |
 | Backfill | ✅ | Complete | `BackfillService` (545 lines) | Wired into lifecycle via `setBackfillService()`, REST endpoints: POST start, GET progress, DELETE cancel |
-| Dead Consumer Detection | ✅ | Complete | `DeadConsumerDetector` + `DeadConsumerGroupCleanup` + `DeadConsumerDetectionJob` | Detection, cleanup, scheduled job — 40 tests passing |
-| Metrics/Monitoring | ✅ | Complete | `ConsumerGroupMetrics` (MeterBinder, 6 gauges) | Subscription-level gauges: active/paused/dead/cancelled/total/topics — 7 tests passing |
-| Backfill Rate Limiting | ✅ | Complete | `BackfillService.batchDelayMs` | Vert.x timer-based inter-batch throttling — 17 tests passing |
+| Dead Consumer Detection | ✅ | Complete | `DeadConsumerDetector` + `DeadConsumerGroupCleanup` + `DeadConsumerDetectionJob` | Detection, cleanup, scheduled job 40 tests passing |
+| Metrics/Monitoring | ✅ | Complete | `ConsumerGroupMetrics` (MeterBinder, 6 gauges) | Subscription-level gauges: active/paused/dead/cancelled/total/topics 7 tests passing |
+| Backfill Rate Limiting | ✅ | Complete | `BackfillService.batchDelayMs` | Vert.x timer-based inter-batch throttling 17 tests passing |
 | **Offset/Watermark Mode** | ❌ | Partial | Missing | Future enhancement |
 | Partition Management | ❌ | Partial | Missing | Future enhancement |
 
@@ -214,9 +214,9 @@ This document specifies the **Hybrid Queue/Pub-Sub** design for implementing rel
 
 Before the Hybrid Queue/Pub-Sub design was developed, an analysis of PeeGeeQ's existing consumer group architecture identified three key limitations that motivated this work.
 
-### Finding 1: Queue Semantics — Messages Distributed, Not Replicated
+### Finding 1: Queue Semantics Messages Distributed, Not Replicated
 
-PeeGeeQ's original architecture implements **queue semantics** using PostgreSQL's `FOR UPDATE SKIP LOCKED`. Messages are **distributed** across consumers — each message is processed by exactly one consumer. Multiple consumer groups subscribing to the same topic **compete** for messages rather than each receiving a full copy.
+PeeGeeQ's original architecture implements **queue semantics** using PostgreSQL's `FOR UPDATE SKIP LOCKED`. Messages are **distributed** across consumers each message is processed by exactly one consumer. Multiple consumer groups subscribing to the same topic **compete** for messages rather than each receiving a full copy.
 
 From `OutboxConsumer.java`:
 ```java
@@ -248,10 +248,10 @@ This makes PeeGeeQ ideal for work-queue patterns but insufficient for fan-out us
 The `peegeeq.consumer.threads` configuration only works with standalone consumers. When using `ConsumerGroup`, consumers are created internally via `addConsumer()` and do not use the thread pool configuration:
 
 ```java
-// ✅ Works — Standalone consumer uses peegeeq.consumer.threads
+// ✅ Works Standalone consumer uses peegeeq.consumer.threads
 MessageConsumer<Event> consumer = factory.createConsumer(topic, Event.class);
 
-// ❌ Does not apply — ConsumerGroup ignores peegeeq.consumer.threads
+// ❌ Does not apply ConsumerGroup ignores peegeeq.consumer.threads
 ConsumerGroup<Event> group = factory.createConsumerGroup(name, topic, Event.class);
 group.addConsumer("c1", handler);
 ```
@@ -302,7 +302,7 @@ ConsumerGroup<OrderEvent> analyticsGroup =
     queueFactory.createConsumerGroup("analytics-service-group", "orders", OrderEvent.class);
 ```
 
-**Verdict: ❌ Not suitable for production** — No coordination between groups. The critical problem is a **message cleanup race condition**: the `cleanup_completed_outbox_messages()` function deletes messages when status is `COMPLETED` and no incomplete `outbox_consumer_groups` entries exist. Since groups aren't cross-registered, messages are deleted as soon as the first group completes them.
+**Verdict: ❌ Not suitable for production** No coordination between groups. The critical problem is a **message cleanup race condition**: the `cleanup_completed_outbox_messages()` function deletes messages when status is `COMPLETED` and no incomplete `outbox_consumer_groups` entries exist. Since groups aren't cross-registered, messages are deleted as soon as the first group completes them.
 
 **Race Condition Timeline:**
 ```
@@ -331,7 +331,7 @@ public class FanOutMessageHandler<T> implements MessageHandler<T> {
 }
 ```
 
-**Verdict: ❌ Limited scalability** — No independent tracking per handler. Handlers cannot be scaled independently. Complex error handling.
+**Verdict: ❌ Limited scalability** No independent tracking per handler. Handlers cannot be scaled independently. Complex error handling.
 
 ### Option 3: Outbox-to-Outbox Replication
 
@@ -343,7 +343,7 @@ analyticsProducer.send(message.getPayload());
 inventoryProducer.send(message.getPayload());
 ```
 
-**Verdict: ⚠️ Viable but inefficient** — Complete isolation between consumers, but causes write amplification, additional latency, and complex topology.
+**Verdict: ⚠️ Viable but inefficient** Complete isolation between consumers, but causes write amplification, additional latency, and complex topology.
 
 ### Option 4: Hybrid Queue/Pub-Sub Support (Recommended)
 
@@ -7148,9 +7148,9 @@ This section provides the complete design for the OFFSET_WATERMARK completion tr
 
 PeeGeeQ's current consumer group model (REFERENCE_COUNTING) provides fan-out delivery with per-message acknowledgement. It does NOT provide:
 
-1. **Partition affinity** — messages with the same logical key can be processed by any consumer instance in the group, in any order
-2. **Strict per-key ordering** — message N+1 for key K can begin processing before message N for key K is committed
-3. **Offset-based progress** — there is no "where am I in the stream" cursor; progress is tracked per-message via `outbox_consumer_groups` rows
+1. **Partition affinity** messages with the same logical key can be processed by any consumer instance in the group, in any order
+2. **Strict per-key ordering** message N+1 for key K can begin processing before message N for key K is committed
+3. **Offset-based progress** there is no "where am I in the stream" cursor; progress is tracked per-message via `outbox_consumer_groups` rows
 
 These are required for use cases like:
 - Financial transaction processing where events for the same account must be applied in order
@@ -7175,7 +7175,7 @@ These are required for use cases like:
 
 A **partition key** is an application-provided string that determines which logical partition a message belongs to. Messages with the same partition key within a topic are guaranteed to be processed in order by the same consumer instance (within a consumer group).
 
-The partition key maps to the existing `message_group` column on the `outbox` table. This column already exists, is already passed through `ConsumerGroupFetcher`, and is already available on `OutboxMessage`. The rename is semantic only — `message_group` becomes the partition key for OFFSET_WATERMARK topics.
+The partition key maps to the existing `message_group` column on the `outbox` table. This column already exists, is already passed through `ConsumerGroupFetcher`, and is already available on `OutboxMessage`. The rename is semantic only `message_group` becomes the partition key for OFFSET_WATERMARK topics.
 
 **Decision: Re-use `message_group` as the partition key. No schema change on the outbox table.**
 
@@ -7185,8 +7185,8 @@ Messages with NULL `message_group` go to a synthetic partition `__default__`. Th
 
 Partitions are assigned to consumer instances within a group. The assignment is:
 
-- **Sticky** — a partition stays assigned to the same instance unless rebalance is triggered
-- **Exclusive** — each partition is assigned to exactly one instance at a time
+- **Sticky** a partition stays assigned to the same instance unless rebalance is triggered
+- **Exclusive** each partition is assigned to exactly one instance at a time
 - **Rebalanced** on: instance join, instance leave (heartbeat timeout), instance crash (lock expiry)
 
 Assignment is stored in the database so it survives process restarts and is visible to all instances.
@@ -7245,7 +7245,7 @@ CREATE TABLE IF NOT EXISTS {schema}.outbox_partition_offsets (
 ```
 
 ```sql
--- Per-topic watermark — the safe cleanup boundary.
+-- Per-topic watermark the safe cleanup boundary.
 -- Updated periodically by background job.
 CREATE TABLE IF NOT EXISTS {schema}.outbox_topic_watermarks (
     topic VARCHAR(255) PRIMARY KEY,
@@ -7256,7 +7256,7 @@ CREATE TABLE IF NOT EXISTS {schema}.outbox_topic_watermarks (
 
 #### 19.4.2 Modified Tables
 
-**outbox_topic_subscriptions** — add columns for partitioned mode:
+**outbox_topic_subscriptions** add columns for partitioned mode:
 
 ```sql
 ALTER TABLE {schema}.outbox_topic_subscriptions
@@ -7265,9 +7265,9 @@ ALTER TABLE {schema}.outbox_topic_subscriptions
     ADD COLUMN rebalance_generation INT DEFAULT 1;    -- current rebalance epoch
 ```
 
-**outbox_topics** — no changes needed. The existing `completion_tracking_mode` column already supports `'OFFSET_WATERMARK'`.
+**outbox_topics** no changes needed. The existing `completion_tracking_mode` column already supports `'OFFSET_WATERMARK'`.
 
-**outbox** — no changes needed. The existing `message_group` column serves as the partition key.
+**outbox** no changes needed. The existing `message_group` column serves as the partition key.
 
 #### 19.4.3 Index Support
 
@@ -7289,7 +7289,7 @@ CREATE INDEX idx_outbox_topic_msggroup_distinct
 
 No change. Producer inserts into `outbox` with `message_group` set to the partition key.
 
-The existing trigger `set_required_consumer_groups()` continues to work. For OFFSET_WATERMARK topics, `required_consumer_groups` is still set but is informational — completion tracking uses offsets, not the counter.
+The existing trigger `set_required_consumer_groups()` continues to work. For OFFSET_WATERMARK topics, `required_consumer_groups` is still set but is informational completion tracking uses offsets, not the counter.
 
 #### 19.5.2 Partition Discovery
 
@@ -7317,7 +7317,7 @@ The rebalance algorithm:
 
 ```
 1. LOCK: SELECT ... FOR UPDATE on outbox_topic_subscriptions WHERE topic AND group_name
-   (serializes rebalance — only one runs at a time)
+   (serializes rebalance only one runs at a time)
 
 2. INCREMENT rebalance_generation on the subscription row
 
@@ -7359,7 +7359,7 @@ FOR UPDATE OF o SKIP LOCKED;
 
 **Critical ordering property**: `ORDER BY o.id ASC` within a single partition guarantees sequential delivery. `FOR UPDATE SKIP LOCKED` is used to prevent duplicate delivery if multiple instances are racing during a rebalance (belt-and-suspenders; the assignment should prevent this).
 
-**No NOT EXISTS subquery**: Unlike REFERENCE_COUNTING, there is no join to `outbox_consumer_groups`. The offset IS the state — "give me everything after my last committed position."
+**No NOT EXISTS subquery**: Unlike REFERENCE_COUNTING, there is no join to `outbox_consumer_groups`. The offset IS the state "give me everything after my last committed position."
 
 After fetching, update the pending offset:
 
@@ -7379,14 +7379,14 @@ The consumer processes messages **one at a time within a partition**, in order. 
 
 Processing model options:
 
-**Option A — Sequential within partition, parallel across partitions**
+**Option A Sequential within partition, parallel across partitions**
 ```
 Partition "account-123":  msg 50 → msg 51 → msg 52  (sequential)
 Partition "account-456":  msg 48 → msg 53            (sequential, parallel with above)
 Partition "account-789":  msg 49 → msg 54 → msg 55   (sequential, parallel with above)
 ```
 
-**Option B — Micro-batch commit**
+**Option B Micro-batch commit**
 Fetch N messages for a partition, process them all in order, commit the batch offset atomically. This is more efficient than committing after every message but the consumer MUST process them sequentially within the batch.
 
 #### 19.5.6 Offset Commit
@@ -7477,7 +7477,7 @@ WHERE topic = $1
 
 #### 19.5.9 Zombie Subscription Protection
 
-**Problem**: A DEAD subscription with a stale offset pins all data forever — the watermark cannot advance past it.
+**Problem**: A DEAD subscription with a stale offset pins all data forever the watermark cannot advance past it.
 
 **Solution**: Exclude DEAD subscriptions from watermark calculation and force-advance stale offsets after a configurable TTL.
 
@@ -7564,7 +7564,7 @@ The `generation` counter on assignments and offsets is the key to preventing spl
 
 #### 19.7.1 LISTEN/NOTIFY
 
-The existing notification channel is per-topic (`{schema}_queue_{topic}`). For partitioned consumption this is still correct — the notification wakes up all consumer instances, each of which then checks their assigned partitions. No change needed.
+The existing notification channel is per-topic (`{schema}_queue_{topic}`). For partitioned consumption this is still correct the notification wakes up all consumer instances, each of which then checks their assigned partitions. No change needed.
 
 #### 19.7.2 DeadConsumerDetector
 
@@ -7595,7 +7595,7 @@ For OFFSET_WATERMARK topics, `ConsumerGroupFetcher.fetchMessages()` is NOT used.
 | **Database-coordinated assignment** | PostgreSQL `FOR UPDATE` provides distributed locking without external infrastructure; durable, visible to all consumers |
 | **Generation-based fencing** | Monotonic integers avoid clock skew risk; simpler than lease-based approaches |
 | **Watermark-based cleanup** | O(1) per cleanup cycle vs O(messages × groups); partition DROP is instant |
-| **NULL message_group → `__default__`** | Backward compatible — existing producers get identical behaviour |
+| **NULL message_group → `__default__`** | Backward compatible existing producers get identical behaviour |
 | **No hard partition count limit** | Partitions are strings, not fixed slots; recommend coarse keys (account ID, tenant ID) |
 
 ### 19.9 API Surface
@@ -7605,14 +7605,14 @@ For OFFSET_WATERMARK topics, `ConsumerGroupFetcher.fetchMessages()` is NOT used.
 The current consumer group API has a two-layer architecture established in v1.1.0:
 
 **Database Layer** (`peegeeq-db`): Subscription lifecycle management
-- `SubscriptionManager` — subscribe, pause, resume, cancel, heartbeat, list
-- `TopicConfigService` — topic CRUD, QUEUE/PUB_SUB semantics, retention config
+- `SubscriptionManager` subscribe, pause, resume, cancel, heartbeat, list
+- `TopicConfigService` topic CRUD, QUEUE/PUB_SUB semantics, retention config
 
 **API Layer** (`peegeeq-api`): Message processing and distribution
-- `ConsumerGroup<T>` interface — `start()`, `start(SubscriptionOptions)`, `setMessageHandler()`, `addConsumer()`
-- `QueueFactory` — `createConsumerGroup()`, `createProducer()`, `createConsumer()`
-- `SubscriptionOptions` — `StartPosition`, heartbeat config (moved from `peegeeq-db` to `dev.mars.peegeeq.api.messaging` in v1.1.0)
-- `StartPosition` enum — `FROM_NOW`, `FROM_BEGINNING`, `FROM_MESSAGE_ID`, `FROM_TIMESTAMP`
+- `ConsumerGroup<T>` interface `start()`, `start(SubscriptionOptions)`, `setMessageHandler()`, `addConsumer()`
+- `QueueFactory` `createConsumerGroup()`, `createProducer()`, `createConsumer()`
+- `SubscriptionOptions` `StartPosition`, heartbeat config (moved from `peegeeq-db` to `dev.mars.peegeeq.api.messaging` in v1.1.0)
+- `StartPosition` enum `FROM_NOW`, `FROM_BEGINNING`, `FROM_MESSAGE_ID`, `FROM_TIMESTAMP`
 
 The partitioned APIs extend BOTH layers:
 - **Database layer** gets `joinPartitionedGroup`, `leavePartitionedGroup`, `commitOffset`, `fetchPartitioned` on `SubscriptionService`
@@ -7726,7 +7726,7 @@ POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/:partiti
 
 - Add OFFSET_WATERMARK mode to `PgNativeQueueConsumer` and `OutboxConsumerGroup`
 - Extend `start(SubscriptionOptions)` to detect OFFSET_WATERMARK topics and enter partitioned mode
-- `setMessageHandler()` works as-is — the handler receives messages one-at-a-time per partition, partitions are processed in parallel
+- `setMessageHandler()` works as-is the handler receives messages one-at-a-time per partition, partitions are processed in parallel
 - `addConsumer()` maps each consumer to a virtual instance for partition assignment
 - Auto-join partitioned group on subscribe; auto-leave on `close()`
 - Auto-commit offsets after handler callback returns successfully
@@ -7739,7 +7739,7 @@ POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/:partiti
 
 2. **Co-located transaction commit**: The exactly-once pattern (business write + offset commit in same transaction) only works when the consumer's business database is the same PostgreSQL instance. For external databases, at-least-once is the guarantee. Is this acceptable?
 
-3. **Partition count hint**: The `partition_count` column on subscriptions — is this a hard limit (reject messages that would create a new partition) or a soft hint (for pre-creating assignment slots)?
+3. **Partition count hint**: The `partition_count` column on subscriptions is this a hard limit (reject messages that would create a new partition) or a soft hint (for pre-creating assignment slots)?
 
 4. **Dead partition cleanup**: When a `message_group` value has no more pending messages, should its assignment be removed? Or kept for future messages with the same key?
 
@@ -7771,10 +7771,10 @@ Mandatory load tests and chaos engineering scenarios that must pass before decla
 ```
 T0:  Start 3 consumer groups on an OFFSET_WATERMARK topic at 1,000 msg/sec
 T5:  SIGKILL one consumer group (no graceful shutdown)
-T10: Dead consumer detection runs — verify marked DEAD, partitions reassigned
+T10: Dead consumer detection runs verify marked DEAD, partitions reassigned
 T15: Verify watermark excludes dead group, other groups unblocked
-T20: Resurrect killed group — verify resumes from last committed offset
-T25: Verify steady state — all groups processing, watermark advancing
+T20: Resurrect killed group verify resumes from last committed offset
+T25: Verify steady state all groups processing, watermark advancing
 ```
 
 **Success criteria:**

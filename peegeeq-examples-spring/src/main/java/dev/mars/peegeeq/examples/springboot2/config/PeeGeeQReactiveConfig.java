@@ -82,7 +82,7 @@ public class PeeGeeQReactiveConfig {
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager - this handles all Vert.x setup internally
-        manager.start();
+        manager.start().await();
         log.info("PeeGeeQ Manager started successfully with profile: {}", properties.getProfile());
 
         return manager;

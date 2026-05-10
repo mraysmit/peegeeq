@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -36,6 +38,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -66,7 +69,7 @@ public class ConsumerGroupExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_consumer_group_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -78,24 +81,19 @@ public class ConsumerGroupExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Consumer Group Example Test");
         
         // Set database properties from TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Register factory providers
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -112,14 +110,16 @@ public class ConsumerGroupExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Consumer Group Example Test");
         
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("✓ Consumer Group Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             logger.info("✓ Consumer Group Example Test teardown completed");
             testContext.completeNow();

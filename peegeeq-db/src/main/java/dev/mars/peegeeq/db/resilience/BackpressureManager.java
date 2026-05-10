@@ -112,11 +112,16 @@ public class BackpressureManager {
                 failedOperations.incrementAndGet();
                 updateSuccessRate();
 
+                Duration executionTime = Duration.between(startTime, Instant.now());
+                String exceptionType = e.getClass().getSimpleName();
+
                 // M2: Use constructor-configured log level instead of stack-trace walking
                 if (debugFailures) {
-                    logger.debug("Operation '{}' failed: {}", operationName, e.getMessage());
+                    logger.debug("[INTENTIONAL] Backpressure tracked operation '{}' failed after {} with {}: {}", 
+                        operationName, executionTime, exceptionType, e.getMessage());
                 } else {
-                    logger.warn("Operation '{}' failed: {}", operationName, e.getMessage());
+                    logger.warn("Backpressure tracked operation '{}' failed after {} with {}: {}", 
+                        operationName, executionTime, exceptionType, e.getMessage());
                 }
                 throw new BackpressureException("Operation failed: " + operationName, e);
             }

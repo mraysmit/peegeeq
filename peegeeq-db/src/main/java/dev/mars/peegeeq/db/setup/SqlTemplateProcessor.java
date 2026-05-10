@@ -62,12 +62,16 @@ public class SqlTemplateProcessor {
                                 currentFileNum, sqlFiles.size());
                             return (Void) null;
                         })
-                        .recover(throwable -> {
+                        .onFailure(throwable ->
                             logger.error("Failed to execute SQL file {}/{} for template: {} - Error: {}",
-                                currentFileNum, sqlFiles.size(), templateDir, throwable.getMessage());
-                            return Future.failedFuture(new RuntimeException(
-                                "Failed to execute SQL file " + currentFileNum + " of template: " + templateDir,
-                                throwable));
+                                currentFileNum, sqlFiles.size(), templateDir, throwable.getMessage()))
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                return Future.failedFuture(new RuntimeException(
+                                    "Failed to execute SQL file " + currentFileNum + " of template: " + templateDir,
+                                    ar.cause()));
+                            }
+                            return Future.succeededFuture(ar.result());
                         });
                 });
             }
@@ -150,6 +154,54 @@ public class SqlTemplateProcessor {
         }
         return result;
     }
+
+    /**
+     * Returns the set of table names that the given template directory will create.
+     * Derived by scanning every SQL file listed in the manifest for CREATE TABLE statements,
+     * so the validation list automatically stays in sync whenever a new table SQL file is added.
+     *
+     * @param templateDir The template directory name (e.g. "base")
+     * @return Set of unqualified table names that the template creates
+     * @throws IOException if the manifest or any listed SQL file cannot be read
+     */
+    public Set<String> resolveRequiredTables(String templateDir) throws IOException {
+        Set<String> tableNames = new LinkedHashSet<>();
+        String basePath = "/db/templates/";
+        String manifestPath = basePath + templateDir + "/.manifest";
+
+        try (var manifestStream = getClass().getResourceAsStream(manifestPath)) {
+            if (manifestStream == null) {
+                throw new IOException("Manifest not found for template: " + templateDir);
+            }
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(manifestStream, StandardCharsets.UTF_8))) {
+                List<String> fileNames = reader.lines()
+                        .map(String::trim)
+                        .filter(line -> !line.isEmpty() && !line.startsWith("#"))
+                        .collect(Collectors.toList());
+
+                for (String fileName : fileNames) {
+                    String content = loadFile(basePath + templateDir + "/" + fileName);
+                    // Match: CREATE [UNLOGGED] TABLE [IF NOT EXISTS] {schema}.table_name
+                    // or: CREATE [UNLOGGED] TABLE [IF NOT EXISTS] table_name
+                    java.util.regex.Matcher m = CREATE_TABLE_PATTERN.matcher(content);
+                    while (m.find()) {
+                        tableNames.add(m.group(1));
+                    }
+                }
+            }
+        }
+        return tableNames;
+    }
+
+    // Matches the unqualified table name after an optional schema prefix in CREATE TABLE statements.
+    // Handles: CREATE TABLE, CREATE UNLOGGED TABLE, CREATE TABLE IF NOT EXISTS,
+    //          with or without a {schema}. or literal schema. qualifier.
+    private static final java.util.regex.Pattern CREATE_TABLE_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "CREATE\\s+(?:UNLOGGED\\s+)?TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?" +
+                    "(?:\\{schema\\}\\.|\\w+\\.)?([a-zA-Z_][a-zA-Z0-9_]*)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
 
     /**
      * Defensive validation for template parameter values that appear in SQL identifier positions.

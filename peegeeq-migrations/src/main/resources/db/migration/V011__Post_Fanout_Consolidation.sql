@@ -64,7 +64,7 @@ ADD COLUMN IF NOT EXISTS correlation_id VARCHAR(255),
 ADD COLUMN IF NOT EXISTS message_group VARCHAR(255),
 ADD COLUMN IF NOT EXISTS priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10);
 
-ALTER TABLE bitemporal_event_log
+ALTER TABLE IF EXISTS bitemporal_event_log
 ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255);
 
 -- -----------------------------------------------------------------------------
@@ -155,6 +155,12 @@ ALTER COLUMN failed_at SET NOT NULL;
 ALTER TABLE IF EXISTS bitemporal_event_log
 	ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255);
 
-CREATE INDEX IF NOT EXISTS idx_bitemporal_causation_id
-	ON bitemporal_event_log(causation_id)
-	WHERE causation_id IS NOT NULL;
+DO $$
+BEGIN
+	IF EXISTS (SELECT 1 FROM information_schema.tables
+			   WHERE table_schema = current_schema() AND table_name = 'bitemporal_event_log') THEN
+		CREATE INDEX IF NOT EXISTS idx_bitemporal_causation_id
+			ON bitemporal_event_log(causation_id)
+			WHERE causation_id IS NOT NULL;
+	END IF;
+END $$;

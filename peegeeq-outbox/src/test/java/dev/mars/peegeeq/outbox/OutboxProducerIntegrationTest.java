@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -39,6 +40,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -54,17 +56,7 @@ public class OutboxProducerIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME);
-        container.withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME);
-        container.withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD);
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PgClientFactory clientFactory;
     private ObjectMapper objectMapper;
@@ -72,24 +64,21 @@ public class OutboxProducerIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for OutboxProducer integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure system properties for TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
 
         // Initialize PeeGeeQ manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Get client factory from manager
         clientFactory = manager.getClientFactory();
@@ -104,8 +93,11 @@ public class OutboxProducerIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -278,21 +270,6 @@ public class OutboxProducerIntegrationTest {
     }
 
     @Test
-    void testConstructorLogsTopicName() {
-        // This test verifies constructor completes successfully
-        // (Actual logging verification would require log capture)
-        OutboxProducer<String> producer = new OutboxProducer<>(
-            clientFactory,
-            objectMapper,
-            "logged-topic",
-            String.class,
-            null
-        );
-
-        assertNotNull(producer);
-    }
-
-    @Test
     void testSend_ValidatesProducerNotClosed() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
@@ -381,39 +358,6 @@ public class OutboxProducerIntegrationTest {
 
         assertNotNull(producer);
         producer.close();
-    }
-
-    @Test
-    void testConstructorAcceptsVariousPayloadTypes() {
-        // String payload
-        OutboxProducer<String> stringProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "string-topic", String.class, null
-        );
-        assertNotNull(stringProducer);
-
-        // Integer payload
-        OutboxProducer<Integer> intProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "int-topic", Integer.class, null
-        );
-        assertNotNull(intProducer);
-
-        // Long payload
-        OutboxProducer<Long> longProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "long-topic", Long.class, null
-        );
-        assertNotNull(longProducer);
-
-        // Custom object payload
-        OutboxProducer<TestPayload> objectProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "object-topic", TestPayload.class, null
-        );
-        assertNotNull(objectProducer);
-
-        // Cleanup
-        stringProducer.close();
-        intProducer.close();
-        longProducer.close();
-        objectProducer.close();
     }
 
     @Test

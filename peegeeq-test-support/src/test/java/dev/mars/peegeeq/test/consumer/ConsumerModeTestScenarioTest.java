@@ -50,8 +50,7 @@ class ConsumerModeTestScenarioTest {
     @Test
     @DisplayName("Test basic scenario creation with defaults")
     void testBasicScenarioCreation() {
-        System.err.println("=== TEST METHOD STARTED: testBasicScenarioCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testBasicScenarioCreation ===");
         
         logger.info("Testing basic scenario creation with defaults");
         
@@ -70,15 +69,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Basic scenario creation test passed: {}", scenario);
         
-        System.err.println("=== TEST METHOD COMPLETED: testBasicScenarioCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testBasicScenarioCreation ===");
     }
     
     @Test
     @DisplayName("Test scenario creation with custom values")
     void testCustomScenarioCreation() {
-        System.err.println("=== TEST METHOD STARTED: testCustomScenarioCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testCustomScenarioCreation ===");
         
         logger.info("Testing scenario creation with custom values");
         
@@ -102,15 +99,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Custom scenario creation test passed: {}", scenario);
         
-        System.err.println("=== TEST METHOD COMPLETED: testCustomScenarioCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testCustomScenarioCreation ===");
     }
     
     @Test
     @DisplayName("Test basic factory method")
     void testBasicFactoryMethod() {
-        System.err.println("=== TEST METHOD STARTED: testBasicFactoryMethod ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testBasicFactoryMethod ===");
         
         logger.info("Testing basic factory method");
         
@@ -122,15 +117,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Basic factory method test passed: {}", scenario);
         
-        System.err.println("=== TEST METHOD COMPLETED: testBasicFactoryMethod ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testBasicFactoryMethod ===");
     }
     
     @Test
     @DisplayName("Test validation - null performance profile")
     void testValidationNullPerformanceProfile() {
-        System.err.println("=== TEST METHOD STARTED: testValidationNullPerformanceProfile ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testValidationNullPerformanceProfile ===");
         
         logger.info("Testing validation for null performance profile");
         
@@ -143,15 +136,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Null performance profile validation test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testValidationNullPerformanceProfile ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testValidationNullPerformanceProfile ===");
     }
     
     @Test
     @DisplayName("Test validation - null consumer mode")
     void testValidationNullConsumerMode() {
-        System.err.println("=== TEST METHOD STARTED: testValidationNullConsumerMode ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testValidationNullConsumerMode ===");
         
         logger.info("Testing validation for null consumer mode");
         
@@ -164,15 +155,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Null consumer mode validation test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testValidationNullConsumerMode ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testValidationNullConsumerMode ===");
     }
     
     @Test
     @DisplayName("Test validation - zero polling interval for POLLING_ONLY mode")
     void testValidationZeroPollingInterval() {
-        System.err.println("=== TEST METHOD STARTED: testValidationZeroPollingInterval ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testValidationZeroPollingInterval ===");
         
         logger.info("Testing validation for zero polling interval with POLLING_ONLY mode");
         
@@ -186,15 +175,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Zero polling interval validation test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testValidationZeroPollingInterval ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testValidationZeroPollingInterval ===");
     }
     
     @Test
     @DisplayName("Test validation - negative values")
     void testValidationNegativeValues() {
-        System.err.println("=== TEST METHOD STARTED: testValidationNegativeValues ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testValidationNegativeValues ===");
         
         logger.info("Testing validation for negative values");
         
@@ -221,15 +208,13 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Negative values validation test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testValidationNegativeValues ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testValidationNegativeValues ===");
     }
     
     @Test
     @DisplayName("Test scenario name and description methods")
     void testScenarioNameAndDescription() {
-        System.err.println("=== TEST METHOD STARTED: testScenarioNameAndDescription ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testScenarioNameAndDescription ===");
         
         logger.info("Testing scenario name and description methods");
         
@@ -260,15 +245,13 @@ class ConsumerModeTestScenarioTest {
         logger.info("Custom description: {}", description);
         logger.info("Auto description: {}", autoDescription);
         
-        System.err.println("=== TEST METHOD COMPLETED: testScenarioNameAndDescription ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testScenarioNameAndDescription ===");
     }
     
     @Test
     @DisplayName("Test equals and hashCode")
     void testEqualsAndHashCode() {
-        System.err.println("=== TEST METHOD STARTED: testEqualsAndHashCode ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEqualsAndHashCode ===");
         
         logger.info("Testing equals and hashCode methods");
         
@@ -296,7 +279,6 @@ class ConsumerModeTestScenarioTest {
         
         logger.info("Equals and hashCode test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testEqualsAndHashCode ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testEqualsAndHashCode ===");
     }
 }

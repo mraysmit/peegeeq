@@ -16,26 +16,12 @@ package dev.mars.peegeeq.db.health;
  * limitations under the License.
  */
 
+import io.vertx.core.Future;
 
-/**
- * Interface for health check implementations.
- * 
- * This interface is part of the PeeGeeQ message queue system, providing
- * production-ready PostgreSQL-based message queuing capabilities.
- * 
- * @author Mark Andrew Ray-Smith Cityline Ltd
- * @since 2025-07-13
- * @version 1.0
- */
 /**
  * Interface for health check implementations.
  */
 @FunctionalInterface
 public interface HealthCheck {
-    /**
-     * Performs the health check.
-     * 
-     * @return The health status result
-     */
-    HealthStatus check();
+    Future<HealthStatus> check();
 }

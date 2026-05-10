@@ -38,6 +38,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -68,6 +69,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class PgBiTemporalEventStoreCloseLogLevelTest {
+
+    private static final Logger log = LoggerFactory.getLogger(PgBiTemporalEventStoreCloseLogLevelTest.class);
 
     @Container
     @SuppressWarnings("resource")
@@ -118,11 +121,11 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
 
         if (eventStore != null) {
             closeChain = closeChain.compose(v -> eventStore.close()
-                    .recover(t -> Future.succeededFuture()));
+                    .transform(ar -> Future.succeededFuture()));
         }
         if (manager != null) {
             closeChain = closeChain.compose(v -> manager.closeReactive()
-                    .recover(t -> Future.succeededFuture()));
+                    .transform(ar -> Future.succeededFuture()));
         }
 
         closeChain.onComplete(v -> {
@@ -138,7 +141,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
         logCapture.clear();
         eventStore.close()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasCloseError = errors.stream().anyMatch(e ->
                             e.getFormattedMessage().contains("Error closing reactive notification handler") ||
@@ -150,8 +153,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     eventStore = null; // Prevent double-close in tearDown
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
@@ -182,12 +184,14 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                             vertx, ownManager, JsonObject.class, "bitemporal_log_level_test2",
                             new ObjectMapper());
 
-                    // Stop the database to cause close failures
+                    // Stop the database to cause close failures.
+                    // Connection-abort errors from background jobs (e.g. DeadConsumerDetectionJob) below are expected.
+                    log.info("[TEST] Intentionally stopping database container to trigger close failure path subsequent connection errors are expected");
                     ownContainer.stop();
                     ownCapture.clear();
 
                     return ownStore.close()
-                            .compose(v2 -> ownManager.closeReactive().recover(t -> Future.succeededFuture()));
+                            .compose(v2 -> ownManager.closeReactive().transform(ar -> Future.succeededFuture()));
                 })
                 .onComplete(ar -> testContext.verify(() -> {
                     List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);
@@ -216,15 +220,14 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     logCapture.clear();
                     return eventStore.close();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     assertTrue(errors.isEmpty(),
                             "Double close should not produce ERROR logs (second close is a no-op), but got: " +
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     eventStore = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

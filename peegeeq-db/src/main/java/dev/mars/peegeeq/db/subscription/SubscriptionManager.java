@@ -4,9 +4,12 @@ import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.ForceRemoveResult;
+import dev.mars.peegeeq.api.subscription.PartitionAssignmentInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
+import dev.mars.peegeeq.db.consumer.OutboxMessage;
+import dev.mars.peegeeq.db.consumer.PartitionAssignment;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
@@ -27,6 +30,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Service for managing consumer group subscriptions to topics.
@@ -53,8 +57,13 @@ public class SubscriptionManager implements SubscriptionService {
     
     private final PgConnectionManager connectionManager;
     private final String serviceId;
-    private BackfillService backfillService; // optional — enables auto-backfill on FROM_BEGINNING subscribe
-    private DeadConsumerGroupCleanup deadConsumerGroupCleanup; // optional — required for forceRemove
+    private BackfillService backfillService; // optional enables auto-backfill on FROM_BEGINNING subscribe
+    private DeadConsumerGroupCleanup deadConsumerGroupCleanup; // optional required for forceRemove
+
+    // Partitioned consumption services (optional enables OFFSET_WATERMARK mode)
+    private dev.mars.peegeeq.db.consumer.PartitionAssignmentService partitionAssignmentService;
+    private dev.mars.peegeeq.db.consumer.PartitionedFetcher partitionedFetcher;
+    private dev.mars.peegeeq.db.consumer.PartitionedOffsetManager partitionedOffsetManager;
     
     /**
      * Creates a new SubscriptionManager using the default pool.
@@ -82,7 +91,7 @@ public class SubscriptionManager implements SubscriptionService {
      *
      * <p>When set, subscribing with {@link StartPosition#FROM_BEGINNING} will automatically
      * trigger a backfill of existing messages to the new consumer group. If the backfill
-     * fails, the subscription is still created — the backfill can be retried manually.</p>
+     * fails, the subscription is still created the backfill can be retried manually.</p>
      *
      * @param backfillService The backfill service, or null to disable auto-backfill
      */
@@ -103,6 +112,23 @@ public class SubscriptionManager implements SubscriptionService {
     public void setDeadConsumerGroupCleanup(DeadConsumerGroupCleanup cleanup) {
         this.deadConsumerGroupCleanup = Objects.requireNonNull(cleanup, "cleanup cannot be null");
         logger.info("DeadConsumerGroupCleanup configured for SubscriptionManager");
+    }
+
+    /**
+     * Sets the partitioned consumption services for OFFSET_WATERMARK mode.
+     *
+     * @param assignmentService The partition assignment service
+     * @param fetcher The partitioned fetcher
+     * @param offsetManager The partitioned offset manager
+     */
+    public void setPartitionedConsumptionServices(
+            dev.mars.peegeeq.db.consumer.PartitionAssignmentService assignmentService,
+            dev.mars.peegeeq.db.consumer.PartitionedFetcher fetcher,
+            dev.mars.peegeeq.db.consumer.PartitionedOffsetManager offsetManager) {
+        this.partitionAssignmentService = Objects.requireNonNull(assignmentService, "assignmentService cannot be null");
+        this.partitionedFetcher = Objects.requireNonNull(fetcher, "fetcher cannot be null");
+        this.partitionedOffsetManager = Objects.requireNonNull(offsetManager, "offsetManager cannot be null");
+        logger.info("Partitioned consumption services configured for SubscriptionManager");
     }
     
     /**
@@ -160,12 +186,11 @@ public class SubscriptionManager implements SubscriptionService {
                         }
                         return (Void) null;
                     })
-                    .recover(error -> {
+                    .onFailure(error -> {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.warn("Auto-backfill failed for topic='{}', group='{}': {} (subscription was still created)",
+                            logger.warn("Auto-backfill failed for topic='{}', group='{}': {}",
                                        topic, groupName, error.getMessage());
                         }
-                        return Future.succeededFuture();
                     });
             });
         }
@@ -363,7 +388,7 @@ public class SubscriptionManager implements SubscriptionService {
                 .compose(v -> {
                     if (deadConsumerGroupCleanup == null) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.debug("No DeadConsumerGroupCleanup configured — skipping cancel cleanup " +
+                            logger.debug("No DeadConsumerGroupCleanup configured skipping cancel cleanup " +
                                     "for group='{}' on topic='{}'", groupName, topic);
                         }
                         return Future.succeededFuture();
@@ -382,13 +407,11 @@ public class SubscriptionManager implements SubscriptionService {
                                 }
                                 return (Void) null;
                             })
-                            .recover(err -> {
+                            .onFailure(err -> {
                                 try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.warn("Cancel cleanup failed for group='{}' on topic='{}' " +
-                                                    "(cancel still succeeded): {}",
+                                    logger.warn("Cancel cleanup failed for group='{}' on topic='{}': {}",
                                             groupName, topic, err.getMessage());
                                 }
-                                return Future.succeededFuture();
                             });
                 });
     }
@@ -558,12 +581,11 @@ public class SubscriptionManager implements SubscriptionService {
                                 }
                                 return (Void) null;
                             })
-                            .recover(error -> {
+                            .onFailure(error -> {
                                 try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {} (resurrection was still successful)",
+                                    logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {}",
                                                topic, groupName, error.getMessage());
                                 }
-                                return Future.succeededFuture();
                             });
                     }
                     return Future.succeededFuture();
@@ -972,6 +994,146 @@ public class SubscriptionManager implements SubscriptionService {
                             .put("blockedStats", statsArray)
                             .put("totalBlockedGroups", statsArray.size());
                 });
+    }
+
+    // ========================================================================
+    // Partitioned Consumption (OFFSET_WATERMARK mode)
+    // ========================================================================
+
+    @Override
+    public Future<List<PartitionAssignmentInfo>> joinPartitionedGroup(String topic, String groupName, String instanceId) {
+        return requireOffsetWatermarkMode(topic)
+                .compose(v -> {
+                    requirePartitionedServices();
+                    return partitionAssignmentService.joinGroup(topic, groupName, instanceId);
+                })
+                .compose(assignments -> {
+                    // Initialize offset rows for all assigned partitions (idempotent)
+                    Future<Void> init = Future.succeededFuture();
+                    for (PartitionAssignment a : assignments) {
+                        init = init.compose(v ->
+                                partitionedOffsetManager.initializeOffset(
+                                        a.topic(), a.groupName(), a.partitionKey(), a.generation())
+                                        .map(offset -> (Void) null));
+                    }
+                    return init.map(v -> toAssignmentInfoList(assignments));
+                });
+    }
+
+    @Override
+    public Future<Void> leavePartitionedGroup(String topic, String groupName, String instanceId) {
+        return requireOffsetWatermarkMode(topic)
+                .compose(v -> {
+                    requirePartitionedServices();
+                    return partitionAssignmentService.leaveGroup(topic, groupName, instanceId);
+                });
+    }
+
+    @Override
+    public Future<List<JsonObject>> fetchPartitioned(String topic, String groupName,
+                                                      String partitionKey, int batchSize, int generation) {
+        return requireOffsetWatermarkMode(topic)
+                .compose(v -> {
+                    requirePartitionedServices();
+                    return verifyPartitionAssignment(topic, groupName, partitionKey, generation);
+                })
+                .compose(v -> partitionedFetcher.fetch(topic, groupName, partitionKey, batchSize, generation))
+                .map(messages -> messages.stream()
+                        .map(this::toMessageJson)
+                        .collect(Collectors.toList()));
+    }
+
+    @Override
+    public Future<Boolean> commitOffset(String topic, String groupName,
+                                         String partitionKey, long offset, int generation) {
+        return requireOffsetWatermarkMode(topic)
+                .compose(v -> {
+                    requirePartitionedServices();
+                    return partitionedOffsetManager.commitOffset(topic, groupName, partitionKey, offset, generation);
+                });
+    }
+
+    @Override
+    public Future<List<PartitionAssignmentInfo>> getPartitionAssignments(String topic, String groupName, String instanceId) {
+        return requireOffsetWatermarkMode(topic)
+                .compose(v -> {
+                    requirePartitionedServices();
+                    return partitionAssignmentService.getAssignments(topic, groupName, instanceId);
+                })
+                .map(this::toAssignmentInfoList);
+    }
+
+    private Future<Void> requireOffsetWatermarkMode(String topic) {
+        return connectionManager.withConnection(serviceId, connection ->
+                connection.preparedQuery(
+                        "SELECT completion_tracking_mode FROM outbox_topics WHERE topic = $1"
+                ).execute(Tuple.of(topic))
+                .compose(rows -> {
+                    if (rows.size() == 0) {
+                        return Future.failedFuture(new IllegalArgumentException(
+                                "Topic not found: " + topic));
+                    }
+                    String mode = rows.iterator().next().getString("completion_tracking_mode");
+                    if (!"OFFSET_WATERMARK".equals(mode)) {
+                        return Future.failedFuture(new IllegalArgumentException(
+                                "Topic '" + topic + "' requires OFFSET_WATERMARK mode but has " + mode));
+                    }
+                    return Future.succeededFuture();
+                })
+        );
+    }
+
+    private Future<Void> verifyPartitionAssignment(String topic, String groupName,
+                                                    String partitionKey, int generation) {
+        return connectionManager.withConnection(serviceId, connection ->
+                connection.preparedQuery("""
+                    SELECT 1 FROM outbox_partition_assignments
+                    WHERE topic = $1 AND group_name = $2 AND partition_key = $3 AND generation = $4
+                    """)
+                .execute(Tuple.of(topic, groupName, partitionKey, generation))
+                .compose(rows -> {
+                    if (rows.size() == 0) {
+                        return Future.failedFuture(new IllegalArgumentException(
+                                "Partition '" + partitionKey + "' is not assigned for group '"
+                                + groupName + "' at generation " + generation));
+                    }
+                    return Future.succeededFuture();
+                })
+        );
+    }
+
+    private void requirePartitionedServices() {
+        if (partitionAssignmentService == null || partitionedFetcher == null || partitionedOffsetManager == null) {
+            throw new IllegalStateException("Partitioned consumption services not configured");
+        }
+    }
+
+    private List<PartitionAssignmentInfo> toAssignmentInfoList(List<PartitionAssignment> assignments) {
+        return assignments.stream()
+                .map(a -> new PartitionAssignmentInfo(
+                        a.topic(), a.groupName(), a.partitionKey(),
+                        a.assignedInstanceId(), a.generation()))
+                .collect(Collectors.toList());
+    }
+
+    private JsonObject toMessageJson(OutboxMessage msg) {
+        JsonObject json = new JsonObject()
+                .put("id", msg.getId())
+                .put("topic", msg.getTopic())
+                .put("messageGroup", msg.getMessageGroup());
+        if (msg.getPayload() != null) {
+            json.put("payload", msg.getPayload());
+        }
+        if (msg.getHeaders() != null) {
+            json.put("headers", msg.getHeaders());
+        }
+        if (msg.getCorrelationId() != null) {
+            json.put("correlationId", msg.getCorrelationId());
+        }
+        if (msg.getCreatedAt() != null) {
+            json.put("createdAt", msg.getCreatedAt().toString());
+        }
+        return json;
     }
 }
 

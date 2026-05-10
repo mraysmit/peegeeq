@@ -22,20 +22,25 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.SQLException;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
 import java.util.List;
 import java.util.Map;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,7 +60,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 public class DatabaseSetupServiceIntegrationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupServiceIntegrationTest.class);
@@ -64,7 +69,7 @@ public class DatabaseSetupServiceIntegrationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_setup_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -83,10 +88,23 @@ public class DatabaseSetupServiceIntegrationTest {
         testSetupId = "test-setup-" + System.currentTimeMillis();
         logger.info("Starting test with setup ID: {}", testSetupId);
     }
-    
+
+    @AfterEach
+    void tearDown(VertxTestContext ctx) {
+        if (setupService != null) {
+            setupService.close()
+                    .onSuccess(v -> {
+                        setupService = null;
+                        ctx.completeNow();
+                    })
+                    .onFailure(ctx::failNow);
+        } else {
+            ctx.completeNow();
+        }
+    }
+
     @Test
-    @Order(1)
-    void testCreateCompleteSetupWithQueuesAndEventStores() throws Exception {
+    void testCreateCompleteSetupWithQueuesAndEventStores(Vertx vertx, VertxTestContext ctx) {
         logger.info("=== Testing Complete Database Setup Creation ===");
         
         DatabaseConfig dbConfig = new DatabaseConfig.Builder()
@@ -137,45 +155,41 @@ public class DatabaseSetupServiceIntegrationTest {
                 eventStores,
                 Map.of("test", "true")
         );
-        
-        DatabaseSetupResult result = setupService.createCompleteSetup(request).await();
-        
-        assertNotNull(result);
-        assertEquals(testSetupId, result.getSetupId());
-        assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus());
-        assertNotNull(result.getQueueFactories());
-        assertNotNull(result.getEventStores());
-        assertTrue(result.getCreatedAt() > 0);
-        
-        logger.info("Setup created successfully: {}", result.getSetupId());
-        verifyDatabaseExists(dbConfig.getDatabaseName());
-        logger.info("=== Complete Database Setup Creation Test Passed ===");
+
+        setupService.createCompleteSetup(request)
+                .compose(result -> {
+                    assertNotNull(result);
+                    assertEquals(testSetupId, result.getSetupId());
+                    assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus());
+                    assertNotNull(result.getQueueFactories());
+                    assertNotNull(result.getEventStores());
+                    assertTrue(result.getCreatedAt() > 0);
+                    logger.info("Setup created successfully: {}", result.getSetupId());
+                    return verifyDatabaseExists(vertx, dbConfig.getDatabaseName());
+                })
+                .onSuccess(v -> {
+                    logger.info("=== Complete Database Setup Creation Test Passed ===");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @Test
-    @Order(2)
-    void testGetSetupStatus() throws Exception {
+    void testGetSetupStatus(VertxTestContext ctx) {
         logger.info("=== Testing Setup Status Retrieval ===");
 
-        DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).await();
-
-        DatabaseSetupStatus status = setupService.getSetupStatus(testSetupId).await();
-
-        assertNotNull(status);
-        assertEquals(DatabaseSetupStatus.ACTIVE, status);
-
-        logger.info("Setup status retrieved successfully: {}", status);
-        logger.info("=== Setup Status Retrieval Test Passed ===");
+        setupService.createCompleteSetup(createMinimalSetupRequest())
+                .compose(result -> setupService.getSetupStatus(testSetupId))
+                .onComplete(ctx.succeeding(status -> ctx.verify(() -> {
+                    assertNotNull(status);
+                    assertEquals(DatabaseSetupStatus.ACTIVE, status);
+                    ctx.completeNow();
+                })));
     }
 
     @Test
-    @Order(3)
-    void testAddQueueToExistingSetup() throws Exception {
+    void testAddQueueToExistingSetup(VertxTestContext ctx) {
         logger.info("=== Testing Add Queue to Existing Setup ===");
-
-        DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).await();
 
         QueueConfig newQueue = new QueueConfig.Builder()
                 .queueName("payments")
@@ -184,19 +198,19 @@ public class DatabaseSetupServiceIntegrationTest {
                 .deadLetterEnabled(true)
                 .build();
 
-        setupService.addQueue(testSetupId, newQueue).await();
-
-        logger.info("Queue added successfully to existing setup");
-        logger.info("=== Add Queue to Existing Setup Test Passed ===");
+        setupService.createCompleteSetup(createMinimalSetupRequest())
+                .compose(result -> setupService.addQueue(testSetupId, newQueue))
+                .onSuccess(v -> {
+                    logger.info("Queue added successfully to existing setup");
+                    logger.info("=== Add Queue to Existing Setup Test Passed ===");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @Test
-    @Order(4)
-    void testAddEventStoreToExistingSetup() throws Exception {
+    void testAddEventStoreToExistingSetup(VertxTestContext ctx) {
         logger.info("=== Testing Add Event Store to Existing Setup ===");
-
-        DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).await();
 
         EventStoreConfig newEventStore = new EventStoreConfig.Builder()
                 .eventStoreName("payment-events")
@@ -205,32 +219,37 @@ public class DatabaseSetupServiceIntegrationTest {
                 .notificationPrefix("payment_events_")
                 .build();
 
-        setupService.addEventStore(testSetupId, newEventStore).await();
-
-        logger.info("Event store added successfully to existing setup");
-        logger.info("=== Add Event Store to Existing Setup Test Passed ===");
+        setupService.createCompleteSetup(createMinimalSetupRequest())
+                .compose(result -> setupService.addEventStore(testSetupId, newEventStore))
+                .onSuccess(v -> {
+                    logger.info("Event store added successfully to existing setup");
+                    logger.info("=== Add Event Store to Existing Setup Test Passed ===");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @Test
-    @Order(5)
-    void testDestroySetup() throws Exception {
+    void testDestroySetup(VertxTestContext ctx) {
         logger.info("=== Testing Setup Destruction ===");
 
-        DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).await();
-
-        setupService.destroySetup(testSetupId).await();
-
-        assertThrows(Exception.class, () -> {
-            setupService.getSetupStatus(testSetupId).await();
-        });
-
-        logger.info("Setup destroyed successfully");
-        logger.info("=== Setup Destruction Test Passed ===");
+        setupService.createCompleteSetup(createMinimalSetupRequest())
+                .compose(result -> setupService.destroySetup(testSetupId))
+                .compose(v -> setupService.getSetupStatus(testSetupId)
+                        .compose(
+                                status -> Future.failedFuture(new AssertionError("Expected getSetupStatus to fail after destroy")),
+                                err -> Future.succeededFuture()
+                        ))
+                .onSuccess(v -> {
+                    logger.info("Setup destroyed successfully");
+                    logger.info("=== Setup Destruction Test Passed ===");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @Test
-    void testInvalidSetupRequest() {
+    void testInvalidSetupRequest(VertxTestContext ctx) {
         logger.info("=== Testing Invalid Setup Request Handling ===");
 
         DatabaseConfig invalidConfig = new DatabaseConfig.Builder()
@@ -249,12 +268,13 @@ public class DatabaseSetupServiceIntegrationTest {
                 Map.of()
         );
 
-        assertThrows(Exception.class, () -> {
-            setupService.createCompleteSetup(invalidRequest).await();
-        });
-
-        logger.info("Invalid setup request properly rejected");
-        logger.info("=== Invalid Setup Request Handling Test Passed ===");
+        setupService.createCompleteSetup(invalidRequest)
+                .onSuccess(result -> ctx.failNow(new AssertionError("Expected createCompleteSetup to fail for invalid config")))
+                .onFailure(err -> {
+                    logger.info("Invalid setup request properly rejected");
+                    logger.info("=== Invalid Setup Request Handling Test Passed ===");
+                    ctx.completeNow();
+                });
     }
 
     private DatabaseSetupRequest createMinimalSetupRequest() {
@@ -276,18 +296,23 @@ public class DatabaseSetupServiceIntegrationTest {
         );
     }
 
-    private void verifyDatabaseExists(String databaseName) throws SQLException {
-        String adminUrl = String.format("jdbc:postgresql://%s:%d/postgres",
-                postgres.getHost(), postgres.getFirstMappedPort());
-
-        try (Connection conn = DriverManager.getConnection(adminUrl,
-                postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.prepareStatement("SELECT 1 FROM pg_database WHERE datname = ?")) {
-
-            stmt.setString(1, databaseName);
-            var rs = stmt.executeQuery();
-            assertTrue(rs.next(), "Database should exist: " + databaseName);
-        }
+    private Future<Void> verifyDatabaseExists(Vertx vertx, String databaseName) {
+        PgConnectOptions connectOptions = new PgConnectOptions()
+                .setHost(postgres.getHost())
+                .setPort(postgres.getFirstMappedPort())
+                .setDatabase("postgres")
+                .setUser(postgres.getUsername())
+                .setPassword(postgres.getPassword());
+        Pool pool = PgBuilder.pool()
+                .connectingTo(connectOptions)
+                .using(vertx)
+                .build();
+        return pool.preparedQuery("SELECT 1 FROM pg_database WHERE datname = $1")
+                .execute(Tuple.of(databaseName))
+                .compose(rows -> rows.iterator().hasNext()
+                        ? Future.<Void>succeededFuture()
+                        : Future.failedFuture(new AssertionError("Database should exist: " + databaseName)))
+                .eventually(() -> pool.close());
     }
 }
 

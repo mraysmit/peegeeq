@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -31,7 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -73,25 +74,22 @@ class HybridModeEdgeCaseTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT2S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
         // Ensure required schema exists for native queue tests
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-
         // Initialize PeeGeeQ (following existing patterns)
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -107,13 +105,12 @@ class HybridModeEdgeCaseTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -166,10 +163,8 @@ class HybridModeEdgeCaseTest {
 
         // Send messages BEFORE creating consumer (to test polling fallback)
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        CountDownLatch sendLatch1 = new CountDownLatch(2);
-        producer.send("Existing message 1").onComplete(ar -> sendLatch1.countDown());
-        producer.send("Existing message 2").onComplete(ar -> sendLatch1.countDown());
-        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Sends should complete");
+        producer.send("Existing message 1").await();
+        producer.send("Existing message 2").await();
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -204,10 +199,8 @@ class HybridModeEdgeCaseTest {
 
         // Send some messages BEFORE consumer starts
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        CountDownLatch sendLatch2 = new CountDownLatch(2);
-        producer.send("Pre-existing message 1").onComplete(ar -> sendLatch2.countDown());
-        producer.send("Pre-existing message 2").onComplete(ar -> sendLatch2.countDown());
-        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Sends should complete");
+        producer.send("Pre-existing message 1").await();
+        producer.send("Pre-existing message 2").await();
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -308,11 +301,9 @@ class HybridModeEdgeCaseTest {
         });
 
         // Send messages in sequence
-        CountDownLatch sendLatch3 = new CountDownLatch(6);
         for (int i = 1; i <= 6; i++) {
-            producer.send("Message " + i).onComplete(ar -> sendLatch3.countDown());
+            producer.send("Message " + i).await();
         }
-        assertTrue(sendLatch3.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
         assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
@@ -350,11 +341,9 @@ class HybridModeEdgeCaseTest {
         });
 
         // Send messages
-        CountDownLatch sendLatch4 = new CountDownLatch(15);
         for (int i = 1; i <= 15; i++) {
-            producer.send("Performance test message " + i).onComplete(ar -> sendLatch4.countDown());
+            producer.send("Performance test message " + i).await();
         }
-        assertTrue(sendLatch4.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");
         assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");

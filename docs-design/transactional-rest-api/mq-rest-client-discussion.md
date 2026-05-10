@@ -4,7 +4,7 @@
 
 ### Author
 
-Mark A Ray-Smith — Software Engineer
+Mark A Ray-Smith Software Engineer
 
 
 
@@ -78,14 +78,14 @@ This discussion lays out:
 ### 2.5 Distributed-systems constraints you’re dealing with
 
 * **FLP & CAP realities**
-  Network partitions and crashes mean you’ll choose **at-least-once + idempotency** over mythical exactly-once. HTTP doesn’t change that — it just pushes the logic into your API and clients.#
+  Network partitions and crashes mean you’ll choose **at-least-once + idempotency** over mythical exactly-once. HTTP doesn’t change that it just pushes the logic into your API and clients.#
 
 * **Idempotency > transactions**
   End-to-end exactly-once is impractical across boundaries. Idempotent handlers + outbox are the proven patterns.
 
 * **Clock & session loss**
   HTTP’s short-lived sessions lose implicit progress (like cursors and delivery state), so you need **resume tokens** and explicit offsets.
-* When using **Server-Sent Events (SSE)** or WebSockets, treat the connection as **soft state** — you must periodically checkpoint the broker offset or message ID in the stream. On reconnect, use `Last-Event-ID` or a custom `?resume=offset` to rejoin without message loss or duplication.
+* When using **Server-Sent Events (SSE)** or WebSockets, treat the connection as **soft state** you must periodically checkpoint the broker offset or message ID in the stream. On reconnect, use `Last-Event-ID` or a custom `?resume=offset` to rejoin without message loss or duplication.
 
 ### 2.6 Economics (why the trade-off might work)
 
@@ -351,13 +351,13 @@ Never mix publish and consume metrics; they have different SLOs.
 
 ## 12. Systems that Offer a REST Messaging API
 
-### Solace — REST Messaging API
+### Solace REST Messaging API
 
 * **Pros:** first-class REST messages, guaranteed delivery, OAuth2/mTLS, good for edge/webhooks.
 * **Cons:** HTTP lacks credits; ordering is limited; higher latency; REST GET is polling; not full transaction semantics.
 * **Bottom line:** Great for **edge**; keep **core** consumers on SMF/MQTT/AMQP.
 
-### IBM MQ — REST Messaging & Admin
+### IBM MQ REST Messaging & Admin
 
 * **Pros:** IBM-supported messaging over HTTP; persistent puts/gets; simple for non-JMS stacks.
 * **Cons:** One message per HTTP call; no streaming callbacks; no batching/flow control; 20–100 ms typical latency.
@@ -369,58 +369,58 @@ Never mix publish and consume metrics; they have different SLOs.
 * Artemis: management REST only; use AMQP/JMS/STOMP or a bridge (Camel/Quarkus).
 * Azure Service Bus / AWS SQS: REST-native with **visibility timeout**, **dedupe IDs**, **batch send/receive** that make REST viable at scale.
 
-**Why vendors ship REST anyway:** lower onboarding friction, admin/monitoring/serverless integration — but only a **subset** of broker semantics survives.
+**Why vendors ship REST anyway:** lower onboarding friction, admin/monitoring/serverless integration but only a **subset** of broker semantics survives.
 
 ---
 
-## 13. Mitigation Matrix — Detailed + Simple Explanations (keeps same order)
+## 13. Mitigation Matrix Detailed + Simple Explanations (keeps same order)
 
-**1) Delivery semantics** — *Idempotency + DLQ*
+**1) Delivery semantics** *Idempotency + DLQ*
 HTTP retries cause duplicates; require **Idempotency-Key**, store & dedupe, expose `Delivery-Count`, DLQ on schema fail.
 
-**2) Ordering** — *Per-key serialization*
+**2) Ordering** *Per-key serialization*
 Use `Ordering-Key`; allow only one in-flight per key; partition for parallelism.
 
-**3) Backpressure** — *Credits/leases + throttling*
+**3) Backpressure** *Credits/leases + throttling*
 Cap in-flight; `429/Retry-After`; exponential backoff + jitter; park to DLQ.
 
-**4) Transactions / Sessions** — *Outbox & acks*
+**4) Transactions / Sessions** *Outbox & acks*
 No XA; use app-level outbox and explicit `ACK/NACK/EXTEND`; track processed offsets.
 
-**5) Synchronous vs Asynchronous** — *Don’t block HTTP for work*
+**5) Synchronous vs Asynchronous** *Don’t block HTTP for work*
 Respond `201/202` on enqueue; completion via status/callback/stream; prefer SSE/WS; add circuit breakers.
 
-**6) Reconnect / Resume** — *Offsets & resume tokens*
+**6) Reconnect / Resume** *Offsets & resume tokens*
 Include `brokerOffset`; clients reconnect with `?resume=offset|time`; consider bridge WAL.
 
-**7) Latency / Throughput** — *Batch + HTTP/2 + compression*
+**7) Latency / Throughput** *Batch + HTTP/2 + compression*
 `max=N&wait=25s` for pull; coalesced acks; gzip; keep-alive.
 
-**8) Batching / Prefetch** — *Prefetch==maxInFlight*
+**8) Batching / Prefetch** *Prefetch==maxInFlight*
 Use per-connection caps; coalesce acks.
 
-**9) TTL / DLQ / Delay / Priority** — *Map 1:1 + replay*
+**9) TTL / DLQ / Delay / Priority** *Map 1:1 + replay*
 Expose TTL/delay/priority; `/deadletters`, `/replay`; clamp ranges.
 
-**10) Observability** — *Dual-plane metrics*
+**10) Observability** *Dual-plane metrics*
 Publish plane vs processing plane + tracing; don’t conflate SLAs.
 
-**11) Security / ACLs** — *JWT→ACL + mTLS + HMAC*
+**11) Security / ACLs** *JWT→ACL + mTLS + HMAC*
 Single source of truth (OPA/Git); rotate keys; pin certs.
 
-**12) Selectors / Filters** — *Whitelisted server-side filters*
+**12) Selectors / Filters** *Whitelisted server-side filters*
 No arbitrary expressions; cache selector→subscription.
 
-**13) Protocol Overhead** — *HTTP/2 + reuse + binary where possible*
+**13) Protocol Overhead** *HTTP/2 + reuse + binary where possible*
 Avoid chatty JSON for large payloads; compress.
 
-**14) Real-time / Streaming** — *SSE/WS with heartbeats + resume*
+**14) Real-time / Streaming** *SSE/WS with heartbeats + resume*
 Prefer streams over polling; per-key serialization on stream.
 
-**15) Client Libraries** — *Thin SDKs*
+**15) Client Libraries** *Thin SDKs*
 Bake in idempotency, acks, retries, backoff to reduce foot-guns.
 
-**16) Operational Complexity** — *Runbooks + game days*
+**16) Operational Complexity** *Runbooks + game days*
 DLQ replay playbooks; outage drills; alerts for lag/leases/429s.
 
 ---
@@ -451,4 +451,4 @@ These mitigations won’t make HTTP equal to AMQP/JMS, but they **tame the bigge
 * **Sync vs Async discipline** – don’t turn queues into slow RPC.
 * **Observability & Security** – visibility and trust preserved.
 
-> You can make REST-over-MQ behave decently — but only by **re-implementing** much of what the broker already gave you.
+> You can make REST-over-MQ behave decently but only by **re-implementing** much of what the broker already gave you.

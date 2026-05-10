@@ -8,7 +8,9 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -31,6 +33,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
@@ -51,15 +54,7 @@ class OutboxIdempotencyKeyTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxIdempotencyKeyTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15-alpine");
-        container.withDatabaseName("testdb");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -68,20 +63,16 @@ class OutboxIdempotencyKeyTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "idempotency-test-" + UUID.randomUUID().toString().substring(0, 8);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("idempotency-test");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -93,6 +84,7 @@ class OutboxIdempotencyKeyTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
@@ -103,14 +95,11 @@ class OutboxIdempotencyKeyTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            System.clearProperty("peegeeq.database.host");
-            System.clearProperty("peegeeq.database.port");
-            System.clearProperty("peegeeq.database.name");
-            System.clearProperty("peegeeq.database.username");
-            System.clearProperty("peegeeq.database.password");
-            testContext.completeNow();
-        });
+        closeFuture
+                .onSuccess(v -> {
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -124,16 +113,13 @@ class OutboxIdempotencyKeyTest {
 
         // First send should succeed
         producer.send("test-payload-1", headers)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    // Verify message was inserted
-                    int count = getMessageCountForIdempotencyKey(idempotencyKey);
-                    assertEquals(1, count, "Should have exactly 1 message with this idempotency key");
-                    logger.info("First send with idempotency key succeeded");
-                });
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                // Verify message was inserted
+                int count = getMessageCountForIdempotencyKey(idempotencyKey);
+                assertEquals(1, count, "Should have exactly 1 message with this idempotency key");
+                logger.info("First send with idempotency key succeeded");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -149,20 +135,17 @@ class OutboxIdempotencyKeyTest {
         producer.send("test-payload-1", headers)
             .compose(v -> producer.send("test-payload-2", headers))
             .compose(v -> producer.send("test-payload-3", headers))
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    // Verify only one message was inserted
-                    int count = getMessageCountForIdempotencyKey(idempotencyKey);
-                    assertEquals(1, count, "Should have exactly 1 message despite 3 send attempts");
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                // Verify only one message was inserted
+                int count = getMessageCountForIdempotencyKey(idempotencyKey);
+                assertEquals(1, count, "Should have exactly 1 message despite 3 send attempts");
 
-                    // Verify the payload is from the first send
-                    String payload = getPayloadForIdempotencyKey(idempotencyKey);
-                    assertEquals("{\"value\": \"test-payload-1\"}", payload, "Should have payload from first send");
-                    logger.info("Duplicate sends were correctly ignored");
-                });
+                // Verify the payload is from the first send
+                String payload = getPayloadForIdempotencyKey(idempotencyKey);
+                assertEquals("{\"value\": \"test-payload-1\"}", payload, "Should have payload from first send");
+                logger.info("Duplicate sends were correctly ignored");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -177,16 +160,13 @@ class OutboxIdempotencyKeyTest {
         producer.send("duplicate-payload", headers)
             .compose(v -> producer.send("duplicate-payload", headers))
             .compose(v -> producer.send("duplicate-payload", headers))
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    // All messages should be inserted
-                    int count = getMessageCountForTopic(testTopic);
-                    assertTrue(count >= 3, "Should have at least 3 messages when no idempotency key is used");
-                    logger.info("Messages without idempotency key allow duplicates as expected");
-                });
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                // All messages should be inserted
+                int count = getMessageCountForTopic(testTopic);
+                assertTrue(count >= 3, "Should have at least 3 messages when no idempotency key is used");
+                logger.info("Messages without idempotency key allow duplicates as expected");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -204,16 +184,13 @@ class OutboxIdempotencyKeyTest {
             });
         }
 
-        chain.onSuccess(v -> {
-                testContext.verify(() -> {
-                    // All 5 messages should be inserted
-                    int count = getMessageCountForTopic(testTopic);
-                    assertEquals(5, count, "Should have 5 messages with different idempotency keys");
-                    logger.info("All messages with different idempotency keys were inserted");
-                });
+        chain.onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                // All 5 messages should be inserted
+                int count = getMessageCountForTopic(testTopic);
+                assertEquals(5, count, "Should have 5 messages with different idempotency keys");
+                logger.info("All messages with different idempotency keys were inserted");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -243,18 +220,15 @@ class OutboxIdempotencyKeyTest {
         // Wait for all concurrent sends to complete, then verify
         Future.all(sendFutures)
             .compose(cf -> vertx.timer(500))
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    assertEquals(sendCount, successCount.get(), "All sends should succeed (duplicates ignored)");
-                    assertEquals(0, failureCount.get(), "No failures expected");
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertEquals(sendCount, successCount.get(), "All sends should succeed (duplicates ignored)");
+                assertEquals(0, failureCount.get(), "No failures expected");
 
-                    int count = getMessageCountForIdempotencyKey(idempotencyKey);
-                    assertEquals(1, count, "Should have exactly 1 message despite concurrent sends");
-                    logger.info("Concurrent duplicate sends handled correctly");
-                });
+                int count = getMessageCountForIdempotencyKey(idempotencyKey);
+                assertEquals(1, count, "Should have exactly 1 message despite concurrent sends");
+                logger.info("Concurrent duplicate sends handled correctly");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
@@ -306,15 +280,12 @@ class OutboxIdempotencyKeyTest {
         // Send multiple times with null idempotency key
         producer.send("payload-1", headers)
             .compose(v -> producer.send("payload-2", headers))
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    int count = getMessageCountForTopic(testTopic);
-                    assertEquals(2, count, "Should have 2 messages when idempotency key is null");
-                    logger.info("Null idempotency key allows duplicates");
-                });
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                int count = getMessageCountForTopic(testTopic);
+                assertEquals(2, count, "Should have 2 messages when idempotency key is null");
+                logger.info("Null idempotency key allows duplicates");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -328,15 +299,12 @@ class OutboxIdempotencyKeyTest {
         // Send multiple times with empty idempotency key
         producer.send("payload-1", headers)
             .compose(v -> producer.send("payload-2", headers))
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    int count = getMessageCountForTopic(testTopic);
-                    assertEquals(2, count, "Should have 2 messages when idempotency key is empty");
-                    logger.info("Empty idempotency key allows duplicates");
-                });
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                int count = getMessageCountForTopic(testTopic);
+                assertEquals(2, count, "Should have 2 messages when idempotency key is empty");
+                logger.info("Empty idempotency key allows duplicates");
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 

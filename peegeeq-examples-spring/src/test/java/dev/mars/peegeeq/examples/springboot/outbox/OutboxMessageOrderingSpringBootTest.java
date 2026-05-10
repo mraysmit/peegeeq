@@ -2,13 +2,15 @@ package dev.mars.peegeeq.examples.springboot.outbox;
 
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -61,6 +63,10 @@ public class OutboxMessageOrderingSpringBootTest {
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
+    @Autowired
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring properties for OutboxMessageOrdering test");
@@ -73,11 +79,8 @@ public class OutboxMessageOrderingSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
 
-    @BeforeEach
-    void setUp() {
-        logger.info("🚀 Setting up Message Ordering Spring Boot Test");
-
-        // Initialize database schema for outbox tests
+    @BeforeAll
+    static void initializeSchema() {
         logger.info("Initializing database schema for Spring Boot message ordering test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
@@ -114,8 +117,16 @@ public class OutboxMessageOrderingSpringBootTest {
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.future().await();
-        
+
+        peeGeeQManagerRef = peeGeeQManager;
         logger.info("Cleanup complete");
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
     }
 
     /**

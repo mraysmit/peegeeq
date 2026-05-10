@@ -22,6 +22,7 @@ import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -38,6 +39,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -46,10 +48,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,7 +70,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PeeGeeQMetricsLogLevelTest {
 
-    private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetricsLogLevelTest.class);
+    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
     @Container
@@ -96,24 +99,26 @@ public class PeeGeeQMetricsLogLevelTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         metricsLogger.detachAppender(logCapture);
         logCapture.stop();
 
         if (connectionManager != null) {
             connectionManager.close()
-                    .recover(t -> Future.succeededFuture())
-                    .onComplete(v -> testContext.completeNow());
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(t -> {
+                        logger.warn("Error closing connection manager in tearDown: {}", t.getMessage());
+                        testContext.completeNow();
+                    });
         } else {
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
     @Order(2)
     @DisplayName("Negative: persistMetrics with queue_metrics table present produces no ERROR")
-    void testPersistWithTableNoError(VertxTestContext testContext) throws InterruptedException {
+    void testPersistWithTableNoError(VertxTestContext testContext) {
         // Create queue_metrics table
         createMetricsTable();
 
@@ -124,7 +129,7 @@ public class PeeGeeQMetricsLogLevelTest {
 
         logCapture.clear();
         metrics.persistMetrics(registry)
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasPersistError = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("Failed to persist metrics"));
@@ -132,17 +137,15 @@ public class PeeGeeQMetricsLogLevelTest {
                             "Persist with valid table should not produce ERROR, but got: " +
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+                })));
     }
 
     @Test
     @Order(1)
     @DisplayName("Positive: persistMetrics without queue_metrics table logs ERROR (non-connection failure)")
-    void testPersistWithoutTableLogsError(VertxTestContext testContext) throws InterruptedException {
-        // Table does not exist — SQL will fail with relation not found
+    void testPersistWithoutTableLogsError(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to persist metrics to database') is EXPECTED this test deliberately persists without a metrics table to verify error logging");
+        // Table does not exist SQL will fail with relation not found
         Pool pool = createPool();
         metrics = new PeeGeeQMetrics(pool, "test-instance");
         SimpleMeterRegistry registry = new SimpleMeterRegistry();
@@ -150,7 +153,7 @@ public class PeeGeeQMetricsLogLevelTest {
 
         logCapture.clear();
         metrics.persistMetrics(registry)
-                .onSuccess(v -> testContext.verify(() -> {
+                .onFailure(err -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
                     boolean hasErrorForPersist = errors.stream()
@@ -163,15 +166,13 @@ public class PeeGeeQMetricsLogLevelTest {
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
                 }))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+                .onSuccess(v -> testContext.failNow("Expected failed future from persistMetrics with missing table"));
     }
 
     @Test
     @Order(3)
     @DisplayName("Negative: persistMetrics with connection error during shutdown logs at DEBUG, not ERROR")
-    void testPersistConnectionErrorLoggedAsDebug(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testPersistConnectionErrorLoggedAsDebug(Vertx vertx, VertxTestContext testContext) {
         // Use a separate container we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -193,8 +194,9 @@ public class PeeGeeQMetricsLogLevelTest {
         logCapture.clear();
 
         ownMetrics.persistMetrics(registry)
-                .compose(v -> ownConnMgr.close().recover(t -> Future.succeededFuture()))
-                .onComplete(ar -> testContext.verify(() -> {
+                .transform(ar -> Future.succeededFuture())
+                .eventually(() -> ownConnMgr.close())
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasErrorForPersist = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("Failed to persist metrics"));
@@ -202,9 +204,7 @@ public class PeeGeeQMetricsLogLevelTest {
                     assertFalse(hasErrorForPersist,
                             "Connection error should be at DEBUG level, not ERROR");
                     testContext.completeNow();
-                }));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                })));
     }
 
     // --- Helpers ---
@@ -225,6 +225,9 @@ public class PeeGeeQMetricsLogLevelTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(2)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         return mgr.getOrCreateReactivePool("metrics-test", config, poolConfig);
@@ -257,9 +260,11 @@ public class PeeGeeQMetricsLogLevelTest {
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
-                    .filter(e -> e.getLevel().equals(level))
-                    .toList();
+            synchronized (events) {
+                return events.stream()
+                        .filter(e -> e.getLevel().equals(level))
+                        .toList();
+            }
         }
 
         void clear() {

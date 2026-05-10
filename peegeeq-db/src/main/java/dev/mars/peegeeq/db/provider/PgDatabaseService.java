@@ -70,14 +70,14 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     public io.vertx.core.Future<Void> initialize() {
         try {
             logger.info("Initializing database service");
-            logger.debug("DB-DEBUG: Database service initialization started");
+            logger.debug(": Database service initialization started");
             // The PeeGeeQManager handles initialization in its constructor
             logger.info("Database service initialized successfully");
-            logger.debug("DB-DEBUG: Database service initialization completed");
+            logger.debug(": Database service initialization completed");
             return io.vertx.core.Future.succeededFuture();
         } catch (Exception e) {
             logger.error("Failed to initialize database service", e);
-            logger.debug("DB-DEBUG: Database service initialization failed: {}", e.getMessage());
+            logger.debug(": Database service initialization failed: {}", e.getMessage());
             return io.vertx.core.Future.failedFuture(new RuntimeException("Database service initialization failed", e));
         }
     }
@@ -85,15 +85,15 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     @Override
     public io.vertx.core.Future<Void> start() {
         logger.info("Starting database service");
-        logger.debug("DB-DEBUG: Database service start initiated");
+        logger.debug(": Database service start initiated");
         return manager.start()
             .onSuccess(v -> {
                 logger.info("Database service started successfully");
-                logger.debug("DB-DEBUG: Database service start completed");
+                logger.debug(": Database service start completed");
             })
             .onFailure(e -> {
                 logger.error("Failed to start database service", e);
-                logger.debug("DB-DEBUG: Database service start failed: {}", e.getMessage());
+                logger.debug(": Database service start failed: {}", e.getMessage());
             });
     }
 
@@ -207,5 +207,17 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
      */
     public dev.mars.peegeeq.db.config.PeeGeeQConfiguration getPeeGeeQConfiguration() {
         return manager.getConfiguration();
+    }
+
+    /**
+     * Gets the underlying {@link dev.mars.peegeeq.db.client.PgClientFactory}.
+     * Queue factory registrars use this to obtain the {@link dev.mars.peegeeq.db.connection.PgConnectionManager}
+     * required by partitioned-consumption (OFFSET_WATERMARK) wiring. Symmetric with
+     * {@link #getPeeGeeQConfiguration()}.
+     *
+     * @return The PgClientFactory
+     */
+    public dev.mars.peegeeq.db.client.PgClientFactory getClientFactory() {
+        return manager.getClientFactory();
     }
 }

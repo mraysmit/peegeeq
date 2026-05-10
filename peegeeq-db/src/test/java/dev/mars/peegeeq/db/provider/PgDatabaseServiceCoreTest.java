@@ -6,116 +6,155 @@ package dev.mars.peegeeq.db.provider;
 
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import org.junit.jupiter.api.BeforeEach;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import io.vertx.core.Future;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-/**
- * CORE tests for PgDatabaseService using TestContainers.
- *
- * @author Mark Andrew Ray-Smith Cityline Ltd
- * @since 2025-11-27
- * @version 1.0
- */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
 
     private PgDatabaseService databaseService;
 
-    @BeforeEach
-    void setUp() throws Exception {
+    @Test
+    void testPgDatabaseServiceCreation(VertxTestContext testContext) {
         databaseService = new PgDatabaseService(manager);
-    }
-
-    @Test
-    void testPgDatabaseServiceCreation() {
         assertNotNull(databaseService);
+        testContext.completeNow();
     }
 
     @Test
-    void testInitialize() throws Exception {
-        var future = databaseService.initialize();
-        assertNotNull(future);
-        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
+    void testInitialize(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testStart() throws Exception {
-        var future = databaseService.start();
-        assertNotNull(future);
-        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
+    void testStart(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.start())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testStop() throws Exception {
-        var future = databaseService.stop();
-        assertNotNull(future);
-        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
+    void testStop(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.start())
+            .compose(v -> databaseService.stop())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetConnectionProvider() {
+    void testGetConnectionProvider(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
         dev.mars.peegeeq.api.database.ConnectionProvider provider = databaseService.getConnectionProvider();
         assertNotNull(provider);
+        testContext.completeNow();
     }
 
     @Test
-    void testGetMetricsProvider() {
+    void testGetMetricsProvider(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
         dev.mars.peegeeq.api.database.MetricsProvider provider = databaseService.getMetricsProvider();
         assertNotNull(provider);
+        testContext.completeNow();
     }
 
     @Test
-    void testIsHealthy() {
+    void testIsHealthy(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
         boolean healthy = databaseService.isHealthy();
-        // Just verify no exception thrown
+        testContext.completeNow();
     }
 
     @Test
-    void testIsRunning() {
+    void testIsRunning(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
         boolean running = databaseService.isRunning();
-        // Just verify no exception thrown
+        testContext.completeNow();
     }
 
     @Test
-    void testPerformHealthCheck() throws Exception {
-        var future = databaseService.performHealthCheck();
-        assertNotNull(future);
-        Boolean healthy = future.toCompletionStage().toCompletableFuture().get();
-        assertNotNull(healthy);
+    void testPerformHealthCheck(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.start())
+            .compose(v -> databaseService.performHealthCheck())
+            .onSuccess(healthy -> {
+                assertTrue(healthy, "Database should be healthy");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testRunMigrations() throws Exception {
-        var future = databaseService.runMigrations();
-        assertNotNull(future);
-        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
+    void testRunMigrations(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.runMigrations())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClose() throws Exception {
-        databaseService.close();
-        // Verify no exception thrown
+    void testClose(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.start())
+            .compose(v -> {
+                try {
+                    databaseService.close();
+                    return Future.<Void>succeededFuture();
+                } catch (Exception e) {
+                    return Future.<Void>failedFuture(e);
+                }
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleInitializeCalls() throws Exception {
-        databaseService.initialize().toCompletionStage().toCompletableFuture().get();
-        databaseService.initialize().toCompletionStage().toCompletableFuture().get();
-        // Should be idempotent
+    void testMultipleInitializeCalls(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.initialize())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleStartCalls() throws Exception {
-        databaseService.start().toCompletionStage().toCompletableFuture().get();
-        databaseService.start().toCompletionStage().toCompletableFuture().get();
-        // Should be idempotent
+    void testMultipleStartCalls(VertxTestContext testContext) {
+        databaseService = new PgDatabaseService(manager);
+        
+        databaseService.initialize()
+            .compose(v -> databaseService.start())
+            .compose(v -> databaseService.start())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 }
-
-

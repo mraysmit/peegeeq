@@ -204,7 +204,7 @@
             </activation>
             <properties>
                 <test.groups>core</test.groups>
-                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.excludedGroups>integration,performance,slow</test.excludedGroups>
                 <test.parallel>methods</test.parallel>
                 <test.threadCount>4</test.threadCount>
                 <test.timeout.default>60s</test.timeout.default>
@@ -217,7 +217,7 @@
             <id>integration-tests</id>
             <properties>
                 <test.groups>integration</test.groups>
-                <test.excludedGroups>performance,slow,flaky</test.excludedGroups>
+                <test.excludedGroups>performance,slow</test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
                 <test.timeout.default>300s</test.timeout.default>
@@ -230,7 +230,7 @@
             <id>performance-tests</id>
             <properties>
                 <test.groups>performance</test.groups>
-                <test.excludedGroups>core,integration,flaky</test.excludedGroups>
+                <test.excludedGroups>core,integration</test.excludedGroups>
                 <test.parallel>none</test.parallel>
                 <test.threadCount>1</test.threadCount>
                 <test.timeout.default>600s</test.timeout.default>
@@ -243,7 +243,7 @@
             <id>smoke-tests</id>
             <properties>
                 <test.groups>smoke</test.groups>
-                <test.excludedGroups>integration,performance,slow,flaky</test.excludedGroups>
+                <test.excludedGroups>integration,performance,slow</test.excludedGroups>
                 <test.parallel>methods</test.parallel>
                 <test.threadCount>8</test.threadCount>
                 <test.timeout.default>30s</test.timeout.default>
@@ -256,7 +256,7 @@
             <id>slow-tests</id>
             <properties>
                 <test.groups>slow</test.groups>
-                <test.excludedGroups>core,integration,performance,flaky</test.excludedGroups>
+                <test.excludedGroups>core,integration,performance</test.excludedGroups>
                 <test.parallel>none</test.parallel>
                 <test.threadCount>1</test.threadCount>
                 <test.timeout.default>1800s</test.timeout.default>
@@ -264,12 +264,12 @@
             </properties>
         </profile>
 
-        <!-- All Tests Profile - Run everything except flaky tests -->
+        <!-- All Tests Profile -->
         <profile>
             <id>all-tests</id>
             <properties>
                 <test.groups>core,integration,performance,slow,smoke</test.groups>
-                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
                 <test.timeout.default>600s</test.timeout.default>

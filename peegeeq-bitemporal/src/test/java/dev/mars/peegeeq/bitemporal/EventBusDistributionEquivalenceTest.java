@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -49,6 +50,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -146,22 +148,19 @@ class EventBusDistributionEquivalenceTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         manager.start()
@@ -176,7 +175,7 @@ class EventBusDistributionEquivalenceTest {
                             .using(manager.getVertx()).build();
                     return setupPool.query("TRUNCATE TABLE " + schema + "." + TABLE_NAME + " CASCADE")
                             .execute()
-                            .recover(err -> Future.succeededFuture(null))
+                            .transform(ar -> Future.succeededFuture(null))
                             .compose(r -> setupPool.close());
                 })
                 .compose(v -> {
@@ -198,7 +197,6 @@ class EventBusDistributionEquivalenceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         if (eventStore != null) {
             eventStore.close();
@@ -214,15 +212,6 @@ class EventBusDistributionEquivalenceTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -238,16 +227,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Returned event ID must match DB row — direct path")
+    @DisplayName("Returned event ID must match DB row direct path")
     void directPathEventIdMatchesDb(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertEventIdMatchesDatabase("equiv.eventid.direct", testContext);
     }
 
     @Test
-    @DisplayName("Returned event ID must match DB row — event-bus path")
+    @DisplayName("Returned event ID must match DB row event-bus path")
     void eventBusPathEventIdMatchesDb(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertEventIdMatchesDatabase("equiv.eventid.eventbus", testContext);
     }
 
@@ -278,16 +265,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Returned transaction time must match DB row — direct path")
+    @DisplayName("Returned transaction time must match DB row direct path")
     void directPathTransactionTimeMatchesDb(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertTransactionTimeMatchesDatabase("equiv.txtime.direct", testContext);
     }
 
     @Test
-    @DisplayName("Returned transaction time must match DB row — event-bus path")
+    @DisplayName("Returned transaction time must match DB row event-bus path")
     void eventBusPathTransactionTimeMatchesDb(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertTransactionTimeMatchesDatabase("equiv.txtime.eventbus", testContext);
     }
 
@@ -319,16 +304,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("All metadata fields round-trip correctly — direct path")
+    @DisplayName("All metadata fields round-trip correctly direct path")
     void directPathFullMetadataRoundTrip(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertFullMetadataRoundTrip("equiv.metadata.direct", testContext);
     }
 
     @Test
-    @DisplayName("All metadata fields round-trip correctly — event-bus path")
+    @DisplayName("All metadata fields round-trip correctly event-bus path")
     void eventBusPathFullMetadataRoundTrip(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertFullMetadataRoundTrip("equiv.metadata.eventbus", testContext);
     }
 
@@ -389,16 +372,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Null correlationId falls back to eventId — direct path")
+    @DisplayName("Null correlationId falls back to eventId direct path")
     void directPathCorrelationIdFallback(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertCorrelationIdFallback("equiv.corrfallback.direct", testContext);
     }
 
     @Test
-    @DisplayName("Null correlationId falls back to eventId — event-bus path")
+    @DisplayName("Null correlationId falls back to eventId event-bus path")
     void eventBusPathCorrelationIdFallback(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertCorrelationIdFallback("equiv.corrfallback.eventbus", testContext);
     }
 
@@ -407,7 +388,7 @@ class EventBusDistributionEquivalenceTest {
         TestPayload payload = new TestPayload("corrfallback", 3);
         Instant validTime = Instant.parse("2025-06-15T12:00:00Z");
 
-        // Append with null correlationId — should fall back to eventId
+        // Append with null correlationId should fall back to eventId
         eventStore.append(eventType, payload, validTime)
                 .compose(event -> {
                     String returnedCorrelationId = event.getCorrelationId();
@@ -435,16 +416,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Minimal append (no headers/correlationId/causationId/aggregateId) — direct path")
+    @DisplayName("Minimal append (no headers/correlationId/causationId/aggregateId) direct path")
     void directPathMinimalAppend(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertMinimalAppend("equiv.minimal.direct", testContext);
     }
 
     @Test
-    @DisplayName("Minimal append (no headers/correlationId/causationId/aggregateId) — event-bus path")
+    @DisplayName("Minimal append (no headers/correlationId/causationId/aggregateId) event-bus path")
     void eventBusPathMinimalAppend(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertMinimalAppend("equiv.minimal.eventbus", testContext);
     }
 
@@ -486,16 +465,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Sub-second valid time precision preserved — direct path")
+    @DisplayName("Sub-second valid time precision preserved direct path")
     void directPathValidTimePrecision(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertValidTimePrecision("equiv.precision.direct", testContext);
     }
 
     @Test
-    @DisplayName("Sub-second valid time precision preserved — event-bus path")
+    @DisplayName("Sub-second valid time precision preserved event-bus path")
     void eventBusPathValidTimePrecision(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertValidTimePrecision("equiv.precision.eventbus", testContext);
     }
 
@@ -528,16 +505,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Append succeeds with active trace context — direct path")
+    @DisplayName("Append succeeds with active trace context direct path")
     void directPathWithTraceContext(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertAppendWithTrace("equiv.trace.direct", testContext);
     }
 
     @Test
-    @DisplayName("Append succeeds with active trace context — event-bus path")
+    @DisplayName("Append succeeds with active trace context event-bus path")
     void eventBusPathWithTraceContext(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertAppendWithTrace("equiv.trace.eventbus", testContext);
     }
 
@@ -580,16 +555,14 @@ class EventBusDistributionEquivalenceTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Sequential appends produce distinct events with correct metadata — direct path")
+    @DisplayName("Sequential appends produce distinct events with correct metadata direct path")
     void directPathSequentialAppends(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
         assertSequentialAppends("equiv.seq.direct", testContext);
     }
 
     @Test
-    @DisplayName("Sequential appends produce distinct events with correct metadata — event-bus path")
+    @DisplayName("Sequential appends produce distinct events with correct metadata event-bus path")
     void eventBusPathSequentialAppends(VertxTestContext testContext) throws Exception {
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
         assertSequentialAppends("equiv.seq.eventbus", testContext);
     }
 

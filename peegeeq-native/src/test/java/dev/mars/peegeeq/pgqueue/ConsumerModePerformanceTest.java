@@ -10,6 +10,8 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -23,7 +25,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -36,6 +38,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -76,13 +79,8 @@ public class ConsumerModePerformanceTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("🔧 Setting up ConsumerModePerformanceTest");
-
-        // Clear any existing system properties
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.consumer.threads");
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
@@ -98,6 +96,7 @@ public class ConsumerModePerformanceTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -109,21 +108,18 @@ public class ConsumerModePerformanceTest {
 
     private void initializeManagerAndFactory() throws Exception {
         // Configure test properties using TestContainer pattern (following established patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S"); // Fast polling for performance tests
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         // Initialize PeeGeeQ with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -136,7 +132,7 @@ public class ConsumerModePerformanceTest {
     }
 
     @Test
-    void testThroughputComparison() throws Exception {
+    void testThroughputComparison(Vertx vertx) throws Exception {
         logger.info("🧪 Testing throughput comparison across consumer modes");
 
         String topicName = "test-throughput-comparison";
@@ -153,7 +149,7 @@ public class ConsumerModePerformanceTest {
             logger.info("📊 Testing throughput for mode: {}", mode);
             
             PerformanceResult result = measureThroughput(topicName + "-" + mode.name().toLowerCase(), 
-                mode, messageCount, warmupMessages);
+                mode, messageCount, warmupMessages, vertx);
             results.add(result);
             
             logger.info("📈 {} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms", 
@@ -186,7 +182,7 @@ public class ConsumerModePerformanceTest {
     }
 
     @Test
-    void testLatencyComparison() throws Exception {
+    void testLatencyComparison(Vertx vertx) throws Exception {
         logger.info("🧪 Testing latency comparison across consumer modes");
 
         String topicName = "test-latency-comparison";
@@ -198,7 +194,7 @@ public class ConsumerModePerformanceTest {
         for (ConsumerMode mode : modes) {
             logger.info("⏱️ Testing latency for mode: {}", mode);
             
-            LatencyResult result = measureLatency(topicName + "-" + mode.name().toLowerCase(), mode, messageCount);
+            LatencyResult result = measureLatency(topicName + "-" + mode.name().toLowerCase(), mode, messageCount, vertx);
             results.add(result);
             
             logger.info("📊 {} - Min: {:.2f}ms, Max: {:.2f}ms, Avg: {:.2f}ms, P95: {:.2f}ms", 
@@ -221,8 +217,9 @@ public class ConsumerModePerformanceTest {
         logger.info("Latency comparison test completed successfully");
     }
 
-    private PerformanceResult measureThroughput(String topicName, ConsumerMode mode, 
-                                              int messageCount, int warmupMessages) throws Exception {
+    private PerformanceResult measureThroughput(String topicName, ConsumerMode mode,
+                                              int messageCount, int warmupMessages,
+                                              Vertx vertx) throws Exception {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
         VertxTestContext measureCtx = new VertxTestContext();
@@ -237,7 +234,8 @@ public class ConsumerModePerformanceTest {
 
         long[] messageSentTimes = new long[messageCount + warmupMessages];
         
-        // Subscribe to messages
+        // Subscribe and wait for LISTEN to be established before sending.
+        VertxTestContext listenReady = new VertxTestContext();
         consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.incrementAndGet();
@@ -251,17 +249,20 @@ public class ConsumerModePerformanceTest {
             }
             
             return Future.succeededFuture();
-        });
+        })
+        .onSuccess(v -> listenReady.completeNow())
+        .onFailure(listenReady::failNow);
+        listenReady.awaitCompletion(5, TimeUnit.SECONDS);
 
         // Send messages
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
         long startTime = System.currentTimeMillis();
         
-        // Send warmup + test messages
+        // Send warmup + test messages; await each send to avoid overwhelming the connection pool
         for (int i = 0; i < messageCount + warmupMessages; i++) {
             messageSentTimes[i] = System.currentTimeMillis();
-            producer.send("Performance test message " + i);
+            producer.send("Performance test message " + i).await();
         }
         
         // Wait for all test messages to be processed (excluding warmup)
@@ -280,7 +281,8 @@ public class ConsumerModePerformanceTest {
         return new PerformanceResult(mode, throughput, averageLatency, messageCount);
     }
 
-    private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount) throws Exception {
+    private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount,
+                                         Vertx vertx) throws Exception {
         List<Long> latencies = new ArrayList<>();
         VertxTestContext latencyCtx = new VertxTestContext();
         Checkpoint allProcessed = latencyCtx.checkpoint(messageCount);
@@ -294,6 +296,7 @@ public class ConsumerModePerformanceTest {
         long[] messageSentTimes = new long[messageCount];
         AtomicInteger processedCount = new AtomicInteger(0);
         
+        VertxTestContext listenReady = new VertxTestContext();
         consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.getAndIncrement();
@@ -308,13 +311,18 @@ public class ConsumerModePerformanceTest {
             }
             
             return Future.succeededFuture();
-        });
+        })
+            .onSuccess(v -> listenReady.completeNow())
+            .onFailure(listenReady::failNow);
+
+        // Wait for the LISTEN channel to establish before sending.
+        listenReady.awaitCompletion(5, TimeUnit.SECONDS);
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
         for (int i = 0; i < messageCount; i++) {
             messageSentTimes[i] = System.currentTimeMillis();
-            producer.send("Latency test message " + i);
+            producer.send("Latency test message " + i).await();
         }
         
         boolean completed = latencyCtx.awaitCompletion(20, TimeUnit.SECONDS);

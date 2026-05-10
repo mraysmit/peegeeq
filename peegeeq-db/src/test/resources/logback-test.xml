@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <conversionRule conversionWord="vxTrace" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
     <conversionRule conversionWord="vxSpan" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
 
     <!-- Test-specific console appender with simplified pattern -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
@@ -20,6 +20,11 @@
     <!-- PeeGeeQ specific loggers -->
     <logger name="dev.mars.peegeeq" level="WARN" />
     
+    <!-- Show close-reactive error propagation test procedure -->
+    <logger name="dev.mars.peegeeq.db.PeeGeeQManagerCloseReactiveErrorPropagationTest" level="INFO" />
+    <!-- Show intentional-blocking test procedure: expected-WARN annotations -->
+    <logger name="dev.mars.peegeeq.db.performance.VertxEventLoopBlockingJoinTest" level="INFO" />
+    
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />
     <logger name="com.github.dockerjava" level="WARN" />
@@ -27,6 +32,10 @@
 
     <!-- Suppress noisy duplicate-object warnings from idempotent Flyway migrations. -->
     <logger name="org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor" level="ERROR" />
+
+    <!-- Suppress PostgreSQL NOTICE messages (42P06 schema already exists, 42P07 relation already exists)
+         which Vert.x SQL client promotes to WARN. These are expected from IF NOT EXISTS DDL. -->
+    <logger name="io.vertx.sqlclient.impl.SocketConnectionBase" level="ERROR" />
     
     <!-- Reduce Hikari connection pool noise -->
     <logger name="com.zaxxer.hikari" level="WARN" />
@@ -49,9 +58,12 @@
     <logger name="dev.mars.peegeeq.db.provider.PgDatabaseService" level="INFO" />
     <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="DEBUG" />
     <logger name="dev.mars.peegeeq.db.migration.SchemaMigrationManager" level="DEBUG" />
-    <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="INFO" />
-    <logger name="dev.mars.peegeeq.db.health.HealthCheckManager" level="WARN" />
+    <logger name="dev.mars.peegeeq.db.connection.PgConnectionManager" level="DEBUG" />
+    <logger name="dev.mars.peegeeq.db.health.HealthCheckManager" level="INFO" />
     <logger name="dev.mars.peegeeq.db.metrics.PeeGeeQMetrics" level="WARN" />
+
+    <!-- Full debug output for the HAProxy failover/failback test -->
+    <logger name="dev.mars.peegeeq.db.resilience.HaProxyConnectionFailoverTest" level="DEBUG" />
     
     <!-- Reduce migration noise -->
     <logger name="dev.mars.peegeeq.db.migration.SchemaMigrationManager" level="WARN" />
@@ -67,17 +79,5 @@
     <!-- Suppress intentional test failure stack traces from PgQueueFactoryProvider -->
     <!-- This prevents confusing error logs during intentional failure tests -->
     <logger name="dev.mars.peegeeq.db.provider.PgQueueFactoryProvider" level="OFF" />
-
-    <!-- Suppress intentional test failure warnings from production classes during tests -->
-    <!-- This prevents confusing WARN logs with stack traces during intentional failure tests -->
-    <logger name="dev.mars.peegeeq.db.PeeGeeQManager" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
-    <logger name="dev.mars.peegeeq.db.metrics.PeeGeeQMetrics" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
-    <logger name="dev.mars.peegeeq.db.health.HealthCheckManager" level="ERROR" additivity="false">
-        <appender-ref ref="CONSOLE" />
-    </logger>
 </configuration>
 

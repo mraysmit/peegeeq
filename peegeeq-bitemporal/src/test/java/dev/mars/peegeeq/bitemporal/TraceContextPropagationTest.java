@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -44,6 +45,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -53,13 +55,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests verifying W3C traceparent propagation across the event bus to
  * DatabaseWorkerVerticle and correct Vert.x context usage.
  *
- * <h3>Bug 1 — traceparent header propagation</h3>
+ * <h3>Bug 1 traceparent header propagation</h3>
  * <ul>
  *   <li>POSITIVE: caller's trace ID survives the event bus hop</li>
  *   <li>NEGATIVE: absent traceparent creates a fresh root trace (no crash)</li>
  * </ul>
  *
- * <h3>Bug 2 — Vert.x context source in worker</h3>
+ * <h3>Bug 2 Vert.x context source in worker</h3>
  * <ul>
  *   <li>POSITIVE: trace stored on handler context survives into async callbacks</li>
  *   <li>NEGATIVE: concurrent messages get independent trace contexts</li>
@@ -100,21 +102,18 @@ class TraceContextPropagationTest {
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         manager.start()
@@ -135,7 +134,6 @@ class TraceContextPropagationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         if (eventStore != null) {
             eventStore.close();
@@ -148,15 +146,6 @@ class TraceContextPropagationTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -168,7 +157,7 @@ class TraceContextPropagationTest {
     }
 
     // ========================================================================
-    // Bug 1 — traceparent header propagation on the event bus
+    // Bug 1 traceparent header propagation on the event bus
     // ========================================================================
 
     @Test
@@ -184,16 +173,15 @@ class TraceContextPropagationTest {
         MDC.put(TraceContextUtil.MDC_SPAN_ID, callerSpanId);
 
         try {
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+            // Event-bus distribution configured at manager construction time
 
             eventStore.append("trace.propagation.positive", new TestEvent("tp1", "trace-test", 1), Instant.now())
-                    .onSuccess(event -> {
+                    .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                         assertNotNull(event.getEventId(), "Event must be stored successfully");
                         logger.info("POSITIVE: Event stored via event bus with caller traceId={}",
                                 callerTraceId);
                         testContext.completeNow();
-                    })
-                    .onFailure(testContext::failNow);
+                    })));
         } finally {
             MDC.remove(TraceContextUtil.MDC_TRACE_ID);
             MDC.remove(TraceContextUtil.MDC_SPAN_ID);
@@ -206,7 +194,7 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("POSITIVE: raw event bus message with traceparent header — worker receives caller trace ID")
+    @DisplayName("POSITIVE: raw event bus message with traceparent header worker receives caller trace ID")
     void rawEventBusMessageWithTraceparentHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         String callerTraceId = "eeee5555ffff6666aaaa7777bbbb8888";
         String callerSpanId = "5555666677778888";
@@ -224,13 +212,12 @@ class TraceContextPropagationTest {
         JsonObject message = buildAppendMessage(eventStore);
 
         vertx.eventBus().<JsonObject>request(address, message, opts)
-                .onSuccess(reply -> {
+                .onComplete(testContext.succeeding(reply -> testContext.verify(() -> {
                     JsonObject result = reply.body();
                     assertNotNull(result.getString("id"), "Worker must return event ID");
                     logger.info("POSITIVE: Raw event bus message with traceparent header processed successfully");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -239,22 +226,21 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("NEGATIVE: raw event bus message without traceparent — worker creates fresh root (no crash)")
+    @DisplayName("NEGATIVE: raw event bus message without traceparent worker creates fresh root (no crash)")
     void rawEventBusMessageWithoutTraceparent(Vertx vertx, VertxTestContext testContext) throws Exception {
         String address = PgBiTemporalEventStore.databaseOperationAddress(TABLE_NAME);
 
-        // Send with NO traceparent header — no DeliveryOptions at all
+        // Send with NO traceparent header no DeliveryOptions at all
         JsonObject message = buildAppendMessage(eventStore);
 
         vertx.eventBus().<JsonObject>request(address, message)
-                .onSuccess(reply -> {
+                .onComplete(testContext.succeeding(reply -> testContext.verify(() -> {
                     JsonObject result = reply.body();
                     assertNotNull(result.getString("id"),
                             "Worker must still process successfully with no traceparent");
-                    logger.info("NEGATIVE: No traceparent header — worker created fresh root trace without crashing");
+                    logger.info("NEGATIVE: No traceparent header worker created fresh root trace without crashing");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -263,7 +249,7 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("NEGATIVE: malformed traceparent header — worker creates fresh root (no crash)")
+    @DisplayName("NEGATIVE: malformed traceparent header worker creates fresh root (no crash)")
     void malformedTraceparentHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         String address = PgBiTemporalEventStore.databaseOperationAddress(TABLE_NAME);
 
@@ -273,14 +259,13 @@ class TraceContextPropagationTest {
         JsonObject message = buildAppendMessage(eventStore);
 
         vertx.eventBus().<JsonObject>request(address, message, opts)
-                .onSuccess(reply -> {
+                .onComplete(testContext.succeeding(reply -> testContext.verify(() -> {
                     JsonObject result = reply.body();
                     assertNotNull(result.getString("id"),
                             "Worker must handle malformed traceparent gracefully");
-                    logger.info("NEGATIVE: Malformed traceparent — worker created fresh root trace");
+                    logger.info("NEGATIVE: Malformed traceparent worker created fresh root trace");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -289,7 +274,7 @@ class TraceContextPropagationTest {
     }
 
     // ========================================================================
-    // Bug 2 — correct Vert.x context usage (currentContext vs getOrCreateContext)
+    // Bug 2 correct Vert.x context usage (currentContext vs getOrCreateContext)
     // ========================================================================
 
     @Test
@@ -305,18 +290,17 @@ class TraceContextPropagationTest {
         MDC.put(TraceContextUtil.MDC_SPAN_ID, callerSpanId);
 
         try {
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+            // Event-bus distribution configured at manager construction time
 
             eventStore.append("trace.context.positive", new TestEvent("ctx1", "context-test", 10), Instant.now())
-                    .onSuccess(event -> {
+                    .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                         assertNotNull(event.getEventId());
                         // If the context was wrong (getOrCreateContext bug), the async chain
                         // would either fail or lose the trace. A successful append proves
                         // the context is correct for the handler's async operations.
                         logger.info("POSITIVE: Trace context survived async DB callback on correct handler context");
                         testContext.completeNow();
-                    })
-                    .onFailure(testContext::failNow);
+                    })));
         } finally {
             MDC.remove(TraceContextUtil.MDC_TRACE_ID);
             MDC.remove(TraceContextUtil.MDC_SPAN_ID);
@@ -332,7 +316,7 @@ class TraceContextPropagationTest {
     @DisplayName("NEGATIVE: concurrent messages each receive independent trace contexts")
     void concurrentMessagesGetIndependentTraceContexts(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Send two concurrent messages with DIFFERENT trace IDs.
-        // Both must succeed — proving each handler invocation gets its own context
+        // Both must succeed proving each handler invocation gets its own context
         // rather than sharing/overwriting a single context (which would happen with
         // getOrCreateContext() on the same verticle).
         String traceIdA = "aaaa0000aaaa0000aaaa0000aaaa0000";
@@ -358,7 +342,7 @@ class TraceContextPropagationTest {
                 .map(reply -> reply.body());
 
         Future.all(futureA, futureB)
-                .onSuccess(composite -> {
+                .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
                     JsonObject resultA = composite.resultAt(0);
                     JsonObject resultB = composite.resultAt(1);
 
@@ -368,8 +352,7 @@ class TraceContextPropagationTest {
                             "Two concurrent messages must produce different event IDs");
                     logger.info("NEGATIVE: Two concurrent messages with different trace IDs both succeeded independently");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -392,14 +375,13 @@ class TraceContextPropagationTest {
         MDC.put(TraceContextUtil.MDC_SPAN_ID, callerSpanId);
 
         try {
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+            // Event-bus distribution configured at manager construction time
 
             eventStore.append("trace.mdc.positive", new TestEvent("mdc1", "mdc-test", 100), Instant.now())
-                    .onSuccess(event -> {
+                    .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                         assertNotNull(event.getEventId());
                         testContext.completeNow();
-                    })
-                    .onFailure(testContext::failNow);
+                    })));
         } finally {
             MDC.remove(TraceContextUtil.MDC_TRACE_ID);
             MDC.remove(TraceContextUtil.MDC_SPAN_ID);
@@ -412,22 +394,21 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("NEGATIVE: sendDatabaseOperation with empty MDC — no traceparent header, worker still succeeds")
+    @DisplayName("NEGATIVE: sendDatabaseOperation with empty MDC no traceparent header, worker still succeeds")
     void sendDatabaseOperationWithEmptyMDC(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Clear MDC to guarantee captureTraceContext() returns null
         MDC.remove(TraceContextUtil.MDC_TRACE_ID);
         MDC.remove(TraceContextUtil.MDC_SPAN_ID);
 
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+        // Event-bus distribution configured at manager construction time
 
         eventStore.append("trace.mdc.negative", new TestEvent("mdc2", "no-mdc-test", 200), Instant.now())
-                .onSuccess(event -> {
+                .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                     assertNotNull(event.getEventId(),
                             "Event bus path must succeed even when no trace is in MDC");
-                    logger.info("NEGATIVE: No MDC trace — worker created fresh root trace, event stored OK");
+                    logger.info("NEGATIVE: No MDC trace worker created fresh root trace, event stored OK");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

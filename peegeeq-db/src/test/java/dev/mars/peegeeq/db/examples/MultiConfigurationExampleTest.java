@@ -18,12 +18,12 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -45,55 +45,47 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
-@org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 public class MultiConfigurationExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationExampleTest.class);
 
     private MultiConfigurationManager configManager;
+    private Properties testProps;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         logger.info("Setting up Multi Configuration Example Test");
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Set database properties from TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
-
-        // Set valid pool configuration
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
+        testProps = PeeGeeQTestConfig.builder()
+            .from(postgres)
+            .schema("public")
+            .build();
 
         // Initialize multi-configuration manager
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
-        
+
         logger.info("✓ Multi Configuration Example Test setup completed");
+    }
+
+    private PeeGeeQConfiguration testConfig() {
+        return new PeeGeeQConfiguration("default", testProps);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down Multi Configuration Example Test");
 
-        if (configManager != null) {
-            try {
-                awaitFuture(configManager.close());
-            } catch (Throwable e) {
-                logger.warn("Error closing configManager during tearDown: {}", e.getMessage());
-            }
-        }
+        Future<Void> close = (configManager != null)
+            ? configManager.close()
+                .onFailure(e -> logger.warn("Error closing configManager during tearDown: {}", e.getMessage()))
+            : Future.succeededFuture();
 
-        // Clean up system properties
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-
-        logger.info("✓ Multi Configuration Example Test teardown completed");
+        close.onSuccess(v -> {
+            logger.info("✓ Multi Configuration Example Test teardown completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     /**
@@ -101,34 +93,34 @@ public class MultiConfigurationExampleTest {
      * Validates registration and management of multiple named configurations
      */
     @Test
-    void testMultipleConfigurationRegistration(Vertx vertx) throws Exception {
+    void testMultipleConfigurationRegistration(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Multiple Configuration Registration ===");
 
-        // Register different configurations for different use cases with small delays to prevent race conditions
         logger.info("Registering high-throughput configuration...");
-        configManager.registerConfiguration("high-throughput", "test");
-        awaitFuture(vertx.timer(100).mapEmpty());
-
-        logger.info("Registering low-latency configuration...");
-        configManager.registerConfiguration("low-latency", "test");
-        awaitFuture(vertx.timer(100).mapEmpty());
-
-        logger.info("Registering reliable configuration...");
-        configManager.registerConfiguration("reliable", "test");
-        awaitFuture(vertx.timer(100).mapEmpty());
-
-        logger.info("Registering development configuration...");
-        configManager.registerConfiguration("development", "test");
-        
-        // Validate configurations are registered
-        Set<String> configNames = configManager.getConfigurationNames();
-        assertEquals(4, configNames.size());
-        assertTrue(configNames.contains("high-throughput"));
-        assertTrue(configNames.contains("low-latency"));
-        assertTrue(configNames.contains("reliable"));
-        assertTrue(configNames.contains("development"));
-        
-        logger.info("✓ Multiple configuration registration validated successfully");
+        configManager.registerConfiguration("high-throughput", testConfig());
+        vertx.timer(100).mapEmpty()
+            .compose(v -> {
+                logger.info("Registering low-latency configuration...");
+                configManager.registerConfiguration("low-latency", testConfig());
+                return vertx.timer(100).mapEmpty();
+            })
+            .compose(v -> {
+                logger.info("Registering reliable configuration...");
+                configManager.registerConfiguration("reliable", testConfig());
+                return vertx.timer(100).mapEmpty();
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("Registering development configuration...");
+                configManager.registerConfiguration("development", testConfig());
+                Set<String> configNames = configManager.getConfigurationNames();
+                assertEquals(4, configNames.size());
+                assertTrue(configNames.contains("high-throughput"));
+                assertTrue(configNames.contains("low-latency"));
+                assertTrue(configNames.contains("reliable"));
+                assertTrue(configNames.contains("development"));
+                logger.info("✓ Multiple configuration registration validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -136,24 +128,22 @@ public class MultiConfigurationExampleTest {
      * Validates starting and stopping of multiple configurations
      */
     @Test
-    void testConfigurationLifecycleManagement() throws Exception {
+    void testConfigurationLifecycleManagement(VertxTestContext testContext) {
         logger.info("=== Testing Configuration Lifecycle Management ===");
-        
-        // Register configurations
-        configManager.registerConfiguration("config1", "test");
-        configManager.registerConfiguration("config2", "test");
-        
-        // Start all configurations
-        assertDoesNotThrow(() -> awaitFuture(configManager.start()));
-        assertTrue(configManager.isStarted());
-        
-        // Validate configurations are accessible
-        assertNotNull(configManager.getConfiguration("config1"));
-        assertNotNull(configManager.getConfiguration("config2"));
-        assertNotNull(configManager.getDatabaseService("config1"));
-        assertNotNull(configManager.getDatabaseService("config2"));
-        
-        logger.info("✓ Configuration lifecycle management validated successfully");
+
+        configManager.registerConfiguration("config1", testConfig());
+        configManager.registerConfiguration("config2", testConfig());
+
+        configManager.start()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertTrue(configManager.isStarted());
+                assertNotNull(configManager.getConfiguration("config1"));
+                assertNotNull(configManager.getConfiguration("config2"));
+                assertNotNull(configManager.getDatabaseService("config1"));
+                assertNotNull(configManager.getDatabaseService("config2"));
+                logger.info("✓ Configuration lifecycle management validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -161,29 +151,21 @@ public class MultiConfigurationExampleTest {
      * Validates high-throughput configuration patterns and settings
      */
     @Test
-    void testHighThroughputConfiguration() throws Exception {
+    void testHighThroughputConfiguration(VertxTestContext testContext) {
         logger.info("=== Testing High-Throughput Configuration ===");
-        
-        // Register and start high-throughput configuration
-        configManager.registerConfiguration("high-throughput", "test");
-        awaitFuture(configManager.start());
-        
-        // Get database service for high-throughput configuration
-        DatabaseService databaseService = configManager.getDatabaseService("high-throughput");
-        assertNotNull(databaseService);
-        
-        // Validate high-throughput configuration properties
-        PeeGeeQConfiguration config = configManager.getConfiguration("high-throughput");
-        assertNotNull(config);
-        assertEquals("test", config.getProfile());
-        
-        // Test high-throughput queue builder (without actually creating queues)
-        assertDoesNotThrow(() -> {
-            // This would create a high-throughput queue if implementations were available
-            logger.info("High-throughput configuration validated - would create queue with batch-size=100, polling-interval=100ms");
-        });
-        
-        logger.info("✓ High-throughput configuration validated successfully");
+
+        configManager.registerConfiguration("high-throughput", testConfig());
+        configManager.start()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                DatabaseService databaseService = configManager.getDatabaseService("high-throughput");
+                assertNotNull(databaseService);
+                PeeGeeQConfiguration config = configManager.getConfiguration("high-throughput");
+                assertNotNull(config);
+                assertEquals("default", config.getProfile());
+                logger.info("High-throughput configuration validated - would create queue with batch-size=100, polling-interval=100ms");
+                logger.info("✓ High-throughput configuration validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -191,28 +173,20 @@ public class MultiConfigurationExampleTest {
      * Validates low-latency configuration patterns and settings
      */
     @Test
-    void testLowLatencyConfiguration() throws Exception {
+    void testLowLatencyConfiguration(VertxTestContext testContext) {
         logger.info("=== Testing Low-Latency Configuration ===");
-        
-        // Register and start low-latency configuration
-        configManager.registerConfiguration("low-latency", "test");
-        awaitFuture(configManager.start());
-        
-        // Get database service for low-latency configuration
-        DatabaseService databaseService = configManager.getDatabaseService("low-latency");
-        assertNotNull(databaseService);
-        
-        // Validate low-latency configuration
-        PeeGeeQConfiguration config = configManager.getConfiguration("low-latency");
-        assertNotNull(config);
-        
-        // Test low-latency queue builder patterns
-        assertDoesNotThrow(() -> {
-            // This would create a low-latency queue if implementations were available
-            logger.info("Low-latency configuration validated - would create queue with batch-size=1, polling-interval=10ms");
-        });
-        
-        logger.info("✓ Low-latency configuration validated successfully");
+
+        configManager.registerConfiguration("low-latency", testConfig());
+        configManager.start()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                DatabaseService databaseService = configManager.getDatabaseService("low-latency");
+                assertNotNull(databaseService);
+                PeeGeeQConfiguration config = configManager.getConfiguration("low-latency");
+                assertNotNull(config);
+                logger.info("Low-latency configuration validated - would create queue with batch-size=1, polling-interval=10ms");
+                logger.info("✓ Low-latency configuration validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -220,28 +194,20 @@ public class MultiConfigurationExampleTest {
      * Validates reliable configuration patterns for critical messages
      */
     @Test
-    void testReliableConfiguration() throws Exception {
+    void testReliableConfiguration(VertxTestContext testContext) {
         logger.info("=== Testing Reliable Configuration ===");
-        
-        // Register and start reliable configuration
-        configManager.registerConfiguration("reliable", "test");
-        awaitFuture(configManager.start());
-        
-        // Get database service for reliable configuration
-        DatabaseService databaseService = configManager.getDatabaseService("reliable");
-        assertNotNull(databaseService);
-        
-        // Validate reliable configuration
-        PeeGeeQConfiguration config = configManager.getConfiguration("reliable");
-        assertNotNull(config);
-        
-        // Test reliable queue builder patterns
-        assertDoesNotThrow(() -> {
-            // This would create a reliable queue if implementations were available
-            logger.info("Reliable configuration validated - would create queue with max-retries=10, dead-letter-enabled=true");
-        });
-        
-        logger.info("✓ Reliable configuration validated successfully");
+
+        configManager.registerConfiguration("reliable", testConfig());
+        configManager.start()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                DatabaseService databaseService = configManager.getDatabaseService("reliable");
+                assertNotNull(databaseService);
+                PeeGeeQConfiguration config = configManager.getConfiguration("reliable");
+                assertNotNull(config);
+                logger.info("Reliable configuration validated - would create queue with max-retries=10, dead-letter-enabled=true");
+                logger.info("✓ Reliable configuration validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -249,29 +215,22 @@ public class MultiConfigurationExampleTest {
      * Validates custom configuration using builder patterns
      */
     @Test
-    void testCustomConfigurationBuilder() throws Exception {
+    void testCustomConfigurationBuilder(VertxTestContext testContext) {
         logger.info("=== Testing Custom Configuration Builder ===");
-        
-        // Register and start development configuration
-        configManager.registerConfiguration("development", "test");
-        awaitFuture(configManager.start());
-        
-        // Get database service for custom configuration
-        DatabaseService databaseService = configManager.getDatabaseService("development");
-        assertNotNull(databaseService);
-        
-        // Test custom queue builder patterns (without actually creating queues)
-        assertDoesNotThrow(() -> {
-            // This demonstrates the builder pattern that would be used
-            Duration pollingInterval = Duration.ofMillis(500);
-            Duration visibilityTimeout = Duration.ofSeconds(30);
-            
-            logger.info("Custom configuration builder validated - would create queue with:");
-            logger.info("  batch-size=5, polling-interval={}ms, max-retries=3", pollingInterval.toMillis());
-            logger.info("  visibility-timeout={}s, dead-letter-enabled=true", visibilityTimeout.getSeconds());
-        });
-        
-        logger.info("✓ Custom configuration builder validated successfully");
+
+        configManager.registerConfiguration("development", testConfig());
+        configManager.start()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                DatabaseService databaseService = configManager.getDatabaseService("development");
+                assertNotNull(databaseService);
+                Duration pollingInterval = Duration.ofMillis(500);
+                Duration visibilityTimeout = Duration.ofSeconds(30);
+                logger.info("Custom configuration builder validated - would create queue with:");
+                logger.info("  batch-size=5, polling-interval={}ms, max-retries=3", pollingInterval.toMillis());
+                logger.info("  visibility-timeout={}s, dead-letter-enabled=true", visibilityTimeout.getSeconds());
+                logger.info("✓ Custom configuration builder validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -279,23 +238,23 @@ public class MultiConfigurationExampleTest {
      * Validates error handling for invalid configurations
      */
     @Test
-    void testConfigurationErrorHandling() throws Exception {
+    void testConfigurationErrorHandling() {
         logger.info("=== Testing Configuration Error Handling ===");
         
         // Test duplicate configuration registration
-        configManager.registerConfiguration("test-config", "test");
+        configManager.registerConfiguration("test-config", testConfig());
         assertThrows(IllegalStateException.class, () -> {
-            configManager.registerConfiguration("test-config", "test");
+            configManager.registerConfiguration("test-config", testConfig());
         });
-        
+
         // Test null configuration name
         assertThrows(IllegalArgumentException.class, () -> {
-            configManager.registerConfiguration(null, "test");
+            configManager.registerConfiguration(null, testConfig());
         });
-        
+
         // Test empty configuration name
         assertThrows(IllegalArgumentException.class, () -> {
-            configManager.registerConfiguration("", "test");
+            configManager.registerConfiguration("", testConfig());
         });
         
         // Test null configuration
@@ -311,29 +270,4 @@ public class MultiConfigurationExampleTest {
         logger.info("✓ Configuration error handling validated successfully");
     }
 
-    private <T> T awaitFuture(Future<T> future) {
-        VertxTestContext testContext = new VertxTestContext();
-        AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-
-        future
-            .onSuccess(result::set)
-            .onFailure(failure::set)
-            .eventually(() -> {
-                testContext.completeNow();
-                return Future.succeededFuture();
-            });
-
-        try {
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting for Future completion", e);
-        }
-
-        if (failure.get() != null) {
-            throw new RuntimeException(failure.get());
-        }
-        return result.get();
-    }
 }

@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -43,10 +44,13 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.util.Properties;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 
@@ -118,7 +122,7 @@ public class ErrorHandlingRollbackExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_error_rollback_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -133,23 +137,18 @@ public class ErrorHandlingRollbackExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Error Handling and Rollback test environment...");
         
         // Configure system properties for TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
         logger.info("✓ PeeGeeQ Manager started");
         
         // Create outbox factory
@@ -171,6 +170,7 @@ public class ErrorHandlingRollbackExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up resources...");
         
         if (orderProducer != null) {
@@ -187,13 +187,13 @@ public class ErrorHandlingRollbackExampleTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            if (ar.succeeded()) {
-                logger.info("✓ PeeGeeQ Manager stopped");
-            }
-            logger.info("✓ Cleanup completed");
-            testContext.completeNow();
-        });
+        closeFuture
+                .onSuccess(v -> {
+                    logger.info("✓ PeeGeeQ Manager stopped");
+                    logger.info("✓ Cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
@@ -228,7 +228,9 @@ public class ErrorHandlingRollbackExampleTest {
                         testContext.failNow("Order should have failed but succeeded: " + r);
                         return r;
                     })
-                    .recover(error -> {
+                    .transform(ar -> {
+                        assertTrue(ar.failed(), "Order should have failed");
+                        Throwable error = ar.cause();
                         logger.info("INTENTIONAL FAILURE: Order correctly failed and rolled back as expected");
                         logger.info("   📋 Error details: {}", error.getMessage());
                         logger.info("   🎯 This failure demonstrates proper business rule validation and automatic rollback");
@@ -304,7 +306,9 @@ public class ErrorHandlingRollbackExampleTest {
                         testContext.failNow("Multi-stage operation should have failed but succeeded: " + r);
                         return r;
                     })
-                    .recover(error -> {
+                    .transform(ar -> {
+                        assertTrue(ar.failed(), "Multi-stage operation should have failed");
+                        Throwable error = ar.cause();
                         logger.info("INTENTIONAL FAILURE: Multi-stage operation correctly failed and rolled back as expected");
                         logger.info("   📋 Error details: {}", error.getMessage());
                         logger.info("   🎯 This failure demonstrates proper multi-stage rollback when any stage fails");
@@ -348,11 +352,12 @@ public class ErrorHandlingRollbackExampleTest {
                 .sendInOwnTransaction(new OrderProcessedEvent(order, result), TransactionPropagation.CONTEXT)
                 .map(ignored -> result)
             )
-            .recover(error -> {
+            .onFailure(error -> {
                 logger.error("🎯 INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
                 logger.info("   📋 This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
-                return Future.failedFuture(new RuntimeException("Order processing failed", error));
             })
+            .map(result -> (String) result)
+            .otherwise(error -> { throw new RuntimeException("Order processing failed", error); })
             .onComplete(promise);
         });
         return promise.future();
@@ -375,7 +380,9 @@ public class ErrorHandlingRollbackExampleTest {
                 fail("❌ UNEXPECTED SUCCESS: Order should have failed but succeeded: " + success);
                 return (Void) null;
             })
-            .recover(e -> {
+            .transform(ar -> {
+                assertTrue(ar.failed(), "Validation should have failed for: " + expectedError);
+                Throwable e = ar.cause();
                 if (e.getMessage().contains(expectedError) ||
                     (e.getCause() != null && e.getCause().getMessage().contains(expectedError))) {
                     logger.info("INTENTIONAL FAILURE: Validation correctly failed as expected: {}", expectedError);
@@ -414,11 +421,12 @@ public class ErrorHandlingRollbackExampleTest {
                 .sendInOwnTransaction(new ValidationCompletedEvent(order.getOrderId(), "PASSED"), TransactionPropagation.CONTEXT)
                 .map(ignored -> result)
             )
-            .recover(error -> {
+            .onFailure(error -> {
                 logger.error("🎯 INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
                 logger.info("   📋 This error demonstrates proper validation failure handling and automatic rollback");
-                return Future.failedFuture(new RuntimeException("Business validation failed", error));
             })
+            .map(result -> (String) result)
+            .otherwise(error -> { throw new RuntimeException("Business validation failed", error); })
             .onComplete(promise);
         });
         return promise.future();
@@ -459,11 +467,12 @@ public class ErrorHandlingRollbackExampleTest {
                     .sendInOwnTransaction(new MultiStageCompletedEvent(order.getOrderId(), "ALL_STAGES_COMPLETED"), TransactionPropagation.CONTEXT)
                     .map(ignored -> "Multi-stage processing completed for order " + order.getOrderId());
             })
-            .recover(error -> {
+            .onFailure(error -> {
                 logger.error("🎯 INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
                 logger.info("   📋 This error demonstrates proper multi-stage rollback when any stage fails");
-                return Future.failedFuture(new RuntimeException("Multi-stage processing failed", error));
             })
+            .map(result -> (String) result)
+            .otherwise(error -> { throw new RuntimeException("Multi-stage processing failed", error); })
             .onComplete(promise);
         });
         return promise.future();

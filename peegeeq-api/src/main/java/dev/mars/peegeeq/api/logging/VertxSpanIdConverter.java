@@ -37,17 +37,28 @@ public class VertxSpanIdConverter extends ClassicConverter {
         }
 
         // 2. Try Vert.x Context (if we are on a Vert.x thread)
-        Context ctx = Vertx.currentContext();
-        if (ctx != null) {
-            // Check for robust TraceCtx object
-            Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
-            if (traceObj instanceof TraceCtx) {
-                 return ((TraceCtx) traceObj).spanId();
-            }
-            // Fallback: Check if it's stored as a plain string under "spanId"
-            Object simpleSpan = ctx.get("spanId");
-            if (simpleSpan != null) {
-                return simpleSpan.toString();
+        // Accessing static Vertx.currentContext() can trigger Vert.x static initialization.
+        // If triggered from a concurrent non-Vertx thread (like ForkJoinPool during tests)
+        // while the logging framework is initializing, it can cause ExceptionInInitializerError.
+        // Therefore, we only query Vertx context if we are on a Vertx thread.
+        Thread currentThread = Thread.currentThread();
+        if (currentThread.getName().startsWith("vert.x-")) {
+            try {
+                Context ctx = Vertx.currentContext();
+                if (ctx != null) {
+                    // Check for robust TraceCtx object
+                    Object traceObj = ctx.get(TraceContextUtil.CONTEXT_TRACE_KEY);
+                    if (traceObj instanceof TraceCtx) {
+                         return ((TraceCtx) traceObj).spanId();
+                    }
+                    // Fallback: Check if it's stored as a plain string under "spanId"
+                    Object simpleSpan = ctx.get("spanId");
+                    if (simpleSpan != null) {
+                        return simpleSpan.toString();
+                    }
+                }
+            } catch (Throwable t) {
+                // Ignore Vertx initialization errors safely
             }
         }
         

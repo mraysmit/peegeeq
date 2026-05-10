@@ -119,13 +119,12 @@ class MultiTenantSchemaIsolationTest {
                         .timeout(30000) // Longer timeout for database creation
                         .sendJsonObject(setupRequestB);
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode());
                 logger.info("Created setup for Tenant B: {}", setupIdTenantB);
                 logger.info("========== SETUP COMPLETED ==========");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private JsonObject createSetupRequest(String setupId, String schema, String dbName) {
@@ -166,10 +165,10 @@ class MultiTenantSchemaIsolationTest {
         // Undeploy REST server
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("========== TEARDOWN COMPLETED ==========");
                     testContext.completeNow();
-                });
+                }).onFailure(testContext::failNow);
         } else {
             logger.info("========== TEARDOWN COMPLETED ==========");
             testContext.completeNow();
@@ -215,15 +214,14 @@ class MultiTenantSchemaIsolationTest {
                             .timeout(5000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     JsonObject stats = response.bodyAsJsonObject();
                     int totalMessages = stats.getInteger("totalMessages", 0);
                     assertEquals(1, totalMessages, "Tenant A should have 1 message");
                     logger.info("Message isolation verified - Tenant A has 1 message, Tenant B has 0");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -280,15 +278,14 @@ class MultiTenantSchemaIsolationTest {
                             .timeout(5000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     JsonObject stats = response.bodyAsJsonObject();
                     assertEquals(2, stats.getInteger("totalMessages"), "Tenant B should see 2 messages");
                     logger.info("Tenant B stats: {}", stats.encode());
                     logger.info("Stats isolation verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -331,7 +328,7 @@ class MultiTenantSchemaIsolationTest {
                             .timeout(5000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
                     JsonObject stats = response.bodyAsJsonObject();
                     int totalMessages = stats.getInteger("totalMessages", 0);
@@ -339,8 +336,7 @@ class MultiTenantSchemaIsolationTest {
                     logger.info("Tenant B has 1 message in queue '{}'", sharedQueueName);
                     logger.info("Same queue name isolation verified - both tenants have separate queues");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }
 

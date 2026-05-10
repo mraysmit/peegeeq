@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -24,7 +26,9 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -41,6 +45,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.Properties;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
@@ -57,16 +62,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Testcontainers
 public class OutboxErrorHandlingTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final Logger logger = LoggerFactory.getLogger(OutboxErrorHandlingTest.class);
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -83,16 +82,10 @@ public class OutboxErrorHandlingTest {
         testTopic = "error-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Set up database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-test");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -103,6 +96,7 @@ public class OutboxErrorHandlingTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -113,15 +107,10 @@ public class OutboxErrorHandlingTest {
             outboxFactory.close();
         }
         
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -136,17 +125,18 @@ public class OutboxErrorHandlingTest {
 
         // Set up consumer that fails first few times
         consumer.subscribe(message -> {
+        logger.info("Test: message processing failure and retry");
             int attempt = attemptCount.incrementAndGet();
-            System.out.println("Processing attempt " + attempt + " for message: " + message.getPayload());
+            logger.info("Processing attempt {} for message: {}", attempt, message.getPayload());
             
             if (attempt < 3) {
                 // Fail the first 2 attempts
-                System.out.println("INTENTIONAL FAILURE: Simulating processing failure on attempt " + attempt);
+                logger.info("INTENTIONAL FAILURE: Simulating processing failure on attempt {}", attempt);
                 return Future.failedFuture(
                     new RuntimeException("Simulated processing failure, attempt " + attempt));
             } else {
                 // Succeed on the 3rd attempt
-                System.out.println("SUCCESS: Processing succeeded on attempt " + attempt);
+                logger.info("SUCCESS: Processing succeeded on attempt {}", attempt);
                 successCheckpoint.flag();
                 return Future.succeededFuture();
             }
@@ -170,8 +160,9 @@ public class OutboxErrorHandlingTest {
 
         // Set up consumer that always throws exception
         consumer.subscribe(message -> {
+        logger.info("Test: consumer exception handling");
             int count = exceptionCount.incrementAndGet();
-            System.out.println("INTENTIONAL FAILURE: Processing attempt " + count + ", throwing exception");
+            logger.info("INTENTIONAL FAILURE: Processing attempt {}, throwing exception", count);
             exceptionCheckpoint.flag();
             throw new RuntimeException("Intentional exception for testing");
         });
@@ -188,20 +179,21 @@ public class OutboxErrorHandlingTest {
 
     @Test
     void testProducerWithClosedConnection(VertxTestContext testContext) throws Exception {
-        System.out.println("🔌 ===== RUNNING INTENTIONAL CLOSED CONNECTION TEST =====");
-        System.out.println("🔌 **INTENTIONAL TEST** - This test deliberately closes the producer and attempts to send a message");
-        System.out.println("🔌 **INTENTIONAL TEST FAILURE** - Expected exception when sending with closed producer");
+        logger.info("===== RUNNING INTENTIONAL CLOSED CONNECTION TEST =====");
+        logger.info("**INTENTIONAL TEST** - This test deliberately closes the producer and attempts to send a message");
+        logger.info("**INTENTIONAL TEST FAILURE** - Expected exception when sending with closed producer");
 
         String testMessage = "Message after close";
 
         // Close the producer
         producer.close();
 
-        // Try to send message with closed producer — should fail
+        // Try to send message with closed producer should fail
         producer.send(testMessage).onComplete(ar -> testContext.verify(() -> {
+        logger.info("Test: producer with closed connection");
             assertTrue(ar.failed(), "Sending with closed producer should fail");
-            System.out.println("🔌 **SUCCESS** - Closed producer properly threw exception");
-            System.out.println("🔌 ===== INTENTIONAL TEST COMPLETED =====");
+            logger.info("**SUCCESS** - Closed producer properly threw exception");
+            logger.info("===== INTENTIONAL TEST COMPLETED =====");
             testContext.completeNow();
         }));
 
@@ -215,8 +207,9 @@ public class OutboxErrorHandlingTest {
 
         // Subscribe to messages
         consumer.subscribe(message -> {
+        logger.info("Test: consumer unsubscribe");
             int count = receivedCount.incrementAndGet();
-            System.out.println("Received message " + count + ": " + message.getPayload());
+            logger.info("Received message {}: {}", count, message.getPayload());
             firstMessageReceived.tryComplete();
             return Future.succeededFuture();
         });
@@ -248,8 +241,9 @@ public class OutboxErrorHandlingTest {
 
         // Subscribe to messages
         consumer.subscribe(message -> {
+        logger.info("Test: consumer close");
             int count = receivedCount.incrementAndGet();
-            System.out.println("Received message " + count + ": " + message.getPayload());
+            logger.info("Received message {}: {}", count, message.getPayload());
             firstMessageReceived.tryComplete();
             return Future.succeededFuture();
         });
@@ -276,17 +270,18 @@ public class OutboxErrorHandlingTest {
 
     @Test
     void testNullMessageHandling(VertxTestContext testContext) throws Exception {
-        System.out.println("❌ ===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
-        System.out.println("❌ **INTENTIONAL TEST** - This test deliberately sends a null payload");
-        System.out.println("❌ **INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
+        logger.info("===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
+        logger.info("**INTENTIONAL TEST** - This test deliberately sends a null payload");
+        logger.info("**INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
 
         // producer.send(null) returns a failed Future (does not throw synchronously)
         producer.send(null).onComplete(ar -> testContext.verify(() -> {
+        logger.info("Test: null message handling");
             assertTrue(ar.failed(), "Sending null payload should return a failed Future");
             assertTrue(ar.cause() instanceof IllegalArgumentException,
                 "Cause should be IllegalArgumentException, got: " + ar.cause().getClass().getSimpleName());
-            System.out.println("❌ **SUCCESS** - Null payload properly returned failed Future");
-            System.out.println("❌ ===== INTENTIONAL TEST COMPLETED =====");
+            logger.info("**SUCCESS** - Null payload properly returned failed Future");
+            logger.info("===== INTENTIONAL TEST COMPLETED =====");
             testContext.completeNow();
         }));
 
@@ -298,6 +293,7 @@ public class OutboxErrorHandlingTest {
         // Create a large message (1MB)
         StringBuilder largeMessage = new StringBuilder();
         for (int i = 0; i < 100000; i++) {
+        logger.info("Test: large message handling");
             largeMessage.append("This is a large message for testing purposes. ");
         }
         

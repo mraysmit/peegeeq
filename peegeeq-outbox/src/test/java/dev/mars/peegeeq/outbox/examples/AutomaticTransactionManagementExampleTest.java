@@ -18,7 +18,10 @@ package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
@@ -33,11 +36,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Comprehensive test for AutomaticTransactionManagementExample functionality.
@@ -59,41 +64,31 @@ public class AutomaticTransactionManagementExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(AutomaticTransactionManagementExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_auto_tx_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     
     @BeforeEach
-    void setUp() {
-        logger.info("Setting up Automatic Transaction Management Example Test");
-        
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
-        
-        logger.info("✓ Automatic Transaction Management Example Test setup completed");
+    void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start().await();
     }
     
     @AfterEach
     void tearDown() {
-        logger.info("Tearing down Automatic Transaction Management Example Test");
-        
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
         }
-        
-        logger.info("✓ Automatic Transaction Management Example Test teardown completed");
     }
 
     /**
@@ -103,10 +98,6 @@ public class AutomaticTransactionManagementExampleTest {
     @Test
     void testBasicAutomaticTransactionManagement() throws Exception {
         logger.info("=== Testing Basic Automatic Transaction Management ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test basic automatic transaction management
         AutomaticTransactionResult result = testBasicAutomaticTransactionManagementPattern();
@@ -130,10 +121,6 @@ public class AutomaticTransactionManagementExampleTest {
     void testTransactionPropagationContext() throws Exception {
         logger.info("=== Testing Transaction Propagation Context ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test transaction propagation context
         PropagationContextResult result = testTransactionPropagationContextPattern();
         
@@ -155,10 +142,6 @@ public class AutomaticTransactionManagementExampleTest {
     @Test
     void testBatchOperationsWithSharedContext() throws Exception {
         logger.info("=== Testing Batch Operations with Shared Context ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test batch operations with shared context
         BatchOperationsResult result = testBatchOperationsWithSharedContextPattern();
@@ -182,10 +165,6 @@ public class AutomaticTransactionManagementExampleTest {
     void testFullParameterAutomaticTransactions() throws Exception {
         logger.info("=== Testing Full Parameter Automatic Transactions ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test full parameter automatic transactions
         FullParameterResult result = testFullParameterAutomaticTransactionsPattern();
         
@@ -207,10 +186,6 @@ public class AutomaticTransactionManagementExampleTest {
     @Test
     void testPerformanceValidation() throws Exception {
         logger.info("=== Testing Performance Validation ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test performance validation
         PerformanceValidationResult result = testPerformanceValidationPattern();
@@ -378,23 +353,6 @@ public class AutomaticTransactionManagementExampleTest {
         logger.info("✓ Performance validation pattern tested");
         
         return new PerformanceValidationResult(performanceTests, throughputMeasured, performanceValidated);
-    }
-    
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
     }
     
     // Supporting classes

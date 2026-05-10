@@ -98,7 +98,7 @@ public class BiTemporalTxConfig {
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager - this handles all Vert.x setup internally
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully for multi-event store coordination");
 
         return manager;

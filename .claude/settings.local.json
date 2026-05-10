@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn compile *)",
+      "Bash(awk '/created reactive pool/{c++} /Closed successfully/{d++} /19:49:45/{print \"At exhaustion: created=\" c \" closed=\" d \" net=\" c-d; exit}' c:/Users/mraysmit/dev/idea-projects/peegeeq/logs/full-suite-20260419-194642.txt)",
+      "Bash(awk '/created reactive pool/{ts=substr\\($1,1,5\\); creates[ts]++} /Closed successfully/{ts=substr\\($1,1,5\\); closes[ts]++} END{for\\(t in creates\\){printf \"%s created=%d closed=%d net=%d\\\\n\", t, creates[t], \\(closes[t]+0\\), creates[t]-\\(closes[t]+0\\)}}' c:/Users/mraysmit/dev/idea-projects/peegeeq/logs/full-suite-20260419-194642.txt)"
+    ]
+  }
+}

@@ -38,6 +38,7 @@ This reference covers:
 - **[Getting Started Tutorial](PEEGEEQ_COMPLETE_GUIDE.md#your-first-message-hello-world)** - Your first PeeGeeQ application
 - **[Configuration Guide](PEEGEEQ_COMPLETE_GUIDE.md#configuration-management)** - Production configuration and tuning
 - **[Troubleshooting Guide](PEEGEEQ_COMPLETE_GUIDE.md#common-issues--solutions)** - Common issues and solutions
+- **[Ordering Patterns Guide](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md)** - Choosing between `MessageConsumer` and `ConsumerGroup`; OFFSET_WATERMARK mode; `PartitionedConsumerEngine` internals; migration guide
 
 ## System Architecture
 

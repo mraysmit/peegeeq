@@ -12,6 +12,7 @@ import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -22,10 +23,10 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import io.vertx.junit5.VertxTestContext;
 
@@ -60,8 +61,8 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
-        super.setUpBaseIntegration();
+    public void setUp() {
+        // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -78,7 +79,10 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -90,8 +94,18 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
         logger.info("DeadConsumerDetector test setup complete");
     }
 
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        if (connectionManager != null) {
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
     @Test
-    public void testDetectDeadSubscription(VertxTestContext testContext) throws Exception {
+    public void testDetectDeadSubscription(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test deliberately expires a heartbeat to verify dead subscription detection");
         logger.info("=== TEST: testDetectDeadSubscription STARTED ===");
 
         String topic = "test-dead-detection-" + UUID.randomUUID().toString().substring(0, 8);
@@ -138,20 +152,16 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Verify subscription status
                     return subscriptionManager.getSubscription(topic, groupName);
                 })
-                .onSuccess(subscription -> {
+                .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                     assertNotNull(subscription, "Subscription should exist");
                     assertEquals(SubscriptionState.DEAD, subscription.state(),
                             "Subscription should be marked as DEAD");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        logger.info("=== TEST: testDetectDeadSubscription PASSED ===");
+                })));
     }
 
     @Test
-    public void testDoesNotMarkActiveSubscription(VertxTestContext testContext) throws Exception {
+    public void testDoesNotMarkActiveSubscription(VertxTestContext testContext) {
         logger.info("=== TEST: testDoesNotMarkActiveSubscription STARTED ===");
 
         String topic = "test-active-subscription-" + UUID.randomUUID().toString().substring(0, 8);
@@ -187,20 +197,17 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Verify subscription status
                     return subscriptionManager.getSubscription(topic, groupName);
                 })
-                .onSuccess(subscription -> {
+                .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                     assertNotNull(subscription, "Subscription should exist");
                     assertEquals(SubscriptionState.ACTIVE, subscription.state(),
                             "Subscription should remain ACTIVE");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testDoesNotMarkActiveSubscription PASSED ===");
+                })));
     }
 
     @Test
-    public void testDetectAllDeadSubscriptions(VertxTestContext testContext) throws Exception {
+    public void testDetectAllDeadSubscriptions(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED this test deliberately expires heartbeats across multiple topics to verify bulk dead detection");
         logger.info("=== TEST: testDetectAllDeadSubscriptions STARTED ===");
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -259,7 +266,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 })
                 .compose(markedDead -> {
                     logger.info("Marked {} subscriptions as DEAD across all topics", markedDead);
-                    // Don't assert exact count — other parallel tests may contribute or steal detections
+                    // Don't assert exact count other parallel tests may contribute or steal detections
                     assertTrue(markedDead >= 0, "markedDead should be non-negative");
                     // Verify our specific subscriptions ended up DEAD
                     return subscriptionManager.getSubscription(topic1, group1);
@@ -269,19 +276,16 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             topic1 + "/" + group1 + " should be DEAD");
                     return subscriptionManager.getSubscription(topic2, group2);
                 })
-                .onSuccess(sub2 -> {
+                .onComplete(testContext.succeeding(sub2 -> testContext.verify(() -> {
                     assertEquals(SubscriptionState.DEAD, sub2.state(),
                             topic2 + "/" + group2 + " should be DEAD");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        logger.info("=== TEST: testDetectAllDeadSubscriptions PASSED ===");
+                })));
     }
 
     @Test
-    public void testCountDeadSubscriptions(VertxTestContext testContext) throws Exception {
+    public void testCountDeadSubscriptions(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test deliberately expires heartbeats to verify dead subscription counting");
         logger.info("=== TEST: testCountDeadSubscriptions STARTED ===");
 
         String topic = "test-count-dead-" + UUID.randomUUID().toString().substring(0, 8);
@@ -335,15 +339,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Count dead subscriptions
                     return detector.countDeadSubscriptions(topic);
                 })
-                .onSuccess(count -> {
+                .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                     logger.info("Found {} DEAD subscriptions", count);
                     assertEquals(1L, count, "Should find 1 DEAD subscription");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCountDeadSubscriptions PASSED ===");
+                })));
     }
 }
 

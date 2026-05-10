@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -29,12 +30,15 @@ import io.vertx.core.Promise;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing System Properties Configuration Patterns for PeeGeeQ.
@@ -51,8 +55,9 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SystemPropertiesConfigurationDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesConfigurationDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -139,33 +144,22 @@ class SystemPropertiesConfigurationDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
-        System.out.println("\n🔧 Setting up System Properties Configuration Demo Test");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for system properties configuration test
-        System.out.println("🔧 Initializing database schema for system properties configuration test");
+        logger.info("Initializing database schema for system properties configuration test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with development configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -176,70 +170,67 @@ class SystemPropertiesConfigurationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for configuration pattern testing");
+        logger.info("Setup complete - Ready for configuration pattern testing");
     }
 
     @AfterEach
     void tearDown(Vertx vertx) {
-        System.out.println("🧹 Cleaning up System Properties Configuration Demo Test");
+        logger.info("Tearing down: closing resources and manager");
 
         // CRITICAL: Close all consumers first to stop background polling
-        System.out.println("🔄 Closing " + activeConsumers.size() + " active consumers...");
+        logger.info("Closing {} active consumers...", activeConsumers.size());
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
-                System.out.println("Closed consumer");
+                logger.info("Closed consumer");
             } catch (Exception e) {
-                System.err.println("⚠️ Error closing consumer: " + e.getMessage());
+                logger.warn("Error closing consumer: {}", e.getMessage());
             }
         }
         activeConsumers.clear();
 
         // Close all producers
-        System.out.println("🔄 Closing " + activeProducers.size() + " active producers...");
+        logger.info("Closing {} active producers...", activeProducers.size());
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                System.out.println("Closed producer");
+                logger.info("Closed producer");
             } catch (Exception e) {
-                System.err.println("⚠️ Error closing producer: " + e.getMessage());
+                logger.warn("Error closing producer: {}", e.getMessage());
             }
         }
         activeProducers.clear();
 
         if (manager != null) {
             try {
-                System.out.println("🔄 Closing PeeGeeQ manager...");
+                logger.info("Closing PeeGeeQ manager...");
                 manager.closeReactive().await();
-                System.out.println("PeeGeeQ manager closed successfully");
+                logger.info("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion in subsequent tests
                 Promise<Void> delay = Promise.promise();
                 vertx.setTimer(2000, id -> delay.complete());
                 delay.future().await();
-                System.out.println("⏱️ Resource cleanup wait completed");
+                logger.info("Resource cleanup wait completed");
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        // Clear system properties set during tests to avoid leaking to subsequent tests
         System.clearProperty("peegeeq.batch.size");
         System.clearProperty("peegeeq.timeout.ms");
         System.clearProperty("peegeeq.debug.enabled");
+        System.clearProperty("peegeeq.environment");
 
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     @Test
-    @Order(1)
     @DisplayName("Dynamic Configuration Management - Runtime Property Updates")
     void testDynamicConfigurationManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n🔄 Testing Dynamic Configuration Management");
+        logger.info("Test: dynamic configuration management");
 
         String queueName = "config-dynamic-queue";
         List<ConfigurationEvent> receivedEvents = new ArrayList<>();
@@ -256,18 +247,17 @@ class SystemPropertiesConfigurationDemoTest {
         // Subscribe to configuration events
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
-            System.out.println("📨 Received configuration update: " + event.getEnvironment() +
-                             " - Batch Size: " + event.getBatchSize() +
-                             " - Timeout: " + event.getTimeoutMs() +
-                             " - Debug: " + event.getDebugEnabled());
-            System.out.println("📨 Full event: " + event.toString());
+            logger.info("Received configuration update: {} - Batch Size: {} - Timeout: {} - Debug: {}",
+                             event.getEnvironment(), event.getBatchSize(),
+                             event.getTimeoutMs(), event.getDebugEnabled());
+            logger.info("Full event: {}", event);
             receivedEvents.add(event);
             processedCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         // Test dynamic configuration updates
-        System.out.println("🔧 Applying dynamic configuration changes...");
+        logger.info("Applying dynamic configuration changes...");
 
         // Update 1: Change batch size
         System.setProperty("peegeeq.batch.size", "200");
@@ -282,7 +272,8 @@ class SystemPropertiesConfigurationDemoTest {
         producer.send(new ConfigurationEvent("config-3", "development", null, null, true, "enabled_debug"));
 
         // Wait for all configuration updates
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all configuration updates");
+        // Development profile uses batch-size=2 with ~5s polling interval; 3 messages need 2 poll cycles
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all configuration updates");
 
         // Verify configuration updates
         assertEquals(3, receivedEvents.size(), "Should receive exactly 3 configuration updates");
@@ -319,15 +310,14 @@ class SystemPropertiesConfigurationDemoTest {
         assertTrue(debugEvent.getDebugEnabled());
         assertEquals("config-3", debugEvent.getEventId());
 
-        System.out.println("Dynamic Configuration Management test completed successfully");
-        System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
+        logger.info("Dynamic Configuration Management test completed successfully");
+        logger.info("Configuration updates processed: {}", receivedEvents.size());
     }
 
     @Test
-    @Order(2)
     @DisplayName("Environment-Specific Settings - DEV/STAGING/PROD Configurations")
     void testEnvironmentSpecificSettings(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n🌍 Testing Environment-Specific Settings");
+        logger.info("Test: environment specific settings");
 
         String queueName = "config-environment-queue";
         List<ConfigurationEvent> receivedEvents = new ArrayList<>();
@@ -344,17 +334,16 @@ class SystemPropertiesConfigurationDemoTest {
         // Subscribe to environment configuration events
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
-            System.out.println("🌍 Environment configuration: " + event.getEnvironment() +
-                             " - Batch: " + event.getBatchSize() +
-                             ", Timeout: " + event.getTimeoutMs() +
-                             ", Debug: " + event.getDebugEnabled());
+            logger.info("Environment configuration: {} - Batch: {}, Timeout: {}, Debug: {}",
+                             event.getEnvironment(), event.getBatchSize(),
+                             event.getTimeoutMs(), event.getDebugEnabled());
             receivedEvents.add(event);
             processedCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         // Test each environment configuration
-        System.out.println("🔧 Testing environment-specific configurations...");
+        logger.info("Testing environment-specific configurations...");
 
         for (Environment env : Environment.values()) {
             // Apply environment-specific system properties
@@ -366,7 +355,7 @@ class SystemPropertiesConfigurationDemoTest {
             // Create configuration event for this environment
             producer.send(new ConfigurationEvent("env-" + env.name, env.name, env.batchSize, env.timeoutMs, env.debugEnabled, "environment_config"));
             
-            System.out.println("📤 Sent " + env.name.toUpperCase() + " configuration");
+            logger.info("Sent {} configuration", env.name.toUpperCase());
         }
 
         // Wait for all environment configurations
@@ -389,15 +378,14 @@ class SystemPropertiesConfigurationDemoTest {
             assertEquals(expectedEnv.debugEnabled, event.getDebugEnabled());
         }
 
-        System.out.println("Environment-Specific Settings test completed successfully");
-        System.out.println("📊 Environment configurations tested: " + receivedEvents.size());
+        logger.info("Environment-Specific Settings test completed successfully");
+        logger.info("Environment configurations tested: {}", receivedEvents.size());
     }
 
     @Test
-    @Order(3)
     @DisplayName("Configuration Validation - Property Validation and Error Handling")
     void testConfigurationValidation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\nTesting Configuration Validation");
+        logger.info("Test: configuration validation");
 
         String queueName = "config-validation-queue";
         List<ConfigurationEvent> validEvents = new ArrayList<>();
@@ -418,16 +406,16 @@ class SystemPropertiesConfigurationDemoTest {
             try {
                 // Validate configuration
                 if (validateConfiguration(event)) {
-                    System.out.println("Valid configuration: " + event.getEventId());
+                    logger.info("Valid configuration: {}", event.getEventId());
                     validEvents.add(event);
                 } else {
                     String error = "Invalid configuration: " + event.getEventId();
-                    System.out.println("❌ " + error);
+                    logger.info("{}", error);
                     validationErrors.add(error);
                 }
             } catch (Exception e) {
                 String error = "Validation error for " + event.getEventId() + ": " + e.getMessage();
-                System.out.println("⚠️ " + error);
+                logger.info("{}", error);
                 validationErrors.add(error);
             }
             processedCheckpoint.flag();
@@ -435,7 +423,7 @@ class SystemPropertiesConfigurationDemoTest {
         });
 
         // Test valid configurations
-        System.out.println("🔧 Testing configuration validation...");
+        logger.info("Testing configuration validation...");
 
         // Valid config 1: Normal values
         producer.send(new ConfigurationEvent("valid-1", "development", 100, 5000, true, "normal_values"));
@@ -468,15 +456,14 @@ class SystemPropertiesConfigurationDemoTest {
         assertTrue(validationErrors.stream().anyMatch(e -> e.contains("invalid-1")));
         assertTrue(validationErrors.stream().anyMatch(e -> e.contains("invalid-2")));
 
-        System.out.println("Configuration Validation test completed successfully");
-        System.out.println("📊 Valid configurations: " + validEvents.size() + ", Validation errors: " + validationErrors.size());
+        logger.info("Configuration Validation test completed successfully");
+        logger.info("Valid configurations: {}, Validation errors: {}", validEvents.size(), validationErrors.size());
     }
 
     @Test
-    @Order(4)
     @DisplayName("Hot Configuration Reload - Live Configuration Updates")
     void testHotConfigurationReload(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n🔥 Testing Hot Configuration Reload");
+        logger.info("Test: hot configuration reload");
 
         String queueName = "config-hot-reload-queue";
         AtomicInteger reloadCount = new AtomicInteger(0);
@@ -495,15 +482,14 @@ class SystemPropertiesConfigurationDemoTest {
         consumer.subscribe(message -> {
             ConfigurationEvent event = message.getPayload();
             int currentReload = reloadCount.incrementAndGet();
-            System.out.println("🔥 Hot reload #" + currentReload + ": " + event.getEventId() +
-                             " - Config: " + event.toString());
+            logger.info("Hot reload #{}: {} - Config: {}", currentReload, event.getEventId(), event);
             reloadEvents.add(event);
             processedCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         // Simulate hot configuration reloads
-        System.out.println("🔧 Performing hot configuration reloads...");
+        logger.info("Performing hot configuration reloads...");
 
         // Reload 1: Increase batch size during runtime
         producer.send(new ConfigurationEvent("hot-reload-1", "production", 500, null, null, "performance_optimization"));
@@ -554,8 +540,8 @@ class SystemPropertiesConfigurationDemoTest {
         assertEquals(20000, finalReload.getTimeoutMs());
         assertFalse(finalReload.getDebugEnabled());
 
-        System.out.println("Hot Configuration Reload test completed successfully");
-        System.out.println("📊 Hot reloads processed: " + reloadCount.get());
+        logger.info("Hot Configuration Reload test completed successfully");
+        logger.info("Hot reloads processed: {}", reloadCount.get());
     }
 
     /**

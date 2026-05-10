@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -25,7 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -63,27 +64,25 @@ public class ConsumerModeIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for consumer mode integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties using TestContainer pattern
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         // Initialize PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -99,22 +98,20 @@ public class ConsumerModeIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
 
     @Test
     void testListenNotifyOnlyMode(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("🧪 TEST METHOD CALLED: testListenNotifyOnlyMode");
-        System.err.println("🧪 TEST METHOD CALLED: testListenNotifyOnlyMode");
-        logger.info("🧪 STARTING LISTEN_NOTIFY_ONLY MODE TEST");
+        logger.info("TEST METHOD CALLED: testListenNotifyOnlyMode");
+        logger.info("STARTING LISTEN_NOTIFY_ONLY MODE TEST");
 
         // Create consumer with LISTEN_NOTIFY_ONLY mode - but don't subscribe yet
         ConsumerConfig config = ConsumerConfig.builder()
@@ -126,29 +123,23 @@ public class ConsumerModeIntegrationTest {
 
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
-        // Subscribe to messages
-        System.out.println("📝 About to call consumer.subscribe()");
+        // Subscribe and wait for LISTEN to be established, then send
+        logger.info("About to call consumer.subscribe()");
         consumer.subscribe(message -> {
-            System.out.println("🎯 LISTEN_NOTIFY_ONLY: Message received: " + message.getPayload());
-            logger.info("🎯 LISTEN_NOTIFY_ONLY: Message received: {}", message.getPayload());
+            logger.info("LISTEN_NOTIFY_ONLY: Message received: {}", message.getPayload());
             receivedMessage.set(message.getPayload());
             testContext.verify(() -> {
                 assertEquals("Hello LISTEN_NOTIFY_ONLY!", receivedMessage.get());
             });
             testContext.completeNow();
             return Future.succeededFuture();
-        });
-        System.out.println("consumer.subscribe() completed");
-
-        // Wait for LISTEN setup, then send
-        System.out.println("⏳ Waiting for LISTEN setup via timer");
-        vertx.setTimer(1000, id -> {
-            System.out.println("🔔 About to send message");
-            logger.info("🔔 LISTEN_NOTIFY_ONLY: Sending test message...");
+        })
+        .onSuccess(v -> {
+            logger.info("LISTEN_NOTIFY_ONLY: Sending test message...");
             producer.send("Hello LISTEN_NOTIFY_ONLY!");
-            System.out.println("Message sent successfully");
             logger.info("LISTEN_NOTIFY_ONLY: Message sent");
-        });
+        })
+        .onFailure(testContext::failNow);
 
         // Wait for message
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be received via LISTEN/NOTIFY");
@@ -160,7 +151,7 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testPollingOnlyMode() throws Exception {
-        logger.info("🧪 Testing POLLING_ONLY mode");
+        logger.info("Testing POLLING_ONLY mode");
 
         // Create consumer with POLLING_ONLY mode and fast polling
         ConsumerConfig config = ConsumerConfig.builder()
@@ -195,7 +186,7 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testHybridMode() throws Exception {
-        logger.info("🧪 Testing HYBRID mode (default behavior)");
+        logger.info("Testing HYBRID mode (default behavior)");
 
         // Create consumer with HYBRID mode (should work like before)
         ConsumerConfig config = ConsumerConfig.builder()
@@ -230,7 +221,7 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testBackwardCompatibility() throws Exception {
-        logger.info("🧪 Testing backward compatibility (no ConsumerConfig)");
+        logger.info("Testing backward compatibility (no ConsumerConfig)");
 
         // Create consumer without ConsumerConfig (should default to HYBRID)
         MessageConsumer<String> consumer = factory.createConsumer("test-backward-compat", String.class);

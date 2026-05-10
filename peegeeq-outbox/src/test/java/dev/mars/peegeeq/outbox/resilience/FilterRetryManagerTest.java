@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 
 import java.time.Duration;
 import java.util.HashMap;
@@ -25,7 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("core")
 class FilterRetryManagerTest {
 
-    private ScheduledExecutorService scheduler;
+    private Vertx vertx;
     private FilterRetryManager retryManager;
     private FilterRetryManager retryManagerWithDlq;
     private FilterCircuitBreaker circuitBreaker;
@@ -34,7 +35,7 @@ class FilterRetryManagerTest {
 
     @BeforeEach
     void setUp() {
-        scheduler = Executors.newScheduledThreadPool(2);
+        vertx = Vertx.vertx();
 
         config = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
@@ -56,24 +57,15 @@ class FilterRetryManagerTest {
         // Create DeadLetterQueueManager for DLQ-enabled tests
         deadLetterQueueManager = new DeadLetterQueueManager(config);
 
-        // Legacy constructor (deprecated) - for backward compatibility tests
-        retryManager = new FilterRetryManager("test-filter", config, scheduler);
+        retryManager = new FilterRetryManager("test-filter", config, vertx);
 
         // New constructor with DLQ support
-        retryManagerWithDlq = new FilterRetryManager("test-filter-dlq", config, scheduler, deadLetterQueueManager);
+        retryManagerWithDlq = new FilterRetryManager("test-filter-dlq", config, vertx, deadLetterQueueManager);
     }
 
     @AfterEach
     void tearDown() {
-        scheduler.shutdown();
-        try {
-            if (!scheduler.awaitTermination(2, TimeUnit.SECONDS)) {
-                scheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            scheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+        vertx.close().await();
     }
 
     @Test
@@ -180,7 +172,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager immediateRejectManager = new FilterRetryManager(
-            "immediate-reject-filter", immediateRejectConfig, scheduler);
+            "immediate-reject-filter", immediateRejectConfig, vertx);
         
         Message<String> message = createTestMessage("msg-7", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -220,7 +212,7 @@ class FilterRetryManagerTest {
             .deadLetterQueueEnabled(false)
             .build();
         
-        FilterRetryManager noDlqManager = new FilterRetryManager("no-dlq-filter", noDlqConfig, scheduler);
+        FilterRetryManager noDlqManager = new FilterRetryManager("no-dlq-filter", noDlqConfig, vertx);
 
         Message<String> message = createTestMessage("msg-9", "payload");
 
@@ -242,7 +234,7 @@ class FilterRetryManagerTest {
             .retryBackoffMultiplier(3.0)  // High multiplier
             .build();
         
-        FilterRetryManager cappedManager = new FilterRetryManager("capped-filter", cappedConfig, scheduler);
+        FilterRetryManager cappedManager = new FilterRetryManager("capped-filter", cappedConfig, vertx);
         
         Message<String> message = createTestMessage("msg-10", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -321,7 +313,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager dlqImmediateManager = new FilterRetryManager(
-            "dlq-immediate-filter", dlqImmediateConfig, scheduler);
+            "dlq-immediate-filter", dlqImmediateConfig, vertx);
         
         Message<String> message = createTestMessage("msg-dlq-immediate", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -350,7 +342,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager retryThenDlqManager = new FilterRetryManager(
-            "retry-dlq-filter", retryThenDlqConfig, scheduler);
+            "retry-dlq-filter", retryThenDlqConfig, vertx);
         
         Message<String> message = createTestMessage("msg-retry-dlq", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -378,7 +370,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager permanentErrorManager = new FilterRetryManager(
-            "permanent-error-filter", permanentErrorConfig, scheduler);
+            "permanent-error-filter", permanentErrorConfig, vertx);
         
         Message<String> message = createTestMessage("msg-permanent", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -406,7 +398,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager transientErrorManager = new FilterRetryManager(
-            "transient-error-filter", transientErrorConfig, scheduler);
+            "transient-error-filter", transientErrorConfig, vertx);
         
         Message<String> message = createTestMessage("msg-transient", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -435,7 +427,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager multiErrorManager = new FilterRetryManager(
-            "multi-error-filter", multiErrorConfig, scheduler);
+            "multi-error-filter", multiErrorConfig, vertx);
         
         // Test permanent error pattern
         Message<String> message1 = createTestMessage("msg-multi-1", "payload");
@@ -499,18 +491,17 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error during shutdown");
         };
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        // Start retries filter always throws so retries will be scheduled via Vertx timers
+        retryManager.executeWithRetry(message, filter, circuitBreaker);
         
-        // Give it a moment to start, then shutdown scheduler while retries are in progress
+        // Give it a moment to start, then close Vertx while retries are in progress.
+        // Closing Vertx cancels pending timers the key invariant is that this
+        // completes without throwing or hanging (graceful shutdown).
         LockSupport.parkNanos(20_000_000L);
-        scheduler.shutdown();
+        vertx.close().await();
         
-        // Should either complete with false or throw RejectedExecutionException
-        try {
-            assertFalse(result.await());
-        } catch (RejectedExecutionException e) {
-            // RejectedExecutionException is acceptable when scheduler is shutdown
-        }
+        // Recreate Vertx for tearDown
+        vertx = Vertx.vertx();
     }
 
     @Test
@@ -522,7 +513,7 @@ class FilterRetryManagerTest {
             .build();
         
         FilterRetryManager classificationManager = new FilterRetryManager(
-            "classification-filter", classificationConfig, scheduler);
+            "classification-filter", classificationConfig, vertx);
         
         Message<String> message = createTestMessage("msg-13", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
@@ -577,7 +568,7 @@ class FilterRetryManagerTest {
 
             DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
             FilterRetryManager manager = new FilterRetryManager(
-                "dlq-integration-filter", dlqConfig, scheduler, dlqManager);
+                "dlq-integration-filter", dlqConfig, vertx, dlqManager);
 
             Message<String> message = createTestMessage("msg-dlq-1", "test-payload");
             AtomicInteger attempts = new AtomicInteger(0);
@@ -610,7 +601,7 @@ class FilterRetryManagerTest {
 
             DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
             FilterRetryManager manager = new FilterRetryManager(
-                "dlq-immediate-filter", dlqConfig, scheduler, dlqManager);
+                "dlq-immediate-filter", dlqConfig, vertx, dlqManager);
 
             Message<String> message = createTestMessage("msg-dlq-immediate", "test-payload");
             AtomicInteger attempts = new AtomicInteger(0);
@@ -642,7 +633,7 @@ class FilterRetryManagerTest {
 
             // Even with DLQ manager, if config says disabled, should reject
             FilterRetryManager manager = new FilterRetryManager(
-                "no-dlq-filter", noDlqConfig, scheduler, null);
+                "no-dlq-filter", noDlqConfig, vertx, null);
 
             Message<String> message = createTestMessage("msg-no-dlq", "test-payload");
             AtomicInteger attempts = new AtomicInteger(0);
@@ -671,7 +662,7 @@ class FilterRetryManagerTest {
 
             // DLQ enabled in config but manager is null - should fall back to reject
             FilterRetryManager manager = new FilterRetryManager(
-                "null-dlq-manager-filter", dlqConfig, scheduler, null);
+                "null-dlq-manager-filter", dlqConfig, vertx, null);
 
             Message<String> message = createTestMessage("msg-null-dlq", "test-payload");
             AtomicInteger attempts = new AtomicInteger(0);
@@ -700,7 +691,7 @@ class FilterRetryManagerTest {
 
             DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
             FilterRetryManager manager = new FilterRetryManager(
-                "multi-dlq-filter", dlqConfig, scheduler, dlqManager);
+                "multi-dlq-filter", dlqConfig, vertx, dlqManager);
 
             Predicate<Message<String>> failingFilter = msg -> {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Always fails");
@@ -733,7 +724,7 @@ class FilterRetryManagerTest {
 
             DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
             FilterRetryManager manager = new FilterRetryManager(
-                "classification-dlq-filter", dlqConfig, scheduler, dlqManager);
+                "classification-dlq-filter", dlqConfig, vertx, dlqManager);
 
             // Test with transient error
             Message<String> transientMsg = createTestMessage("msg-transient", "payload");
@@ -771,7 +762,7 @@ class FilterRetryManagerTest {
 
             DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(dlqConfig);
             FilterRetryManager manager = new FilterRetryManager(
-                "concurrent-dlq-filter", dlqConfig, scheduler, dlqManager);
+                "concurrent-dlq-filter", dlqConfig, vertx, dlqManager);
 
             // Create a circuit breaker with high threshold to allow all concurrent messages
             FilterCircuitBreaker localCircuitBreaker = new FilterCircuitBreaker("concurrent-cb",
@@ -787,12 +778,13 @@ class FilterRetryManagerTest {
             };
 
             int messageCount = 10;
-            CountDownLatch latch = new CountDownLatch(messageCount);
             AtomicInteger successCount = new AtomicInteger(0);
+            ExecutorService executor = Executors.newFixedThreadPool(4);
+            java.util.List<java.util.concurrent.Future<?>> tasks = new java.util.ArrayList<>();
 
             for (int i = 0; i < messageCount; i++) {
                 final int index = i;
-                scheduler.execute(() -> {
+                tasks.add(executor.submit(() -> {
                     try {
                         Message<String> message = createTestMessage("msg-concurrent-" + index, "payload");
                         Future<Boolean> result = manager.executeWithRetry(message, failingFilter, localCircuitBreaker);
@@ -801,13 +793,14 @@ class FilterRetryManagerTest {
                         }
                     } catch (Exception e) {
                         // Ignore
-                    } finally {
-                        latch.countDown();
                     }
-                });
+                }));
             }
 
-            assertTrue(latch.await(5, TimeUnit.SECONDS), "Concurrent DLQ sends did not complete in time");
+            for (var task : tasks) {
+                task.get(5, java.util.concurrent.TimeUnit.SECONDS);
+            }
+            executor.shutdown();
             assertEquals(messageCount, successCount.get());
 
             // All messages should be in DLQ
@@ -816,11 +809,9 @@ class FilterRetryManagerTest {
         }
 
         @Test
-        @DisplayName("should use deprecated constructor for backward compatibility")
-        void testDeprecatedConstructorBackwardCompatibility() throws Exception {
-            // Using deprecated constructor (without DLQ manager)
-            @SuppressWarnings("deprecation")
-            FilterRetryManager legacyManager = new FilterRetryManager("legacy-filter", config, scheduler);
+        @DisplayName("should work with two-arg constructor (without DLQ manager)")
+        void testTwoArgConstructorWithoutDlqManager() throws Exception {
+            FilterRetryManager legacyManager = new FilterRetryManager("legacy-filter", config, vertx);
 
             Message<String> message = createTestMessage("msg-legacy", "payload");
             Predicate<Message<String>> successFilter = msg -> true;

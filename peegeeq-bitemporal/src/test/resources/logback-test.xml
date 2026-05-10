@@ -2,9 +2,9 @@
 <configuration>
     <!-- Test logging configuration for PeeGeeQ Bitemporal module -->
     <conversionRule conversionWord="vxTrace" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
     <conversionRule conversionWord="vxSpan" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
 
     <!-- Console appender for immediate feedback -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">

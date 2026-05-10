@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.performance;
 
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -38,7 +39,7 @@ class VertxPerformanceOptimizerTest {
     @DisplayName("Should create optimized Vertx instance")
     void shouldCreateOptimizedVertx() {
         // Given & When
-        Vertx optimizedVertx = VertxPerformanceOptimizer.createOptimizedVertx();
+        Vertx optimizedVertx = VertxPerformanceOptimizer.createOptimizedVertx(null);
         
         // Then
         assertNotNull(optimizedVertx);
@@ -51,7 +52,7 @@ class VertxPerformanceOptimizerTest {
     @DisplayName("Should create optimized deployment options with multiple instances")
     void shouldCreateOptimizedDeploymentOptions() {
         // Given & When
-        DeploymentOptions options = VertxPerformanceOptimizer.createOptimizedDeploymentOptions();
+        DeploymentOptions options = VertxPerformanceOptimizer.createOptimizedDeploymentOptions(null);
         
         // Then
         assertNotNull(options);
@@ -77,7 +78,7 @@ class VertxPerformanceOptimizerTest {
             .build();
         
         // When
-        Pool pool = VertxPerformanceOptimizer.createOptimizedPool(vertx, connectionConfig, poolConfig);
+        Pool pool = VertxPerformanceOptimizer.createOptimizedPool(vertx, connectionConfig, poolConfig, null);
         
         // Then
         assertNotNull(pool);
@@ -96,10 +97,10 @@ class VertxPerformanceOptimizerTest {
             .build();
         
         // When
-        String validation = VertxPerformanceOptimizer.validatePoolConfiguration(goodConfig);
+        String validation = VertxPerformanceOptimizer.validatePoolConfiguration(goodConfig, null);
         
         // Then
-        assertFalse(validation.contains("⚠️"), "Good configuration should not contain warnings");
+        assertFalse(validation.contains("\u26a0\ufe0f"), "Good configuration should not contain warnings");
         
         // Given - Poor configuration
         PgPoolConfig poorConfig = new PgPoolConfig.Builder()
@@ -108,7 +109,7 @@ class VertxPerformanceOptimizerTest {
             .build();
         
         // When
-        String poorValidation = VertxPerformanceOptimizer.validatePoolConfiguration(poorConfig);
+        String poorValidation = VertxPerformanceOptimizer.validatePoolConfiguration(poorConfig, null);
         
         // Then
         assertTrue(poorValidation.contains("⚠️"), "Should contain warnings");
@@ -117,42 +118,33 @@ class VertxPerformanceOptimizerTest {
     }
     
     @Test
-    @DisplayName("Should respect system properties for configuration")
-    void shouldRespectSystemProperties() {
-        try {
-            // Given
-            System.setProperty("peegeeq.verticle.instances", "4");
-            System.setProperty("peegeeq.database.pipelining.limit", "16");
-            
-            // When
-            DeploymentOptions options = VertxPerformanceOptimizer.createOptimizedDeploymentOptions();
-            
-            // Then
-            assertEquals(4, options.getInstances(), "Should use system property for instances");
-            
-        } finally {
-            // Cleanup
-            System.clearProperty("peegeeq.verticle.instances");
-            System.clearProperty("peegeeq.database.pipelining.limit");
-        }
+    @DisplayName("Should respect PeeGeeQConfiguration for deployment options")
+    void shouldRespectConfigurationProperties() {
+        // Given
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.verticle.instances", "4");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
+
+        // When
+        DeploymentOptions options = VertxPerformanceOptimizer.createOptimizedDeploymentOptions(config);
+
+        // Then
+        assertEquals(4, options.getInstances(), "Should use configuration value for instances");
     }
     
     @Test
-    @DisplayName("Should handle edge cases gracefully")
+    @DisplayName("Should clamp extreme configuration values to reasonable bounds")
     void shouldHandleEdgeCases() {
-        // Test with extreme values
-        try {
-            System.setProperty("peegeeq.verticle.instances", "100"); // Too high
-            System.setProperty("peegeeq.database.pipelining.limit", "1000"); // Too high
-            
-            DeploymentOptions options = VertxPerformanceOptimizer.createOptimizedDeploymentOptions();
-            
-            // Should be clamped to reasonable bounds
-            assertTrue(options.getInstances() <= 16, "Should clamp instances to max 16");
-            
-        } finally {
-            System.clearProperty("peegeeq.verticle.instances");
-            System.clearProperty("peegeeq.database.pipelining.limit");
-        }
+        // Given - extreme values that should be clamped
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.verticle.instances", "100"); // Too high — max is 16
+        props.setProperty("peegeeq.database.pipelining.limit", "1000"); // Too high — max is 256
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
+
+        // When
+        DeploymentOptions options = VertxPerformanceOptimizer.createOptimizedDeploymentOptions(config);
+
+        // Then
+        assertTrue(options.getInstances() <= 16, "Should clamp instances to max 16");
     }
 }

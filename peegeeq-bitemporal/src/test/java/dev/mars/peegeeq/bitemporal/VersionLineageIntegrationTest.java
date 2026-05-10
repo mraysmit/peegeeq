@@ -105,8 +105,8 @@ class VersionLineageIntegrationTest {
 
         if (peeGeeQManager != null) {
             chain = peeGeeQManager.closeReactive()
-                .recover(err -> {
-                    logger.warn("Error closing PeeGeeQManager: {}", err.getMessage());
+                .transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing PeeGeeQManager: {}", ar.cause().getMessage());
                     return Future.succeededFuture();
                 });
             peeGeeQManager = null;
@@ -158,7 +158,7 @@ class VersionLineageIntegrationTest {
                         original.getEventId(), "price.updated",
                         Map.of("price", 110), Instant.now(), "Price was wrong")
                     .map(correction -> Map.entry(original, correction))))
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> original = pair.getKey();
                 BiTemporalEvent<Map<String, Object>> correction = pair.getValue();
 
@@ -173,8 +173,7 @@ class VersionLineageIntegrationTest {
                 assertNotEquals(original.getEventId(), correction.getEventId());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -204,7 +203,7 @@ class VersionLineageIntegrationTest {
                         .map(c3 -> rootId);
                 })
                 .compose(rootId -> store.getAllVersions(rootId)))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(4, versions.size(), "Should have root + 3 corrections");
 
                 for (int i = 0; i < versions.size(); i++) {
@@ -228,8 +227,7 @@ class VersionLineageIntegrationTest {
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -262,15 +260,14 @@ class VersionLineageIntegrationTest {
                     String correctionId = corrections.getKey().getEventId();
                     return store.getAllVersions(correctionId);
                 }))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(3, versions.size(),
                     "getAllVersions from a correction ID must return complete family (root + 2 corrections)");
                 assertEquals(1L, versions.get(0).getVersion());
                 assertEquals(2L, versions.get(1).getVersion());
                 assertEquals(3L, versions.get(2).getVersion());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -293,13 +290,12 @@ class VersionLineageIntegrationTest {
                         Map.of("items", 5), Instant.now(), "Item count wrong")
                     .map(c -> original.getEventId()))
                 .compose(rootId -> store.getAllVersions(rootId)))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(2, versions.size());
                 assertEquals(1L, versions.get(0).getVersion());
                 assertEquals(2L, versions.get(1).getVersion());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -317,13 +313,12 @@ class VersionLineageIntegrationTest {
                 .validTime(Instant.now())
                 .execute()
                 .compose(event -> store.getAllVersions(event.getEventId())))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(1, versions.size());
                 assertEquals(1L, versions.get(0).getVersion());
                 assertNull(versions.get(0).getPreviousVersionId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -369,7 +364,7 @@ class VersionLineageIntegrationTest {
                         .compose(asOfMid -> store.getAsOfTransactionTime(original.getEventId(), afterAll)
                             .map(asOfAfter -> Map.entry(asOfMid, asOfAfter)));
                 }))
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> asOfBetween = pair.getKey();
                 BiTemporalEvent<Map<String, Object>> asOfAfter = pair.getValue();
 
@@ -380,8 +375,7 @@ class VersionLineageIntegrationTest {
                 assertEquals(2L, asOfAfter.getVersion(), "As-of time after correction should return version 2");
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -421,11 +415,11 @@ class VersionLineageIntegrationTest {
                     return Future.all(futures).map(cf -> rootId);
                 })
                 .compose(rootId -> store.getAllVersions(rootId)))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(1 + concurrentCorrections, versions.size(),
                     "Should have root + " + concurrentCorrections + " corrections");
 
-                // Versions must be 1, 2, 3, 4, 5, 6 — no duplicates, no gaps
+                // Versions must be 1, 2, 3, 4, 5, 6 no duplicates, no gaps
                 Set<Long> versionNumbers = new HashSet<>();
                 for (BiTemporalEvent<Map<String, Object>> v : versions) {
                     assertTrue(versionNumbers.add(v.getVersion()),
@@ -434,7 +428,7 @@ class VersionLineageIntegrationTest {
 
                 for (long expected = 1; expected <= 1 + concurrentCorrections; expected++) {
                     assertTrue(versionNumbers.contains(expected),
-                        "Missing version " + expected + " — versions present: " + versionNumbers);
+                        "Missing version " + expected + " versions present: " + versionNumbers);
                 }
 
                 // Each correction must point to its immediate predecessor (chain model)
@@ -445,8 +439,7 @@ class VersionLineageIntegrationTest {
 
                 logger.info("Concurrent corrections test passed: {} versions with no duplicates", versions.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -457,8 +450,8 @@ class VersionLineageIntegrationTest {
      * must still produce unique, sequential version numbers.
      * <p>
      * The appendCorrection API accepts any event ID in a lineage, not just the root.
-     * When multiple callers correct the same family concurrently — some passing the
-     * root ID, others passing a child correction ID — the advisory lock must serialize
+     * When multiple callers correct the same family concurrently some passing the
+     * root ID, others passing a child correction ID the advisory lock must serialize
      * all of them against the same canonical key (the family root). Otherwise, callers
      * entering via different IDs would acquire independent locks, read the same
      * MAX(version), and produce duplicate version numbers.
@@ -499,7 +492,7 @@ class VersionLineageIntegrationTest {
                     return Future.all(futures).map(cf -> rootId);
                 })
                 .compose(rootId -> store.getAllVersions(rootId)))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 // root(v1) + first-correction(v2) + 3 concurrent corrections = 5 total
                 assertEquals(5, versions.size(),
                     "Should have root + 1 setup correction + 3 concurrent corrections");
@@ -512,13 +505,12 @@ class VersionLineageIntegrationTest {
 
                 for (long expected = 1; expected <= 5; expected++) {
                     assertTrue(versionNumbers.contains(expected),
-                        "Missing version " + expected + " — versions present: " + versionNumbers);
+                        "Missing version " + expected + " versions present: " + versionNumbers);
                 }
 
                 logger.info("Cross-entry-point concurrent corrections test passed: {} unique versions", versions.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -526,7 +518,7 @@ class VersionLineageIntegrationTest {
 
     /**
      * Correction via a child event ID resolves to the same family root and produces
-     * the correct next version — verifying root resolution works for non-root entry points.
+     * the correct next version verifying root resolution works for non-root entry points.
      */
     @Test
     void correctionViaChildEventIdResolvesCorrectRootAndVersion(VertxTestContext testContext) throws Exception {
@@ -548,7 +540,7 @@ class VersionLineageIntegrationTest {
                             .map(c2 -> rootId));
                 })
                 .compose(rootId -> store.getAllVersions(rootId)))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(3, versions.size(), "Should have root + 2 corrections");
 
                 assertEquals(1L, versions.get(0).getVersion());
@@ -563,8 +555,7 @@ class VersionLineageIntegrationTest {
                 assertEquals(versions.get(1).getEventId(), versions.get(2).getPreviousVersionId());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -594,15 +585,14 @@ class VersionLineageIntegrationTest {
                         Map.of("source", "test", "region", "us-east"),
                         correlationId, aggregateId,
                         "Metadata correction test")))
-            .onSuccess(correction -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(correction -> testContext.verify(() -> {
                 assertEquals(correlationId, correction.getCorrelationId());
                 assertEquals(aggregateId, correction.getAggregateId());
                 assertTrue(correction.isCorrection());
                 assertEquals("Metadata correction test", correction.getCorrectionReason());
                 assertEquals(2L, correction.getVersion());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -648,7 +638,7 @@ class VersionLineageIntegrationTest {
                         return Future.all(f1Versions, f2Versions);
                     });
             })
-            .onSuccess(cf -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(cf -> testContext.verify(() -> {
                 List<BiTemporalEvent<Map<String, Object>>> f1 = cf.resultAt(0);
                 List<BiTemporalEvent<Map<String, Object>>> f2 = cf.resultAt(1);
 
@@ -670,8 +660,7 @@ class VersionLineageIntegrationTest {
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -785,6 +774,7 @@ class VersionLineageIntegrationTest {
     @Test
     void appendCorrectionForNonExistentRootIsRejectedByConstraint(VertxTestContext testContext) throws Exception {
         String fakeRootId = "non-existent-" + System.nanoTime();
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection must reject non-existent original event IDs");
 
         startManagerAndStore()
             .compose(store -> store.appendCorrection(fakeRootId, "orphan.correction",
@@ -796,6 +786,7 @@ class VersionLineageIntegrationTest {
                     "Expected IllegalArgumentException, got: " + err.getClass().getName());
                 assertTrue(err.getMessage().contains("Cannot correct non-existent event"),
                     "Expected 'Cannot correct non-existent event' message, got: " + err.getMessage());
+                logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected appendCorrection rejection for non-existent root ID: {}", err.getMessage());
                 testContext.completeNow();
             }));
 
@@ -812,12 +803,11 @@ class VersionLineageIntegrationTest {
     void getAllVersionsForNonExistentEventReturnsEmptyList(VertxTestContext testContext) throws Exception {
         startManagerAndStore()
             .compose(store -> store.getAllVersions("does-not-exist-" + System.nanoTime()))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertNotNull(versions);
                 assertTrue(versions.isEmpty(), "Should return empty list for non-existent event");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -829,17 +819,16 @@ class VersionLineageIntegrationTest {
     @Test
     void getAllVersionsRejectsNullEventId(VertxTestContext testContext) throws Exception {
         startManagerAndStore()
-            .onSuccess(store -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(store -> testContext.verify(() -> {
                 assertThrows(NullPointerException.class, () -> store.getAllVersions(null));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ========== POSITIVE: Chain model enforcement — returned event correctness ==========
+    // ========== POSITIVE: Chain model enforcement returned event correctness ==========
 
     /**
      * CRITICAL chain model enforcement test.
@@ -866,13 +855,13 @@ class VersionLineageIntegrationTest {
                     return store.appendCorrection(rootId, "chain.enforce",
                             Map.of("v", 2), Instant.now(), "First correction")
                         .compose(c1 -> {
-                            // Create v3 via root again — system must chain to c1, not root
+                            // Create v3 via root again system must chain to c1, not root
                             return store.appendCorrection(rootId, "chain.enforce",
                                     Map.of("v", 3), Instant.now(), "Second correction via root")
                                 .map(c2 -> Map.of("root", root, "c1", c1, "c2", c2));
                         });
                 }))
-            .onSuccess(events -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> root = events.get("root");
                 BiTemporalEvent<Map<String, Object>> c1 = events.get("c1");
                 BiTemporalEvent<Map<String, Object>> c2 = events.get("c2");
@@ -883,15 +872,14 @@ class VersionLineageIntegrationTest {
 
                 // c2 was called with root's ID, but system must resolve to c1 as predecessor
                 assertNotEquals(root.getEventId(), c2.getPreviousVersionId(),
-                    "Second correction must NOT point to root — chain model enforced");
+                    "Second correction must NOT point to root chain model enforced");
                 assertEquals(c1.getEventId(), c2.getPreviousVersionId(),
                     "Second correction must point to c1 (the latest version), not root");
 
                 assertEquals(3L, c2.getVersion(), "Third event must be version 3");
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -924,22 +912,21 @@ class VersionLineageIntegrationTest {
                                         .map(c4 -> Map.of("root", root, "c1", c1, "c2", c2, "c3", c3, "c4", c4));
                                 })));
                 }))
-            .onSuccess(events -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> c1 = events.get("c1");
                 BiTemporalEvent<Map<String, Object>> c3 = events.get("c3");
                 BiTemporalEvent<Map<String, Object>> c4 = events.get("c4");
 
                 // c4 was called with c1's ID, but system must resolve chain to c3 (latest)
                 assertNotEquals(c1.getEventId(), c4.getPreviousVersionId(),
-                    "Must NOT point to the caller-supplied c1 — chain model enforced");
+                    "Must NOT point to the caller-supplied c1 chain model enforced");
                 assertEquals(c3.getEventId(), c4.getPreviousVersionId(),
                     "Must point to c3 (the latest version), not the caller-supplied c1");
 
                 assertEquals(5L, c4.getVersion(), "Fifth event must be version 5");
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -965,7 +952,7 @@ class VersionLineageIntegrationTest {
                             // Read all versions from DB and compare with returned event
                             store.getAllVersions(root.getEventId())
                                 .map(versions -> Map.entry(returnedC2, versions))))))
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> returned = pair.getKey();
                 List<BiTemporalEvent<Map<String, Object>>> dbVersions = pair.getValue();
 
@@ -987,8 +974,7 @@ class VersionLineageIntegrationTest {
                     "Both returned and DB-stored previousVersionId must point to v2");
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1022,7 +1008,7 @@ class VersionLineageIntegrationTest {
                     return Future.all(futures).map(cf -> rootId);
                 })
                 .compose(rootId -> store.getAllVersions(rootId)))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(1 + concurrentCorrections, versions.size(),
                     "Should have root + " + concurrentCorrections + " corrections");
 
@@ -1044,13 +1030,12 @@ class VersionLineageIntegrationTest {
                         // No two corrections should share the same previousVersionId (star detection)
                         assertTrue(previousIds.add(prevId),
                             "Duplicate previousVersionId detected: " + prevId
-                                + " — this indicates star topology, not chain");
+                                + " this indicates star topology, not chain");
                     }
                 }
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1073,7 +1058,7 @@ class VersionLineageIntegrationTest {
                 .compose(root -> store.appendCorrection(root.getEventId(), "root.only",
                         Map.of("v", 2), Instant.now(), "First and only correction")
                     .map(c -> Map.entry(root, c))))
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> root = pair.getKey();
                 BiTemporalEvent<Map<String, Object>> correction = pair.getValue();
 
@@ -1082,8 +1067,7 @@ class VersionLineageIntegrationTest {
                 assertEquals(2L, correction.getVersion());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1111,7 +1095,7 @@ class VersionLineageIntegrationTest {
                                 Map.of("v", 3), Instant.now(), "Rapid c2")
                             .map(c2 -> List.of(root, c1, c2)));
                 }))
-            .onSuccess(events -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> root = events.get(0);
                 BiTemporalEvent<Map<String, Object>> c1 = events.get(1);
                 BiTemporalEvent<Map<String, Object>> c2 = events.get(2);
@@ -1123,8 +1107,7 @@ class VersionLineageIntegrationTest {
                     "Must NOT star-link back to root");
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
@@ -1148,7 +1131,7 @@ class VersionLineageIntegrationTest {
                     .compose(c1 -> store.appendCorrection(c1.getEventId(), "latest.entry",
                             Map.of("v", 3), Instant.now(), "c2 via latest")
                         .map(c2 -> List.of(root, c1, c2)))))
-            .onSuccess(events -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> c1 = events.get(1);
                 BiTemporalEvent<Map<String, Object>> c2 = events.get(2);
 
@@ -1159,8 +1142,7 @@ class VersionLineageIntegrationTest {
                 assertEquals(3L, c2.getVersion());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());

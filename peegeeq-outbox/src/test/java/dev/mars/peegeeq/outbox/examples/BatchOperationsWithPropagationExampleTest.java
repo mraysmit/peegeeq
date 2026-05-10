@@ -18,7 +18,10 @@ package dev.mars.peegeeq.outbox.examples;
 
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,10 +35,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Properties;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Comprehensive test for BatchOperationsWithPropagationExample functionality.
@@ -58,41 +63,31 @@ public class BatchOperationsWithPropagationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(BatchOperationsWithPropagationExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_batch_ops_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     
     @BeforeEach
-    void setUp() {
-        logger.info("Setting up Batch Operations with Propagation Example Test");
-        
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
-        
-        logger.info("✓ Batch Operations with Propagation Example Test setup completed");
+    void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        manager.start().await();
     }
     
     @AfterEach
     void tearDown() {
-        logger.info("Tearing down Batch Operations with Propagation Example Test");
-        
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 logger.warn("Error closing PeeGeeQ Manager", e);
             }
         }
-        
-        logger.info("✓ Batch Operations with Propagation Example Test teardown completed");
     }
 
     /**
@@ -102,10 +97,6 @@ public class BatchOperationsWithPropagationExampleTest {
     @Test
     void testSimpleBatchProcessing() throws Exception {
         logger.info("=== Testing Simple Batch Processing ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test simple batch processing
         SimpleBatchResult result = testSimpleBatchProcessingPattern();
@@ -129,10 +120,6 @@ public class BatchOperationsWithPropagationExampleTest {
     void testMultiStageBatchOperations() throws Exception {
         logger.info("=== Testing Multi-Stage Batch Operations ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test multi-stage batch operations
         MultiStageResult result = testMultiStageBatchOperationsPattern();
         
@@ -154,10 +141,6 @@ public class BatchOperationsWithPropagationExampleTest {
     @Test
     void testNestedBatchOperations() throws Exception {
         logger.info("=== Testing Nested Batch Operations ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test nested batch operations
         NestedBatchResult result = testNestedBatchOperationsPattern();
@@ -181,10 +164,6 @@ public class BatchOperationsWithPropagationExampleTest {
     void testLargeBatchProcessing() throws Exception {
         logger.info("=== Testing Large Batch Processing ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test large batch processing
         LargeBatchResult result = testLargeBatchProcessingPattern();
         
@@ -207,10 +186,6 @@ public class BatchOperationsWithPropagationExampleTest {
     void testBatchErrorHandling() throws Exception {
         logger.info("=== Testing Batch Error Handling ===");
         
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
         // Test batch error handling
         BatchErrorResult result = testBatchErrorHandlingPattern();
         
@@ -232,10 +207,6 @@ public class BatchOperationsWithPropagationExampleTest {
     @Test
     void testPerformanceOptimization() throws Exception {
         logger.info("=== Testing Performance Optimization ===");
-        
-        // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
         
         // Test performance optimization
         PerformanceOptimizationResult result = testPerformanceOptimizationPattern();
@@ -424,25 +395,6 @@ public class BatchOperationsWithPropagationExampleTest {
         
         return new PerformanceOptimizationResult(optimizationTechniques, throughputImprovement, optimizationSuccessful);
     }
-    
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
-    }
-    
-    // Supporting classes
     
     /**
      * Order event for testing.

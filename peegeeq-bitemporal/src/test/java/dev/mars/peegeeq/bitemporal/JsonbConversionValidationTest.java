@@ -109,8 +109,8 @@ class JsonbConversionValidationTest {
         Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
-                .recover(error -> Future.<Void>succeededFuture())
-                .compose(v -> closeManagerFuture.recover(error -> Future.<Void>succeededFuture()))
+                .transform(ar -> Future.<Void>succeededFuture())
+                .compose(v -> closeManagerFuture.transform(ar -> Future.<Void>succeededFuture()))
                 .onSuccess(v -> {
                     restoreTestProperties();
                     logger.info("Test cleanup complete");
@@ -161,7 +161,7 @@ class JsonbConversionValidationTest {
                         """,
                         Tuple.of(eventType))
                         .map(row -> Map.entry(event, row)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<TestEvent> event = result.getKey();
                     Row row = result.getValue();
                     assertNotNull(event);
@@ -171,8 +171,7 @@ class JsonbConversionValidationTest {
                     logger.info("Event appended successfully: {}", event.getEventId());
                     logger.info("JSONB validation successful - payload stored as object with type: {}", row.getString("payload_type"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -199,7 +198,7 @@ class JsonbConversionValidationTest {
                         """,
                         Tuple.of(eventType))
                         .map(row -> Map.entry(event, row)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<TestEvent> event = result.getKey();
                     Row row = result.getValue();
                     assertNotNull(event);
@@ -211,8 +210,7 @@ class JsonbConversionValidationTest {
                     logger.info("Complex JSONB validation successful - extracted orderId: {}, status: {}",
                             row.getString("extracted_order_id"), row.getString("extracted_status"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -243,7 +241,7 @@ class JsonbConversionValidationTest {
                         """,
                         Tuple.of(eventType))
                         .map(row -> Map.entry(event, row)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<TestEvent> event = result.getKey();
                     Row row = result.getValue();
                     assertNotNull(event);
@@ -255,8 +253,7 @@ class JsonbConversionValidationTest {
                     logger.info("Headers JSONB validation successful - extracted correlationId: {}, source: {}",
                             row.getString("extracted_correlation_id"), row.getString("extracted_source"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     private Future<Void> initializeSchema() {

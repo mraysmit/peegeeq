@@ -52,12 +52,12 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> testContext.verify(() -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
             assertEquals(1, result.getAttempts());
             assertTrue(fakeDlq.sendCalled);
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -83,11 +83,11 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> testContext.verify(() -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(AsyncFilterRetryManager.FilterResult.Status.REJECTED, result.getStatus());
             assertEquals(3, result.getAttempts()); // Initial + 2 retries
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -122,16 +122,14 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             long duration = System.currentTimeMillis() - start;
-            testContext.verify(() -> {
-                // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
-                // If not capped, it would be 10ms + 100ms = 110ms.
-                // So if duration < 100ms, we know capping worked (allowing for system overhead).
-                assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
-            });
+            // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
+            // If not capped, it would be 10ms + 100ms = 110ms.
+            // So if duration < 100ms, we know capping worked (allowing for system overhead).
+            assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
             testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -164,12 +162,12 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> testContext.verify(() -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             // Should still be DEAD_LETTER status, but with error message in reason
             assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
             assertTrue(result.getReason().contains("DLQ failed"));
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }

@@ -33,7 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,31 +55,39 @@ public class PeeGeeQSelfContainedDemoTest {
     private PeeGeeQManager manager;
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         if (manager != null) {
-            try {
-                manager.closeReactive()
-                    .recover(t -> Future.succeededFuture());
-            } catch (Exception e) {
-                logger.warn("Error closing manager during tearDown: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
     private PeeGeeQManager createManager() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
-            postgres.getHost(),
-            postgres.getFirstMappedPort(),
-            postgres.getDatabaseName(),
-            postgres.getUsername(),
-            postgres.getPassword(),
-            "public");
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.database.pool.min-size", "1");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", props);
         return new PeeGeeQManager(config, new SimpleMeterRegistry());
     }
 
     @Test
-    void testSelfContainedSetup(VertxTestContext testContext) throws InterruptedException {
+    void testSelfContainedSetup(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
@@ -89,17 +97,14 @@ public class PeeGeeQSelfContainedDemoTest {
 
         manager = createManager();
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     @Test
-    void testFeatureDemonstrations(VertxTestContext testContext) throws InterruptedException {
+    void testFeatureDemonstrations(VertxTestContext testContext) {
         manager = createManager();
         manager.start()
             .compose(v -> {
@@ -122,32 +127,26 @@ public class PeeGeeQSelfContainedDemoTest {
                 assertTrue(manager.isHealthy(), "System should be healthy");
                 return manager.getSystemStatus();
             })
-            .onSuccess(systemStatus -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
                 assertNotNull(systemStatus, "System status should not be null");
                 assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
                 assertTrue(systemStatus.isStarted(), "System should be started");
                 assertEquals("demo", systemStatus.getProfile());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     @Test
-    void testSystemMonitoring(VertxTestContext testContext) throws InterruptedException {
+    void testSystemMonitoring(VertxTestContext testContext) {
         manager = createManager();
         manager.start()
             .compose(v -> manager.getVertx().timer(1000).mapEmpty())
             .compose(v -> manager.getSystemStatus())
-            .onSuccess(status -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                 assertNotNull(status, "System status should be available");
                 assertTrue(manager.isHealthy(), "System should be healthy");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            })));
     }
 
     @Test

@@ -183,12 +183,13 @@ public class WebhookPushDeliveryIntegrationTest {
 
         undeploy
                 .compose(v -> webhookServer != null ? webhookServer.close() : Future.succeededFuture())
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     if (postgres != null) {
                         postgres.stop();
                     }
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
     }
 
     @BeforeEach
@@ -330,6 +331,48 @@ public class WebhookPushDeliveryIntegrationTest {
                 .onSuccess(response -> {
                     testContext.verify(() -> {
                         assertEquals(404, response.statusCode());
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(5)
+    @DisplayName("Webhook Subscription - Missing webhookUrl returns 400")
+    void testCreateSubscriptionWithMissingWebhookUrl_returns400(Vertx vertx, VertxTestContext testContext) {
+        JsonObject subscriptionRequest = new JsonObject()
+                .put("headers", new JsonObject().put("X-Custom-Header", "test-value"));
+
+        webClient.post(REST_PORT, "localhost",
+                "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
+                .sendJsonObject(subscriptionRequest)
+                .onSuccess(response -> {
+                    testContext.verify(() -> {
+                        logger.info("Missing webhookUrl response: {} - {}", response.statusCode(), response.bodyAsString());
+                        assertEquals(400, response.statusCode(),
+                                "Missing webhookUrl should return 400 Bad Request");
+                        testContext.completeNow();
+                    });
+                })
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("Webhook Subscription - Empty webhookUrl returns 400")
+    void testCreateSubscriptionWithEmptyWebhookUrl_returns400(Vertx vertx, VertxTestContext testContext) {
+        JsonObject subscriptionRequest = new JsonObject()
+                .put("webhookUrl", "");
+
+        webClient.post(REST_PORT, "localhost",
+                "/api/v1/setups/" + setupId + "/queues/" + QUEUE_NAME + "/webhook-subscriptions")
+                .sendJsonObject(subscriptionRequest)
+                .onSuccess(response -> {
+                    testContext.verify(() -> {
+                        logger.info("Empty webhookUrl response: {} - {}", response.statusCode(), response.bodyAsString());
+                        assertEquals(400, response.statusCode(),
+                                "Empty webhookUrl should return 400 Bad Request");
                         testContext.completeNow();
                     });
                 })

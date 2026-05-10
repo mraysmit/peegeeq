@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.Counter;
@@ -33,7 +34,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -69,13 +70,8 @@ public class ConsumerModeMetricsTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("🔧 Setting up ConsumerModeMetricsTest");
-
-        // Clear any existing system properties
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.consumer.threads");
 
         // Ensure required schema exists before starting manager/factory
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
@@ -89,37 +85,33 @@ public class ConsumerModeMetricsTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("🧹 ConsumerModeMetricsTest teardown completed");
     }
 
     private void initializeManagerAndFactory() throws Exception {
         // Configure test properties using TestContainer pattern (following established patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S"); // Fast polling for metrics tests
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         // Initialize meter registry
         meterRegistry = new SimpleMeterRegistry();
 
         // Initialize PeeGeeQ with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -190,14 +182,7 @@ public class ConsumerModeMetricsTest {
         }
         
         // Wait for metrics to update and queue depth to increase
-        CountDownLatch depthIncreasedLatch = new CountDownLatch(1);
-        long depthCheckTimer = vertx.setPeriodic(100, id -> {
-            if (queueDepthGauge.value() >= initialDepth) {
-                depthIncreasedLatch.countDown();
-            }
-        });
-        depthIncreasedLatch.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(depthCheckTimer);
+        vertx.timer(3000).await();
 
         double newDepth = queueDepthGauge.value();
         logger.info("📊 Queue depth after sending messages: {}", newDepth);
@@ -219,14 +204,7 @@ public class ConsumerModeMetricsTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed");
         
         // Wait for metrics to update and queue depth to decrease
-        CountDownLatch depthDecreasedLatch = new CountDownLatch(1);
-        long depthCheckTimer2 = vertx.setPeriodic(100, id -> {
-            if (queueDepthGauge.value() <= newDepth) {
-                depthDecreasedLatch.countDown();
-            }
-        });
-        depthDecreasedLatch.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(depthCheckTimer2);
+        vertx.timer(3000).await();
 
         double finalDepth = queueDepthGauge.value();
         logger.info("📊 Final queue depth after processing: {}", finalDepth);
@@ -255,7 +233,7 @@ public class ConsumerModeMetricsTest {
             initialSent, initialReceived, initialProcessed);
 
         // Create consumer and producer
-        CountDownLatch allProcessedLatch = new CountDownLatch(1);
+        Promise<Void> allProcessed = Promise.promise();
         AtomicInteger processedCount = new AtomicInteger(0);
         
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -266,15 +244,13 @@ public class ConsumerModeMetricsTest {
 
         consumer.subscribe(message -> {
             if (processedCount.incrementAndGet() >= messageCount) {
-                allProcessedLatch.countDown();
+                allProcessed.tryComplete();
             }
             return Future.succeededFuture();
         });
 
         // Wait for consumer setup using Vert.x timer
-        CountDownLatch setupDelayLatch = new CountDownLatch(1);
-        vertx.setTimer(3000, id -> setupDelayLatch.countDown());
-        setupDelayLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
@@ -284,20 +260,11 @@ public class ConsumerModeMetricsTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(allProcessedLatch.await(15, TimeUnit.SECONDS), "All messages should be processed");
+        allProcessed.future().await();
         assertEquals(messageCount, processedCount.get(), "All messages should be processed");
 
         // Wait for metrics to be updated using Vert.x periodic polling
-        CountDownLatch metricsUpdatedLatch = new CountDownLatch(1);
-        long metricsTimer = vertx.setPeriodic(100, id -> {
-            if (sentCounter.count() >= initialSent + messageCount &&
-                receivedCounter.count() >= initialReceived + messageCount &&
-                processedCounter.count() >= initialProcessed + messageCount) {
-                metricsUpdatedLatch.countDown();
-            }
-        });
-        metricsUpdatedLatch.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(metricsTimer);
+        vertx.timer(3000).await();
 
         double finalSent = sentCounter.count();
         double finalReceived = receivedCounter.count();
@@ -319,7 +286,7 @@ public class ConsumerModeMetricsTest {
         logger.info("📊 Initial processing timer count: {}", initialCount);
 
         // Create consumer with artificial processing delay
-        CountDownLatch allProcessedLatch2 = new CountDownLatch(1);
+        Promise<Void> allProcessed2 = Promise.promise();
         AtomicInteger processed = new AtomicInteger(0);
         
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -334,7 +301,7 @@ public class ConsumerModeMetricsTest {
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(10, timerId -> {
                 if (processed.incrementAndGet() >= messageCount) {
-                    allProcessedLatch2.countDown();
+                    allProcessed2.tryComplete();
                 }
                 promise.complete();
             });
@@ -342,9 +309,7 @@ public class ConsumerModeMetricsTest {
         });
 
         // Wait for consumer setup using Vert.x timer
-        CountDownLatch setupDelayLatch2 = new CountDownLatch(1);
-        vertx.setTimer(3000, id -> setupDelayLatch2.countDown());
-        setupDelayLatch2.await(5, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
@@ -354,18 +319,10 @@ public class ConsumerModeMetricsTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(allProcessedLatch2.await(15, TimeUnit.SECONDS), "All messages should be processed");
+        allProcessed2.future().await();
 
         // Wait for metrics to be updated using Vert.x periodic polling
-        CountDownLatch metricsUpdatedLatch2 = new CountDownLatch(1);
-        long metricsTimer = vertx.setPeriodic(100, id -> {
-            if (processingTimer.count() >= initialCount + messageCount &&
-                processingTimer.totalTime(TimeUnit.MILLISECONDS) > 0) {
-                metricsUpdatedLatch2.countDown();
-            }
-        });
-        metricsUpdatedLatch2.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(metricsTimer);
+        vertx.timer(3000).await();
 
         long finalCount = processingTimer.count();
         double totalTime = processingTimer.totalTime(TimeUnit.MILLISECONDS);

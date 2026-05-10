@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -44,6 +45,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 
@@ -61,7 +63,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class CloudEventsJsonbQueryTest {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudEventsJsonbQueryTest.class);
@@ -94,20 +95,14 @@ public class CloudEventsJsonbQueryTest {
         logger.info("Setting up CloudEvents JSONB query test with PostgreSQL container");
 
         // Configure system properties for PeeGeeQ
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getMappedPort(5432)));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize schema
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
         // Initialize PeeGeeQManager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+        manager.start().await();
 
         // Get Pool for direct SQL queries
         pool = manager.getClientFactory().getPool("peegeeq-main")
@@ -117,6 +112,7 @@ public class CloudEventsJsonbQueryTest {
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
         eventStore = factory.createEventStore(CloudEvent.class, "bitemporal_event_log");
 
+        storeTradeLifecycleTestData();
         logger.info("Setup complete - ready for CloudEvents JSONB query tests");
     }
 
@@ -125,9 +121,6 @@ public class CloudEventsJsonbQueryTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-        // Clear system properties
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
         logger.info("Teardown complete");
     }
 
@@ -172,10 +165,8 @@ public class CloudEventsJsonbQueryTest {
         }
     }
 
-    @Test
-    @Order(1)
-    void testStoreTradeLifecycleEvents() throws Exception {
-        logger.info("TEST 1: Storing backoffice trade lifecycle CloudEvents");
+    private static void storeTradeLifecycleTestData() throws Exception {
+        logger.info("Storing backoffice trade lifecycle CloudEvents in @BeforeAll");
 
         Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         ObjectMapper mapper = new ObjectMapper();
@@ -304,7 +295,17 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(2)
+    void testStoreTradeLifecycleEvents() throws Exception {
+        logger.info("TEST 1: Verifying stored backoffice trade lifecycle CloudEvents");
+
+        String sql = "SELECT COUNT(*) as total FROM bitemporal_event_log";
+        RowSet<Row> rows = pool.preparedQuery(sql).execute().await();
+        int total = rows.iterator().next().getInteger("total");
+        assertEquals(6, total, "Should have stored 6 trade lifecycle CloudEvents");
+        logger.info("Verified {} trade lifecycle CloudEvents stored (3 trades in various stages)", total);
+    }
+
+    @Test
     void testQueryByCloudEventType() throws Exception {
         logger.info("TEST 2: Query CloudEvents by type using JSONB operators");
 
@@ -329,7 +330,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(3)
     void testQueryByExtensionAttribute() throws Exception {
         logger.info("TEST 3: Query CloudEvents by extension attributes (correlationid)");
 
@@ -357,7 +357,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(4)
     void testQueryByBookingSystem() throws Exception {
         logger.info("TEST 4: Query CloudEvents by booking system extension");
 
@@ -384,7 +383,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(5)
     void testQueryByDataPayloadField() throws Exception {
         logger.info("TEST 5: Query CloudEvents by data payload fields (notional amount)");
 
@@ -414,7 +412,6 @@ public class CloudEventsJsonbQueryTest {
 
 
     @Test
-    @Order(6)
     void testQueryByCounterpartyAndStatus() throws Exception {
         logger.info("TEST 6: Query CloudEvents by multiple data payload fields");
 
@@ -444,7 +441,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(7)
     void testQueryByClearingHouseWithTimeRange() throws Exception {
         logger.info("TEST 7: Combine JSONB query with bi-temporal time range");
 
@@ -475,7 +471,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(8)
     void testQueryByCloudEventSource() throws Exception {
         logger.info("TEST 8: Query CloudEvents by source system");
 
@@ -504,7 +499,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(9)
     void testQueryBySymbolAndSide() throws Exception {
         logger.info("TEST 9: Query CloudEvents by nested data payload fields");
 
@@ -535,7 +529,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(10)
     void testComplexAggregationQuery() throws Exception {
         logger.info("TEST 10: Complex aggregation query on CloudEvents data");
 
@@ -568,7 +561,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(11)
     void testBiTemporalPointInTimeQuery() throws Exception {
         logger.info("TEST 11: Bi-temporal point-in-time query with JSONB filtering");
 
@@ -604,7 +596,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(12)
     void testTradeLifecycleReconstruction() throws Exception {
         logger.info("TEST 12: Reconstruct complete trade lifecycle using correlationid");
 
@@ -650,7 +641,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(13)
     void testSettlementDateRangeQuery() throws Exception {
         logger.info("TEST 13: Query trades by settlement date range");
 
@@ -683,7 +673,6 @@ public class CloudEventsJsonbQueryTest {
     }
 
     @Test
-    @Order(14)
     void testMultiSystemQuery() throws Exception {
         logger.info("TEST 14: Query across multiple booking systems and clearing houses");
 

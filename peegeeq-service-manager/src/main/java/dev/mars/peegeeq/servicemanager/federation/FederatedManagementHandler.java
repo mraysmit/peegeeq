@@ -385,46 +385,61 @@ public class FederatedManagementHandler {
 
     private Future<JsonObject> fetchInstanceOverview(PeeGeeQInstance instance) {
         return makeInstanceRequest(instance, "/api/v1/management/overview")
-                .recover(throwable -> {
-                    logger.warn("Failed to fetch overview from instance {}: {}",
-                            instance.getInstanceId(), throwable.getMessage());
-                    return Future.succeededFuture(createErrorResponse(instance, throwable));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to fetch overview from instance {}: {}",
+                                instance.getInstanceId(), ar.cause().getMessage());
+                        return Future.succeededFuture(createErrorResponse(instance, ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
     private Future<JsonObject> fetchInstanceQueues(PeeGeeQInstance instance) {
         return makeInstanceRequest(instance, "/api/v1/management/queues")
-                .recover(throwable -> {
-                    logger.warn("Failed to fetch queues from instance {}: {}",
-                            instance.getInstanceId(), throwable.getMessage());
-                    return Future.succeededFuture(createErrorResponse(instance, throwable));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to fetch queues from instance {}: {}",
+                                instance.getInstanceId(), ar.cause().getMessage());
+                        return Future.succeededFuture(createErrorResponse(instance, ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
     private Future<JsonObject> fetchInstanceConsumerGroups(PeeGeeQInstance instance) {
         return makeInstanceRequest(instance, "/api/v1/management/consumer-groups")
-                .recover(throwable -> {
-                    logger.warn("Failed to fetch consumer groups from instance {}: {}",
-                            instance.getInstanceId(), throwable.getMessage());
-                    return Future.succeededFuture(createErrorResponse(instance, throwable));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to fetch consumer groups from instance {}: {}",
+                                instance.getInstanceId(), ar.cause().getMessage());
+                        return Future.succeededFuture(createErrorResponse(instance, ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
     private Future<JsonObject> fetchInstanceEventStores(PeeGeeQInstance instance) {
         return makeInstanceRequest(instance, "/api/v1/management/event-stores")
-                .recover(throwable -> {
-                    logger.warn("Failed to fetch event stores from instance {}: {}",
-                            instance.getInstanceId(), throwable.getMessage());
-                    return Future.succeededFuture(createErrorResponse(instance, throwable));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to fetch event stores from instance {}: {}",
+                                instance.getInstanceId(), ar.cause().getMessage());
+                        return Future.succeededFuture(createErrorResponse(instance, ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
     private Future<JsonObject> fetchInstanceMetrics(PeeGeeQInstance instance) {
         return makeInstanceRequest(instance, "/api/v1/management/metrics")
-                .recover(throwable -> {
-                    logger.warn("Failed to fetch metrics from instance {}: {}",
-                            instance.getInstanceId(), throwable.getMessage());
-                    return Future.succeededFuture(createErrorResponse(instance, throwable));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to fetch metrics from instance {}: {}",
+                                instance.getInstanceId(), ar.cause().getMessage());
+                        return Future.succeededFuture(createErrorResponse(instance, ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 

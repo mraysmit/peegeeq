@@ -13,6 +13,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -62,7 +63,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("reactive_notification_test");
         container.withUsername("test_user");
         container.withPassword("test_password");
@@ -78,8 +79,7 @@ class ReactiveNotificationHandlerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        System.err.println("=== INTEGRATION TEST SETUP STARTED ===");
-        System.err.flush();
+        logger.info("=== INTEGRATION TEST SETUP STARTED ===");
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -105,15 +105,13 @@ class ReactiveNotificationHandlerIntegrationTest {
             return Future.succeededFuture(testEvent);
         };
 
-        System.err.println("=== INTEGRATION TEST SETUP COMPLETED ===");
-        System.err.flush();
+        logger.info("=== INTEGRATION TEST SETUP COMPLETED ===");
     }
 
     @Test
     @DisplayName("Constructor should succeed with valid parameters")
     void testConstructorSuccess(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST: Constructor Success ===");
-        System.err.flush();
+        logger.info("=== TEST: Constructor Success ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
             vertx, connectOptions, objectMapper, String.class, eventRetriever
@@ -122,16 +120,14 @@ class ReactiveNotificationHandlerIntegrationTest {
             assertNotNull(handler, "Handler should be created successfully");
         });
 
-        System.err.println("Constructor succeeded with valid parameters");
-        System.err.flush();
+        logger.info("Constructor succeeded with valid parameters");
         testContext.completeNow();
     }
 
     @Test
     @DisplayName("Subscribe should validate eventType for SQL injection")
     void testSubscribeEventTypeValidation(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST: EventType Validation ===");
-        System.err.flush();
+        logger.info("=== TEST: EventType Validation ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
             vertx, connectOptions, objectMapper, String.class, eventRetriever
@@ -150,8 +146,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                     assertTrue(error.getMessage().contains("Invalid eventType"), 
                         "Error message should mention invalid eventType");
                     
-                    System.err.println("SQL injection attempt properly blocked: " + error.getMessage());
-                    System.err.flush();
+                    logger.info("SQL injection attempt properly blocked: {}", error.getMessage());
                 });
                 testContext.completeNow();
             }));
@@ -160,8 +155,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     @Test
     @DisplayName("Subscribe should accept valid eventType")
     void testSubscribeValidEventType(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST: Valid EventType ===");
-        System.err.flush();
+        logger.info("=== TEST: Valid EventType ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
             vertx, connectOptions, objectMapper, String.class, eventRetriever
@@ -179,8 +173,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                     assertTrue(error instanceof IllegalStateException,
                         "Should fail with IllegalStateException when handler is not active");
                     
-                    System.err.println("Valid eventType accepted, failed with expected state error: " + error.getMessage());
-                    System.err.flush();
+                    logger.info("Valid eventType accepted, failed with expected state error: {}", error.getMessage());
                 });
                 testContext.completeNow();
             }));
@@ -189,8 +182,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     @Test
     @DisplayName("Subscribe should accept null eventType for all-events subscription")
     void testSubscribeNullEventType(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST: Null EventType (All Events) ===");
-        System.err.flush();
+        logger.info("=== TEST: Null EventType (All Events) ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
             vertx, connectOptions, objectMapper, String.class, eventRetriever
@@ -205,8 +197,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                     assertTrue(error instanceof IllegalStateException,
                         "Should fail with IllegalStateException when handler is not active");
                     
-                    System.err.println("Null eventType accepted for all-events subscription: " + error.getMessage());
-                    System.err.flush();
+                    logger.info("Null eventType accepted for all-events subscription: {}", error.getMessage());
                 });
                 testContext.completeNow();
             }));
@@ -215,8 +206,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     @Test
     @DisplayName("Handler lifecycle should work with real PostgreSQL connection")
     void testHandlerLifecycle(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST: Handler Lifecycle with Real PostgreSQL ===");
-        System.err.flush();
+        logger.info("=== TEST: Handler Lifecycle with Real PostgreSQL ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
             vertx, connectOptions, objectMapper, String.class, eventRetriever
@@ -225,18 +215,15 @@ class ReactiveNotificationHandlerIntegrationTest {
         // Test start -> stop lifecycle
         handler.start()
             .compose(v -> {
-                System.err.println("Handler started successfully");
-                System.err.flush();
+                logger.info("Handler started successfully");
                 return handler.stop();
             })
             .onSuccess(v -> {
-                System.err.println("Handler stopped successfully");
-                System.err.flush();
+                logger.info("Handler stopped successfully");
                 testContext.completeNow();
             })
             .onFailure(error -> {
-                System.err.println("Handler lifecycle failed: " + error.getMessage());
-                System.err.flush();
+                logger.info("Handler lifecycle failed: {}", error.getMessage());
                 testContext.failNow(error);
             });
     }
@@ -332,8 +319,7 @@ class ReactiveNotificationHandlerIntegrationTest {
 
     @AfterEach
     void tearDown() {
-        System.err.println("=== INTEGRATION TEST TEARDOWN ===");
-        System.err.flush();
+        logger.info("=== INTEGRATION TEST TEARDOWN ===");
     }
 
     /**

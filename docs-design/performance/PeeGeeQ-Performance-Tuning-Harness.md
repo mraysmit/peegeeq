@@ -615,7 +615,7 @@ peegeeq.metrics.jvm.enabled=false
 - **Machine Learning**: Predictive scaling based on usage patterns
 - **Edge Computing**: Distributed PeeGeeQ instances for global deployment
 
-Nice — Vert.x 5.x with the **reactive PostgreSQL client** changes the performance validation game a bit. You’re already in **non-blocking, event-loop driven territory**, which means your external validation harness should be aware of how a reactive pipeline behaves under pressure. Let’s dig in:
+Nice Vert.x 5.x with the **reactive PostgreSQL client** changes the performance validation game a bit. You’re already in **non-blocking, event-loop driven territory**, which means your external validation harness should be aware of how a reactive pipeline behaves under pressure. Let’s dig in:
 
 ---
 
@@ -709,7 +709,7 @@ Instead of only TPS and latency, define reactive-specific thresholds:
 ## 4. **Best Practices for Vert.x + Postgres Perf Validation**
 
 * Use **p99 latency** as the primary success metric (average hides reactor stalls).
-* Always monitor **event loop metrics** — a blocked loop ruins latency long before DB saturation.
+* Always monitor **event loop metrics** a blocked loop ruins latency long before DB saturation.
 * Keep **connection pools modest** (reactive systems don’t need hundreds of connections; usually 2–4 per core).
 * Validate **graceful degradation**: under overload, do you fail fast or drag down all requests?
 
@@ -848,7 +848,7 @@ Optional: Integrate **Keptn** or custom Jenkins/GitHub Actions scripts to fail b
 
 ---
 
-Perfect — here’s a **ready-to-use Grafana dashboard JSON template** tailored for **Vert.x 5.x + reactive PostgreSQL**. It assumes you’ve got:
+Perfect here’s a **ready-to-use Grafana dashboard JSON template** tailored for **Vert.x 5.x + reactive PostgreSQL**. It assumes you’ve got:
 
 * **Micrometer + Prometheus** enabled in Vert.x.
 * **pgExporter** scraping Postgres metrics.
@@ -1119,7 +1119,7 @@ public class SimpleSimulation extends Simulation {
 ---
 
 ✅ Bottom line:
-Gatling is basically **“JMeter for modern JVM teams”** — leaner, faster, and fully scriptable in Java.
+Gatling is basically **“JMeter for modern JVM teams”** leaner, faster, and fully scriptable in Java.
 
 ---
 

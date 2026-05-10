@@ -95,7 +95,7 @@ public class PgNotificationStreamTestContainers {
     void tearDown(VertxTestContext testContext) {
         // Vertx lifecycle is managed by VertxExtension
         if (pgConnection != null) {
-            pgConnection.close().onComplete(ar -> testContext.completeNow());
+            pgConnection.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

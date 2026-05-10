@@ -13,7 +13,7 @@ When a message is published to a PUB_SUB topic with N subscriber consumer groups
 
 1. **Publish side**: The original request's `traceparent` header is persisted in the message's `headers` JSONB column. All groups read the same header.
 
-2. **Consumption side**: Each consumer group extracts the same `traceparent` from the message and re-applies it to MDC. Meanwhile, `ConsumerGroupFetcher.fetchMessages()` creates a **new root trace** via `TraceCtx.createNew()` — disconnected from the publish trace.
+2. **Consumption side**: Each consumer group extracts the same `traceparent` from the message and re-applies it to MDC. Meanwhile, `ConsumerGroupFetcher.fetchMessages()` creates a **new root trace** via `TraceCtx.createNew()` disconnected from the publish trace.
 
 This means:
 - All N consumer groups log with the **same traceId** (from the published message), which is correct for correlation.
@@ -107,7 +107,7 @@ TRACE_A ─┬─ QueueHandler.sendMessage [SPAN_1]
 
 #### Implementation Changes
 
-1. **ConsumerGroupFetcher.fetchMessages()** — Replace `TraceCtx.createNew()` with child span derivation:
+1. **ConsumerGroupFetcher.fetchMessages()** Replace `TraceCtx.createNew()` with child span derivation:
 
    ```java
    // Before:
@@ -125,7 +125,7 @@ TRACE_A ─┬─ QueueHandler.sendMessage [SPAN_1]
    - **Post-query**: Create the child span after messages are returned, retroactively apply the trace to the fetch log context.
    - **Deferred**: Use a root span for fetch, then link it to the message trace during processing.
 
-2. **OutboxConsumer.processRow()** — Create child span instead of reusing parent span:
+2. **OutboxConsumer.processRow()** Create child span instead of reusing parent span:
 
    ```java
    // Before:
@@ -188,7 +188,7 @@ This gives:
 | Create child span in consumer processing | `OutboxConsumer.processRow()` | Small |
 | Add group name to span name | `OutboxConsumer.processRow()` | Small |
 | Update CompletionTracker with child span | `CompletionTracker.markCompleted()` | Small |
-| Add span name support to `TraceCtx.childSpan()` | `TraceCtx.java` | Small — may already exist |
+| Add span name support to `TraceCtx.childSpan()` | `TraceCtx.java` | Small may already exist |
 | Update tests to verify parent-child linkage | `ConsumerTracingTest`, `DistributedTracingTest` | Medium |
 | Document updated trace format in user guide | `PEEGEEQ_TRACING_USER_GUIDE.md` | Small |
 
@@ -198,7 +198,7 @@ This gives:
 
 2. **Backfill**: Backfilled messages may have stale or missing traceparents. The `parseOrCreate` pattern handles this correctly (creates new trace if header is absent).
 
-3. **Dead-letter / retry**: When a message is retried, should it create a new child span or reuse the previous one? A new child span is correct — each attempt is a separate unit of work.
+3. **Dead-letter / retry**: When a message is retried, should it create a new child span or reuse the previous one? A new child span is correct each attempt is a separate unit of work.
 
 4. **Metrics**: The span name should include the group name so Prometheus/Jaeger can aggregate latency per consumer group: `consumer-group:payments-processor/process`.
 
@@ -208,7 +208,7 @@ This gives:
 
 ## References
 
-- [PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md](../../docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md) — W3C trace format, core components
-- [PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md](PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md) — Vert.x Context source-of-truth principle
-- [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](../consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md) — Reference counting, subscription lifecycle
-- [W3C Trace Context Specification](https://www.w3.org/TR/trace-context/) — traceparent format
+- [PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md](../../docs/PEEGEEQ_TRACING_TECHNICAL_REFERENCE.md) W3C trace format, core components
+- [PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md](PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md) Vert.x Context source-of-truth principle
+- [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](../consumer-groups/PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md) Reference counting, subscription lifecycle
+- [W3C Trace Context Specification](https://www.w3.org/TR/trace-context/) traceparent format

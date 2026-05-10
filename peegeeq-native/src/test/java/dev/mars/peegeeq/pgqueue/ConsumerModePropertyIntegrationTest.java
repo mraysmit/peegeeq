@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -32,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -71,27 +73,16 @@ class ConsumerModePropertyIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Clear any existing system properties to ensure clean state
-        clearConsumerModeProperties();
-
-        // Configure base test properties using TestContainer pattern
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Ensure required schema exists for native queue tests
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
-
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
 
         logger.info("Test setup completed for consumer mode property integration testing");
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -99,25 +90,13 @@ class ConsumerModePropertyIntegrationTest {
             manager.closeReactive().await();
         }
 
-        // Clear properties after each test to prevent interference
-        clearConsumerModeProperties();
-
         logger.info("Test teardown completed");
     }
 
-    private void clearConsumerModeProperties() {
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.consumer-mode");
-        System.clearProperty("peegeeq.queue.default-polling-interval");
-        System.clearProperty("peegeeq.queue.default-batch-size");
-    }
-
-    private void initializeManagerAndFactory() throws Exception {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+    private void initializeManagerAndFactory(Properties testProps) throws Exception {
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -130,10 +109,13 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("🧪 Testing polling interval property integration");
 
         // Set custom polling interval via system property
-        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-
-        initializeManagerAndFactory();
+        initializeManagerAndFactory(PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.polling-interval", "PT2S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .build());
 
         String topicName = "test-polling-interval-property";
 
@@ -155,14 +137,11 @@ class ConsumerModePropertyIntegrationTest {
                 logger.info("📨 Property integration processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Property test message 1")
+            })
+            .onSuccess(ignored -> producer.send("Property test message 1")
                     .compose(v -> producer.send("Property test message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing with polling interval consideration
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with custom polling interval");
@@ -184,10 +163,13 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("🧪 Testing batch size property integration");
 
         // Set custom batch size via system property
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-
-        initializeManagerAndFactory();
+        initializeManagerAndFactory(PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .build());
 
         String topicName = "test-batch-size-property";
 
@@ -210,17 +192,16 @@ class ConsumerModePropertyIntegrationTest {
                 logger.info("📨 Batch property processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 5; i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producer.send("Batch message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom batch size");
@@ -242,10 +223,13 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("🧪 Testing visibility timeout property integration");
 
         // Set custom visibility timeout via system property
-        System.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT10S"); // Short timeout for testing
-
-        initializeManagerAndFactory();
+        initializeManagerAndFactory(PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT10S")
+                .build());
 
         String topicName = "test-visibility-timeout-property";
 
@@ -266,14 +250,11 @@ class ConsumerModePropertyIntegrationTest {
                 logger.info("📨 Visibility timeout processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Visibility test message 1")
+            })
+            .onSuccess(ignored -> producer.send("Visibility test message 1")
                     .compose(v -> producer.send("Visibility test message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom visibility timeout");
@@ -295,10 +276,13 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("🧪 Testing multiple property combinations");
 
         // Set multiple properties together
-        System.setProperty("peegeeq.queue.polling-interval", "PT500MS"); // Fast polling
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT15S");
-
-        initializeManagerAndFactory();
+        initializeManagerAndFactory(PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.queue.visibility-timeout", "PT15S")
+                .build());
 
         String topicName = "test-multiple-properties";
 
@@ -320,17 +304,16 @@ class ConsumerModePropertyIntegrationTest {
                 logger.info("📨 Multiple properties processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
+            })
+            .onSuccess(ignored -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 4; i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producer.send("Multi-property message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with multiple property combinations");
@@ -352,10 +335,13 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("🧪 Testing property override scenarios");
 
         // Set base properties
-        System.setProperty("peegeeq.queue.polling-interval", "PT3S"); // Base interval
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-
-        initializeManagerAndFactory();
+        initializeManagerAndFactory(PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.polling-interval", "PT3S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .build());
 
         String topicName = "test-property-override";
 
@@ -377,17 +363,16 @@ class ConsumerModePropertyIntegrationTest {
                 logger.info("📨 Property override processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 3; i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producer.send("Override message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing - should be faster due to override
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with overridden properties");

@@ -5,6 +5,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -24,9 +25,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.Properties;
 import java.util.Set;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -35,10 +36,14 @@ import io.vertx.core.Future;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConcurrentClaimIT {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConcurrentClaimIT.class);
+
 
     private static final String TOPIC = "it-concurrent-claim-topic";
 
@@ -58,18 +63,16 @@ class PgNativeQueueConcurrentClaimIT {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -86,30 +89,28 @@ class PgNativeQueueConcurrentClaimIT {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             } catch (Exception ignore) {}
         }
     }
 
     @Test
     void two_consumers_do_not_double_claim_messages_in_polling_mode(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: two consumers do not double claim messages in polling mode");
         // Insert two messages with unique payloads
         String insertSql = """
             INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)
             VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', now(), now(), 1)
         """;
-        CountDownLatch insertLatch = new CountDownLatch(2);
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m1"), new JsonObject(), "c-1"))
-            .onComplete(ar -> insertLatch.countDown());
+            .await();
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m2"), new JsonObject(), "c-2"))
-            .onComplete(ar -> insertLatch.countDown());
-        assertTrue(insertLatch.await(5, TimeUnit.SECONDS), "Inserts should complete");
+            .await();
 
         ConsumerConfig cfg = ConsumerConfig.builder()
             .mode(ConsumerMode.POLLING_ONLY)

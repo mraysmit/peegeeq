@@ -110,7 +110,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
      * </ul>
      */
     private void initializeContainer() {
-        PostgreSQLContainer tempContainer = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer tempContainer = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
         tempContainer.withDatabaseName("peegeeq_test");
         tempContainer.withUsername("peegeeq_test");
         tempContainer.withPassword("peegeeq_test");
@@ -287,6 +287,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                         backfill_completed_at TIMESTAMP WITH TIME ZONE,
                         consecutive_misses INTEGER NOT NULL DEFAULT 0,
                         dead_after_misses INTEGER NOT NULL DEFAULT 3,
+                        rebalance_generation INT NOT NULL DEFAULT 0,
                         UNIQUE (topic, group_name)
                     )
                     """);
@@ -389,7 +390,56 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                         EXECUTE FUNCTION set_required_consumer_groups();
                     """);
 
-                logger.info("Shared database schema initialized successfully (including V010 fanout tables)");
+                // V017: Offset/Watermark tables for partitioned consumption
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox_partition_assignments (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        group_name VARCHAR(255) NOT NULL,
+                        partition_key VARCHAR(255) NOT NULL,
+                        assigned_instance_id VARCHAR(255) NOT NULL,
+                        assigned_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        last_heartbeat_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        generation INT NOT NULL DEFAULT 1,
+                        UNIQUE(topic, group_name, partition_key)
+                    )
+                    """);
+
+                stmt.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_partition_assignments_instance
+                        ON outbox_partition_assignments(topic, group_name, assigned_instance_id)
+                    """);
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox_partition_offsets (
+                        id BIGSERIAL PRIMARY KEY,
+                        topic VARCHAR(255) NOT NULL,
+                        group_name VARCHAR(255) NOT NULL,
+                        partition_key VARCHAR(255) NOT NULL,
+                        committed_offset BIGINT NOT NULL DEFAULT 0,
+                        committed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                        pending_offset BIGINT,
+                        pending_since TIMESTAMP WITH TIME ZONE,
+                        generation INT NOT NULL DEFAULT 1,
+                        UNIQUE(topic, group_name, partition_key)
+                    )
+                    """);
+
+                stmt.execute("""
+                    CREATE TABLE IF NOT EXISTS outbox_topic_watermarks (
+                        topic VARCHAR(255) PRIMARY KEY,
+                        watermark_id BIGINT NOT NULL DEFAULT 0,
+                        watermark_updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    )
+                    """);
+
+                stmt.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_outbox_topic_msggroup_id
+                        ON outbox(topic, message_group, id)
+                        WHERE status IN ('PENDING', 'PROCESSING')
+                    """);
+
+                logger.info("Shared database schema initialized successfully (including V010 fanout tables, V017 offset/watermark tables)");
                 schemaInitialized = true;
             }
         } finally {

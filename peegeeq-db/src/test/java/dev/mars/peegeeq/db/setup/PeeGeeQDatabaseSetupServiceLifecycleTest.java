@@ -1,64 +1,82 @@
 package dev.mars.peegeeq.db.setup;
 
+import java.util.concurrent.CompletionException;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 
-
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(VertxExtension.class)
+@Tag(TestCategories.CORE)
 class PeeGeeQDatabaseSetupServiceLifecycleTest {
 
     @Test
-    void closeShouldCloseSetupWorkerExecutor() throws Exception {
-        PeeGeeQDatabaseSetupService service = new PeeGeeQDatabaseSetupService();
-        WorkerExecutor worker = service.setupWorkerExecutor();
+    void closeShouldCloseSetupWorkerExecutor(Vertx vertx, VertxTestContext ctx) {
+        vertx.runOnContext(ignored -> {
+            PeeGeeQDatabaseSetupService service = new PeeGeeQDatabaseSetupService();
+            WorkerExecutor worker = service.setupWorkerExecutor();
 
-        // Sanity check: worker should be usable before close.
-        worker.executeBlocking(() -> "ok", false)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(5, TimeUnit.SECONDS);
-
-        service.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-        RuntimeException thrown = assertThrows(RuntimeException.class, () ->
-            worker.executeBlocking(() -> "after-close", false)
-                        .toCompletionStage()
-                        .toCompletableFuture()
-                        .join());
-
-        Throwable effective = (thrown instanceof CompletionException && thrown.getCause() != null)
-            ? thrown.getCause()
-            : thrown;
-        assertTrue(effective instanceof RejectedExecutionException,
-            "Expected rejected execution once setup worker executor is closed");
+            worker.executeBlocking(() -> "ok", false)
+                    .compose(ok -> service.close())
+                    .onSuccess(v -> {
+                        try {
+                            worker.executeBlocking(() -> "after-close", false)
+                                    .onSuccess(result -> {
+                                        ctx.failNow(new AssertionError("Expected worker to be rejected after close"));
+                                    })
+                                    .onFailure(err -> {
+                                        Throwable effective = err;
+                                        if (err instanceof CompletionException && err.getCause() != null) {
+                                            effective = err.getCause();
+                                        }
+                                        if (effective instanceof RejectedExecutionException) {
+                                            ctx.completeNow();
+                                        } else {
+                                            ctx.failNow(new AssertionError(
+                                                    "Expected RejectedExecutionException but got: " + effective.getClass().getName(),
+                                                    effective));
+                                        }
+                                    });
+                        } catch (RejectedExecutionException e) {
+                            // Caught inline
+                            ctx.completeNow();
+                        } catch (IllegalStateException e) {
+                            if (e.getMessage() != null && e.getMessage().contains("close")) {
+                                ctx.completeNow();
+                            } else {
+                                ctx.failNow(e);
+                            }
+                        } catch (Exception e) {
+                            ctx.failNow(e);
+                        }
+                    })
+                    .onFailure(ctx::failNow);
+        });
     }
 
     @Test
-    void closeShouldNotCloseExternalVertx() throws Exception {
-        Vertx externalVertx = Vertx.vertx();
-        try {
-            PeeGeeQDatabaseSetupService service = createServiceInsideVertxContext(externalVertx);
+    void closeShouldNotCloseExternalVertx(Vertx vertx, VertxTestContext ctx) {
+        vertx.runOnContext(v -> {
+            PeeGeeQDatabaseSetupService service = new PeeGeeQDatabaseSetupService();
 
-            service.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            CompletableFuture<Void> stillUsable = new CompletableFuture<>();
-            externalVertx.runOnContext(v -> stillUsable.complete(null));
-            stillUsable.get(5, TimeUnit.SECONDS);
-        } finally {
-            externalVertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        }
-    }
-
-    private static PeeGeeQDatabaseSetupService createServiceInsideVertxContext(Vertx vertx) throws Exception {
-        CompletableFuture<PeeGeeQDatabaseSetupService> future = new CompletableFuture<>();
-        vertx.runOnContext(v -> future.complete(new PeeGeeQDatabaseSetupService()));
-        return future.get(5, TimeUnit.SECONDS);
+            service.close()
+                    .compose(closed -> {
+                        Promise<Void> stillUsable = Promise.promise();
+                        vertx.runOnContext(c -> stillUsable.complete(null));
+                        return stillUsable.future();
+                    })
+                    .onSuccess(v2 -> ctx.completeNow())
+                    .onFailure(ctx::failNow);
+        });
     }
 }

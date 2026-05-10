@@ -100,7 +100,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     /**
      * Registers pre-built setup state for a given setupId.
-     * Package-private — intended only for lifecycle tests that need to
+     * Package-private intended only for lifecycle tests that need to
      * verify teardown ordering without running the full setup flow.
      */
     void registerSetupForTesting(String setupId, DatabaseSetupResult result,
@@ -192,9 +192,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // 1. Create database from template reactively
         return createDatabaseFromTemplate(request.getDatabaseConfig())
                 .map(v -> request)
-                .recover(ex -> {
-                    logger.error("STEP 1 FAILED for setupId={}: {}", request.getSetupId(), ex.getMessage(), ex);
-                    return Future.failedFuture(new RuntimeException("Database creation failed", ex));
+                .onFailure(ex ->
+                    logger.error("STEP 1 FAILED for setupId={}: {}", request.getSetupId(), ex.getMessage(), ex))
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        return Future.failedFuture(new RuntimeException("Database creation failed", ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 })
                 .compose(req -> {
                     // 2. Apply schema migrations asynchronously
@@ -249,7 +253,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         return result;
                     }
                 })
-                .recover(ex -> {
+                .transform(ar -> {
+                    if (ar.succeeded()) {
+                        return Future.succeededFuture(ar.result());
+                    }
+                    Throwable ex = ar.cause();
                     if (isDatabaseCreationConflict(ex)) {
                         logger.debug(
                                 "EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
@@ -263,12 +271,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     // Clean up any partially created resources asynchronously
                     return destroySetup(request.getSetupId())
                             .compose(ignore -> dropTestDatabase(request.getDatabaseConfig()))
-                            .recover(cleanupEx -> {
+                            .onFailure(cleanupEx ->
                                 logger.error("Failed to clean up after setup failure: {}", request.getSetupId(),
-                                        cleanupEx);
-                                return Future.succeededFuture();
-                            })
-                            .compose(v -> Future.failedFuture(
+                                        cleanupEx))
+                            .transform(ar2 -> Future.failedFuture(
                                     new RuntimeException(
                                             "Failed to create database setup: " + request.getSetupId(), ex)));
                 });
@@ -563,7 +569,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     return manager.closeReactive()
                             .onSuccess(ignored -> logger.info("PeeGeeQManager closed successfully for setup: {}", setupId))
                             .onFailure(error -> logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error))
-                            .recover(error -> Future.succeededFuture());
+                            .transform(ar -> Future.<Void>succeededFuture());
                 });
             } else {
                 shutdownFuture = closeResourcesFuture;
@@ -771,9 +777,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     }
                     return null;
                 })
-                .recover(error -> Future.failedFuture(
-                    new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
-                            + "' to setup '" + setupId + "'", error)));
+                .onFailure(error ->
+                    logger.error("Failed to add event store '{}' to setup '{}': {}",
+                            eventStoreConfig.getEventStoreName(), setupId, error.getMessage(), error))
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        return Future.failedFuture(
+                            new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
+                                    + "' to setup '" + setupId + "'", ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
     }
 
     private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig, String setupId) {
@@ -1048,25 +1062,28 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                     logger.info("  - {}", tableName);
                                 });
 
-                                // Check for required tables
-                                boolean hasQueueMessages = tables.contains("queue_messages");
-                                boolean hasOutbox = tables.contains("outbox");
-                                boolean hasDeadLetterQueue = tables.contains("dead_letter_queue");
+                                // Derive the required table list from the base template manifest
+                                // so this check stays in sync automatically when new tables are added.
+                                List<String> requiredTables;
+                                try {
+                                    requiredTables = List.copyOf(templateProcessor.resolveRequiredTables("base"));
+                                } catch (java.io.IOException e) {
+                                    logger.error("Could not resolve required tables from base template manifest", e);
+                                    return Future.<Void>failedFuture(e);
+                                }
 
-                                logger.info("========== REQUIRED TABLES CHECK ==========");
-                                logger.info("  queue_messages: {}", hasQueueMessages ? "✓ EXISTS" : "✗ MISSING");
-                                logger.info("  outbox: {}", hasOutbox ? "✓ EXISTS" : "✗ MISSING");
-                                logger.info("  dead_letter_queue: {}", hasDeadLetterQueue ? "✓ EXISTS" : "✗ MISSING");
+                                logger.info("========== REQUIRED TABLES CHECK ({} tables): {} ==========",
+                                        requiredTables.size(), requiredTables);
+                                List<String> missingTables = new ArrayList<>();
+                                for (String required : requiredTables) {
+                                    boolean exists = tables.contains(required);
+                                    logger.info("  {}: {}", required, exists ? "✓ EXISTS" : "✗ MISSING");
+                                    if (!exists) {
+                                        missingTables.add(required);
+                                    }
+                                }
 
-                                if (!hasQueueMessages || !hasOutbox || !hasDeadLetterQueue) {
-                                    List<String> missingTables = new ArrayList<>();
-                                    if (!hasQueueMessages)
-                                        missingTables.add("queue_messages");
-                                    if (!hasOutbox)
-                                        missingTables.add("outbox");
-                                    if (!hasDeadLetterQueue)
-                                        missingTables.add("dead_letter_queue");
-
+                                if (!missingTables.isEmpty()) {
                                     logger.error("VALIDATION FAILED: Missing required tables: {}", missingTables);
                                     return Future.<Void>failedFuture(new IllegalStateException(
                                             "Database infrastructure validation failed - missing tables: "
@@ -1105,18 +1122,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return Future.succeededFuture();
         }
 
-        Set<String> setupIds = new HashSet<>(activeSetups.keySet());
-        List<Future<Void>> destroyFutures = setupIds.stream()
-                .map(setupId -> destroySetup(setupId)
-                        .recover(error -> {
-                            logger.warn("Failed to destroy setup '{}' during service close: {}", setupId,
-                                    error.getMessage());
-                            return Future.succeededFuture();
-                        }))
+        // Close each active manager to cancel background timers and release pool connections.
+        // Do NOT call destroySetup() here that would drop test databases, which must only
+        // happen via an explicit destroySetup() call (e.g. from integration test teardown).
+        List<Future<Void>> closeFutures = new ArrayList<>(activeManagers.values()).stream()
+                .map(manager -> manager.closeReactive()
+                        .onFailure(error ->
+                            logger.warn("Failed to close manager during service close: {}", error.getMessage())))
                 .toList();
 
-        return Future.all(destroyFutures)
-                .mapEmpty()
+        return Future.join(closeFutures)
+                .transform(ar -> Future.<Void>succeededFuture())
                 .compose(v -> setupWorkerExecutor.close())
                 .compose(v -> {
                     if (ownsVertx) {

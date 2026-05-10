@@ -34,7 +34,7 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
     
     @Test
     void testConsumerModeTestMatrixGeneration() {
-        System.err.println("=== TEST METHOD STARTED: testConsumerModeTestMatrixGeneration ===");
+        logger.info("=== TEST METHOD STARTED: testConsumerModeTestMatrixGeneration ===");
         logger.info("Testing consumer mode test matrix generation");
         
         Stream<ConsumerModeTestScenario> scenarios = getConsumerModeTestMatrix();
@@ -43,13 +43,13 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         // We expect 8 scenarios based on our matrix definition
         assertEquals(8, count, "Expected 8 consumer mode test scenarios");
         
-        logger.info("✓ Consumer mode test matrix generation test passed: {} scenarios", count);
-        System.err.println("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixGeneration ===");
+        logger.info("Consumer mode test matrix generation test passed: {} scenarios", count);
+        logger.info("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixGeneration ===");
     }
     
     @Test
     void testConsumerModeTestMatrixByProfile() {
-        System.err.println("=== TEST METHOD STARTED: testConsumerModeTestMatrixByProfile ===");
+        logger.info("=== TEST METHOD STARTED: testConsumerModeTestMatrixByProfile ===");
         logger.info("Testing consumer mode test matrix filtering by profile");
         
         // Test filtering by BASIC profile
@@ -62,13 +62,13 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         long highPerfCount = highPerfScenarios.count();
         assertEquals(2, highPerfCount, "Expected 2 scenarios for HIGH_PERFORMANCE profile");
         
-        logger.info("✓ Consumer mode test matrix filtering by profile test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixByProfile ===");
+        logger.info("Consumer mode test matrix filtering by profile test passed");
+        logger.info("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixByProfile ===");
     }
     
     @Test
     void testConsumerModeTestMatrixByMode() {
-        System.err.println("=== TEST METHOD STARTED: testConsumerModeTestMatrixByMode ===");
+        logger.info("=== TEST METHOD STARTED: testConsumerModeTestMatrixByMode ===");
         logger.info("Testing consumer mode test matrix filtering by consumer mode");
         
         // Test filtering by LISTEN_NOTIFY_ONLY mode
@@ -86,13 +86,13 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         long pollingCount = pollingScenarios.count();
         assertEquals(2, pollingCount, "Expected 2 scenarios for POLLING_ONLY mode");
 
-        logger.info("✓ Consumer mode test matrix filtering by mode test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixByMode ===");
+        logger.info("Consumer mode test matrix filtering by mode test passed");
+        logger.info("=== TEST METHOD COMPLETED: testConsumerModeTestMatrixByMode ===");
     }
     
     @Test
     void testCreateConsumerModeMetrics() {
-        System.err.println("=== TEST METHOD STARTED: testCreateConsumerModeMetrics ===");
+        logger.info("=== TEST METHOD STARTED: testCreateConsumerModeMetrics ===");
         logger.info("Testing consumer mode metrics creation");
         
         Map<String, Object> metrics = createConsumerModeMetrics(
@@ -114,14 +114,14 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         assertEquals(1000.0, metrics.get("throughput"));
         assertEquals(25.0, metrics.get("average_latency"));
         
-        logger.info("✓ Consumer mode metrics creation test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testCreateConsumerModeMetrics ===");
+        logger.info("Consumer mode metrics creation test passed");
+        logger.info("=== TEST METHOD COMPLETED: testCreateConsumerModeMetrics ===");
     }
     
     @ParameterizedTest
     @MethodSource("getConsumerModeTestMatrix")
     void testConsumerModePerformanceAcrossScenarios(ConsumerModeTestScenario scenario) {
-        System.err.println("=== TEST METHOD STARTED: testConsumerModePerformanceAcrossScenarios(" + scenario.getScenarioName() + ") ===");
+        logger.info("=== TEST METHOD STARTED: testConsumerModePerformanceAcrossScenarios({}) ===", scenario.getScenarioName());
         logger.info("Testing consumer mode performance with scenario: {}", scenario.getScenarioName());
         logger.debug("Scenario details: {}", scenario.getDescription());
         
@@ -148,14 +148,14 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         // Validate consumer performance thresholds
         validateConsumerPerformanceThresholds(result, scenario);
         
-        logger.info("✓ Consumer mode performance test passed for scenario: {} (duration: {}ms, throughput: {} msg/s)", 
+        logger.info("Consumer mode performance test passed for scenario: {} (duration: {}ms, throughput: {} msg/s)", 
                    scenario.getScenarioName(), result.getDurationMs(), result.getMessagesPerSecond());
-        System.err.println("=== TEST METHOD COMPLETED: testConsumerModePerformanceAcrossScenarios(" + scenario.getScenarioName() + ") ===");
+        logger.info("=== TEST METHOD COMPLETED: testConsumerModePerformanceAcrossScenarios({}) ===", scenario.getScenarioName());
     }
     
     @Test
     void testConsumerModeTestResultAccessors() {
-        System.err.println("=== TEST METHOD STARTED: testConsumerModeTestResultAccessors ===");
+        logger.info("=== TEST METHOD STARTED: testConsumerModeTestResultAccessors ===");
         logger.info("Testing consumer mode test result accessor methods");
         
         ConsumerModeTestScenario scenario = ConsumerModeTestScenario.builder()
@@ -184,8 +184,8 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
         assertEquals(10.0, result.getQueueDepth());
         assertEquals(60.0, result.getConnectionUtilization());
         
-        logger.info("✓ Consumer mode test result accessor methods test passed");
-        System.err.println("=== TEST METHOD COMPLETED: testConsumerModeTestResultAccessors ===");
+        logger.info("Consumer mode test result accessor methods test passed");
+        logger.info("=== TEST METHOD COMPLETED: testConsumerModeTestResultAccessors ===");
     }
     
     /**

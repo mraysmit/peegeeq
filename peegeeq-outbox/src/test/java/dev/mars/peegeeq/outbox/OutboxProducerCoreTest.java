@@ -1,6 +1,10 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -39,9 +43,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,16 +60,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 public class OutboxProducerCoreTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final Logger logger = LoggerFactory.getLogger(OutboxProducerCoreTest.class);
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -74,8 +72,7 @@ public class OutboxProducerCoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        System.err.println("=== OutboxProducerCoreTest SETUP STARTED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest SETUP STARTED ===");
 
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -83,31 +80,26 @@ public class OutboxProducerCoreTest {
         // Use unique topic for each test to avoid interference
         testTopic = "test-topic-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Set up database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
         // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("producer-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
 
-        System.err.println("=== OutboxProducerCoreTest SETUP COMPLETED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest SETUP COMPLETED ===");
     }
 
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
-        System.err.println("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
-        System.err.flush();
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        logger.info("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
 
         if (producer != null) {
             producer.close();
@@ -116,38 +108,30 @@ public class OutboxProducerCoreTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> tearDownContext.completeNow())
+                    .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             tearDownContext.completeNow();
         }
 
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
-        System.err.println("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
     }
 
     @Test
     void testProducerCreation() {
-        System.err.println("=== TEST: testProducerCreation STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerCreation STARTED ===");
 
         assertNotNull(producer, "Producer should be created");
 
-        System.err.println("=== TEST: testProducerCreation COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerCreation COMPLETED ===");
     }
 
     @Test
     void testSendBasicMessage() throws Exception {
-        System.err.println("=== TEST: testSendBasicMessage STARTED ===");
-        System.err.flush();
+        logger.info("Test: producer creation");
+        logger.info("=== TEST: testSendBasicMessage STARTED ===");
 
         String testMessage = "Hello, OutboxProducer Test!";
 
@@ -155,18 +139,14 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
-        System.err.println("=== TEST: testSendBasicMessage COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendBasicMessage COMPLETED ===");
     }
 
     @Test
     void testSendMessageWithHeaders() throws Exception {
-        System.err.println("=== TEST: testSendMessageWithHeaders STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithHeaders STARTED ===");
 
         String testMessage = "Message with headers";
         Map<String, String> headers = new HashMap<>();
@@ -177,18 +157,15 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
-        System.err.println("=== TEST: testSendMessageWithHeaders COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithHeaders COMPLETED ===");
     }
 
     @Test
     void testSendMessageWithCorrelationId() throws Exception {
-        System.err.println("=== TEST: testSendMessageWithCorrelationId STARTED ===");
-        System.err.flush();
+        logger.info("Test: send message with headers");
+        logger.info("=== TEST: testSendMessageWithCorrelationId STARTED ===");
 
         String testMessage = "Message with correlation ID";
         Map<String, String> headers = new HashMap<>();
@@ -199,18 +176,14 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
-        System.err.println("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
     }
 
     @Test
     void testSendMessageWithAllParameters() throws Exception {
-        System.err.println("=== TEST: testSendMessageWithAllParameters STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithAllParameters STARTED ===");
 
         String testMessage = "Message with all parameters";
         Map<String, String> headers = new HashMap<>();
@@ -222,49 +195,36 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
-        System.err.println("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
     }
 
     @Test
     void testSendMultipleMessages() throws Exception {
-        System.err.println("=== TEST: testSendMultipleMessages STARTED ===");
-        System.err.flush();
+        logger.info("Test: send message with all parameters");
+        logger.info("=== TEST: testSendMultipleMessages STARTED ===");
 
         int messageCount = 10;
-        CountDownLatch allLatch = new CountDownLatch(messageCount);
-
         for (int i = 0; i < messageCount; i++) {
             String message = "Message " + i;
-            producer.send(message).onComplete(ar -> allLatch.countDown());
+            producer.send(message).await();
         }
 
-        // Wait for all sends to complete
-        assertTrue(allLatch.await(10, TimeUnit.SECONDS));
-
-        System.err.println("=== TEST: testSendMultipleMessages COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMultipleMessages COMPLETED ===");
     }
 
     @Test
     void testProducerClose() throws Exception {
-        System.err.println("=== TEST: testProducerClose STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerClose STARTED ===");
 
         // Send a message first
-        CountDownLatch latch = new CountDownLatch(1);
-        producer.send("test message").onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        producer.send("test message").await();
 
         // Close producer
         producer.close();
 
-        System.err.println("=== TEST: testProducerClose COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerClose COMPLETED ===");
     }
 }
 
