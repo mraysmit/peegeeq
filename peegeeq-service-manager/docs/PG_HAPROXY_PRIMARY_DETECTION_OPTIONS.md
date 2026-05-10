@@ -9,6 +9,8 @@
 
 ## 1. The Core Problem
 
+HAProxy is a battle-tested TCP/HTTP load balancer commonly placed in front of a PostgreSQL primary-replica pair to give the application a single, stable connection endpoint that survives a node failure.
+
 `option pgsql-check` and plain TCP checks both verify that PostgreSQL is **alive**.
 Both the primary and any replica pass these checks.
 Neither tells HAProxy which node is the **write primary**.
@@ -186,7 +188,9 @@ java -Dpg.host=localhost -Dpg.port=5432 -Dpg.user=haproxy_check \
 - No additional language runtime on the node — the JVM is already required for PeeGeeQ.
 - Uses `io.vertx.pgclient` (same driver as PeeGeeQ) — consistent behaviour, no new
   PostgreSQL dependency.
-- Can be compiled to a GraalVM native image if a minimal-footprint sidecar is required.
+- **Built as a GraalVM native image** for production deployments: instant startup (~10 ms),
+  minimal memory footprint (~15 MB RSS), no JVM on the node required.  The fat-jar form
+  is retained for development and debugging.  See §7.3 for the native build command.
 - The `haproxy_check` user needs no password and only the `SELECT pg_is_in_recovery()`
   privilege — same as the Python version.
 
@@ -276,7 +280,7 @@ Key characteristics:
 
 | Approach | Complexity | Extra process required | Automatic promotion | Split-brain safe |
 |----------|------------|------------------------|--------------------|--------------------|
-| Custom HTTP sidecar (§3.1) | Very low | Yes — tiny Python/shell | No | No |
+| Custom HTTP sidecar (§3.1) | Very low | Yes — `peegeeq-pg-sidecar` (Vert.x Java fat-jar) | No | No |
 | HAProxy `agent-check` (§3.2) | Low | Yes — shell + socat/xinetd | No | No |
 | repmgr + repmgrd (§3.3) | Medium | Yes — repmgrd daemon | Yes (with witness) | Partial |
 | Consul-based monitor (see `PG_FAILOVER_CONSUL_DESIGN.md`) | Medium | No (uses existing Consul) | Yes | Yes (with fencing) |
