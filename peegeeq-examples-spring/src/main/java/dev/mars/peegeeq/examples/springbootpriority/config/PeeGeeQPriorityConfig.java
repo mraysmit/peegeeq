@@ -77,10 +77,7 @@ public class PeeGeeQPriorityConfig {
     public PeeGeeQManager peeGeeQManager(PeeGeeQPriorityProperties properties, MeterRegistry meterRegistry) {
         log.info("Creating PeeGeeQ Manager for priority example with profile: {}", properties.getProfile());
 
-        // Configure system properties from Spring configuration
-        configureSystemProperties(properties);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile(), configureSystemProperties(properties));
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager
@@ -188,21 +185,21 @@ public class PeeGeeQPriorityConfig {
     /**
      * Configure system properties from Spring configuration.
      */
-    private void configureSystemProperties(PeeGeeQPriorityProperties properties) {
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", String.valueOf(properties.getDatabase().getSsl().isEnabled()));
-        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
-        System.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getDatabase().getPool().getMaxSize()));
-        System.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getDatabase().getPool().getMinSize()));
-        System.setProperty("peegeeq.queue.polling-interval", properties.getQueue().getPollingInterval());
-        System.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
-        System.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));
-        
-        log.info("System properties configured from Spring configuration");
+    private java.util.Properties configureSystemProperties(PeeGeeQPriorityProperties properties) {
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        props.setProperty("peegeeq.database.ssl.enabled", String.valueOf(properties.getDatabase().getSsl().isEnabled()));
+        props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getDatabase().getPool().getMaxSize()));
+        props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getDatabase().getPool().getMinSize()));
+        props.setProperty("peegeeq.queue.polling-interval", properties.getQueue().getPollingInterval());
+        props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
+        props.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));
+        return props;
     }
 
     /**

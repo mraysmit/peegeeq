@@ -71,23 +71,22 @@ public class PeeGeeQRetryConfig {
         
         log.info("Creating PeeGeeQ Manager for Retry with profile: {}", profile);
         
-        // Configure system properties for PeeGeeQ
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        // Configure PeeGeeQ properties from Spring configuration
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         
         // Configure retry settings
-        System.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getMaxRetries()));
+        props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getMaxRetries()));
         // Convert milliseconds to seconds for Duration format (e.g., 500ms -> PT0.5S)
         double seconds = properties.getPollingIntervalMs() / 1000.0;
-        System.setProperty("peegeeq.queue.polling-interval", "PT" + seconds + "S");
-        
-        log.info("System properties configured from Spring configuration");
+        props.setProperty("peegeeq.queue.polling-interval", "PT" + seconds + "S");
         
         // Create and start PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration(profile), meterRegistry);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration(profile, props), meterRegistry);
         manager.start().await();
         
         log.info("PeeGeeQ Manager started successfully with max retries: {}", properties.getMaxRetries());

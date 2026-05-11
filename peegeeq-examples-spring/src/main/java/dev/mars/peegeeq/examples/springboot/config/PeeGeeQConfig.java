@@ -75,10 +75,7 @@ public class PeeGeeQConfig {
     public PeeGeeQManager peeGeeQManager(PeeGeeQProperties properties, MeterRegistry meterRegistry) {
         log.info("Creating PeeGeeQ Manager with profile: {}", properties.getProfile());
         
-        // Configure system properties from Spring configuration
-        configureSystemProperties(properties);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile(), configureSystemProperties(properties));
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager - this handles all Vert.x setup internally
@@ -163,26 +160,20 @@ public class PeeGeeQConfig {
      *
      * @param properties PeeGeeQ configuration properties
      */
-    private void configureSystemProperties(PeeGeeQProperties properties) {
-        log.debug("Configuring system properties from Spring Boot configuration");
-
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
-        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
-
-        // Configure pool settings
-        System.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
-        System.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
-
-        // Configure queue settings
-        System.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
-        System.setProperty("peegeeq.queue.visibility-timeout", properties.getQueue().getVisibilityTimeout().toString());
-        System.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));
-        System.setProperty("peegeeq.queue.polling-interval", properties.getQueue().getPollingInterval().toString());
-
-        log.debug("System properties configured successfully");
+    private java.util.Properties configureSystemProperties(PeeGeeQProperties properties) {
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
+        props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
+        props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
+        props.setProperty("peegeeq.queue.visibility-timeout", properties.getQueue().getVisibilityTimeout().toString());
+        props.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));
+        props.setProperty("peegeeq.queue.polling-interval", properties.getQueue().getPollingInterval().toString());
+        return props;
     }
 }
