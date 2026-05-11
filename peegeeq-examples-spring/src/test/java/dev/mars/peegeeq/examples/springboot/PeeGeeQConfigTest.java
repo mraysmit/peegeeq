@@ -199,21 +199,33 @@ class PeeGeeQConfigTest {
     }
     
     /**
-     * Test that system properties are configured correctly from Spring properties.
+     * Test that the Spring config does NOT contaminate System properties.
+     *
+     * Phase 10 migration: configureSystemProperties() now returns a java.util.Properties
+     * object that is passed directly to PeeGeeQConfiguration(profile, props). System
+     * properties are never written; the manager must still start successfully.
      */
     @Test
     void testSystemPropertiesConfiguration() {
         logger.info("=== Testing System Properties Configuration ===");
-        
-        // Verify that system properties have been set correctly
-        assertEquals(postgres.getHost(), System.getProperty("peegeeq.database.host"));
-        assertEquals(postgres.getFirstMappedPort().toString(), System.getProperty("peegeeq.database.port"));
-        assertEquals(postgres.getDatabaseName(), System.getProperty("peegeeq.database.name"));
-        assertEquals(postgres.getUsername(), System.getProperty("peegeeq.database.username"));
-        assertEquals(postgres.getPassword(), System.getProperty("peegeeq.database.password"));
-        assertEquals("public", System.getProperty("peegeeq.database.schema"));
-        
-        logger.info("System properties configured correctly");
+
+        // Verify that NO peegeeq.* System properties are set (no global contamination)
+        assertNull(System.getProperty("peegeeq.database.host"),
+                "peegeeq.database.host must not be set as a System property");
+        assertNull(System.getProperty("peegeeq.database.port"),
+                "peegeeq.database.port must not be set as a System property");
+        assertNull(System.getProperty("peegeeq.database.name"),
+                "peegeeq.database.name must not be set as a System property");
+        assertNull(System.getProperty("peegeeq.database.username"),
+                "peegeeq.database.username must not be set as a System property");
+        assertNull(System.getProperty("peegeeq.database.password"),
+                "peegeeq.database.password must not be set as a System property");
+
+        // The manager must still be fully started — config was passed via the 2-arg constructor
+        assertTrue(peeGeeQManager.isStarted(),
+                "PeeGeeQ Manager must be started even without System properties");
+
+        logger.info("System properties isolation verified — no peegeeq.* System properties set");
         logger.info("System properties test passed");
     }
     

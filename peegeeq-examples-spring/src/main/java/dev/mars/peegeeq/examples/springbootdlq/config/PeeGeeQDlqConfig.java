@@ -62,23 +62,22 @@ public class PeeGeeQDlqConfig {
     public PeeGeeQManager peeGeeQManager() {
         log.info("Creating PeeGeeQ Manager for DLQ with profile: development");
         
-        // Configure system properties for PeeGeeQ
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        // Configure PeeGeeQ properties from Spring configuration
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
         
         // Configure retry settings
-        System.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getMaxRetries()));
+        props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getMaxRetries()));
         // Convert milliseconds to seconds for Duration format (e.g., 500ms -> PT0.5S)
         double seconds = properties.getPollingIntervalMs() / 1000.0;
-        System.setProperty("peegeeq.queue.polling-interval", "PT" + seconds + "S");
-        
-        log.info("System properties configured from Spring configuration");
+        props.setProperty("peegeeq.queue.polling-interval", "PT" + seconds + "S");
         
         PeeGeeQManager manager = new PeeGeeQManager(
-            new PeeGeeQConfiguration("development"),
+            new PeeGeeQConfiguration("development", props),
             new SimpleMeterRegistry()
         );
         

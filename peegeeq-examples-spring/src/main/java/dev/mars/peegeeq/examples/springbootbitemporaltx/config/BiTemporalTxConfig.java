@@ -91,10 +91,7 @@ public class BiTemporalTxConfig {
         logger.info("Creating PeeGeeQ Manager for Bi-Temporal Transaction Coordination with profile: {}", 
                    properties.getProfile());
         
-        // Configure system properties from Spring configuration
-        configureSystemProperties(properties);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile(), configureSystemProperties(properties));
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager - this handles all Vert.x setup internally
@@ -209,26 +206,19 @@ public class BiTemporalTxConfig {
      *
      * @param properties Bi-temporal transaction configuration properties
      */
-    private void configureSystemProperties(BiTemporalTxProperties properties) {
-        logger.debug("Configuring system properties for bi-temporal transaction coordination");
-
-        // Database configuration
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
-        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
-
-        // Configure pool settings for multi-store coordination
-        System.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
-        System.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
-
-        // Configure transaction settings
-        System.setProperty("peegeeq.transaction.timeout", properties.getTransaction().getTimeout().toString());
-        System.setProperty("peegeeq.transaction.retry-attempts", String.valueOf(properties.getTransaction().getRetryAttempts()));
-
-        logger.debug("System properties configured successfully for bi-temporal transaction coordination");
+    private java.util.Properties configureSystemProperties(BiTemporalTxProperties properties) {
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
+        props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
+        props.setProperty("peegeeq.transaction.timeout", properties.getTransaction().getTimeout().toString());
+        props.setProperty("peegeeq.transaction.retry-attempts", String.valueOf(properties.getTransaction().getRetryAttempts()));
+        return props;
     }
 }
 
