@@ -61,7 +61,7 @@ public class CloudEventsExample {
         
         try {
             // Initialize PeeGeeQ Manager
-            manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+            manager = new PeeGeeQManager(new PeeGeeQConfiguration("development", new java.util.Properties()), new SimpleMeterRegistry());
             manager.start().await();
             logger.info("PeeGeeQ Manager started");
             
