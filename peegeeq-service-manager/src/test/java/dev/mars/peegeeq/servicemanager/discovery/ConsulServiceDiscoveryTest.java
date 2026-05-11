@@ -156,7 +156,7 @@ class ConsulServiceDiscoveryTest {
                     
                     logger.info("Successfully discovered test instance: {}", foundInstance);
                     testContext.completeNow();
-                }))
+                })))
                 .onFailure(throwable -> {
                     logger.error("Failed to discover test instance", throwable);
                     testContext.failNow(throwable);
@@ -193,7 +193,7 @@ class ConsulServiceDiscoveryTest {
                     
                     logger.info("Successfully retrieved specific instance: {}", foundInstance);
                     testContext.completeNow();
-                }))
+                })))
                 .onFailure(throwable -> {
                     logger.error("Failed to get specific instance", throwable);
                     testContext.failNow(throwable);
@@ -229,7 +229,7 @@ class ConsulServiceDiscoveryTest {
                     
                     logger.info("Successfully verified instance deregistration");
                     testContext.completeNow();
-                }))
+                })))
                 .onFailure(throwable -> {
                     logger.error("Failed to deregister instance", throwable);
                     testContext.failNow(throwable);
@@ -261,7 +261,7 @@ class ConsulServiceDiscoveryTest {
                     
                     logger.info("Health check result for test instance: {}", health);
                     testContext.completeNow();
-                }))
+                })))
                 .onFailure(throwable -> {
                     logger.error("Failed to check instance health", throwable);
                     testContext.failNow(throwable);
@@ -311,7 +311,7 @@ class ConsulServiceDiscoveryTest {
                     
                     logger.info("Successfully verified cached instances: {} total", cachedInstances.size());
                     testContext.completeNow();
-                }))
+                })))
                 .onFailure(throwable -> {
                     logger.error("Failed to test cached instances", throwable);
                     testContext.failNow(throwable);

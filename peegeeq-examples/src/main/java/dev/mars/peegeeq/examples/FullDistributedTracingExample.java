@@ -52,7 +52,7 @@ public class FullDistributedTracingExample {
 
     public static void main(String[] args) throws Exception {
         // Initialize PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", new java.util.Properties());
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 

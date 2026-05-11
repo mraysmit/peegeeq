@@ -69,10 +69,7 @@ public class FinancialFabricConfig {
             MeterRegistry meterRegistry) {
         log.info("Creating PeeGeeQ Manager for Financial Fabric with profile: {}", profile);
 
-        // Configure system properties from Spring configuration
-        configureSystemProperties(properties);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(profile);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(profile, configureSystemProperties(properties));
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager
@@ -172,16 +169,14 @@ public class FinancialFabricConfig {
      * Configures system properties from Spring Boot configuration.
      * Follows the DLQ/Retry pattern.
      */
-    private void configureSystemProperties(FinancialFabricProperties properties) {
-        log.debug("Configuring system properties from Spring Boot configuration");
-
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
-
-        log.info("System properties configured from Spring configuration");
+    private java.util.Properties configureSystemProperties(FinancialFabricProperties properties) {
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        return props;
     }
 }
 

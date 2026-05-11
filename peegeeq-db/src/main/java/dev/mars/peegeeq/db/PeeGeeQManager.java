@@ -139,11 +139,11 @@ public class PeeGeeQManager implements AutoCloseable {
 
 
     public PeeGeeQManager() {
-        this(new PeeGeeQConfiguration());
+        this(new PeeGeeQConfiguration(PeeGeeQConfiguration.getActiveProfile(), new java.util.Properties()));
     }
 
     public PeeGeeQManager(String profile) {
-        this(new PeeGeeQConfiguration(profile));
+        this(new PeeGeeQConfiguration(profile, new java.util.Properties()));
     }
 
     public PeeGeeQManager(PeeGeeQConfiguration configuration) {
