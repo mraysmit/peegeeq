@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db.fanout;
 
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -84,7 +85,11 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+            new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
+                    .cleanupAllDeadGroups()
+                    .eventually(() -> connectionManager.close())
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

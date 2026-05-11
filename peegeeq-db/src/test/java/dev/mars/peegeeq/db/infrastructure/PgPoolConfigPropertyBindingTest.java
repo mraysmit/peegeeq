@@ -4,9 +4,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -23,18 +20,17 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
  * {@link PeeGeeQConfiguration#getPoolConfig()}.
  *
  * <p>Every property key declared in {@code peegeeq-default.properties} must
- * round-trip through the configuration loader. A sentinel value distinct from
- * the default is set via {@code System.setProperty}, and the corresponding
- * getter on {@link PgPoolConfig} must reflect it.</p>
+ * round-trip through the configuration loader when supplied via the 2-arg
+ * constructor overrides. A sentinel value distinct from the default is set in
+ * an explicit {@link java.util.Properties} object, and the corresponding getter
+ * on {@link PgPoolConfig} must reflect it.</p>
  *
- * <p>This is a CORE test no database, no TestContainers.</p>
+ * <p>System properties are no longer swept by {@code loadProperties()} (Phase 11
+ * removal). The 2-arg constructor is the correct override path for all callers.</p>
  *
- * <p>Runs sequentially because each parameterized test mutates global
- * {@code System} properties, which are not thread-safe.</p>
+ * <p>This is a CORE test — no database, no TestContainers.</p>
  */
 @Tag(TestCategories.CORE)
-@Execution(ExecutionMode.SAME_THREAD)
-@ResourceLock("system-properties")
 class PgPoolConfigPropertyBindingTest {
 
     @ParameterizedTest(name = "[{index}] {0} = {1}")
@@ -42,14 +38,11 @@ class PgPoolConfigPropertyBindingTest {
     void getPoolConfig_appliesEveryDocumentedSystemProperty(String key, String sentinel,
                                                             Function<PgPoolConfig, Object> getter,
                                                             Object expected) {
-        System.setProperty(key, sentinel);
-        try {
-            PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-binding-" + UUID.randomUUID());
-            assertEquals(expected, getter.apply(cfg.getPoolConfig()),
-                "Property " + key + " = " + sentinel + " must be reflected in PgPoolConfig");
-        } finally {
-            System.clearProperty(key);
-        }
+        java.util.Properties overrides = new java.util.Properties();
+        overrides.setProperty(key, sentinel);
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-binding-" + UUID.randomUUID(), overrides);
+        assertEquals(expected, getter.apply(cfg.getPoolConfig()),
+            "Property " + key + " = " + sentinel + " must be reflected in PgPoolConfig");
     }
 
     static Stream<Arguments> poolPropertyKeys() {
