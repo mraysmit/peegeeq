@@ -4,6 +4,7 @@ import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -86,7 +87,11 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+            new DeadConsumerGroupCleanup(connectionManager, "peegeeq-main")
+                    .cleanupAllDeadGroups()
+                    .eventually(() -> connectionManager.close())
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

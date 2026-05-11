@@ -95,11 +95,13 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
 
     @AfterEach
     void cleanUp(VertxTestContext testContext) {
-        if (job != null && job.isRunning()) {
-            job.stop();
-        }
         if (connectionManager != null) {
-            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+            Future<Void> stopJob = (job != null && job.isRunning()) ? job.stop() : Future.succeededFuture();
+            stopJob
+                    .compose(v -> cleanup.cleanupAllDeadGroups())
+                    .eventually(() -> connectionManager.close())
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
