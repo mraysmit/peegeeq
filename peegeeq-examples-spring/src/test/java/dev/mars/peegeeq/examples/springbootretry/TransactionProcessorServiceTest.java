@@ -56,6 +56,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 
 /**
  * Integration tests for Transaction Processor Service with Retry.
@@ -153,7 +154,7 @@ public class TransactionProcessorServiceTest {
     static void tearDown() {
         log.info("🧹 Cleaning up Transaction Processor Service Test resources");
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            peeGeeQManagerRef.close();
         }
         log.info("Transaction Processor Service Test cleanup complete");
     }
