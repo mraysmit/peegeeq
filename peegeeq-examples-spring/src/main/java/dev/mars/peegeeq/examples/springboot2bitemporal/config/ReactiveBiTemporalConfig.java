@@ -70,11 +70,7 @@ public class ReactiveBiTemporalConfig {
         logger.info("Initializing PeeGeeQManager for reactive bi-temporal with profile: {}",
                    properties.getProfile());
 
-        // Configure system properties from Spring Boot configuration
-        // This bridges Spring's @ConfigurationProperties to PeeGeeQConfiguration's system property reading
-        configureSystemProperties(properties);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile(), configureSystemProperties(properties));
         manager = new PeeGeeQManager(config, meterRegistry);
         manager.start().await();
 
@@ -150,17 +146,15 @@ public class ReactiveBiTemporalConfig {
      *
      * @param properties Reactive bi-temporal configuration properties from Spring
      */
-    private void configureSystemProperties(ReactiveBiTemporalProperties properties) {
-        logger.debug("Configuring system properties from Spring Boot configuration for reactive bi-temporal");
-
-        System.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
-        System.setProperty("peegeeq.database.name", properties.getDatabase().getName());
-        System.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
-        System.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
-        System.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
-
-        logger.debug("System properties configured successfully");
+    private java.util.Properties configureSystemProperties(ReactiveBiTemporalProperties properties) {
+        java.util.Properties props = new java.util.Properties();
+        props.setProperty("peegeeq.database.host", properties.getDatabase().getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(properties.getDatabase().getPort()));
+        props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
+        props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
+        props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
+        return props;
     }
 }
 
