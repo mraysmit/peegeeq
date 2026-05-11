@@ -132,8 +132,8 @@ public class PeeGeeQManagerTimerGuardTest {
     @Test
     @DisplayName("No timer failure logs when DB is alive and manager closes cleanly")
     void testNoTimerFailuresDuringCleanClose(VertxTestContext testContext) {
-        setSystemPropertiesFor(postgres);
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties props = setSystemPropertiesFor(postgres);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", props), new SimpleMeterRegistry());
         Vertx vertx = manager.getVertx();
 
         manager.start()
@@ -179,8 +179,8 @@ public class PeeGeeQManagerTimerGuardTest {
         ownContainer.start();
         initializeSchemaFor(ownContainer);
 
-        setSystemPropertiesFor(ownContainer);
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties ownContainerProps = setSystemPropertiesFor(ownContainer);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", ownContainerProps), new SimpleMeterRegistry());
         Vertx vertx = manager.getVertx();
 
         manager.start()
@@ -249,8 +249,8 @@ public class PeeGeeQManagerTimerGuardTest {
         //
         // With the guard: any tick that fires after closing=true exits immediately.
         // The observable consequence: no "Failed to refresh depth cache" WARN/ERROR.
-        setSystemPropertiesFor(postgres);
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties props = setSystemPropertiesFor(postgres);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", props), new SimpleMeterRegistry());
         Vertx vertx = manager.getVertx();
 
         manager.start()
@@ -281,8 +281,8 @@ public class PeeGeeQManagerTimerGuardTest {
     @Test
     @DisplayName("In-flight background tasks fail fast if manager is closed")
     void testInFlightTasksFailFast(VertxTestContext testContext) {
-        setSystemPropertiesFor(postgres);
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties props = setSystemPropertiesFor(postgres);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", props), new SimpleMeterRegistry());
 
         manager.start()
                 .compose(v -> {
@@ -341,9 +341,8 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
         props.setProperty("peegeeq.migration.enabled", "false");
         props.setProperty("peegeeq.migration.auto-migrate", "false");
-        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
 
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", props), new SimpleMeterRegistry());
         Vertx vertx = manager.getVertx();
 
         manager.start()
@@ -391,7 +390,7 @@ public class PeeGeeQManagerTimerGuardTest {
         return p.future();
     }
 
-    private void setSystemPropertiesFor(PostgreSQLContainer container) {
+    private Properties setSystemPropertiesFor(PostgreSQLContainer container) {
         Properties props = new Properties();
         props.setProperty("peegeeq.database.host", container.getHost());
         props.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
@@ -419,12 +418,11 @@ public class PeeGeeQManagerTimerGuardTest {
 
         props.setProperty("peegeeq.migration.enabled", "false");
         props.setProperty("peegeeq.migration.auto-migrate", "false");
-        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
+        return props;
     }
 
     private void clearSystemProperties() {
-        System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
+        // no-op: System properties are no longer written by this test (uses 2-arg constructor)
     }
 
     @SuppressWarnings("unchecked")

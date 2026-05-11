@@ -45,10 +45,26 @@ public class PeeGeeQConfiguration {
     private final String profile;
     private final String instanceId;
     
+    /**
+     * @deprecated Replaced by {@link #PeeGeeQConfiguration(String, Properties)}.
+     *             Using this constructor reads the active profile from the JVM system
+     *             property {@code peegeeq.profile}, which is a process-global and causes
+     *             test pollution and multi-tenant races. Pass an explicit profile and a
+     *             {@code Properties} overrides object instead.
+     */
+    @Deprecated(since = "2.0", forRemoval = true)
     public PeeGeeQConfiguration() {
         this(getActiveProfile());
     }
     
+    /**
+     * @deprecated Replaced by {@link #PeeGeeQConfiguration(String, Properties)}.
+     *             This single-arg form relies on the System property sweep (now removed)
+     *             for runtime overrides, giving callers no way to supply configuration
+     *             without writing to the JVM-global property table. Pass a
+     *             {@code Properties} overrides object as the second argument instead.
+     */
+    @Deprecated(since = "2.0", forRemoval = true)
     public PeeGeeQConfiguration(String profile) {
         this.profile = profile;
         this.properties = loadProperties(profile);
@@ -117,7 +133,7 @@ public class PeeGeeQConfiguration {
         logger.info("Loaded PeeGeeQ configuration for profile: {} with explicit database config", profile);
     }
     
-    private static String getActiveProfile() {
+    public static String getActiveProfile() {
         return System.getProperty("peegeeq.profile", 
                System.getenv("PEEGEEQ_PROFILE") != null ? System.getenv("PEEGEEQ_PROFILE") : "default");
     }
@@ -139,15 +155,6 @@ public class PeeGeeQConfiguration {
             if (key.startsWith("PEEGEEQ_")) {
                 String propKey = resolveEnvVarKey(key, props);
                 props.setProperty(propKey, value);
-            }
-        });
-
-        // Finally, override with system properties (only peegeeq.*)
-        // This ensures test code using System.setProperty wins over env (common testing pattern)
-        System.getProperties().forEach((key, value) -> {
-            String keyStr = key.toString();
-            if (keyStr.startsWith("peegeeq.")) {
-                props.setProperty(keyStr, value.toString());
             }
         });
 
