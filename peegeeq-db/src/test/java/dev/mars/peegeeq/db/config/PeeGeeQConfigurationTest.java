@@ -173,18 +173,15 @@ public class PeeGeeQConfigurationTest {
         PeeGeeQConfiguration.CircuitBreakerConfig cbConfig = config.getCircuitBreakerConfig();
         assertEquals(40.0, cbConfig.getFailureRateThreshold(), 0.001);
 
-        // Set system property with invalid double value
-        System.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "not-a-double");
+        // Pass invalid double via 2-arg constructor (System properties are no longer swept)
+        Properties invalidDoubleProps = new Properties();
+        invalidDoubleProps.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "not-a-double");
 
-        // Create new config with the invalid property
-        PeeGeeQConfiguration configWithInvalidDouble = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration configWithInvalidDouble = new PeeGeeQConfiguration(TEST_PROFILE, invalidDoubleProps);
         PeeGeeQConfiguration.CircuitBreakerConfig cbConfigWithInvalid = configWithInvalidDouble.getCircuitBreakerConfig();
 
-        // Should use default value from the implementation (50.0)
+        // Should use default value from the implementation (50.0) because the override is not a valid double
         assertEquals(50.0, cbConfigWithInvalid.getFailureRateThreshold(), 0.001);
-
-        // Clean up
-        System.clearProperty("peegeeq.circuit-breaker.failure-rate-threshold");
     }
 
     @Test
@@ -261,7 +258,8 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testValidationFailure() {
-        // Create invalid configuration that will fail validation
+        // Create invalid configuration and pass directly via 2-arg constructor
+        // (System properties are no longer swept; overrides must be explicit)
         Properties invalidProps = new Properties();
         invalidProps.setProperty("peegeeq.database.host", ""); // Empty host (invalid)
         invalidProps.setProperty("peegeeq.database.port", "70000"); // Invalid port range
@@ -270,14 +268,9 @@ public class PeeGeeQConfigurationTest {
         invalidProps.setProperty("peegeeq.database.pool.min-size", "0"); // Invalid min pool size
         invalidProps.setProperty("peegeeq.database.pool.max-size", "2"); // Valid but will be less than default min
 
-        // Set system properties to use our invalid properties
-        for (String key : invalidProps.stringPropertyNames()) {
-            System.setProperty(key, invalidProps.getProperty(key));
-        }
-
         // This should throw an IllegalStateException due to validation failures
         Exception exception = assertThrows(IllegalStateException.class,
-            () -> new PeeGeeQConfiguration(TEST_PROFILE));
+            () -> new PeeGeeQConfiguration(TEST_PROFILE, invalidProps));
 
         // Verify the exception message contains expected validation errors
         String exceptionMessage = exception.getMessage();
@@ -287,45 +280,37 @@ public class PeeGeeQConfigurationTest {
                    exceptionMessage.contains("Database port must be between 1 and 65535") ||
                    exceptionMessage.contains("Minimum pool size must be at least 1"),
                    "Should contain at least one validation error");
-
-        // Clean up system properties
-        for (String key : invalidProps.stringPropertyNames()) {
-            System.clearProperty(key);
-        }
     }
 
     @Test
     void testValidationFailureForPoolTimeouts() {
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "0");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "-1");
+        // Pass invalid pool timeouts via 2-arg constructor (System properties are no longer swept)
+        Properties timeoutProps = new Properties();
+        timeoutProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "0");
+        timeoutProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "-1");
 
         Exception exception = assertThrows(IllegalStateException.class,
-            () -> new PeeGeeQConfiguration(TEST_PROFILE));
+            () -> new PeeGeeQConfiguration(TEST_PROFILE, timeoutProps));
 
         String exceptionMessage = exception.getMessage();
         assertTrue(exceptionMessage.contains("Connection timeout must be greater than 0ms"));
         assertTrue(exceptionMessage.contains("Idle timeout must be greater than or equal to 0ms"));
-
-        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
-        System.clearProperty("peegeeq.database.pool.idle-timeout-ms");
     }
 
     @Test
-    void testSystemPropertyOverride() {
-        // Set a system property to override a value in the properties file
+    void testSystemPropertyNotPickedUpByConstructor() {
+        // Phase 11: the System.getProperties() sweep has been removed from loadProperties().
+        // Setting a peegeeq.* System property must NOT affect a newly constructed instance.
         System.setProperty("peegeeq.database.host", "system-override-host");
+        try {
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
 
-        // Verify the property was actually set (defensive check for parallel execution)
-        assertEquals("system-override-host", System.getProperty("peegeeq.database.host"),
-            "System property should be set before creating configuration");
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
-
-        // Verify the system property override worked
-        assertEquals("system-override-host", config.getString("peegeeq.database.host"));
-
-        // Clean up
-        System.clearProperty("peegeeq.database.host");
+            // Must return the value from the test profile file, not the System property
+            assertEquals("test-host", config.getString("peegeeq.database.host"),
+                "System property must not contaminate PeeGeeQConfiguration instances");
+        } finally {
+            System.clearProperty("peegeeq.database.host");
+        }
     }
 
     @Test
