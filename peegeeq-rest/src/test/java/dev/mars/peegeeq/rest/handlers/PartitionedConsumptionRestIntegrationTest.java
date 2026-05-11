@@ -14,6 +14,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -97,17 +98,10 @@ public class PartitionedConsumptionRestIntegrationTest {
         // Initialize schema directly on the container's default database (clean DB → Flyway runs all migrations)
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
-        // Set system properties for PeeGeeQConfiguration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-
         setupId = "partitioned-test-setup";
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("partitioned-rest-test");
+        java.util.Properties props = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("partitioned-rest-test", props);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         peeGeeQManager.start()
