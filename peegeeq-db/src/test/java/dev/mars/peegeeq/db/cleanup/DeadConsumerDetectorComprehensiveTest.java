@@ -124,7 +124,11 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+            new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
+                    .cleanupAllDeadGroups()
+                    .eventually(() -> connectionManager.close())
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

@@ -100,7 +100,9 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close()
+            new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID)
+                    .cleanupAllDeadGroups()
+                    .eventually(() -> connectionManager.close())
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
