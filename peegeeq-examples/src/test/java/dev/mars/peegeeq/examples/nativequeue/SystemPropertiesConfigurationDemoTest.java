@@ -1,63 +1,45 @@
 package dev.mars.peegeeq.examples.nativequeue;
 
-import dev.mars.peegeeq.api.messaging.*;
-import dev.mars.peegeeq.api.QueueFactoryProvider;
-import dev.mars.peegeeq.api.QueueFactoryRegistrar;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.provider.PgDatabaseService;
-import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
-import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
-import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
-import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
-import dev.mars.peegeeq.api.messaging.MessageConsumer;
-import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vertx.core.Vertx;
-import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import io.vertx.core.Future;
-import io.vertx.core.Promise;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Properties;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-import org.junit.jupiter.api.extension.ExtendWith;
-
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Demo test showcasing System Properties Configuration Patterns for PeeGeeQ.
- * 
- * This test demonstrates:
- * 1. Dynamic Configuration Management - Runtime property updates
- * 2. Environment-Specific Settings - DEV/STAGING/PROD configurations  
- * 3. Configuration Validation - Property validation and error handling
- * 4. Hot Configuration Reload - Live configuration updates without restart
- * 5. Configuration Inheritance - Hierarchical configuration patterns
- * 
- * Based on Advanced Messaging Patterns from PeeGeeQ Complete Guide.
+ * PROBLEM DEMONSTRATION: Why System properties MUST NOT be used to configure PeeGeeQ instances.
+ *
+ * <p>This test class demonstrates the multi-tenant contamination defect caused by
+ * {@code PeeGeeQConfiguration.loadProperties()} sweeping process-wide JVM System properties
+ * on every construction. System properties are a single global namespace shared by ALL
+ * threads and ALL PeeGeeQ instances in the same JVM. Two tenants cannot hold different
+ * values for the same {@code peegeeq.*} key simultaneously.
+ *
+ * <p><b>These tests prove the defect, not a solution. Do not copy these System.setProperty
+ * patterns.</b> The correct isolation pattern is demonstrated in the final test: build a
+ * {@code Properties} object via {@code PeeGeeQTestConfig.builder()} and pass it to the
+ * 2-arg constructor {@code new PeeGeeQConfiguration(profile, props)}.
+ *
+ * @see PeeGeeQTestConfig for the correct isolation pattern
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@ExtendWith(VertxExtension.class)
+@ResourceLock("system-properties")
 class SystemPropertiesConfigurationDemoTest {
-    private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesConfigurationDemoTest.class);
 
+    private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesConfigurationDemoTest.class);
+    private static final String BATCH_SIZE_KEY = "peegeeq.queue.batch-size";
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -66,509 +48,131 @@ class SystemPropertiesConfigurationDemoTest {
         SharedTestContainers.configureSharedProperties(registry);
     }
 
-    private PeeGeeQManager manager;
-    private QueueFactory queueFactory;
+    // -------------------------------------------------------------------------
+    // Tests
+    // -------------------------------------------------------------------------
 
-    // Track all consumers and producers for proper cleanup
-    private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
-    private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
-
-    // Test configuration environments
-    enum Environment {
-        DEVELOPMENT("dev", 100, 5000, true),
-        STAGING("staging", 500, 10000, true), 
-        PRODUCTION("prod", 1000, 30000, false);
-
-        final String name;
-        final int batchSize;
-        final int timeoutMs;
-        final boolean debugEnabled;
-
-        Environment(String name, int batchSize, int timeoutMs, boolean debugEnabled) {
-            this.name = name;
-            this.batchSize = batchSize;
-            this.timeoutMs = timeoutMs;
-            this.debugEnabled = debugEnabled;
-        }
-    }
-
-    // Configuration event for testing - following established POJO pattern
-    static class ConfigurationEvent {
-        private String eventId;
-        private String environment;
-        private Integer batchSize;
-        private Integer timeoutMs;
-        private Boolean debugEnabled;
-        private String change;
-        private String timestamp;
-
-        // Default constructor for Jackson
-        public ConfigurationEvent() {}
-
-        public ConfigurationEvent(String eventId, String environment, Integer batchSize, Integer timeoutMs, Boolean debugEnabled, String change) {
-            this.eventId = eventId;
-            this.environment = environment;
-            this.batchSize = batchSize;
-            this.timeoutMs = timeoutMs;
-            this.debugEnabled = debugEnabled;
-            this.change = change;
-            this.timestamp = Instant.now().toString();
-        }
-
-        // Getters and setters
-        public String getEventId() { return eventId; }
-        public void setEventId(String eventId) { this.eventId = eventId; }
-
-        public String getEnvironment() { return environment; }
-        public void setEnvironment(String environment) { this.environment = environment; }
-
-        public Integer getBatchSize() { return batchSize; }
-        public void setBatchSize(Integer batchSize) { this.batchSize = batchSize; }
-
-        public Integer getTimeoutMs() { return timeoutMs; }
-        public void setTimeoutMs(Integer timeoutMs) { this.timeoutMs = timeoutMs; }
-
-        public Boolean getDebugEnabled() { return debugEnabled; }
-        public void setDebugEnabled(Boolean debugEnabled) { this.debugEnabled = debugEnabled; }
-
-        public String getChange() { return change; }
-        public void setChange(String change) { this.change = change; }
-
-        public String getTimestamp() { return timestamp; }
-        public void setTimestamp(String timestamp) { this.timestamp = timestamp; }
-
-        @Override
-        public String toString() {
-            return String.format("ConfigurationEvent{eventId='%s', environment='%s', batchSize=%s, timeoutMs=%s, debugEnabled=%s, change='%s', timestamp='%s'}",
-                eventId, environment, batchSize, timeoutMs, debugEnabled, change, timestamp);
-        }
-    }
-
-    @BeforeEach
-    void setUp() {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-
-        // Configure database connection properties
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-
-        // Initialize database schema for system properties configuration test
-        logger.info("Initializing database schema for system properties configuration test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
-
-        // Initialize PeeGeeQ with development configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        queueFactory = provider.createFactory("native", databaseService);
-
-        logger.info("Setup complete - Ready for configuration pattern testing");
-    }
-
-    @AfterEach
-    void tearDown(Vertx vertx) {
-        logger.info("Tearing down: closing resources and manager");
-
-        // CRITICAL: Close all consumers first to stop background polling
-        logger.info("Closing {} active consumers...", activeConsumers.size());
-        for (MessageConsumer<?> consumer : activeConsumers) {
-            try {
-                consumer.close();
-                logger.info("Closed consumer");
-            } catch (Exception e) {
-                logger.warn("Error closing consumer: {}", e.getMessage());
-            }
-        }
-        activeConsumers.clear();
-
-        // Close all producers
-        logger.info("Closing {} active producers...", activeProducers.size());
-        for (MessageProducer<?> producer : activeProducers) {
-            try {
-                producer.close();
-                logger.info("Closed producer");
-            } catch (Exception e) {
-                logger.warn("Error closing producer: {}", e.getMessage());
-            }
-        }
-        activeProducers.clear();
-
-        if (manager != null) {
-            try {
-                logger.info("Closing PeeGeeQ manager...");
-                manager.closeReactive().await();
-                logger.info("PeeGeeQ manager closed successfully");
-
-                // CRITICAL: Wait for all resources to be fully released
-                // This prevents connection pool exhaustion in subsequent tests
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(2000, id -> delay.complete());
-                delay.future().await();
-                logger.info("Resource cleanup wait completed");
-            } catch (Exception e) {
-                logger.warn("Error during manager cleanup: {}", e.getMessage());
-            }
-        }
-
-        // Clear system properties set during tests to avoid leaking to subsequent tests
-        System.clearProperty("peegeeq.batch.size");
-        System.clearProperty("peegeeq.timeout.ms");
-        System.clearProperty("peegeeq.debug.enabled");
-        System.clearProperty("peegeeq.environment");
-
-        logger.info("Cleanup complete");
-    }
-
+    /**
+     * PROBLEM: A System property written anywhere in the JVM bleeds into every
+     * {@code PeeGeeQConfiguration} constructed afterwards that does not explicitly
+     * override that key via the 2-arg constructor.
+     *
+     * <p>Scenario: some other component (another tenant, a Spring bean, a tuning tool)
+     * sets {@code peegeeq.queue.batch-size} in System. Our instance never asked for
+     * that value, but {@code loadProperties()} sweeps it in silently on construction.
+     */
     @Test
-    @DisplayName("Dynamic Configuration Management - Runtime Property Updates")
-    void testDynamicConfigurationManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: dynamic configuration management");
+    @DisplayName("PROBLEM: System property set by any code contaminates all subsequent instances")
+    void systemPropertyContaminatesUnrelatedInstances() {
+        // DB params for our instance — correct builder pattern, no batch-size set
+        Properties baseProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        String queueName = "config-dynamic-queue";
-        List<ConfigurationEvent> receivedEvents = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(3); // Expect 3 configuration updates
+        // Simulate: unrelated code elsewhere in the JVM sets batch-size globally
+        System.setProperty(BATCH_SIZE_KEY, "999");
+        try {
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", baseProps);
+            int batchSize = config.getInt(BATCH_SIZE_KEY, 10);
 
-        // Create producer and consumer
-        MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
-        MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
+            logger.warn("CONTAMINATION CONFIRMED: expected default=10, actual batch-size={}", batchSize);
+            logger.warn("Value 999 was written by unrelated code — our instance never requested it.");
 
-        // Track for cleanup
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
-
-        // Subscribe to configuration events
-        consumer.subscribe(message -> {
-            ConfigurationEvent event = message.getPayload();
-            logger.info("Received configuration update: {} - Batch Size: {} - Timeout: {} - Debug: {}",
-                             event.getEnvironment(), event.getBatchSize(),
-                             event.getTimeoutMs(), event.getDebugEnabled());
-            logger.info("Full event: {}", event);
-            receivedEvents.add(event);
-            processedCheckpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Test dynamic configuration updates
-        logger.info("Applying dynamic configuration changes...");
-
-        // Update 1: Change batch size
-        System.setProperty("peegeeq.batch.size", "200");
-        producer.send(new ConfigurationEvent("config-1", "development", 200, null, null, "increased_batch_size"));
-
-        // Update 2: Change timeout
-        System.setProperty("peegeeq.timeout.ms", "8000");
-        producer.send(new ConfigurationEvent("config-2", "development", null, 8000, null, "increased_timeout"));
-
-        // Update 3: Enable debug mode
-        System.setProperty("peegeeq.debug.enabled", "true");
-        producer.send(new ConfigurationEvent("config-3", "development", null, null, true, "enabled_debug"));
-
-        // Wait for all configuration updates
-        // Development profile uses batch-size=2 with ~5s polling interval; 3 messages need 2 poll cycles
-        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all configuration updates");
-
-        // Verify configuration updates
-        assertEquals(3, receivedEvents.size(), "Should receive exactly 3 configuration updates");
-        
-        // Verify each configuration change (order-independent verification)
-        // PostgreSQL NOTIFY doesn't guarantee delivery order, especially under load
-        ConfigurationEvent batchSizeEvent = receivedEvents.stream()
-            .filter(e -> e.getBatchSize() != null)
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("No batch size event found"));
-
-        ConfigurationEvent timeoutEvent = receivedEvents.stream()
-            .filter(e -> e.getTimeoutMs() != null)
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("No timeout event found"));
-
-        ConfigurationEvent debugEvent = receivedEvents.stream()
-            .filter(e -> e.getDebugEnabled() != null)
-            .findFirst()
-            .orElseThrow(() -> new AssertionError("No debug event found"));
-
-        // Verify batch size event
-        assertEquals("development", batchSizeEvent.getEnvironment());
-        assertEquals(200, batchSizeEvent.getBatchSize());
-        assertEquals("config-1", batchSizeEvent.getEventId());
-
-        // Verify timeout event
-        assertEquals("development", timeoutEvent.getEnvironment());
-        assertEquals(8000, timeoutEvent.getTimeoutMs());
-        assertEquals("config-2", timeoutEvent.getEventId());
-
-        // Verify debug event
-        assertEquals("development", debugEvent.getEnvironment());
-        assertTrue(debugEvent.getDebugEnabled());
-        assertEquals("config-3", debugEvent.getEventId());
-
-        logger.info("Dynamic Configuration Management test completed successfully");
-        logger.info("Configuration updates processed: {}", receivedEvents.size());
-    }
-
-    @Test
-    @DisplayName("Environment-Specific Settings - DEV/STAGING/PROD Configurations")
-    void testEnvironmentSpecificSettings(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: environment specific settings");
-
-        String queueName = "config-environment-queue";
-        List<ConfigurationEvent> receivedEvents = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(Environment.values().length);
-
-        // Create producer and consumer
-        MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
-        MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-
-        // Track for cleanup
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
-
-        // Subscribe to environment configuration events
-        consumer.subscribe(message -> {
-            ConfigurationEvent event = message.getPayload();
-            logger.info("Environment configuration: {} - Batch: {}, Timeout: {}, Debug: {}",
-                             event.getEnvironment(), event.getBatchSize(),
-                             event.getTimeoutMs(), event.getDebugEnabled());
-            receivedEvents.add(event);
-            processedCheckpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Test each environment configuration
-        logger.info("Testing environment-specific configurations...");
-
-        for (Environment env : Environment.values()) {
-            // Apply environment-specific system properties
-            System.setProperty("peegeeq.environment", env.name);
-            System.setProperty("peegeeq.batch.size", String.valueOf(env.batchSize));
-            System.setProperty("peegeeq.timeout.ms", String.valueOf(env.timeoutMs));
-            System.setProperty("peegeeq.debug.enabled", String.valueOf(env.debugEnabled));
-
-            // Create configuration event for this environment
-            producer.send(new ConfigurationEvent("env-" + env.name, env.name, env.batchSize, env.timeoutMs, env.debugEnabled, "environment_config"));
-            
-            logger.info("Sent {} configuration", env.name.toUpperCase());
+            assertEquals(999, batchSize,
+                "DEFECT: System.setProperty by unrelated code silently overrides our instance's " +
+                "configuration. loadProperties() sweeps ALL peegeeq.* System properties on every construction.");
+        } finally {
+            System.clearProperty(BATCH_SIZE_KEY);
         }
-
-        // Wait for all environment configurations
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all environment configurations");
-
-        // Verify environment configurations
-        assertEquals(Environment.values().length, receivedEvents.size(),
-                    "Should receive configuration for each environment");
-
-        // Verify each environment's settings (order-independent)
-        for (Environment expectedEnv : Environment.values()) {
-            ConfigurationEvent event = receivedEvents.stream()
-                .filter(e -> expectedEnv.name.equals(e.getEnvironment()))
-                .findFirst()
-                .orElseThrow(() -> new AssertionError("Missing configuration for environment: " + expectedEnv.name));
-
-            assertEquals(expectedEnv.name, event.getEnvironment());
-            assertEquals(expectedEnv.batchSize, event.getBatchSize());
-            assertEquals(expectedEnv.timeoutMs, event.getTimeoutMs());
-            assertEquals(expectedEnv.debugEnabled, event.getDebugEnabled());
-        }
-
-        logger.info("Environment-Specific Settings test completed successfully");
-        logger.info("Environment configurations tested: {}", receivedEvents.size());
-    }
-
-    @Test
-    @DisplayName("Configuration Validation - Property Validation and Error Handling")
-    void testConfigurationValidation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: configuration validation");
-
-        String queueName = "config-validation-queue";
-        List<ConfigurationEvent> validEvents = new ArrayList<>();
-        List<String> validationErrors = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(5); // 3 valid + 2 invalid configurations
-
-        // Create producer and consumer
-        MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
-        MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-
-        // Track for cleanup
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
-
-        // Subscribe with validation logic
-        consumer.subscribe(message -> {
-            ConfigurationEvent event = message.getPayload();
-            try {
-                // Validate configuration
-                if (validateConfiguration(event)) {
-                    logger.info("Valid configuration: {}", event.getEventId());
-                    validEvents.add(event);
-                } else {
-                    String error = "Invalid configuration: " + event.getEventId();
-                    logger.info("{}", error);
-                    validationErrors.add(error);
-                }
-            } catch (Exception e) {
-                String error = "Validation error for " + event.getEventId() + ": " + e.getMessage();
-                logger.info("{}", error);
-                validationErrors.add(error);
-            }
-            processedCheckpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Test valid configurations
-        logger.info("Testing configuration validation...");
-
-        // Valid config 1: Normal values
-        producer.send(new ConfigurationEvent("valid-1", "development", 100, 5000, true, "normal_values"));
-
-        // Valid config 2: Production values
-        producer.send(new ConfigurationEvent("valid-2", "production", 1000, 30000, false, "production_values"));
-
-        // Valid config 3: Edge case values
-        producer.send(new ConfigurationEvent("valid-3", "test", 1, 1000, true, "edge_case_values"));
-
-        // Invalid config 1: Negative batch size
-        producer.send(new ConfigurationEvent("invalid-1", "development", -10, 5000, true, "negative_batch_size"));
-
-        // Invalid config 2: Zero timeout
-        producer.send(new ConfigurationEvent("invalid-2", "development", 100, 0, true, "zero_timeout"));
-
-        // Wait for all validation attempts
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all configuration validations");
-
-        // Verify validation results
-        assertEquals(3, validEvents.size(), "Should have 3 valid configurations");
-        assertEquals(2, validationErrors.size(), "Should have 2 validation errors");
-
-        // Verify valid configurations
-        assertTrue(validEvents.stream().anyMatch(e -> e.getEventId().equals("valid-1")));
-        assertTrue(validEvents.stream().anyMatch(e -> e.getEventId().equals("valid-2")));
-        assertTrue(validEvents.stream().anyMatch(e -> e.getEventId().equals("valid-3")));
-
-        // Verify validation errors
-        assertTrue(validationErrors.stream().anyMatch(e -> e.contains("invalid-1")));
-        assertTrue(validationErrors.stream().anyMatch(e -> e.contains("invalid-2")));
-
-        logger.info("Configuration Validation test completed successfully");
-        logger.info("Valid configurations: {}, Validation errors: {}", validEvents.size(), validationErrors.size());
-    }
-
-    @Test
-    @DisplayName("Hot Configuration Reload - Live Configuration Updates")
-    void testHotConfigurationReload(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: hot configuration reload");
-
-        String queueName = "config-hot-reload-queue";
-        AtomicInteger reloadCount = new AtomicInteger(0);
-        List<ConfigurationEvent> reloadEvents = new ArrayList<>();
-        var processedCheckpoint = testContext.checkpoint(4); // 4 hot reloads
-
-        // Create producer and consumer
-        MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
-        MessageConsumer<ConfigurationEvent> consumer = queueFactory.createConsumer(queueName, ConfigurationEvent.class);
-
-        // Track for cleanup
-        activeProducers.add(producer);
-        activeConsumers.add(consumer);
-
-        // Subscribe to hot reload events
-        consumer.subscribe(message -> {
-            ConfigurationEvent event = message.getPayload();
-            int currentReload = reloadCount.incrementAndGet();
-            logger.info("Hot reload #{}: {} - Config: {}", currentReload, event.getEventId(), event);
-            reloadEvents.add(event);
-            processedCheckpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        // Simulate hot configuration reloads
-        logger.info("Performing hot configuration reloads...");
-
-        // Reload 1: Increase batch size during runtime
-        producer.send(new ConfigurationEvent("hot-reload-1", "production", 500, null, null, "performance_optimization"));
-
-        vertx.setTimer(500, id1 -> {
-            try {
-                // Reload 2: Adjust timeout for better responsiveness
-                producer.send(new ConfigurationEvent("hot-reload-2", "production", null, 15000, null, "responsiveness_improvement"));
-
-                vertx.setTimer(500, id2 -> {
-                    try {
-                        // Reload 3: Enable debug for troubleshooting
-                        producer.send(new ConfigurationEvent("hot-reload-3", "production", null, null, true, "troubleshooting_enabled"));
-
-                        vertx.setTimer(500, id3 -> {
-                            try {
-                                // Reload 4: Complete configuration update
-                                producer.send(new ConfigurationEvent("hot-reload-4", "production", 750, 20000, false, "complete_optimization"));
-                            } catch (Exception e) {
-                                testContext.failNow(e);
-                            }
-                        });
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                });
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
-
-        // Wait for all hot reloads
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should complete all hot reloads");
-
-        // Verify hot reload results
-        assertEquals(4, reloadEvents.size(), "Should have 4 hot reload events");
-        assertEquals(4, reloadCount.get(), "Should have processed 4 hot reloads");
-
-        // Verify reload sequence
-        assertEquals("hot-reload-1", reloadEvents.get(0).eventId);
-        assertEquals("hot-reload-2", reloadEvents.get(1).eventId);
-        assertEquals("hot-reload-3", reloadEvents.get(2).eventId);
-        assertEquals("hot-reload-4", reloadEvents.get(3).eventId);
-
-        // Verify final configuration state
-        ConfigurationEvent finalReload = reloadEvents.get(3);
-        assertEquals(750, finalReload.getBatchSize());
-        assertEquals(20000, finalReload.getTimeoutMs());
-        assertFalse(finalReload.getDebugEnabled());
-
-        logger.info("Hot Configuration Reload test completed successfully");
-        logger.info("Hot reloads processed: {}", reloadCount.get());
     }
 
     /**
-     * Validates configuration parameters according to business rules.
+     * PROBLEM: The last {@code System.setProperty} call wins for ALL instances
+     * constructed afterwards — regardless of which tenant intended the write.
+     *
+     * <p>Scenario: Tenant A and Tenant B initialise sequentially in the same JVM,
+     * each setting their desired {@code peegeeq.queue.batch-size}. Tenant A constructs
+     * its config, then Tenant B sets its (different) value. Any subsequent reconstruction
+     * of Tenant A's config — on reconnect, reload, or failover — silently inherits
+     * Tenant B's value. The two values cannot coexist in System properties simultaneously.
      */
-    private boolean validateConfiguration(ConfigurationEvent event) {
-        // Validate batch size
-        if (event.getBatchSize() != null) {
-            Integer batchSize = event.getBatchSize();
-            if (batchSize <= 0 || batchSize > 10000) {
-                return false;
-            }
-        }
+    @Test
+    @DisplayName("PROBLEM: Last writer wins — two tenants cannot hold different values for the same key")
+    void lastWriterWins_multiTenantContamination() {
+        Properties propsA = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties propsB = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        // Validate timeout
-        if (event.getTimeoutMs() != null) {
-            Integer timeoutMs = event.getTimeoutMs();
-            if (timeoutMs <= 0 || timeoutMs > 300000) { // Max 5 minutes
-                return false;
-            }
-        }
+        try {
+            // Tenant A sets its desired batch size and constructs
+            System.setProperty(BATCH_SIZE_KEY, "7");
+            PeeGeeQConfiguration tenantAFirst = new PeeGeeQConfiguration("default", propsA);
+            assertEquals(7, tenantAFirst.getInt(BATCH_SIZE_KEY, -1),
+                "Tenant A initially reads its own value — looks correct so far");
 
-        // Debug enabled is always valid (boolean)
-        return true;
+            // Tenant B sets its desired batch size and constructs — overwrites A's global value
+            System.setProperty(BATCH_SIZE_KEY, "13");
+            PeeGeeQConfiguration tenantBConfig = new PeeGeeQConfiguration("default", propsB);
+            assertEquals(13, tenantBConfig.getInt(BATCH_SIZE_KEY, -1),
+                "Tenant B reads its own value — still looks correct");
+
+            // Tenant A reconnects or its config is reconstructed (connection pool reset, etc.)
+            PeeGeeQConfiguration tenantAReconstructed = new PeeGeeQConfiguration("default", propsA);
+            int tenantABatchSize = tenantAReconstructed.getInt(BATCH_SIZE_KEY, -1);
+
+            logger.warn("CONTAMINATION CONFIRMED: Tenant A's reconstructed config has batch-size={}, " +
+                "but Tenant A asked for 7. Tenant B's System.setProperty(\"...\", \"13\") won.", tenantABatchSize);
+
+            assertEquals(13, tenantABatchSize,
+                "DEFECT: Tenant A's config is contaminated by Tenant B's System.setProperty. " +
+                "Two tenants cannot hold different values for the same System property key simultaneously.");
+        } finally {
+            System.clearProperty(BATCH_SIZE_KEY);
+        }
     }
 
+    /**
+     * SOLUTION: Use {@code PeeGeeQTestConfig.builder()} and pass an explicit
+     * {@code Properties} object to the 2-arg constructor. Each instance holds its own
+     * isolated property set. No writes to System properties occur. No tenant can
+     * contaminate another, even when a System property for the same key is present.
+     *
+     * <p>This is the only correct pattern for multi-tenant or concurrent use.
+     */
+    @Test
+    @DisplayName("SOLUTION: Builder pattern gives each instance complete, isolated configuration")
+    void builderPatternProvidesCompleteIsolation() {
+        // Each tenant builds its own Properties explicitly — no shared global state
+        Properties propsA = PeeGeeQTestConfig.builder()
+            .from(postgres)
+            .property(BATCH_SIZE_KEY, "7")
+            .build();
+        Properties propsB = PeeGeeQTestConfig.builder()
+            .from(postgres)
+            .property(BATCH_SIZE_KEY, "13")
+            .build();
 
+        PeeGeeQConfiguration tenantA = new PeeGeeQConfiguration("default", propsA);
+        PeeGeeQConfiguration tenantB = new PeeGeeQConfiguration("default", propsB);
+
+        assertEquals(7,  tenantA.getInt(BATCH_SIZE_KEY, -1), "Tenant A reads its own value");
+        assertEquals(13, tenantB.getInt(BATCH_SIZE_KEY, -1), "Tenant B reads its own value");
+
+        // Even with a conflicting System property, both instances are immune —
+        // the override key is already in their respective Properties, so it wins over System.
+        System.setProperty(BATCH_SIZE_KEY, "999");
+        try {
+            PeeGeeQConfiguration tenantAReconstructed = new PeeGeeQConfiguration("default", propsA);
+            PeeGeeQConfiguration tenantBReconstructed = new PeeGeeQConfiguration("default", propsB);
+
+            assertEquals(7,  tenantAReconstructed.getInt(BATCH_SIZE_KEY, -1),
+                "Tenant A is immune to System property pollution when key is in explicit overrides");
+            assertEquals(13, tenantBReconstructed.getInt(BATCH_SIZE_KEY, -1),
+                "Tenant B is immune to System property pollution when key is in explicit overrides");
+
+            logger.info("ISOLATION CONFIRMED: tenantA={}, tenantB={} — unaffected by System.setProperty(999)",
+                tenantAReconstructed.getInt(BATCH_SIZE_KEY, -1),
+                tenantBReconstructed.getInt(BATCH_SIZE_KEY, -1));
+        } finally {
+            System.clearProperty(BATCH_SIZE_KEY);
+        }
+    }
 }
-
 

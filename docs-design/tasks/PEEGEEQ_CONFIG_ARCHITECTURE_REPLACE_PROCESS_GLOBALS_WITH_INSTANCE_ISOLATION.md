@@ -2,7 +2,7 @@
 
 Created: 2026-05-07  
 Branch: `feature/offset-watermark-phase1`  
-Status: **IN PROGRESS** — Phases 0a–7 ✅ complete; Phase 8 next
+Status: **IN PROGRESS** — Phases 0a–9 ✅ complete; Phase 10 next
 
 ---
 
@@ -621,9 +621,9 @@ Get-ChildItem -Recurse -Filter *.java peegeeq-examples\src\test |
 
 ---
 
-### Phase 9 — `peegeeq-rest` tests [Problem B]
+### Phase 9 — `peegeeq-rest` tests [Problem B] ✅
 
-**Change:** Migrate the 3 affected test files in `peegeeq-rest`.
+**Change:** Migrated 2 affected test files in `peegeeq-rest` (`DeadConsumerAlertingIntegrationTest`, `PartitionedConsumptionRestIntegrationTest`). 310 tests, BUILD SUCCESS.
 
 **Positive test:**
 ```powershell
