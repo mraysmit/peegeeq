@@ -7,6 +7,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -26,9 +27,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
@@ -59,28 +60,26 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_integration_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
-    private final Map<String, String> originalProperties = new HashMap<>();
+    private Properties testProps;
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         logger.info("Setting up ReactiveNotificationHandler integration test...");
-        configureSystemPropertiesForContainer(postgres);
+        this.testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.schema", "public")
+                .property("peegeeq.database.ssl.enabled", "false")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.health.enabled", "true")
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.migration.auto-migrate", "true")
+                .build();
         createBiTemporalEventLogTable();
         logger.info("✓ ReactiveNotificationHandler integration test setup completed");
         testContext.completeNow();
@@ -199,23 +198,6 @@ class PgBiTemporalEventStoreIntegrationTest {
         }
     }
 
-    /**
-     * Configures system properties to use the TestContainer database - following exact outbox pattern.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
-        setTestProperty("peegeeq.database.schema", "public");
-        setTestProperty("peegeeq.database.ssl.enabled", "false");
-        setTestProperty("peegeeq.metrics.enabled", "true");
-        setTestProperty("peegeeq.health.enabled", "true");
-        setTestProperty("peegeeq.migration.enabled", "true");
-        setTestProperty("peegeeq.migration.auto-migrate", "true");
-    }
-
     @Test
     void testReactiveNotificationHandlerIntegration(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing ReactiveNotificationHandler Integration ===");
@@ -225,7 +207,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         Map<String, Object> payload = Map.of("message", "integration test", "timestamp", Instant.now().toString());
         Promise<BiTemporalEvent<Map<String, Object>>> notificationPromise = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -269,7 +251,7 @@ class PgBiTemporalEventStoreIntegrationTest {
     void testAppendOwnTransactionOverloads(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing appendOwnTransaction overloads ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -322,7 +304,7 @@ class PgBiTemporalEventStoreIntegrationTest {
     void testappend(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing append ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -349,7 +331,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         Promise<BiTemporalEvent<Map<String, Object>>> notificationPromise = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -396,7 +378,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> underscoreSubscriberEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> bothSubscribersSatisfied = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -467,7 +449,7 @@ class PgBiTemporalEventStoreIntegrationTest {
     void testGetAsOfTransactionTime(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing getAsOfTransactionTime ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -497,7 +479,7 @@ class PgBiTemporalEventStoreIntegrationTest {
     void testClearCachedPoolsAndInstancePools(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing clearCachedPools and clearInstancePools ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -542,7 +524,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -587,7 +569,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -635,7 +617,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> paymentReceivedEvents = new CopyOnWriteArrayList<>();
         Promise<Void> bothSubscriptionsSatisfied = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -692,7 +674,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventIds = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotification = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -741,7 +723,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -788,7 +770,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -835,7 +817,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -883,7 +865,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -928,7 +910,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
         Promise<Void> expectedNotifications = Promise.promise();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .compose(v -> {
@@ -988,30 +970,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         }
 
         chain.onSuccess(v -> {
-            restoreTestProperties();
             logger.info("Integration test cleanup completed");
             testContext.completeNow();
         }).onFailure(testContext::failNow);
-    }
-
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 
 }

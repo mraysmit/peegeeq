@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -41,8 +42,7 @@ import io.vertx.junit5.VertxTestContext;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,37 +59,26 @@ class JsonbConversionValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_bitemporal_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private Vertx vertx;
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
-    private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        // Set system properties for test configuration
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
-        setTestProperty("peegeeq.database.ssl.enabled", "false");
+
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.ssl.enabled", "false")
+                .build();
 
         // Initialize schema before starting PeeGeeQ Manager
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("jsonb-bitemporal-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         manager.start()
@@ -112,31 +101,10 @@ class JsonbConversionValidationTest {
                 .transform(ar -> Future.<Void>succeededFuture())
                 .compose(v -> closeManagerFuture.transform(ar -> Future.<Void>succeededFuture()))
                 .onSuccess(v -> {
-                    restoreTestProperties();
                     logger.info("Test cleanup complete");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-    }
-
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 
     @Test

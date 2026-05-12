@@ -7,6 +7,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -33,9 +34,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -53,17 +54,11 @@ class BiTemporalPerformanceParityTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-        .withDatabaseName("peegeeq_perf_parity_test")
-        .withUsername("test")
-        .withPassword("test")
-        .withSharedMemorySize(256 * 1024 * 1024L)
-        .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
     private Vertx vertx;
-    private final Map<String, String> originalProperties = new HashMap<>();
 
     @SuppressWarnings("unchecked")
     private static Class<Map<String, Object>> mapClass() {
@@ -74,16 +69,14 @@ class BiTemporalPerformanceParityTest {
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
 
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
-        setTestProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration(), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         cleanupDatabase()
             .compose(v -> manager.start())
@@ -115,12 +108,12 @@ class BiTemporalPerformanceParityTest {
                 }
                 return Future.succeededFuture();
             })
-            .transform(ar -> Future.succeededFuture())
-            .compose(v -> cleanupDatabase())
-            .onSuccess(v -> {
-                restoreTestProperties();
-                testContext.completeNow();
+            .transform(ar -> {
+                if (ar.failed()) logger.warn("Error closing manager: {}", ar.cause().getMessage());
+                return Future.succeededFuture();
             })
+            .compose(v -> cleanupDatabase())
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
         awaitSuccess(testContext, 30);
@@ -420,25 +413,5 @@ class BiTemporalPerformanceParityTest {
         if (testContext.failed()) {
             throw new AssertionError("Asynchronous test flow failed", testContext.causeOfFailure());
         }
-    }
-
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 }

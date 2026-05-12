@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -87,8 +88,17 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
-        setSystemProperties();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.ssl.enabled", "false")
+                .property("peegeeq.database.pool.min-size", "1")
+                .property("peegeeq.database.pool.max-size", "5")
+                .property("peegeeq.health.check-interval", "PT5S")
+                .property("peegeeq.metrics.reporting-interval", "PT10S")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         // Attach log capture to PgBiTemporalEventStore's logger
@@ -128,10 +138,8 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     .transform(ar -> Future.succeededFuture()));
         }
 
-        closeChain.onComplete(v -> {
-            clearSystemProperties();
-            testContext.completeNow();
-        });
+        closeChain.onSuccess(v -> testContext.completeNow())
+                  .onFailure(e -> { logger.warn("Teardown close error: {}", e.getMessage()); testContext.completeNow(); });
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
@@ -167,8 +175,17 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         ownContainer.start();
         PeeGeeQTestSchemaInitializer.initializeSchema(ownContainer, SchemaComponent.ALL);
 
-        setSystemPropertiesFor(ownContainer);
-        PeeGeeQConfiguration ownConfig = new PeeGeeQConfiguration("test");
+        Properties ownProps = PeeGeeQTestConfig.builder()
+                .from(ownContainer)
+                .property("peegeeq.database.ssl.enabled", "false")
+                .property("peegeeq.database.pool.min-size", "1")
+                .property("peegeeq.database.pool.max-size", "5")
+                .property("peegeeq.health.check-interval", "PT5S")
+                .property("peegeeq.metrics.reporting-interval", "PT10S")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        PeeGeeQConfiguration ownConfig = new PeeGeeQConfiguration("default", ownProps);
         PeeGeeQManager ownManager = new PeeGeeQManager(ownConfig, new SimpleMeterRegistry());
 
         ch.qos.logback.classic.Logger logger = (ch.qos.logback.classic.Logger)
@@ -193,7 +210,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     return ownStore.close()
                             .compose(v2 -> ownManager.closeReactive().transform(ar -> Future.succeededFuture()));
                 })
-                .onComplete(ar -> testContext.verify(() -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);
 
                     // Verify close chain failures are NOT at WARN (they should be at ERROR)
@@ -233,34 +250,6 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     }
 
     // --- Helpers ---
-
-    private void setSystemProperties() {
-        setSystemPropertiesFor(postgres);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void setSystemPropertiesFor(PostgreSQLContainer container) {
-        Properties props = new Properties();
-        props.setProperty("peegeeq.database.host", container.getHost());
-        props.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        props.setProperty("peegeeq.database.name", container.getDatabaseName());
-        props.setProperty("peegeeq.database.username", container.getUsername());
-        props.setProperty("peegeeq.database.password", container.getPassword());
-        props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.database.schema", "public");
-        props.setProperty("peegeeq.database.pool.min-size", "1");
-        props.setProperty("peegeeq.database.pool.max-size", "5");
-        props.setProperty("peegeeq.health.check-interval", "PT5S");
-        props.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
-        props.setProperty("peegeeq.migration.enabled", "false");
-        props.setProperty("peegeeq.migration.auto-migrate", "false");
-        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
-    }
-
-    private void clearSystemProperties() {
-        System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
-    }
 
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {
         private final List<ILoggingEvent> events = Collections.synchronizedList(new ArrayList<>());

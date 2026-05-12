@@ -66,11 +66,7 @@ class MultiTenantSchemaIsolationTest {
     private static final PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("multitenant_test")
-                .withUsername("test_user")
-                .withPassword("test_pass");
-        return container;
+        return PostgreSQLTestConstants.createStandardContainer();
     }
 
     private Vertx vertx;

@@ -65,7 +65,7 @@ class VersionLineageIntegrationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("peegeeq_version_lineage_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");

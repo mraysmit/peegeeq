@@ -5,6 +5,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -52,16 +53,12 @@ class PgBiTemporalEventStorePerformanceTest {
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_perf_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
             .withSharedMemorySize(256 * 1024 * 1024L)
             .withReuse(false);
 
     private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
-    private final Map<String, String> originalProperties = new HashMap<>();
     private static final int BATCH_SIZE = 100;
     private static final int CONCURRENT_THREADS = 10;
     private static final int EVENTS_PER_THREAD = 10;
@@ -75,11 +72,17 @@ class PgBiTemporalEventStorePerformanceTest {
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         logger.info("Setting up performance test...");
-        configureSystemPropertiesForContainer(postgres);
+
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.ssl.enabled", "false")
+                .property("peegeeq.database.pool.max-wait-queue-size", "256")
+                .build();
+
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         createTestEventsTable();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         peeGeeQManager.start()
             .onSuccess(v -> {
                 eventStore = new PgBiTemporalEventStore<>(vertx, peeGeeQManager, mapClass(), "perf_test_events", new ObjectMapper());
@@ -102,41 +105,8 @@ class PgBiTemporalEventStorePerformanceTest {
             : Future.succeededFuture();
         closeFuture.onSuccess(v -> {
             PgBiTemporalEventStore.clearCachedPools();
-            restoreTestProperties();
             testContext.completeNow();
         }).onFailure(testContext::failNow);
-    }
-
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
-        setTestProperty("peegeeq.database.schema", "public");
-        setTestProperty("peegeeq.database.ssl.enabled", "false");
-        // Performance tests fire many concurrent appends; ensure the pool can queue them
-        setTestProperty("peegeeq.database.pool.max-wait-queue-size", "256");
-    }
-
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 
 

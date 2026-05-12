@@ -81,7 +81,7 @@ class EventBusDistributionEquivalenceTest {
 
     @SuppressWarnings("resource")
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("eventbus_equiv_" + System.currentTimeMillis());
         container.withUsername("peegeeq");
         container.withPassword("peegeeq_test_password");

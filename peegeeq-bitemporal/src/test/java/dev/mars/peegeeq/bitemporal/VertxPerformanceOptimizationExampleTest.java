@@ -39,7 +39,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -85,19 +84,15 @@ public class VertxPerformanceOptimizationExampleTest {
     
     private PeeGeeQManager manager;
     private Vertx vertx;
-    private final Map<String, String> originalProperties = new HashMap<>();
-    
+
+    // Optimal performance properties (research-based values used in test assertions)
+    private static final int OPTIMAL_POOL_MAX_SIZE = 100;
+    private static final int OPTIMAL_WAIT_QUEUE_MULTIPLIER = 10;
+
     @BeforeEach
     void setUp(Vertx vertx) {
         this.vertx = vertx;
         logger.info("Setting up Vert.x Performance Optimization Example Test");
-        
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(sharedPostgres);
-        
-        // Set optimal system properties for performance
-        setOptimalSystemProperties();
-        
         logger.info("Vert.x Performance Optimization Example Test setup completed");
     }
     
@@ -110,7 +105,6 @@ public class VertxPerformanceOptimizationExampleTest {
             })
             : Future.succeededFuture();
         closeFuture.onSuccess(v -> {
-            restoreTestProperties();
             logger.info("Vert.x Performance Optimization Example Test teardown completed");
             testContext.completeNow();
         }).onFailure(testContext::failNow);
@@ -238,9 +232,9 @@ public class VertxPerformanceOptimizationExampleTest {
     private OptimalPropertiesResult testOptimalSystemPropertiesPattern() throws Exception {
         logger.info("Testing optimal system properties pattern...");
         
-        // Get configured properties
-        int poolMaxSize = Integer.parseInt(System.getProperty("peegeeq.database.pool.max-size", "32"));
-        int waitQueueMultiplier = Integer.parseInt(System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "2"));
+        // Use research-based optimal values
+        int poolMaxSize = OPTIMAL_POOL_MAX_SIZE;
+        int waitQueueMultiplier = OPTIMAL_WAIT_QUEUE_MULTIPLIER;
         boolean propertiesOptimized = poolMaxSize >= 100 && waitQueueMultiplier >= 10;
         
         logger.info("🔧 Testing optimal system properties...");
@@ -389,65 +383,9 @@ public class VertxPerformanceOptimizationExampleTest {
     
     /**
      * Sets optimal system properties for Vert.x 5.x performance.
+     * NOTE: Research-based values are stored as constants, not set as system properties.
      */
-    private void setOptimalSystemProperties() {
-        logger.info("Configuring optimal system properties for Vert.x 5.x performance...");
-        
-        // Pool Configuration (Research-Based Optimized Defaults)
-        setTestProperty("peegeeq.database.pool.max-size", "100");
-        setTestProperty("peegeeq.database.pool.shared", "true");
-        setTestProperty("peegeeq.database.pool.name", "peegeeq-optimized-pool");
-        setTestProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
-        
-        // Connection Configuration
-        setTestProperty("peegeeq.database.pool.connect-timeout", "5000");
-        setTestProperty("peegeeq.database.pool.idle-timeout", "300000");
-        setTestProperty("peegeeq.database.pool.max-lifetime", "1800000");
-        
-        // Performance Configuration
-        setTestProperty("peegeeq.database.pool.pipelining-limit", "256");
-        setTestProperty("peegeeq.database.pool.prepared-statement-cache-max-size", "256");
-        setTestProperty("peegeeq.database.pool.prepared-statement-cache-sql-limit", "2048");
-        
-        logger.info("✓ Optimal system properties configured");
-    }
-    
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
-        setTestProperty("peegeeq.database.schema", "public");
-        setTestProperty("peegeeq.database.ssl.enabled", "false");
-        setTestProperty("peegeeq.metrics.enabled", "true");
-        setTestProperty("peegeeq.health.enabled", "true");
-        setTestProperty("peegeeq.migration.enabled", "true");
-        setTestProperty("peegeeq.migration.auto-migrate", "true");
-    }
 
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
-    }
     
     // Supporting classes
     

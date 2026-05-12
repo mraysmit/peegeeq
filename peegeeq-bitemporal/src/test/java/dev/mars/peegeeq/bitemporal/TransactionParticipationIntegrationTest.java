@@ -24,6 +24,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 
@@ -31,6 +33,7 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -54,29 +57,23 @@ import static org.junit.jupiter.api.Assertions.*;
  * This class tests the actual transaction participation with a real PostgreSQL database using TestContainers.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class TransactionParticipationIntegrationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime());  // Unique database name with timestamp;
-        container.withUsername("peegeeq");
-        container.withPassword("peegeeq_test_password");
-        return container;
-    }
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager peeGeeQManager;
     private Vertx vertx;
     private PgBiTemporalEventStore<TestEvent> eventStore;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Setting up TransactionParticipationIntegrationTest");
+        this.vertx = vertx;
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
@@ -93,36 +90,47 @@ public class TransactionParticipationIntegrationTest {
 
         // Initialize PeeGeeQ Manager - following established patterns
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        peeGeeQManager.start().await();
 
-        vertx = Vertx.vertx();
+        createBusinessTable(vertx)
+            .compose(v -> peeGeeQManager.start())
+            .onSuccess(v -> {
+                // Create the bitemporal event store using factory pattern
+                BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, peeGeeQManager);
+                eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
+                logger.info("Setup completed successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        // Create the bitemporal event store using factory pattern
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, peeGeeQManager);
-        eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
-
-        // Create a test business table for transaction testing
-        createBusinessTable();
-
-        logger.info("Setup completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "setUp timed out");
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("🧹 Cleaning up TransactionParticipationIntegrationTest");
 
         if (eventStore != null) {
-            eventStore.close();
+            try { eventStore.close(); } catch (Exception e) { logger.warn("EventStore close: {}", e.getMessage()); }
         }
 
         if (peeGeeQManager != null) {
-            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            peeGeeQManager.closeReactive()
+                .onSuccess(v -> {
+                    logger.info("Cleanup completed successfully");
+                    testContext.completeNow();
+                })
+                .onFailure(e -> {
+                    logger.warn("Manager close warning: {}", e.getMessage());
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
         }
 
-        logger.info("Cleanup completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
     }
     
-    private void createBusinessTable() throws Exception {
+    private Future<Void> createBusinessTable(Vertx vertx) {
         String createTableSql = """
             CREATE TABLE IF NOT EXISTS business_data (
                 id SERIAL PRIMARY KEY,
@@ -132,7 +140,6 @@ public class TransactionParticipationIntegrationTest {
             )
             """;
 
-        // Create a direct connection to create the business table
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(postgres.getHost())
             .setPort(postgres.getFirstMappedPort())
@@ -140,16 +147,15 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
-        pool.query(createTableSql).execute().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        pool.close();
-
-        logger.info("Business table created successfully");
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
+        return pool.query(createTableSql).execute()
+            .compose(v -> pool.close())
+            .onSuccess(v -> logger.info("Business table created successfully"));
     }
     
     @Test
     @DisplayName("Test simple transaction participation - business data + bitemporal event")
-    void testSimpleTransactionParticipation() throws Exception {
+    void testSimpleTransactionParticipation(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing simple transaction participation");
 
         // Create a direct connection pool for transaction testing
@@ -160,7 +166,7 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         // Test data
         String businessName = "Test Business Record";
@@ -169,28 +175,27 @@ public class TransactionParticipationIntegrationTest {
         TestEvent eventPayload = new TestEvent("test-data", 123);
         Instant validTime = Instant.now();
 
-        try {
-            // Execute business operation + bitemporal event in same transaction
-            BiTemporalEvent<TestEvent> event = pool.withTransaction(connection -> {
-                logger.info("📝 Starting transaction with business operation + bitemporal event");
+        // Execute business operation + bitemporal event in same transaction
+        pool.withTransaction(connection -> {
+            logger.info("📝 Starting transaction with business operation + bitemporal event");
 
-                // 1. Insert business data
-                String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                return connection.preparedQuery(insertBusinessSql)
-                    .execute(Tuple.of(businessName, businessValue))
-                    .compose(businessResult -> {
-                        int businessId = businessResult.iterator().next().getInteger("id");
-                        logger.info("Business record inserted with ID: {}", businessId);
+            // 1. Insert business data
+            String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertBusinessSql)
+                .execute(Tuple.of(businessName, businessValue))
+                .compose(businessResult -> {
+                    int businessId = businessResult.iterator().next().getInteger("id");
+                    logger.info("Business record inserted with ID: {}", businessId);
 
-                        // 2. Append bitemporal event in same transaction
-                        return eventStore.appendInTransaction(eventType, eventPayload, validTime, connection)
-                            .map(biTemporalEvent -> {
-                                logger.info("Bitemporal event appended with ID: {}", biTemporalEvent.getEventId());
-                                return biTemporalEvent;
-                            });
-                    });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-
+                    // 2. Append bitemporal event in same transaction
+                    return eventStore.appendInTransaction(eventType, eventPayload, validTime, connection)
+                        .map(biTemporalEvent -> {
+                            logger.info("Bitemporal event appended with ID: {}", biTemporalEvent.getEventId());
+                            return biTemporalEvent;
+                        });
+                });
+        })
+        .compose(event -> {
             // Verify the returned event object
             assertNotNull(event);
             assertEquals(eventType, event.getEventType());
@@ -201,50 +206,52 @@ public class TransactionParticipationIntegrationTest {
             logger.info("🔍 Validating database state after transaction commit");
 
             // 1. Verify business data was persisted in business_data table
-            Integer businessRecordCount = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name = $1 AND value = $2";
                 return connection.preparedQuery(selectBusinessSql)
                     .execute(Tuple.of(businessName, businessValue))
                     .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            })
+            .compose(businessRecordCount -> {
+                assertEquals(1, businessRecordCount, "Business data should exist in business_data table");
+                logger.info("Business data validation: Found {} record(s) in business_data table", businessRecordCount);
 
-            assertEquals(1, businessRecordCount, "Business data should exist in business_data table");
-            logger.info("Business data validation: Found {} record(s) in business_data table", businessRecordCount);
+                // 2. Verify bitemporal event was persisted in bitemporal_event_log table
+                return pool.withConnection(connection -> {
+                    String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE event_id = $1 AND event_type = $2";
+                    return connection.preparedQuery(selectEventSql)
+                        .execute(Tuple.of(event.getEventId(), eventType))
+                        .map(result -> result.iterator().next().getInteger(0));
+                });
+            })
+            .compose(eventRecordCount -> {
+                assertEquals(1, eventRecordCount, "Bitemporal event should exist in bitemporal_event_log table");
+                logger.info("Bitemporal event validation: Found {} record(s) in bitemporal_event_log table", eventRecordCount);
 
-            // 2. Verify bitemporal event was persisted in bitemporal_event_log table
-            Integer eventRecordCount = pool.withConnection(connection -> {
-                String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE event_id = $1 AND event_type = $2";
-                return connection.preparedQuery(selectEventSql)
-                    .execute(Tuple.of(event.getEventId(), eventType))
-                    .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            assertEquals(1, eventRecordCount, "Bitemporal event should exist in bitemporal_event_log table");
-            logger.info("Bitemporal event validation: Found {} record(s) in bitemporal_event_log table", eventRecordCount);
-
-            // 3. Data integrity validation - verify event payload was correctly serialized
-            String retrievedPayload = pool.withConnection(connection -> {
-                String selectPayloadSql = "SELECT payload::text FROM bitemporal_event_log WHERE event_id = $1";
-                return connection.preparedQuery(selectPayloadSql)
-                    .execute(Tuple.of(event.getEventId()))
-                    .map(result -> result.iterator().next().getString(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            assertNotNull(retrievedPayload, "Event payload should be stored in database");
-            assertTrue(retrievedPayload.contains("test-data"), "Payload should contain expected data");
-            assertTrue(retrievedPayload.contains("123"), "Payload should contain expected value");
-            logger.info("Data integrity validation: Event payload correctly serialized and stored");
-
-            logger.info("COMPREHENSIVE TRANSACTION PARTICIPATION TEST PASSED: Business data and bitemporal event committed together with database state validation");
-
-        } finally {
-            pool.close();
-        }
+                // 3. Data integrity validation - verify event payload was correctly serialized
+                return pool.withConnection(connection -> {
+                    String selectPayloadSql = "SELECT payload::text FROM bitemporal_event_log WHERE event_id = $1";
+                    return connection.preparedQuery(selectPayloadSql)
+                        .execute(Tuple.of(event.getEventId()))
+                        .map(result -> result.iterator().next().getString(0));
+                });
+            })
+            .map(retrievedPayload -> {
+                assertNotNull(retrievedPayload, "Event payload should be stored in database");
+                assertTrue(retrievedPayload.contains("test-data"), "Payload should contain expected data");
+                assertTrue(retrievedPayload.contains("123"), "Payload should contain expected value");
+                logger.info("Data integrity validation: Event payload correctly serialized and stored");
+                logger.info("COMPREHENSIVE TRANSACTION PARTICIPATION TEST PASSED: Business data and bitemporal event committed together with database state validation");
+                return retrievedPayload;
+            });
+        })
+        .compose(v -> pool.close())
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
     @DisplayName("Test business table + bitemporal_event_log consistency verification")
-    void testBusinessTableEventLogConsistency() throws Exception {
+    void testBusinessTableEventLogConsistency(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing business table + bitemporal_event_log consistency verification");
 
         // Create a direct connection pool for transaction testing
@@ -255,7 +262,7 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         // Test data with correlation
         String businessName = "Consistency Test Record";
@@ -265,38 +272,37 @@ public class TransactionParticipationIntegrationTest {
         Instant validTime = Instant.now();
         String correlationId = "CONSISTENCY-TEST-" + System.currentTimeMillis();
 
-        try {
-            // Execute transaction with correlation ID for consistency tracking
-            BiTemporalEvent<TestEvent> event = pool.withTransaction(connection -> {
-                logger.info("📝 Starting consistency verification transaction");
+        // Execute transaction with correlation ID for consistency tracking
+        pool.withTransaction(connection -> {
+            logger.info("📝 Starting consistency verification transaction");
 
-                // 1. Insert business data with correlation ID in a comment field
-                String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                return connection.preparedQuery(insertBusinessSql)
-                    .execute(Tuple.of(businessName + "-" + correlationId, businessValue))
-                    .compose(businessResult -> {
-                        int businessId = businessResult.iterator().next().getInteger("id");
-                        logger.info("Business record inserted with ID: {} for correlation: {}", businessId, correlationId);
+            // 1. Insert business data with correlation ID in a comment field
+            String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertBusinessSql)
+                .execute(Tuple.of(businessName + "-" + correlationId, businessValue))
+                .compose(businessResult -> {
+                    int businessId = businessResult.iterator().next().getInteger("id");
+                    logger.info("Business record inserted with ID: {} for correlation: {}", businessId, correlationId);
 
-                        // 2. Append bitemporal event with same correlation ID
-                        Map<String, String> headers = Map.of(
-                            "business-id", String.valueOf(businessId),
-                            "test-type", "consistency-verification"
-                        );
+                    // 2. Append bitemporal event with same correlation ID
+                    Map<String, String> headers = Map.of(
+                        "business-id", String.valueOf(businessId),
+                        "test-type", "consistency-verification"
+                    );
 
-                        return eventStore.appendInTransaction(eventType, eventPayload, validTime, headers, correlationId, "business-" + businessId, connection)
-                            .map(biTemporalEvent -> {
-                                logger.info("Bitemporal event appended with ID: {} for correlation: {}", biTemporalEvent.getEventId(), correlationId);
-                                return biTemporalEvent;
-                            });
-                    });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-
+                    return eventStore.appendInTransaction(eventType, eventPayload, validTime, headers, correlationId, "business-" + businessId, connection)
+                        .map(biTemporalEvent -> {
+                            logger.info("Bitemporal event appended with ID: {} for correlation: {}", biTemporalEvent.getEventId(), correlationId);
+                            return biTemporalEvent;
+                        });
+                });
+        })
+        .compose(event -> {
             // COMPREHENSIVE CONSISTENCY VERIFICATION
             logger.info("🔍 Performing comprehensive business table + event log consistency verification");
 
             // 1. Cross-reference business data and event data using correlation ID
-            pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String consistencyCheckSql = """
                     SELECT
                         bd.id as business_id,
@@ -340,18 +346,19 @@ public class TransactionParticipationIntegrationTest {
 
                         return null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
+            });
+        })
+        .map(v -> {
             logger.info("COMPREHENSIVE CONSISTENCY TEST PASSED: Business table and bitemporal_event_log are fully consistent");
-
-        } finally {
-            pool.close();
-        }
+            return v;
+        })
+        .compose(v -> pool.close())
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
     @DisplayName("Test transaction commit verification with timing validation")
-    void testTransactionCommitVerification() throws Exception {
+    void testTransactionCommitVerification(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing transaction commit verification with timing validation");
 
         // Create a direct connection pool for transaction testing
@@ -362,7 +369,7 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         // Test data
         String businessName = "Commit Verification Test";
@@ -372,35 +379,34 @@ public class TransactionParticipationIntegrationTest {
         Instant validTime = Instant.now();
         Instant beforeTransaction = Instant.now();
 
-        try {
-            // Execute transaction and capture timing
-            BiTemporalEvent<TestEvent> event = pool.withTransaction(connection -> {
-                logger.info("📝 Starting transaction commit verification test");
+        // Execute transaction and capture timing
+        pool.withTransaction(connection -> {
+            logger.info("📝 Starting transaction commit verification test");
 
-                // 1. Insert business data
-                String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                return connection.preparedQuery(insertBusinessSql)
-                    .execute(Tuple.of(businessName, businessValue))
-                    .compose(businessResult -> {
-                        int businessId = businessResult.iterator().next().getInteger("id");
-                        logger.info("Business record inserted with ID: {}", businessId);
+            // 1. Insert business data
+            String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertBusinessSql)
+                .execute(Tuple.of(businessName, businessValue))
+                .compose(businessResult -> {
+                    int businessId = businessResult.iterator().next().getInteger("id");
+                    logger.info("Business record inserted with ID: {}", businessId);
 
-                        // 2. Append bitemporal event
-                        return eventStore.appendInTransaction(eventType, eventPayload, validTime, connection)
-                            .map(biTemporalEvent -> {
-                                logger.info("Bitemporal event appended with ID: {}", biTemporalEvent.getEventId());
-                                return biTemporalEvent;
-                            });
-                    });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-
+                    // 2. Append bitemporal event
+                    return eventStore.appendInTransaction(eventType, eventPayload, validTime, connection)
+                        .map(biTemporalEvent -> {
+                            logger.info("Bitemporal event appended with ID: {}", biTemporalEvent.getEventId());
+                            return biTemporalEvent;
+                        });
+                });
+        })
+        .compose(event -> {
             Instant afterTransaction = Instant.now();
 
             // TRANSACTION COMMIT VERIFICATION
             logger.info("🔍 Verifying transaction commit with timing validation");
 
             // 1. Verify both records exist (proving commit succeeded)
-            Integer totalRecords = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String countSql = """
                     SELECT
                         (SELECT COUNT(*) FROM business_data WHERE name = $1) as business_count,
@@ -421,42 +427,44 @@ public class TransactionParticipationIntegrationTest {
 
                         return businessCount + eventCount;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            })
+            .compose(totalRecords -> {
+                assertEquals(2, totalRecords, "Both business and event records should exist after successful commit");
 
-            assertEquals(2, totalRecords, "Both business and event records should exist after successful commit");
+                // 2. Verify transaction timing - transaction_time should be within our test window
+                return pool.withConnection(connection -> {
+                    String timingSql = "SELECT transaction_time FROM bitemporal_event_log WHERE event_id = $1";
+                    return connection.preparedQuery(timingSql)
+                        .execute(Tuple.of(event.getEventId()))
+                        .map(result -> {
+                            var row = result.iterator().next();
+                            return row.getLocalDateTime("transaction_time").toInstant(java.time.ZoneOffset.UTC);
+                        });
+                })
+                .map(transactionTime -> {
+                    // Verify transaction time is within reasonable bounds
+                    assertTrue(transactionTime.isAfter(beforeTransaction.minusSeconds(1)),
+                        "Transaction time should be after test start");
+                    assertTrue(transactionTime.isBefore(afterTransaction.plusSeconds(1)),
+                        "Transaction time should be before test end");
 
-            // 2. Verify transaction timing - transaction_time should be within our test window
-            Instant transactionTime = pool.withConnection(connection -> {
-                String timingSql = "SELECT transaction_time FROM bitemporal_event_log WHERE event_id = $1";
-                return connection.preparedQuery(timingSql)
-                    .execute(Tuple.of(event.getEventId()))
-                    .map(result -> {
-                        var row = result.iterator().next();
-                        return row.getLocalDateTime("transaction_time").toInstant(java.time.ZoneOffset.UTC);
-                    });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                    logger.info("Timing verification: Transaction time {} is within expected bounds [{} to {}]",
+                        transactionTime, beforeTransaction, afterTransaction);
 
-            // Verify transaction time is within reasonable bounds
-            assertTrue(transactionTime.isAfter(beforeTransaction.minusSeconds(1)),
-                "Transaction time should be after test start");
-            assertTrue(transactionTime.isBefore(afterTransaction.plusSeconds(1)),
-                "Transaction time should be before test end");
+                    // 3. Verify valid time vs transaction time
+                    assertEquals(validTime.truncatedTo(java.time.temporal.ChronoUnit.MILLIS),
+                        event.getValidTime().truncatedTo(java.time.temporal.ChronoUnit.MILLIS),
+                        "Valid time should match what was specified");
 
-            logger.info("Timing verification: Transaction time {} is within expected bounds [{} to {}]",
-                transactionTime, beforeTransaction, afterTransaction);
+                    logger.info("Temporal verification: Valid time {} correctly stored", event.getValidTime());
+                    logger.info("COMPREHENSIVE TRANSACTION COMMIT VERIFICATION PASSED: All timing and commit validations successful");
 
-            // 3. Verify valid time vs transaction time
-            assertEquals(validTime.truncatedTo(java.time.temporal.ChronoUnit.MILLIS),
-                event.getValidTime().truncatedTo(java.time.temporal.ChronoUnit.MILLIS),
-                "Valid time should match what was specified");
-
-            logger.info("Temporal verification: Valid time {} correctly stored", event.getValidTime());
-
-            logger.info("COMPREHENSIVE TRANSACTION COMMIT VERIFICATION PASSED: All timing and commit validations successful");
-
-        } finally {
-            pool.close();
-        }
+                    return transactionTime;
+                });
+            });
+        })
+        .compose(v -> pool.close())
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     // ========================================
@@ -465,7 +473,7 @@ public class TransactionParticipationIntegrationTest {
 
     @Test
     @DisplayName("Test business operation failure after bitemporal append - rollback scenario")
-    void testBusinessOperationFailureAfterBiTemporalAppend() throws Exception {
+    void testBusinessOperationFailureAfterBiTemporalAppend(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing business operation failure after bitemporal append - rollback scenario");
 
         // Create a direct connection pool for transaction testing
@@ -476,7 +484,7 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         // Test data
         String eventType = "business.rollback.test.after.append";
@@ -484,94 +492,93 @@ public class TransactionParticipationIntegrationTest {
         Instant validTime = Instant.now();
         String correlationId = "ROLLBACK-TEST-AFTER-APPEND-" + System.currentTimeMillis();
 
-        try {
-            // Attempt transaction that should fail after bitemporal append
-            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = business SQL failure after bitemporal append must roll back the full transaction");
-            Exception thrownException = assertThrows(Exception.class, () -> {
-                pool.withTransaction(connection -> {
-                    logger.info("📝 Starting transaction that will fail after bitemporal append");
+        // Attempt transaction that should fail after bitemporal append
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = business SQL failure after bitemporal append must roll back the full transaction");
+        pool.withTransaction(connection -> {
+            logger.info("📝 Starting transaction that will fail after bitemporal append");
 
-                    // 1. First, successfully append bitemporal event
-                    return eventStore.appendInTransaction(eventType, eventPayload, validTime,
-                            Map.of("test-type", "rollback-after-append"), correlationId, "rollback-test", connection)
-                        .compose(biTemporalEvent -> {
-                            logger.info("Bitemporal event appended successfully with ID: {}", biTemporalEvent.getEventId());
+            // 1. First, successfully append bitemporal event
+            return eventStore.appendInTransaction(eventType, eventPayload, validTime,
+                    Map.of("test-type", "rollback-after-append"), correlationId, "rollback-test", connection)
+                .compose(biTemporalEvent -> {
+                    logger.info("Bitemporal event appended successfully with ID: {}", biTemporalEvent.getEventId());
 
-                            // 2. Now attempt business operation that will fail (invalid SQL)
-                            String invalidBusinessSql = "INSERT INTO non_existent_table (invalid_column) VALUES ($1)";
-                            return connection.preparedQuery(invalidBusinessSql)
-                                .execute(Tuple.of("this will fail"))
-                                .map(result -> {
-                                    logger.error("❌ This should not execute - business operation should have failed");
-                                    return biTemporalEvent;
-                                });
+                    // 2. Now attempt business operation that will fail (invalid SQL)
+                    String invalidBusinessSql = "INSERT INTO non_existent_table (invalid_column) VALUES ($1)";
+                    return connection.preparedQuery(invalidBusinessSql)
+                        .execute(Tuple.of("this will fail"))
+                        .map(result -> {
+                            logger.error("❌ This should not execute - business operation should have failed");
+                            return biTemporalEvent;
                         });
-                }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-            });
-
+                });
+        })
+        .onSuccess(v -> testContext.failNow(new AssertionError("Transaction should have failed but succeeded")))
+        .onFailure(thrownException -> {
             logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (business SQL failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info("🔍 Verifying complete rollback - no partial data should exist");
 
             // 1. Verify NO bitemporal event exists (should be rolled back)
-            Integer eventCount = pool.withConnection(connection -> {
+            pool.withConnection(connection -> {
                 String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id = $1 AND event_type = $2";
                 return connection.preparedQuery(selectEventSql)
                     .execute(Tuple.of(correlationId, eventType))
                     .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            })
+            .compose(eventCount -> {
+                assertEquals(0, eventCount, "NO bitemporal events should exist after rollback");
+                logger.info("Rollback verification: {} bitemporal event(s) found (expected 0)", eventCount);
 
-            assertEquals(0, eventCount, "NO bitemporal events should exist after rollback");
-            logger.info("Rollback verification: {} bitemporal event(s) found (expected 0)", eventCount);
+                // 2. Verify NO business data exists (none was inserted due to failure)
+                return pool.withConnection(connection -> {
+                    String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name LIKE $1";
+                    return connection.preparedQuery(selectBusinessSql)
+                        .execute(Tuple.of("%" + correlationId + "%"))
+                        .map(result -> result.iterator().next().getInteger(0));
+                });
+            })
+            .compose(businessCount -> {
+                assertEquals(0, businessCount, "NO business data should exist after rollback");
+                logger.info("Rollback verification: {} business record(s) found (expected 0)", businessCount);
 
-            // 2. Verify NO business data exists (none was inserted due to failure)
-            Integer businessCount = pool.withConnection(connection -> {
-                String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name LIKE $1";
-                return connection.preparedQuery(selectBusinessSql)
-                    .execute(Tuple.of("%" + correlationId + "%"))
-                    .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                // 3. Verify database is in clean state - no orphaned data
+                return pool.withConnection(connection -> {
+                    String totalCountSql = """
+                        SELECT
+                            (SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id = $1) as event_count,
+                            (SELECT COUNT(*) FROM business_data WHERE name LIKE $2) as business_count
+                        """;
 
-            assertEquals(0, businessCount, "NO business data should exist after rollback");
-            logger.info("Rollback verification: {} business record(s) found (expected 0)", businessCount);
+                    return connection.preparedQuery(totalCountSql)
+                        .execute(Tuple.of(correlationId, "%" + correlationId + "%"))
+                        .map(result -> {
+                            var row = result.iterator().next();
+                            int events = row.getInteger("event_count");
+                            int business = row.getInteger("business_count");
 
-            // 3. Verify database is in clean state - no orphaned data
-            Integer totalRecords = pool.withConnection(connection -> {
-                String totalCountSql = """
-                    SELECT
-                        (SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id = $1) as event_count,
-                        (SELECT COUNT(*) FROM business_data WHERE name LIKE $2) as business_count
-                    """;
+                            assertEquals(0, events, "No orphaned events should exist");
+                            assertEquals(0, business, "No orphaned business data should exist");
 
-                return connection.preparedQuery(totalCountSql)
-                    .execute(Tuple.of(correlationId, "%" + correlationId + "%"))
-                    .map(result -> {
-                        var row = result.iterator().next();
-                        int events = row.getInteger("event_count");
-                        int business = row.getInteger("business_count");
+                            logger.info("Clean state verification: {} events, {} business records (both should be 0)", events, business);
 
-                        assertEquals(0, events, "No orphaned events should exist");
-                        assertEquals(0, business, "No orphaned business data should exist");
-
-                        logger.info("Clean state verification: {} events, {} business records (both should be 0)", events, business);
-
-                        return events + business;
-                    });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            assertEquals(0, totalRecords, "Database should be in completely clean state after rollback");
-
-            logger.info("COMPREHENSIVE ROLLBACK TEST PASSED: Business operation failure after bitemporal append correctly rolled back all operations");
-
-        } finally {
-            pool.close();
-        }
+                            return events + business;
+                        });
+                });
+            })
+            .compose(totalRecords -> {
+                assertEquals(0, totalRecords, "Database should be in completely clean state after rollback");
+                logger.info("COMPREHENSIVE ROLLBACK TEST PASSED: Business operation failure after bitemporal append correctly rolled back all operations");
+                return pool.close();
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+        });
     }
 
     @Test
     @DisplayName("Test bitemporal append failure after business operation - rollback scenario")
-    void testBiTemporalAppendFailureAfterBusinessOperation() throws Exception {
+    void testBiTemporalAppendFailureAfterBusinessOperation(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing bitemporal append failure after business operation - rollback scenario");
 
         // Create a direct connection pool for transaction testing
@@ -582,75 +589,73 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         // Test data
         String businessName = "Rollback Test Business Record";
         int businessValue = 777;
         String correlationId = "ROLLBACK-TEST-AFTER-BUSINESS-" + System.currentTimeMillis();
 
-        try {
-            // Attempt transaction that should fail after business operation
-            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = bitemporal append validation failure after business insert must roll back the full transaction");
-            Exception thrownException = assertThrows(Exception.class, () -> {
-                pool.withTransaction(connection -> {
-                    logger.info("📝 Starting transaction that will fail after business operation");
+        // Attempt transaction that should fail after business operation
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = bitemporal append validation failure after business insert must roll back the full transaction");
+        pool.withTransaction(connection -> {
+            logger.info("📝 Starting transaction that will fail after business operation");
 
-                    // 1. First, successfully insert business data
-                    String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                    return connection.preparedQuery(insertBusinessSql)
-                        .execute(Tuple.of(businessName + "-" + correlationId, businessValue))
-                        .compose(businessResult -> {
-                            int businessId = businessResult.iterator().next().getInteger("id");
-                            logger.info("Business record inserted successfully with ID: {}", businessId);
+            // 1. First, successfully insert business data
+            String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertBusinessSql)
+                .execute(Tuple.of(businessName + "-" + correlationId, businessValue))
+                .compose(businessResult -> {
+                    int businessId = businessResult.iterator().next().getInteger("id");
+                    logger.info("Business record inserted successfully with ID: {}", businessId);
 
-                            // 2. Now attempt bitemporal append that will fail (null payload to trigger validation error)
-                            return eventStore.appendInTransaction("business.rollback.test", null, Instant.now(), connection)
-                                .map(biTemporalEvent -> {
-                                    logger.error("❌ This should not execute - bitemporal append should have failed");
-                                    return biTemporalEvent;
-                                });
+                    // 2. Now attempt bitemporal append that will fail (null payload to trigger validation error)
+                    return eventStore.appendInTransaction("business.rollback.test", null, Instant.now(), connection)
+                        .map(biTemporalEvent -> {
+                            logger.error("❌ This should not execute - bitemporal append should have failed");
+                            return biTemporalEvent;
                         });
-                }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-            });
-
+                });
+        })
+        .onSuccess(v -> testContext.failNow(new AssertionError("Transaction should have failed but succeeded")))
+        .onFailure(thrownException -> {
             logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (append validation failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info("🔍 Verifying complete rollback - no partial data should exist");
 
             // 1. Verify NO business data exists (should be rolled back)
-            Integer businessCount = pool.withConnection(connection -> {
+            pool.withConnection(connection -> {
                 String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name LIKE $1";
                 return connection.preparedQuery(selectBusinessSql)
                     .execute(Tuple.of("%" + correlationId + "%"))
                     .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            })
+            .compose(businessCount -> {
+                assertEquals(0, businessCount, "NO business data should exist after rollback");
+                logger.info("Rollback verification: {} business record(s) found (expected 0)", businessCount);
 
-            assertEquals(0, businessCount, "NO business data should exist after rollback");
-            logger.info("Rollback verification: {} business record(s) found (expected 0)", businessCount);
-
-            // 2. Verify NO bitemporal events exist (failed to insert)
-            Integer eventCount = pool.withConnection(connection -> {
-                String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id = $1";
-                return connection.preparedQuery(selectEventSql)
-                    .execute(Tuple.of(correlationId))
-                    .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            assertEquals(0, eventCount, "NO bitemporal events should exist after rollback");
-            logger.info("Rollback verification: {} bitemporal event(s) found (expected 0)", eventCount);
-
-            logger.info("COMPREHENSIVE ROLLBACK TEST PASSED: Bitemporal append failure after business operation correctly rolled back all operations");
-
-        } finally {
-            pool.close();
-        }
+                // 2. Verify NO bitemporal events exist (failed to insert)
+                return pool.withConnection(connection -> {
+                    String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id = $1";
+                    return connection.preparedQuery(selectEventSql)
+                        .execute(Tuple.of(correlationId))
+                        .map(result -> result.iterator().next().getInteger(0));
+                });
+            })
+            .compose(eventCount -> {
+                assertEquals(0, eventCount, "NO bitemporal events should exist after rollback");
+                logger.info("Rollback verification: {} bitemporal event(s) found (expected 0)", eventCount);
+                logger.info("COMPREHENSIVE ROLLBACK TEST PASSED: Bitemporal append failure after business operation correctly rolled back all operations");
+                return pool.close();
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+        });
     }
 
     @Test
     @DisplayName("Test transaction boundary integrity - no partial commits")
-    void testTransactionBoundaryIntegrity() throws Exception {
+    void testTransactionBoundaryIntegrity(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing transaction boundary integrity - no partial commits");
 
         // Create a direct connection pool for transaction testing
@@ -661,124 +666,124 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         // Test data for multiple operations
         String correlationId = "BOUNDARY-INTEGRITY-TEST-" + System.currentTimeMillis();
 
-        try {
-            // Attempt complex transaction with multiple operations that will fail at the end
-            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = late-stage SQL failure in multi-step transaction must prevent partial commits");
-            Exception thrownException = assertThrows(Exception.class, () -> {
-                pool.withTransaction(connection -> {
-                    logger.info("📝 Starting complex transaction with multiple operations that will fail");
+        // Attempt complex transaction with multiple operations that will fail at the end
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = late-stage SQL failure in multi-step transaction must prevent partial commits");
+        pool.withTransaction(connection -> {
+            logger.info("📝 Starting complex transaction with multiple operations that will fail");
 
-                    // 1. Insert first business record
-                    String insertBusiness1Sql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                    return connection.preparedQuery(insertBusiness1Sql)
-                        .execute(Tuple.of("Business-1-" + correlationId, 100))
-                        .compose(result1 -> {
-                            int businessId1 = result1.iterator().next().getInteger("id");
-                            logger.info("First business record inserted with ID: {}", businessId1);
+            // 1. Insert first business record
+            String insertBusiness1Sql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertBusiness1Sql)
+                .execute(Tuple.of("Business-1-" + correlationId, 100))
+                .compose(result1 -> {
+                    int businessId1 = result1.iterator().next().getInteger("id");
+                    logger.info("First business record inserted with ID: {}", businessId1);
 
-                            // 2. Append first bitemporal event
-                            return eventStore.appendInTransaction("boundary.test.event1",
-                                    new TestEvent("event1-data", 100), Instant.now(),
-                                    Map.of("business-id", String.valueOf(businessId1)),
-                                    correlationId + "-event1", "business-" + businessId1, connection)
-                                .compose(event1 -> {
-                                    logger.info("First bitemporal event appended with ID: {}", event1.getEventId());
+                    // 2. Append first bitemporal event
+                    return eventStore.appendInTransaction("boundary.test.event1",
+                            new TestEvent("event1-data", 100), Instant.now(),
+                            Map.of("business-id", String.valueOf(businessId1)),
+                            correlationId + "-event1", "business-" + businessId1, connection)
+                        .compose(event1 -> {
+                            logger.info("First bitemporal event appended with ID: {}", event1.getEventId());
 
-                                    // 3. Insert second business record
-                                    return connection.preparedQuery(insertBusiness1Sql)
-                                        .execute(Tuple.of("Business-2-" + correlationId, 200))
-                                        .compose(result2 -> {
-                                            int businessId2 = result2.iterator().next().getInteger("id");
-                                            logger.info("Second business record inserted with ID: {}", businessId2);
+                            // 3. Insert second business record
+                            return connection.preparedQuery(insertBusiness1Sql)
+                                .execute(Tuple.of("Business-2-" + correlationId, 200))
+                                .compose(result2 -> {
+                                    int businessId2 = result2.iterator().next().getInteger("id");
+                                    logger.info("Second business record inserted with ID: {}", businessId2);
 
-                                            // 4. Append second bitemporal event
-                                            return eventStore.appendInTransaction("boundary.test.event2",
-                                                    new TestEvent("event2-data", 200), Instant.now(),
-                                                    Map.of("business-id", String.valueOf(businessId2)),
-                                                    correlationId + "-event2", "business-" + businessId2, connection)
-                                                .compose(event2 -> {
-                                                    logger.info("Second bitemporal event appended with ID: {}", event2.getEventId());
+                                    // 4. Append second bitemporal event
+                                    return eventStore.appendInTransaction("boundary.test.event2",
+                                            new TestEvent("event2-data", 200), Instant.now(),
+                                            Map.of("business-id", String.valueOf(businessId2)),
+                                            correlationId + "-event2", "business-" + businessId2, connection)
+                                        .compose(event2 -> {
+                                            logger.info("Second bitemporal event appended with ID: {}", event2.getEventId());
 
-                                                    // 5. Now cause a failure - invalid SQL operation
-                                                    String failureSql = "INSERT INTO non_existent_table (invalid) VALUES ($1)";
-                                                    return connection.preparedQuery(failureSql)
-                                                        .execute(Tuple.of("force failure"))
-                                                        .map(failureResult -> {
-                                                            logger.error("❌ This should not execute - operation should have failed");
-                                                            return event2;
-                                                        });
+                                            // 5. Now cause a failure - invalid SQL operation
+                                            String failureSql = "INSERT INTO non_existent_table (invalid) VALUES ($1)";
+                                            return connection.preparedQuery(failureSql)
+                                                .execute(Tuple.of("force failure"))
+                                                .map(failureResult -> {
+                                                    logger.error("❌ This should not execute - operation should have failed");
+                                                    return event2;
                                                 });
                                         });
                                 });
                         });
-                }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-            });
-
+                });
+        })
+        .onSuccess(v -> testContext.failNow(new AssertionError("Transaction should have failed but succeeded")))
+        .onFailure(thrownException -> {
             logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected boundary-integrity rollback trigger: {}", thrownException.getMessage());
 
             // COMPREHENSIVE TRANSACTION BOUNDARY VERIFICATION
             logger.info("🔍 Verifying transaction boundary integrity - ALL operations should be rolled back");
 
             // 1. Verify NO business data exists (all should be rolled back)
-            Integer businessCount = pool.withConnection(connection -> {
+            pool.withConnection(connection -> {
                 String selectBusinessSql = "SELECT COUNT(*) FROM business_data WHERE name LIKE $1";
                 return connection.preparedQuery(selectBusinessSql)
                     .execute(Tuple.of("%" + correlationId + "%"))
                     .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            })
+            .compose(businessCount -> {
+                assertEquals(0, businessCount, "NO business data should exist after transaction rollback");
+                logger.info("Boundary integrity verification: {} business record(s) found (expected 0)", businessCount);
 
-            assertEquals(0, businessCount, "NO business data should exist after transaction rollback");
-            logger.info("Boundary integrity verification: {} business record(s) found (expected 0)", businessCount);
+                // 2. Verify NO bitemporal events exist (all should be rolled back)
+                return pool.withConnection(connection -> {
+                    String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id LIKE $1";
+                    return connection.preparedQuery(selectEventSql)
+                        .execute(Tuple.of(correlationId + "%"))
+                        .map(result -> result.iterator().next().getInteger(0));
+                });
+            })
+            .compose(eventCount -> {
+                assertEquals(0, eventCount, "NO bitemporal events should exist after transaction rollback");
+                logger.info("Boundary integrity verification: {} bitemporal event(s) found (expected 0)", eventCount);
 
-            // 2. Verify NO bitemporal events exist (all should be rolled back)
-            Integer eventCount = pool.withConnection(connection -> {
-                String selectEventSql = "SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id LIKE $1";
-                return connection.preparedQuery(selectEventSql)
-                    .execute(Tuple.of(correlationId + "%"))
-                    .map(result -> result.iterator().next().getInteger(0));
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                // 3. Verify complete clean state - no partial commits
+                return pool.withConnection(connection -> {
+                    String comprehensiveCheckSql = """
+                        SELECT
+                            (SELECT COUNT(*) FROM business_data WHERE name LIKE $1) as business_count,
+                            (SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id LIKE $2) as event_count,
+                            (SELECT COUNT(*) FROM bitemporal_event_log WHERE aggregate_id LIKE $3) as aggregate_count
+                        """;
 
-            assertEquals(0, eventCount, "NO bitemporal events should exist after transaction rollback");
-            logger.info("Boundary integrity verification: {} bitemporal event(s) found (expected 0)", eventCount);
+                    return connection.preparedQuery(comprehensiveCheckSql)
+                        .execute(Tuple.of("%" + correlationId + "%", correlationId + "%", "business-%"))
+                        .map(result -> {
+                            var row = result.iterator().next();
+                            int business = row.getInteger("business_count");
+                            int events = row.getInteger("event_count");
+                            int aggregates = row.getInteger("aggregate_count");
 
-            // 3. Verify complete clean state - no partial commits
-            pool.withConnection(connection -> {
-                String comprehensiveCheckSql = """
-                    SELECT
-                        (SELECT COUNT(*) FROM business_data WHERE name LIKE $1) as business_count,
-                        (SELECT COUNT(*) FROM bitemporal_event_log WHERE correlation_id LIKE $2) as event_count,
-                        (SELECT COUNT(*) FROM bitemporal_event_log WHERE aggregate_id LIKE $3) as aggregate_count
-                    """;
+                            assertEquals(0, business, "No business records should exist");
+                            assertEquals(0, events, "No event records should exist");
+                            // Note: aggregate_count might include other test data, so we don't assert on it
 
-                return connection.preparedQuery(comprehensiveCheckSql)
-                    .execute(Tuple.of("%" + correlationId + "%", correlationId + "%", "business-%"))
-                    .map(result -> {
-                        var row = result.iterator().next();
-                        int business = row.getInteger("business_count");
-                        int events = row.getInteger("event_count");
-                        int aggregates = row.getInteger("aggregate_count");
+                            logger.info("Comprehensive boundary verification: {} business, {} events, {} aggregates",
+                                business, events, aggregates);
 
-                        assertEquals(0, business, "No business records should exist");
-                        assertEquals(0, events, "No event records should exist");
-                        // Note: aggregate_count might include other test data, so we don't assert on it
-
-                        logger.info("Comprehensive boundary verification: {} business, {} events, {} aggregates",
-                            business, events, aggregates);
-
-                        return null;
-                    });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            logger.info("COMPREHENSIVE TRANSACTION BOUNDARY INTEGRITY TEST PASSED: All operations correctly rolled back, no partial commits");
-
-        } finally {
-            pool.close();
-        }
+                            return null;
+                        });
+                });
+            })
+            .compose(v -> {
+                logger.info("COMPREHENSIVE TRANSACTION BOUNDARY INTEGRITY TEST PASSED: All operations correctly rolled back, no partial commits");
+                return pool.close();
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+        });
     }
 
     /**
@@ -808,7 +813,7 @@ public class TransactionParticipationIntegrationTest {
 
     @Test
     @DisplayName("Multiple bitemporal events in single transaction")
-    void testMultipleBiTemporalEventsInSingleTransaction() throws Exception {
+    void testMultipleBiTemporalEventsInSingleTransaction(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing multiple bitemporal events in single transaction");
 
         // Create a direct connection pool for transaction testing
@@ -819,63 +824,62 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
-        try {
-            Instant testStart = Instant.now();
-            List<String> eventIds = new ArrayList<>();
+        Instant testStart = Instant.now();
+        List<String> eventIds = new ArrayList<>();
 
-            // TRANSACTION WITH MULTIPLE BITEMPORAL EVENTS
-            logger.info("🚀 Starting multiple bitemporal events transaction test");
+        // TRANSACTION WITH MULTIPLE BITEMPORAL EVENTS
+        logger.info("🚀 Starting multiple bitemporal events transaction test");
 
-            pool.withTransaction(connection -> {
-                // Insert business record
-                String insertSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                return connection.preparedQuery(insertSql)
-                    .execute(Tuple.of("Multi Event Test", 100))
-                    .compose(result -> {
-                        int businessId = result.iterator().next().getInteger("id");
-                        logger.info("📝 Business record inserted with ID: {}", businessId);
+        pool.withTransaction(connection -> {
+            // Insert business record
+            String insertSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertSql)
+                .execute(Tuple.of("Multi Event Test", 100))
+                .compose(result -> {
+                    int businessId = result.iterator().next().getInteger("id");
+                    logger.info("📝 Business record inserted with ID: {}", businessId);
 
-                        // Append first bitemporal event
-                        TestEvent event1 = new TestEvent("multi-event-1", 1);
-                        Instant validTime1 = testStart.plusMillis(100);
+                    // Append first bitemporal event
+                    TestEvent event1 = new TestEvent("multi-event-1", 1);
+                    Instant validTime1 = testStart.plusMillis(100);
 
-                        return eventStore.appendInTransaction("business.multi.event1", event1, validTime1, connection)
-                            .compose(biTemporalEvent1 -> {
-                                eventIds.add(biTemporalEvent1.getEventId());
-                                logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
+                    return eventStore.appendInTransaction("business.multi.event1", event1, validTime1, connection)
+                        .compose(biTemporalEvent1 -> {
+                            eventIds.add(biTemporalEvent1.getEventId());
+                            logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
 
-                                // Append second bitemporal event
-                                TestEvent event2 = new TestEvent("multi-event-2", 2);
-                                Instant validTime2 = testStart.plusMillis(200);
+                            // Append second bitemporal event
+                            TestEvent event2 = new TestEvent("multi-event-2", 2);
+                            Instant validTime2 = testStart.plusMillis(200);
 
-                                return eventStore.appendInTransaction("business.multi.event2", event2, validTime2, connection)
-                                    .compose(biTemporalEvent2 -> {
-                                        eventIds.add(biTemporalEvent2.getEventId());
-                                        logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
+                            return eventStore.appendInTransaction("business.multi.event2", event2, validTime2, connection)
+                                .compose(biTemporalEvent2 -> {
+                                    eventIds.add(biTemporalEvent2.getEventId());
+                                    logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
 
-                                        // Append third bitemporal event
-                                        TestEvent event3 = new TestEvent("multi-event-3", 3);
-                                        Instant validTime3 = testStart.plusMillis(300);
+                                    // Append third bitemporal event
+                                    TestEvent event3 = new TestEvent("multi-event-3", 3);
+                                    Instant validTime3 = testStart.plusMillis(300);
 
-                                        return eventStore.appendInTransaction("business.multi.event3", event3, validTime3, connection)
-                                            .compose(biTemporalEvent3 -> {
-                                                eventIds.add(biTemporalEvent3.getEventId());
-                                                logger.info("📊 Third bitemporal event appended with ID: {}", biTemporalEvent3.getEventId());
+                                    return eventStore.appendInTransaction("business.multi.event3", event3, validTime3, connection)
+                                        .compose(biTemporalEvent3 -> {
+                                            eventIds.add(biTemporalEvent3.getEventId());
+                                            logger.info("📊 Third bitemporal event appended with ID: {}", biTemporalEvent3.getEventId());
 
-                                                return Future.succeededFuture();
-                                            });
-                                    });
-                            });
-                    });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-
+                                            return Future.succeededFuture();
+                                        });
+                                });
+                        });
+                });
+        })
+        .compose(v -> {
             // COMPREHENSIVE VERIFICATION
             logger.info("🔍 Verifying multiple bitemporal events transaction commit");
 
             // Verify all events and business data exist
-            Integer totalRecords = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String countSql = """
                     SELECT
                         (SELECT COUNT(*) FROM business_data WHERE name = 'Multi Event Test') as business_count,
@@ -896,12 +900,13 @@ public class TransactionParticipationIntegrationTest {
 
                         return businessCount + eventCount;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
+            });
+        })
+        .compose(totalRecords -> {
             assertEquals(4, totalRecords, "Business record + 3 event records should exist after successful commit");
 
             // Verify event ordering and data integrity
-            List<Row> eventDetails = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String eventDetailsSql = "SELECT event_id, event_type, valid_time, transaction_time, payload FROM bitemporal_event_log WHERE event_type LIKE 'business.multi.event%' ORDER BY valid_time";
                 return connection.preparedQuery(eventDetailsSql)
                     .execute()
@@ -910,8 +915,9 @@ public class TransactionParticipationIntegrationTest {
                         result.forEach(rows::add);
                         return rows;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
+            });
+        })
+        .map(eventDetails -> {
             assertEquals(3, eventDetails.size(), "Should have exactly 3 events");
 
             logger.info("📊 Event sequence verification:");
@@ -937,15 +943,15 @@ public class TransactionParticipationIntegrationTest {
             assertEquals(3, eventIds.size(), "Should have collected 3 event IDs");
 
             logger.info("COMPREHENSIVE MULTIPLE BITEMPORAL EVENTS TEST PASSED: All {} events committed together with business data", eventIds.size());
-
-        } finally {
-            pool.close();
-        }
+            return eventDetails;
+        })
+        .compose(v -> pool.close())
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
     @DisplayName("Mixed operation sequences - business → bitemporal → business")
-    void testMixedOperationSequences() throws Exception {
+    void testMixedOperationSequences(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing mixed operation sequences - business → bitemporal → business");
 
         // Create a direct connection pool for transaction testing
@@ -956,75 +962,74 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
-        try {
-            Instant testStart = Instant.now();
-            List<Integer> businessIds = new ArrayList<>();
-            List<String> eventIds = new ArrayList<>();
+        Instant testStart = Instant.now();
+        List<Integer> businessIds = new ArrayList<>();
+        List<String> eventIds = new ArrayList<>();
 
-            // TRANSACTION WITH MIXED OPERATIONS
-            logger.info("🚀 Starting mixed operation sequences transaction test");
+        // TRANSACTION WITH MIXED OPERATIONS
+        logger.info("🚀 Starting mixed operation sequences transaction test");
 
-            pool.withTransaction(connection -> {
-                // 1. First business operation
-                String insertSql1 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                return connection.preparedQuery(insertSql1)
-                    .execute(Tuple.of("Mixed Op 1", 101))
-                    .compose(result1 -> {
-                        int businessId1 = result1.iterator().next().getInteger("id");
-                        businessIds.add(businessId1);
-                        logger.info("📝 First business record inserted with ID: {}", businessId1);
+        pool.withTransaction(connection -> {
+            // 1. First business operation
+            String insertSql1 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertSql1)
+                .execute(Tuple.of("Mixed Op 1", 101))
+                .compose(result1 -> {
+                    int businessId1 = result1.iterator().next().getInteger("id");
+                    businessIds.add(businessId1);
+                    logger.info("📝 First business record inserted with ID: {}", businessId1);
 
-                        // 2. First bitemporal event
-                        TestEvent event1 = new TestEvent("mixed-sequence-1", businessId1);
-                        Instant validTime1 = testStart.plusMillis(100);
+                    // 2. First bitemporal event
+                    TestEvent event1 = new TestEvent("mixed-sequence-1", businessId1);
+                    Instant validTime1 = testStart.plusMillis(100);
 
-                        return eventStore.appendInTransaction("business.mixed.sequence1", event1, validTime1, connection)
-                            .compose(biTemporalEvent1 -> {
-                                eventIds.add(biTemporalEvent1.getEventId());
-                                logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
+                    return eventStore.appendInTransaction("business.mixed.sequence1", event1, validTime1, connection)
+                        .compose(biTemporalEvent1 -> {
+                            eventIds.add(biTemporalEvent1.getEventId());
+                            logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
 
-                                // 3. Second business operation
-                                String insertSql2 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                                return connection.preparedQuery(insertSql2)
-                                    .execute(Tuple.of("Mixed Op 2", 102))
-                                    .compose(result2 -> {
-                                        int businessId2 = result2.iterator().next().getInteger("id");
-                                        businessIds.add(businessId2);
-                                        logger.info("📝 Second business record inserted with ID: {}", businessId2);
+                            // 3. Second business operation
+                            String insertSql2 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+                            return connection.preparedQuery(insertSql2)
+                                .execute(Tuple.of("Mixed Op 2", 102))
+                                .compose(result2 -> {
+                                    int businessId2 = result2.iterator().next().getInteger("id");
+                                    businessIds.add(businessId2);
+                                    logger.info("📝 Second business record inserted with ID: {}", businessId2);
 
-                                        // 4. Second bitemporal event
-                                        TestEvent event2 = new TestEvent("mixed-sequence-2", businessId2);
-                                        Instant validTime2 = testStart.plusMillis(200);
+                                    // 4. Second bitemporal event
+                                    TestEvent event2 = new TestEvent("mixed-sequence-2", businessId2);
+                                    Instant validTime2 = testStart.plusMillis(200);
 
-                                        return eventStore.appendInTransaction("business.mixed.sequence2", event2, validTime2, connection)
-                                            .compose(biTemporalEvent2 -> {
-                                                eventIds.add(biTemporalEvent2.getEventId());
-                                                logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
+                                    return eventStore.appendInTransaction("business.mixed.sequence2", event2, validTime2, connection)
+                                        .compose(biTemporalEvent2 -> {
+                                            eventIds.add(biTemporalEvent2.getEventId());
+                                            logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
 
-                                                // 5. Third business operation
-                                                String insertSql3 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                                                return connection.preparedQuery(insertSql3)
-                                                    .execute(Tuple.of("Mixed Op 3", 103))
-                                                    .compose(result3 -> {
-                                                        int businessId3 = result3.iterator().next().getInteger("id");
-                                                        businessIds.add(businessId3);
-                                                        logger.info("📝 Third business record inserted with ID: {}", businessId3);
+                                            // 5. Third business operation
+                                            String insertSql3 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+                                            return connection.preparedQuery(insertSql3)
+                                                .execute(Tuple.of("Mixed Op 3", 103))
+                                                .compose(result3 -> {
+                                                    int businessId3 = result3.iterator().next().getInteger("id");
+                                                    businessIds.add(businessId3);
+                                                    logger.info("📝 Third business record inserted with ID: {}", businessId3);
 
-                                                        return Future.succeededFuture();
-                                                    });
-                                            });
-                                    });
-                            });
-                    });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-
+                                                    return Future.succeededFuture();
+                                                });
+                                        });
+                                });
+                        });
+                });
+        })
+        .compose(v -> {
             // COMPREHENSIVE VERIFICATION
             logger.info("🔍 Verifying mixed operation sequences transaction commit");
 
             // Verify all business records and events exist
-            Integer totalRecords = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String countSql = """
                     SELECT
                         (SELECT COUNT(*) FROM business_data WHERE name LIKE 'Mixed Op %') as business_count,
@@ -1045,12 +1050,13 @@ public class TransactionParticipationIntegrationTest {
 
                         return businessCount + eventCount;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
+            });
+        })
+        .compose(totalRecords -> {
             assertEquals(5, totalRecords, "3 business records + 2 event records should exist after successful commit");
 
             // Verify operation sequence integrity
-            List<Row> businessDetails = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String businessSql = "SELECT id, name, value FROM business_data WHERE name LIKE 'Mixed Op %' ORDER BY id";
                 return connection.preparedQuery(businessSql)
                     .execute()
@@ -1059,18 +1065,21 @@ public class TransactionParticipationIntegrationTest {
                         result.forEach(rows::add);
                         return rows;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            List<Row> eventDetails = pool.withConnection(connection -> {
-                String eventSql = "SELECT event_id, event_type, payload, valid_time FROM bitemporal_event_log WHERE event_type LIKE 'business.mixed.sequence%' ORDER BY valid_time";
-                return connection.preparedQuery(eventSql)
-                    .execute()
-                    .map(result -> {
-                        List<Row> rows = new ArrayList<>();
-                        result.forEach(rows::add);
-                        return rows;
-                    });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            });
+        })
+        .compose(businessDetails -> pool.withConnection(connection -> {
+            String eventSql = "SELECT event_id, event_type, payload, valid_time FROM bitemporal_event_log WHERE event_type LIKE 'business.mixed.sequence%' ORDER BY valid_time";
+            return connection.preparedQuery(eventSql)
+                .execute()
+                .map(result -> {
+                    List<Row> rows = new ArrayList<>();
+                    result.forEach(rows::add);
+                    return Map.entry(businessDetails, rows);
+                });
+        }))
+        .map(details -> {
+            List<Row> businessDetails = details.getKey();
+            List<Row> eventDetails = details.getValue();
 
             assertEquals(3, businessDetails.size(), "Should have exactly 3 business records");
             assertEquals(2, eventDetails.size(), "Should have exactly 2 events");
@@ -1097,15 +1106,15 @@ public class TransactionParticipationIntegrationTest {
             }
 
             logger.info("COMPREHENSIVE MIXED OPERATION SEQUENCES TEST PASSED: {} business operations and {} events committed together", businessIds.size(), eventIds.size());
-
-        } finally {
-            pool.close();
-        }
+            return details;
+        })
+        .compose(v -> pool.close())
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
     @DisplayName("Batch operation performance test")
-    void testBatchOperationPerformance() throws Exception {
+    void testBatchOperationPerformance(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧪 Testing batch operation performance");
 
         // Create a direct connection pool for transaction testing
@@ -1116,51 +1125,50 @@ public class TransactionParticipationIntegrationTest {
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
-        try {
-            final int BATCH_SIZE = 10; // Reasonable size for integration test
-            Instant testStart = Instant.now();
-            List<String> eventIds = new ArrayList<>();
+        final int BATCH_SIZE = 10; // Reasonable size for integration test
+        Instant testStart = Instant.now();
+        List<String> eventIds = new ArrayList<>();
 
-            // BATCH TRANSACTION PERFORMANCE TEST
-            logger.info("🚀 Starting batch operation performance test with {} operations", BATCH_SIZE);
+        // BATCH TRANSACTION PERFORMANCE TEST
+        logger.info("🚀 Starting batch operation performance test with {} operations", BATCH_SIZE);
 
-            long startTime = System.currentTimeMillis();
+        long startTime = System.currentTimeMillis();
 
-            pool.withTransaction(connection -> {
-                // Insert business record for batch
-                String insertSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
-                return connection.preparedQuery(insertSql)
-                    .execute(Tuple.of("Batch Performance Test", 200))
-                    .compose(result -> {
-                        int businessId = result.iterator().next().getInteger("id");
-                        logger.info("📝 Batch business record inserted with ID: {}", businessId);
+        pool.withTransaction(connection -> {
+            // Insert business record for batch
+            String insertSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
+            return connection.preparedQuery(insertSql)
+                .execute(Tuple.of("Batch Performance Test", 200))
+                .compose(result -> {
+                    int businessId = result.iterator().next().getInteger("id");
+                    logger.info("📝 Batch business record inserted with ID: {}", businessId);
 
-                        // Chain multiple bitemporal events
-                        Future<Void> chainFuture = Future.succeededFuture();
+                    // Chain multiple bitemporal events
+                    Future<Void> chainFuture = Future.succeededFuture();
 
-                        for (int i = 1; i <= BATCH_SIZE; i++) {
-                            final int eventNumber = i;
-                            chainFuture = chainFuture.compose(v -> {
-                                TestEvent event = new TestEvent("batch-event-" + eventNumber, eventNumber);
-                                Instant validTime = testStart.plusMillis(eventNumber * 10);
+                    for (int i = 1; i <= BATCH_SIZE; i++) {
+                        final int eventNumber = i;
+                        chainFuture = chainFuture.compose(v -> {
+                            TestEvent event = new TestEvent("batch-event-" + eventNumber, eventNumber);
+                            Instant validTime = testStart.plusMillis(eventNumber * 10);
 
-                                return eventStore.appendInTransaction("business.batch.event" + eventNumber, event, validTime, connection)
-                                    .compose(biTemporalEvent -> {
-                                        eventIds.add(biTemporalEvent.getEventId());
-                                        if (eventNumber % 5 == 0) {
-                                            logger.info("📊 Batch progress: {} events appended", eventNumber);
-                                        }
-                                        return Future.succeededFuture();
-                                    });
-                            });
-                        }
+                            return eventStore.appendInTransaction("business.batch.event" + eventNumber, event, validTime, connection)
+                                .compose(biTemporalEvent -> {
+                                    eventIds.add(biTemporalEvent.getEventId());
+                                    if (eventNumber % 5 == 0) {
+                                        logger.info("📊 Batch progress: {} events appended", eventNumber);
+                                    }
+                                    return Future.succeededFuture();
+                                });
+                        });
+                    }
 
-                        return chainFuture;
-                    });
-            }).toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
-
+                    return chainFuture;
+                });
+        })
+        .compose(v -> {
             long endTime = System.currentTimeMillis();
             long duration = endTime - startTime;
 
@@ -1170,7 +1178,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("🔍 Verifying batch operation performance results");
 
             // Verify all events and business data exist
-            Integer totalRecords = pool.withConnection(connection -> {
+            return pool.withConnection(connection -> {
                 String countSql = """
                     SELECT
                         (SELECT COUNT(*) FROM business_data WHERE name = 'Batch Performance Test') as business_count,
@@ -1191,23 +1199,27 @@ public class TransactionParticipationIntegrationTest {
 
                         return businessCount + eventCount;
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            assertEquals(BATCH_SIZE + 1, totalRecords, "Business record + all batch event records should exist");
-
-            // Verify transaction isolation - all events should have same transaction time
-            List<Instant> transactionTimes = pool.withConnection(connection -> {
-                String timingSql = "SELECT DISTINCT transaction_time FROM bitemporal_event_log WHERE event_type LIKE 'business.batch.event%'";
-                return connection.preparedQuery(timingSql)
-                    .execute()
-                    .map(result -> {
-                        List<Instant> times = new ArrayList<>();
-                        result.forEach(row -> {
-                            times.add(row.getLocalDateTime("transaction_time").toInstant(java.time.ZoneOffset.UTC));
-                        });
-                        return times;
+            })
+            .map(totalRecords -> {
+                assertEquals(BATCH_SIZE + 1, totalRecords, "Business record + all batch event records should exist");
+                return Map.entry(duration, totalRecords);
+            });
+        })
+        .compose(durationAndTotal -> pool.withConnection(connection -> {
+            String timingSql = "SELECT DISTINCT transaction_time FROM bitemporal_event_log WHERE event_type LIKE 'business.batch.event%'";
+            return connection.preparedQuery(timingSql)
+                .execute()
+                .map(result -> {
+                    List<Instant> times = new ArrayList<>();
+                    result.forEach(row -> {
+                        times.add(row.getLocalDateTime("transaction_time").toInstant(java.time.ZoneOffset.UTC));
                     });
-            }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                    return Map.entry(durationAndTotal.getKey(), times);
+                });
+        }))
+        .map(durationAndTimes -> {
+            long duration = durationAndTimes.getKey();
+            List<Instant> transactionTimes = durationAndTimes.getValue();
 
             assertTrue(transactionTimes.size() <= BATCH_SIZE, "Transaction times should be reasonable (each event gets its own timestamp)");
             assertEquals(BATCH_SIZE, eventIds.size(), "Should have collected all event IDs");
@@ -1223,12 +1235,16 @@ public class TransactionParticipationIntegrationTest {
             logger.info("  Operations per second: {}", String.format("%.2f", 1000.0 / avgTimePerOp));
 
             logger.info("COMPREHENSIVE BATCH OPERATION PERFORMANCE TEST PASSED: {} events processed in {} ms", BATCH_SIZE, duration);
-
-        } finally {
-            pool.close();
-        }
+            return durationAndTimes;
+        })
+        .compose(v -> pool.close())
+        .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 }
+
+
+
+
 
 
 
