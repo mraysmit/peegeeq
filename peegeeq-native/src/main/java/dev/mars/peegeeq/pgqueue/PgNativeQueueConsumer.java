@@ -159,7 +159,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY || mode == ConsumerMode.HYBRID) {
                 return startListening()
                         .onSuccess(v -> logger.info("Subscribed to topic: {} with mode: {}", topic, mode))
-                        .onFailure(err -> logger.error("Error during subscription for topic: {}", topic, err));
+                        .onFailure(err -> {
+                            if (closed.get()) {
+                                logger.debug("Subscription aborted for topic: {} - consumer closed", topic);
+                            } else {
+                                logger.error("Error during subscription for topic: {}", topic, err);
+                            }
+                        });
             } else {
                 logger.info("Subscribed to topic: {} with mode: {}", topic, mode);
                 return Future.succeededFuture();
@@ -216,7 +222,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         if (!shouldMaintainListenSubscription()) {
                             logger.debug("LISTEN connection closed during shutdown for channel: {}", notifyChannel);
                         } else {
-                            logger.error("LISTEN connection closed unexpectedly for channel: {}", notifyChannel);
+                            logger.warn("LISTEN connection closed unexpectedly for channel: {} - will reconnect", notifyChannel);
                         }
                         this.subscriber = null;
                         scheduleListenReconnect();
@@ -512,7 +518,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         // pattern
                         if (closed.get() && (error.getMessage().contains("Pool closed") ||
                                 error.getMessage().contains("event executor terminated") ||
-                                error.getMessage().contains("Connection closed"))) {
+                                error.getMessage().contains("Connection closed") ||
+                                error.getMessage().contains("Connection is not active now") ||
+                                error.getMessage().contains("Failed to read any response"))) {
                             logger.debug("Expected error during shutdown for topic {}: {}", topic, error.getMessage());
                         } else {
                             logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
@@ -530,9 +538,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                     errorMessage.contains("event executor terminated") ||
                                     errorMessage.contains("Connection closed") ||
                                     errorMessage.contains("RejectedExecutionException")) {
-                                logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+                                logger.debug("Message processing aborted for topic {}: {}", topic, errorMessage);
                             } else {
-                                logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
+                                logger.debug("Message processing error during shutdown for topic {}: {}", topic, errorMessage);
                             }
                         } else {
                             // During normal operation, log as error but don't let it terminate the executor
@@ -554,8 +562,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
             if (closed.get()) {
-                // During shutdown, errors are expected
-                logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+                logger.debug("Message processing aborted for topic {}: {}", topic, errorMessage);
             } else if (errorMessage.contains("event executor terminated") ||
                     errorMessage.contains("RejectedExecutionException")) {
                 // Executor termination - log as warning and stop processing
@@ -746,9 +753,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             String errorMsg = error.getMessage();
                             if (closed.get() && (errorMsg.contains("Pool closed") ||
                                     errorMsg.contains("connection may have been lost") ||
-                                    errorMsg.contains("Failed to read any response"))) {
+                                    errorMsg.contains("Failed to read any response") ||
+                                    errorMsg.contains("Connection is not active now"))) {
                                 logger.debug(
-                                        "Connection closed during message deletion for {} - this is expected during shutdown",
+                                        "Message deletion aborted for {} - connection closed during shutdown",
                                         messageId);
                             } else {
                                 logger.error("Failed to delete message {}: {}", messageId, errorMsg);
@@ -768,9 +776,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             String errorMsg = error.getMessage();
                             if (closed.get() && (errorMsg.contains("Pool closed") ||
                                     errorMsg.contains("connection may have been lost") ||
-                                    errorMsg.contains("Failed to read any response"))) {
+                                    errorMsg.contains("Failed to read any response") ||
+                                    errorMsg.contains("Connection is not active now"))) {
                                 logger.debug(
-                                        "Connection closed during message deletion for {} - this is expected during shutdown",
+                                        "Message deletion aborted for {} - connection closed during shutdown",
                                         messageId);
                             } else {
                                 logger.error("Failed to delete message {}: {}", messageId, errorMsg);
@@ -784,8 +793,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             String errorMsg = e.getMessage();
             if (closed.get() && (errorMsg.contains("Pool closed") ||
                     errorMsg.contains("connection may have been lost") ||
-                    errorMsg.contains("Failed to read any response"))) {
-                logger.debug("Exception during message deletion for {} during shutdown - this is expected: {}",
+                    errorMsg.contains("Failed to read any response") ||
+                    errorMsg.contains("Connection is not active now"))) {
+                logger.debug("Message deletion aborted for {} during shutdown: {}",
                         messageId, errorMsg);
             } else {
                 logger.error("Error deleting message {}: {}", messageId, errorMsg);
@@ -1007,7 +1017,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         .onFailure(error -> {
                             if (closed.get() && error.getMessage().contains("Pool closed")) {
                                 logger.debug(
-                                        "Pool closed during shutdown for expired locks cleanup - this is expected");
+                                        "Lock cleanup aborted for topic {} - pool closed", topic);
                             } else {
                                 logger.error("Failed to query expired locks for topic {}: {}", topic,
                                         error.getMessage());
@@ -1030,7 +1040,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         .onFailure(error -> {
                             if (closed.get() && error.getMessage().contains("Pool closed")) {
                                 logger.debug(
-                                        "Pool closed during shutdown for expired locks cleanup - this is expected");
+                                        "Lock cleanup aborted for topic {} - pool closed", topic);
                             } else {
                                 logger.error("Failed to query expired locks for topic {}: {}", topic,
                                         error.getMessage());

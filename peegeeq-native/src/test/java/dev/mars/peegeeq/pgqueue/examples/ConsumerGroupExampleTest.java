@@ -353,7 +353,15 @@ class ConsumerGroupExampleTest {
             producer.send(event, headers, "correlation-" + i, region + "-" + priority)
                 .onComplete(ar -> {
                     if (ar.failed()) {
-                        logger.error("Failed to send message for order {}: {}", event.getOrderId(), ar.cause().getMessage());
+                        String errMsg = ar.cause().getMessage();
+                        if (errMsg != null && (errMsg.contains("Failed to read any response") ||
+                                errMsg.contains("Connection is not active now") ||
+                                errMsg.contains("Pool closed"))) {
+                            logger.debug("Send aborted for order {} during shutdown: {}",
+                                    event.getOrderId(), errMsg);
+                        } else {
+                            logger.error("Failed to send message for order {}: {}", event.getOrderId(), errMsg);
+                        }
                     } else {
                         logger.debug("Sent message for order {} with headers: {}", event.getOrderId(), headers);
                     }
