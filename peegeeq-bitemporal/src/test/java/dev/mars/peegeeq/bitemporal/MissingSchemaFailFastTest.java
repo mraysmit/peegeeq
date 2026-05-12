@@ -20,6 +20,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -33,8 +34,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,25 +54,17 @@ class MissingSchemaFailFastTest {
 
     @Container
     @SuppressWarnings("resource")
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_no_schema_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager peeGeeQManager;
-    private final Map<String, String> originalProperties = new HashMap<>();
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (peeGeeQManager != null) {
             peeGeeQManager.closeReactive()
-                .onComplete(v -> {
-                    restoreTestProperties();
-                    testContext.completeNow();
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(e -> { logger.warn("Manager close: {}", e.getMessage()); testContext.completeNow(); });
         } else {
-            restoreTestProperties();
             testContext.completeNow();
         }
     }
@@ -87,9 +79,13 @@ class MissingSchemaFailFastTest {
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = manager startup must fail when required tables are missing");
 
         // Point PeeGeeQManager at the empty database NO initializeSchema() call
-        configureSystemPropertiesForContainer(postgres);
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.ssl.enabled", "false")
+                .property("peegeeq.database.pool.shared", "false")
+                .build();
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         peeGeeQManager.start()
             .onSuccess(v -> testContext.failNow(
@@ -125,36 +121,5 @@ class MissingSchemaFailFastTest {
         if (testContext.failed()) {
             throw new RuntimeException(testContext.causeOfFailure());
         }
-    }
-
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer container) {
-        setTestProperty("peegeeq.database.host", container.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", container.getDatabaseName());
-        setTestProperty("peegeeq.database.username", container.getUsername());
-        setTestProperty("peegeeq.database.password", container.getPassword());
-        setTestProperty("peegeeq.database.schema", "public");
-        setTestProperty("peegeeq.database.ssl.enabled", "false");
-        setTestProperty("peegeeq.database.pool.shared", "false");
-    }
-
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 }

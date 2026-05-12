@@ -63,7 +63,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("reactive_notification_test");
         container.withUsername("test_user");
         container.withPassword("test_password");
@@ -243,20 +243,16 @@ class ReactiveNotificationHandlerIntegrationTest {
                 assertEquals(eventType, message.getPayload().getEventType());
                 assertNotNull(message.getPayload().getEventId());
             });
-            handler.stop().onComplete(ar -> {
-                if (ar.failed()) {
-                    testContext.failNow(ar.cause());
-                } else {
-                    testContext.completeNow();
-                }
-            });
+            handler.stop()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
             return Future.<Void>succeededFuture();
         };
 
         handler.start()
             .compose(v -> handler.subscribe(eventType, null, messageHandler))
             .compose(v -> insertBiTemporalEvent(vertx, eventType, aggregateId))
-            .onFailure(error -> handler.stop().onComplete(ar -> testContext.failNow(error)));
+            .onFailure(error -> handler.stop().onSuccess(v -> testContext.failNow(error)).onFailure(e -> testContext.failNow(error)));
     }
 
     @Test
@@ -275,20 +271,16 @@ class ReactiveNotificationHandlerIntegrationTest {
             testContext.verify(() -> {
                 assertEquals("order.updated", receivedType);
             });
-            handler.stop().onComplete(ar -> {
-                if (ar.failed()) {
-                    testContext.failNow(ar.cause());
-                } else {
-                    testContext.completeNow();
-                }
-            });
+            handler.stop()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
             return Future.<Void>succeededFuture();
         };
 
         handler.start()
             .compose(v -> handler.subscribe("order.*", null, messageHandler))
             .compose(v -> insertBiTemporalEvent(vertx, "order.updated", "agg-wildcard-1"))
-            .onFailure(error -> handler.stop().onComplete(ar -> testContext.failNow(error)));
+            .onFailure(error -> handler.stop().onSuccess(v -> testContext.failNow(error)).onFailure(e -> testContext.failNow(error)));
     }
 
     @Test
@@ -314,7 +306,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                 return handler.stop();
             })
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(error -> handler.stop().onComplete(ar -> testContext.failNow(error)));
+            .onFailure(error -> handler.stop().onSuccess(v -> testContext.failNow(error)).onFailure(e -> testContext.failNow(error)));
     }
 
     @AfterEach

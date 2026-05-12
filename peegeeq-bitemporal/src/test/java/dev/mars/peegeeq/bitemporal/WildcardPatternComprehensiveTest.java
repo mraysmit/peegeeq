@@ -7,6 +7,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -28,8 +29,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -54,27 +55,26 @@ class WildcardPatternComprehensiveTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_wildcard_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private static PeeGeeQManager peeGeeQManager;
     private static Vertx vertx;
     private static PgBiTemporalEventStore<Map<String, Object>> eventStore;
-    private static final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
     static void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         WildcardPatternComprehensiveTest.vertx = vertx;
         logger.info("Setting up wildcard pattern comprehensive test...");
-        configureSystemPropertiesForContainer(postgres);
+
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.schema", "public")
+                .property("peegeeq.database.ssl.enabled", "false")
+                .build();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         createTestEventsTable();
         
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         peeGeeQManager.start()
             .onSuccess(v -> {
                 Class<Map<String, Object>> mapClass = mapClass();
@@ -101,42 +101,11 @@ class WildcardPatternComprehensiveTest {
                 : Future.succeededFuture())
             .onSuccess(v -> {
                 PgBiTemporalEventStore.clearCachedPools();
-                restoreTestProperties();
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Teardown timed out");
-    }
-
-    private static void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
-        setTestProperty("peegeeq.database.schema", "public");
-        setTestProperty("peegeeq.database.ssl.enabled", "false");
-    }
-
-    private static void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private static void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 
     private static void createTestEventsTable() throws Exception {

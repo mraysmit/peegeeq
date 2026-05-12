@@ -27,6 +27,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -45,10 +46,10 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,31 +81,22 @@ public class TransactionalBiTemporalExampleTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer sharedPostgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_bitemporal_test")
-            .withUsername("postgres")
-            .withPassword("password")
-            .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
-            .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
+    static PostgreSQLContainer sharedPostgres = PostgreSQLTestConstants.createStandardContainer();
 
     private static Vertx vertx;
     private static PeeGeeQManager peeGeeQManager;
     private static EventStore<OrderEvent> orderEventStore;
     private static EventStore<PaymentEvent> paymentEventStore;
-    private static final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
     static void setUpClass(Vertx vertx, VertxTestContext testContext) throws Exception {
         TransactionalBiTemporalExampleTest.vertx = vertx;
         logger.info("=== Setting up Transactional Bi-Temporal Example Test ===");
 
-        // Configure PeeGeeQ to use container database
-        setTestProperty("peegeeq.database.host", sharedPostgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", sharedPostgres.getUsername());
-        setTestProperty("peegeeq.database.password", sharedPostgres.getPassword());
-        setTestProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(sharedPostgres)
+                .property("peegeeq.database.schema", "public")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -112,7 +104,7 @@ public class TransactionalBiTemporalExampleTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize PeeGeeQ Manager
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         peeGeeQManager.start()
             .onSuccess(v -> {
                 logger.info("PeeGeeQ Manager started successfully");
@@ -158,33 +150,12 @@ public class TransactionalBiTemporalExampleTest {
                 return Future.<Void>succeededFuture();
             })
             .onSuccess(v -> {
-                restoreTestProperties();
                 logger.info("Transactional Bi-Temporal Example Test cleanup completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Teardown timed out");
-    }
-
-    private static void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private static void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 
     private static Future<Void> cleanupDatabase() {

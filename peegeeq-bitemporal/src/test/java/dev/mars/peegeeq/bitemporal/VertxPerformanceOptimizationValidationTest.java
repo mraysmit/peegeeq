@@ -69,21 +69,12 @@ class VertxPerformanceOptimizationValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationValidationTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        container.withSharedMemorySize(256 * 1024 * 1024L); // 256MB shared memory
-        container.withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase;
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private Vertx vertx;
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
+    private PeeGeeQConfiguration config;
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
@@ -108,7 +99,7 @@ class VertxPerformanceOptimizationValidationTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        this.config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
             .onSuccess(v -> {
@@ -255,7 +246,7 @@ class VertxPerformanceOptimizationValidationTest {
         chain
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 logger.info("Performance monitoring validation completed - metrics should be collected");
-                assertTrue(true, "Performance monitoring integration validated");
+                assertNotNull(manager.getPool(), "Manager pool should be active after monitoring operations");
                 testContext.completeNow();
             })));
     }
@@ -266,10 +257,10 @@ class VertxPerformanceOptimizationValidationTest {
     void shouldValidateConfigurationProfiles(VertxTestContext testContext) {
         logger.info("=== Validating Configuration Profiles ===");
         
-        // Test that the system properties are being read correctly
-        String poolSize = System.getProperty("peegeeq.database.pool.max-size");
-        String pipeliningLimit = System.getProperty("peegeeq.database.pipelining.limit");
-        String eventLoopSize = System.getProperty("peegeeq.database.event.loop.size");
+        // Test that the configuration values are being read correctly from the config instance
+        String poolSize = config.getString("peegeeq.database.pool.max-size", null);
+        String pipeliningLimit = config.getString("peegeeq.database.pipelining.limit", null);
+        String eventLoopSize = config.getString("peegeeq.database.event.loop.size", null);
         
         assertEquals("100", poolSize);
         assertEquals("1024", pipeliningLimit);

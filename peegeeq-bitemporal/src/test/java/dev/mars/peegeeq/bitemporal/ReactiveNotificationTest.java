@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -42,9 +43,8 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -68,15 +68,11 @@ class ReactiveNotificationTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_notification_test")
-            .withUsername("test")
-            .withPassword("test");
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private EventStore<TestEvent> eventStore;
-    private final Map<String, String> originalProperties = new HashMap<>();
     
     /**
      * Test event class.
@@ -127,18 +123,16 @@ class ReactiveNotificationTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        // Set system properties for PeeGeeQ configuration - following peegeeq-native patterns
-        setTestProperty("peegeeq.database.host", postgres.getHost());
-        setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        setTestProperty("peegeeq.database.name", postgres.getDatabaseName());
-        setTestProperty("peegeeq.database.username", postgres.getUsername());
-        setTestProperty("peegeeq.database.password", postgres.getPassword());
+
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Initialize database schema using centralized schema initializer
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
         // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -163,12 +157,12 @@ class ReactiveNotificationTest {
             eventStore.close();
         }
         Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive().transform(ar -> Future.succeededFuture())
+            ? manager.closeReactive().transform(ar -> {
+                if (ar.failed()) System.err.println("ReactiveNotificationTest: manager close failed: " + ar.cause().getMessage());
+                return Future.succeededFuture();
+              })
             : Future.succeededFuture();
-        closeFuture.onSuccess(v -> {
-            restoreTestProperties();
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        closeFuture.onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
     
     /**
@@ -267,26 +261,6 @@ class ReactiveNotificationTest {
                 assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
                 testContext.completeNow();
             })));
-    }
-
-    private void setTestProperty(String key, String value) {
-        originalProperties.putIfAbsent(key, System.getProperty(key));
-        if (value == null) {
-            System.clearProperty(key);
-        } else {
-            System.setProperty(key, value);
-        }
-    }
-
-    private void restoreTestProperties() {
-        for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
-            if (entry.getValue() == null) {
-                System.clearProperty(entry.getKey());
-            } else {
-                System.setProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        originalProperties.clear();
     }
 
 }
