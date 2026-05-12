@@ -109,10 +109,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Error Log Messages</h2>
  * <p>The following ERROR/WARN log messages are <b>EXPECTED</b> and indicate proper error handling:</p>
  * <ul>
- *   <li>"💥 Processing failed" - Expected for retry testing</li>
- *   <li>"🔥 Circuit breaker tripped" - Expected for circuit breaker testing</li>
- *   <li>"💀 Message moved to dead letter queue" - Expected for DLQ testing</li>
- *   <li>"☠️ Poison message detected" - Expected for poison message testing</li>
+ *   <li>"Processing failed" - Expected for retry testing</li>
+ *   <li>"Circuit breaker tripped" - Expected for circuit breaker testing</li>
+ *   <li>"Message moved to dead letter queue" - Expected for DLQ testing</li>
+ *   <li>"Poison message detected" - Expected for poison message testing</li>
  * </ul>
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -170,7 +170,7 @@ class EnhancedErrorHandlingExampleTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Enhanced Error Handling Example Test");
+        logger.info("Cleaning up Enhanced Error Handling Example Test");
 
         if (factory != null) {
             try {
@@ -209,7 +209,7 @@ class EnhancedErrorHandlingExampleTest {
                 ErrorTestMessage payload = message.getPayload();
                 int attempt = payload.getProcessingAttempts();
                 
-                logger.info("🧪 INTENTIONAL TEST: Processing message: {} (attempt {})", 
+                logger.info("INTENTIONAL TEST: Processing message: {} (attempt {})", 
                     payload.getMessageId(), attempt + 1);
                 
                 try {
@@ -225,9 +225,9 @@ class EnhancedErrorHandlingExampleTest {
                     
                 } catch (ProcessingException e) {
                     int retries = retryCount.incrementAndGet();
-                    logger.warn("🎯 INTENTIONAL TEST FAILURE: Processing failed for message: {} (retry {}): {}", 
+                    logger.warn("INTENTIONAL TEST FAILURE: Processing failed for message: {} (retry {}): {}", 
                         payload.getMessageId(), retries, e.getMessage());
-                    logger.info("   📋 This failure demonstrates retry mechanism with exponential backoff");
+                    logger.info("   This failure demonstrates retry mechanism with exponential backoff");
                     
                     if (e.isRetryable() && attempt < 3) {
                         // Simulate exponential backoff using Vert.x timer
@@ -251,7 +251,7 @@ class EnhancedErrorHandlingExampleTest {
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Retry strategies test should complete within timeout");
             
             logger.info("Retry strategies test completed successfully!");
-            logger.info("   📊 Total processed: {}, Total retries: {}", processedCount.get(), retryCount.get());
+            logger.info("   Total processed: {}, Total retries: {}", processedCount.get(), retryCount.get());
         }
     }
 
@@ -273,13 +273,13 @@ class EnhancedErrorHandlingExampleTest {
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
 
-                logger.info("🧪 INTENTIONAL TEST: Processing message with circuit breaker: {}", payload.getMessageId());
+                logger.info("INTENTIONAL TEST: Processing message with circuit breaker: {}", payload.getMessageId());
 
                 // Check circuit breaker state
                 if (consecutiveFailures.get() >= CIRCUIT_BREAKER_THRESHOLD) {
-                    logger.warn("🔥 INTENTIONAL TEST FAILURE: Circuit breaker is OPEN - rejecting message: {}",
+                    logger.warn("INTENTIONAL TEST FAILURE: Circuit breaker is OPEN - rejecting message: {}",
                         payload.getMessageId());
-                    logger.info("   📋 This demonstrates circuit breaker protection against cascading failures");
+                    logger.info("   This demonstrates circuit breaker protection against cascading failures");
                     checkpoint.flag();
                     return Future.failedFuture(new RuntimeException("Circuit breaker is OPEN"));
                 }
@@ -299,12 +299,12 @@ class EnhancedErrorHandlingExampleTest {
                     int failures = consecutiveFailures.incrementAndGet();
                     int totalFailures = failureCount.incrementAndGet();
 
-                    logger.warn("🎯 INTENTIONAL TEST FAILURE: Circuit breaker processing failed: {} (consecutive: {}, total: {})",
+                    logger.warn("INTENTIONAL TEST FAILURE: Circuit breaker processing failed: {} (consecutive: {}, total: {})",
                         payload.getMessageId(), failures, totalFailures);
-                    logger.info("   📋 This failure contributes to circuit breaker state management");
+                    logger.info("   This failure contributes to circuit breaker state management");
 
                     if (failures >= CIRCUIT_BREAKER_THRESHOLD) {
-                        logger.warn("🔥 EXPECTED BEHAVIOR: Circuit breaker OPENED after {} consecutive failures", failures);
+                        logger.warn("EXPECTED BEHAVIOR: Circuit breaker OPENED after {} consecutive failures", failures);
                     }
 
                     checkpoint.flag();
@@ -324,7 +324,7 @@ class EnhancedErrorHandlingExampleTest {
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Circuit breaker test should complete within timeout");
 
             logger.info("Circuit breaker integration test completed successfully!");
-            logger.info("   📊 Processed: {}, Failures: {}, Circuit breaker trips: {}",
+            logger.info("   Processed: {}, Failures: {}, Circuit breaker trips: {}",
                 processedCount.get(), failureCount.get(),
                 consecutiveFailures.get() >= CIRCUIT_BREAKER_THRESHOLD ? 1 : 0);
         }
@@ -344,7 +344,7 @@ class EnhancedErrorHandlingExampleTest {
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
 
-                logger.info("🧪 INTENTIONAL TEST: Processing message for DLQ demo: {}", payload.getMessageId());
+                logger.info("INTENTIONAL TEST: Processing message for DLQ demo: {}", payload.getMessageId());
 
                 try {
                     simulateProcessing(payload);
@@ -360,13 +360,13 @@ class EnhancedErrorHandlingExampleTest {
                     if (!e.isRetryable() || payload.getProcessingAttempts() >= 3) {
                         // Move to dead letter queue
                         int dlqMessages = dlqCount.incrementAndGet();
-                        logger.warn("💀 EXPECTED BEHAVIOR: Message moved to dead letter queue: {} (total DLQ: {})",
+                        logger.warn("EXPECTED BEHAVIOR: Message moved to dead letter queue: {} (total DLQ: {})",
                             payload.getMessageId(), dlqMessages);
-                        logger.info("   📋 This demonstrates proper dead letter queue management");
+                        logger.info("   This demonstrates proper dead letter queue management");
                         checkpoint.flag();
                         return Future.failedFuture(new RuntimeException("Moved to DLQ: " + e.getMessage()));
                     } else {
-                        logger.warn("🎯 INTENTIONAL TEST FAILURE: DLQ demo processing failed (will retry): {}",
+                        logger.warn("INTENTIONAL TEST FAILURE: DLQ demo processing failed (will retry): {}",
                             payload.getMessageId());
                         checkpoint.flag();
                         return Future.failedFuture(e);
@@ -385,7 +385,7 @@ class EnhancedErrorHandlingExampleTest {
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Dead letter queue test should complete within timeout");
 
             logger.info("Dead letter queue management test completed successfully!");
-            logger.info("   📊 Processed successfully: {}, Moved to DLQ: {}", processedCount.get(), dlqCount.get());
+            logger.info("   Processed successfully: {}, Moved to DLQ: {}", processedCount.get(), dlqCount.get());
         }
     }
 
@@ -403,7 +403,7 @@ class EnhancedErrorHandlingExampleTest {
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
 
-                logger.info("🧪 INTENTIONAL TEST: Processing message for error routing: {}", payload.getMessageId());
+                logger.info("INTENTIONAL TEST: Processing message for error routing: {}", payload.getMessageId());
 
                 try {
                     // Classify error and route accordingly
@@ -411,15 +411,15 @@ class EnhancedErrorHandlingExampleTest {
 
                     switch (strategy) {
                         case RETRY:
-                            logger.info("📋 ROUTING: Message classified for RETRY strategy: {}", payload.getMessageId());
+                            logger.info("ROUTING: Message classified for RETRY strategy: {}", payload.getMessageId());
                             simulateProcessing(payload);
                             break;
                         case IGNORE:
-                            logger.info("📋 ROUTING: Message classified for IGNORE strategy: {}", payload.getMessageId());
+                            logger.info("ROUTING: Message classified for IGNORE strategy: {}", payload.getMessageId());
                             // Log and continue
                             break;
                         case ALERT:
-                            logger.info("📋 ROUTING: Message classified for ALERT strategy: {}", payload.getMessageId());
+                            logger.info("ROUTING: Message classified for ALERT strategy: {}", payload.getMessageId());
                             // Send alert and continue
                             break;
                         default:
@@ -453,7 +453,7 @@ class EnhancedErrorHandlingExampleTest {
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Error classification and routing test should complete within timeout");
 
             logger.info("Error classification and routing test completed successfully!");
-            logger.info("   📊 Total processed: {}, Total routed: {}", processedCount.get(), routedCount.get());
+            logger.info("   Total processed: {}, Total routed: {}", processedCount.get(), routedCount.get());
         }
     }
 
@@ -471,14 +471,14 @@ class EnhancedErrorHandlingExampleTest {
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
 
-                logger.info("🧪 INTENTIONAL TEST: Processing message for poison detection: {}", payload.getMessageId());
+                logger.info("INTENTIONAL TEST: Processing message for poison detection: {}", payload.getMessageId());
 
                 // Check if message is poison (consistently fails)
                 if ("POISON_MESSAGE".equals(payload.getErrorType())) {
                     int poisonMessages = poisonCount.incrementAndGet();
-                    logger.warn("☠️ EXPECTED BEHAVIOR: Poison message detected and isolated: {} (total poison: {})",
+                    logger.warn("EXPECTED BEHAVIOR: Poison message detected and isolated: {} (total poison: {})",
                         payload.getMessageId(), poisonMessages);
-                    logger.info("   📋 This demonstrates poison message detection and isolation");
+                    logger.info("   This demonstrates poison message detection and isolation");
                     checkpoint.flag();
                     return Future.failedFuture(new RuntimeException("Poison message isolated"));
                 }
@@ -493,7 +493,7 @@ class EnhancedErrorHandlingExampleTest {
                     return Future.succeededFuture();
 
                 } catch (ProcessingException e) {
-                    logger.warn("🎯 INTENTIONAL TEST FAILURE: Poison demo processing failed: {}",
+                    logger.warn("INTENTIONAL TEST FAILURE: Poison demo processing failed: {}",
                         payload.getMessageId());
                     checkpoint.flag();
                     return Future.failedFuture(e);
@@ -510,7 +510,7 @@ class EnhancedErrorHandlingExampleTest {
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Poison message handling test should complete within timeout");
 
             logger.info("Poison message handling test completed successfully!");
-            logger.info("   📊 Processed successfully: {}, Poison messages isolated: {}",
+            logger.info("   Processed successfully: {}, Poison messages isolated: {}",
                 processedCount.get(), poisonCount.get());
         }
     }
@@ -537,7 +537,7 @@ class EnhancedErrorHandlingExampleTest {
         headers.put("errorType", errorType != null ? errorType : "SUCCESS");
 
         return producer.send(message, headers)
-            .onSuccess(v -> logger.info("📤 Sent test message: {} (errorType: {})", messageId, errorType));
+            .onSuccess(v -> logger.info("Sent test message: {} (errorType: {})", messageId, errorType));
     }
 
     /**

@@ -218,8 +218,14 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
 
         // Fire-and-forget; interface is void so caller cannot observe the future
         startInternal()
-                .onFailure(err -> logger.error("Failed to start consumer group '{}': {}",
-                        groupName, err.getMessage()));
+                .onFailure(err -> {
+                    String msg = err.getMessage();
+                    if (msg != null && msg.contains("Consumer group closed during startup")) {
+                        logger.debug("Consumer group '{}' startup aborted - closed before startup completed", groupName);
+                    } else {
+                        logger.error("Failed to start consumer group '{}': {}", groupName, msg);
+                    }
+                });
     }
 
     /**
@@ -257,8 +263,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     return Future.succeededFuture();
                 })
                 .onFailure(err -> {
-                    logger.error("Failed to start partitioned engine for group '{}': {}",
-                            groupName, err.getMessage());
+                    String msg = err.getMessage();
+                    if (msg != null && msg.contains("Consumer group closed during startup")) {
+                        logger.debug("Partitioned engine startup aborted for group '{}' - closed before startup completed", groupName);
+                    } else {
+                        logger.error("Failed to start partitioned engine for group '{}': {}", groupName, msg);
+                    }
                     state.compareAndSet(State.STARTING, State.NEW);
                 });
     }
@@ -330,8 +340,15 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
 
         // Subscribe to messages and distribute them to group members
         underlyingConsumer.subscribe(this::distributeMessage)
-                .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
-                        groupName, topic, err.getMessage(), err));
+                .onFailure(err -> {
+                    if (state.get() == State.CLOSED || state.get() == State.STOPPING) {
+                        logger.debug("Consumer group subscription aborted for group '{}' topic '{}' - consumer closed",
+                                groupName, topic);
+                    } else {
+                        logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                                groupName, topic, err.getMessage(), err);
+                    }
+                });
 
         // Start all existing members
         members.values().forEach(PgNativeConsumerGroupMember::start);

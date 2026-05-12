@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Implementation of the ReactiveQueue interface using native PostgreSQL features with Vert.x.
@@ -64,6 +65,7 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
     private final String channelName;
     private final Class<T> messageType;
     private PgConnection listenConnection;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     /**
      * Creates a new PgNativeQueue with the given parameters.
@@ -174,7 +176,14 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
                     });
             })
             .onFailure(err -> {
-                logger.error("Failed to establish LISTEN connection: {}", err.getMessage());
+                String errMsg = err.getMessage();
+                if (closed.get() || (errMsg != null && (errMsg.contains("Failed to read any response") ||
+                        errMsg.contains("Connection is not active now") ||
+                        errMsg.contains("Pool closed")))) {
+                    logger.debug("Failed to establish LISTEN connection (pool closing): {}", errMsg);
+                } else {
+                    logger.error("Failed to establish LISTEN connection: {}", errMsg);
+                }
                 stream.handleError(err);
             });
 
@@ -196,6 +205,7 @@ public class PgNativeQueue<T> implements ReactiveQueue<T> {
 
     @Override
     public Future<Void> close() {
+        closed.set(true);
         logger.info("Closing PgNativeQueue for channel: {}", channelName);
         Promise<Void> promise = Promise.promise();
 
