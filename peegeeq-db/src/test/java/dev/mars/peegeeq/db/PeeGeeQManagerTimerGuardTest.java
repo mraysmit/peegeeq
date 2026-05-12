@@ -47,26 +47,51 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Tests that protect against the timer callback race conditions fixed in PeeGeeQManager:
+ * Integration tests protecting against timer callback race conditions in {@link PeeGeeQManager}.
  *
+ * <h2>Behaviours under test</h2>
  * <ol>
- *   <li><b>Closing guard</b>: When {@code closing=true}, timer callbacks must return immediately
- *       without invoking any DB operation. Without the guard, a timer that fires between
- *       {@code closing=true} and {@code cancelTimer()} would attempt {@code refreshDepthCache()}
- *       against a pool that is about to close, producing a spurious "connection refused" WARN.</li>
- *   <li><b>Consecutive failure escalation</b>: First 1–2 timer failures log at WARN.
- *       From the 3rd consecutive failure onward, they escalate to ERROR with a
- *       "(N consecutive failures)" count. The counter resets on success.</li>
+ *   <li><b>Clean-close guard</b> ({@code testNoTimerFailuresDuringCleanClose}): when
+ *       {@code closeReactive()} is called with the DB alive, no timer failure logs must appear.
+ *       The {@code if (closing) return;} guard must prevent any in-flight or pending tick
+ *       from reaching the DB after close begins.</li>
+ *
+ *   <li><b>Consecutive-failure escalation</b> ({@code testTimerFailuresEscalateWarnToError}):
+ *       when the DB is stopped while the manager is running, the first 1–2 timer ticks log at
+ *       WARN; from the 3rd consecutive failure onward they escalate to ERROR with an
+ *       "(N consecutive failures)" count in the message. Every captured log event must carry
+ *       {@link java.net.ConnectException} in its cause chain, proving the DB-stopped scenario
+ *       is what produced the failures (not a swallowed exception or an unrelated error).</li>
+ *
+ *   <li><b>Closing-guard race</b> ({@code testClosingGuardPreventsTimerCallbacksAfterClose}):
+ *       with 1 s timer intervals, a tick may fire in the window between {@code closing=true}
+ *       and {@code cancelTimer()}. The guard must intercept it before any DB call is made.</li>
+ *
+ *   <li><b>In-flight fail-fast</b> ({@code testInFlightTasksFailFast}): background tasks
+ *       ({@code refreshDepthCache}, {@code persistMetrics}) invoked directly after
+ *       {@code closeReactive()} must complete without hitting the DB.</li>
+ *
+ *   <li><b>Fast-timer immediate-close</b> ({@code testFastTimersWithImmediateClose}): same
+ *       race as (3) but with a dedicated property set and an immediate close after 2.5 s of
+ *       successful ticks, maximising the chance of a tick firing mid-close.</li>
  * </ol>
  *
- * <p>Strategy: set {@code peegeeq.metrics.depth-cache-interval=PT1S} (the minimum) so timer
- * ticks fire fast enough to observe multiple failures in a few seconds.
+ * <h2>Strategy</h2>
+ * <p>All tests set {@code peegeeq.metrics.reporting-interval=PT1S} and
+ * {@code peegeeq.metrics.depth-cache-interval=PT1S} (the minimum allowed by configuration
+ * validation) so timer ticks fire fast enough to observe multiple successes or failures
+ * within a few seconds. Other background jobs (recovery, dead-consumer detection,
+ * consumer-group retry, migration) are disabled to keep the captured log scope narrow.
+ *
+ * <p>{@link LogCaptureAppender} is attached to the {@code PeeGeeQManager} logger in
+ * {@code @BeforeEach} and detached in {@code @AfterEach}. It is cleared inside each test
+ * immediately before the scenario under observation begins, so every WARN/ERROR event
+ * captured after the clear is guaranteed to originate from that scenario.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -115,9 +140,9 @@ public class PeeGeeQManagerTimerGuardTest {
                     testContext.completeNow();
                 })
                 .onFailure(t -> {
-                    logger.warn("Error closing manager in tearDown: {}", t.getMessage());
+                    logger.error("Error closing manager in tearDown", t);
                     clearSystemProperties();
-                    testContext.completeNow();
+                    testContext.failNow(t);
                 });
         } else {
             clearSystemProperties();
@@ -165,10 +190,6 @@ public class PeeGeeQManagerTimerGuardTest {
     @Test
     @DisplayName("Timer failures escalate from WARN to ERROR after consecutive-failure threshold")
     void testTimerFailuresEscalateWarnToError(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next 'Failed to refresh depth cache' " +
-                     "ERROR logs are EXPECTED this test deliberately stops the DB container " +
-                     "to verify that consecutive timer failures escalate from WARN to ERROR");
-
         // Own container so we can stop it without breaking other tests
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -185,48 +206,71 @@ public class PeeGeeQManagerTimerGuardTest {
 
         manager.start()
                 .compose(v -> {
-                    // Kill the DB all subsequent timer ticks will fail
+                    // Kill the DB — all subsequent timer ticks will fail
                     ownContainer.stop();
                     logCapture.clear();
-                    // Wait for 5 timer ticks at 1 s interval → 5 consecutive failures
-                    // Expected: ticks 1–2 → WARN, tick 3–5 → ERROR
-                    return delay(vertx, 5500);
+                    logger.error("===== INTENTIONAL ERROR TEST BEGIN ===== DB container stopped." +
+                                 " 'Failed to refresh depth cache' WARN/ERROR logs below are EXPECTED" +
+                                 " for the next ~3 seconds. See END marker when they stop.");
+                    // Wait for 3 timer ticks at 1 s interval → 3 consecutive failures
+                    // Expected: ticks 1–2 → WARN, tick 3 → ERROR (escalation threshold)
+                    return delay(vertx, 3500);
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                    logger.error("===== INTENTIONAL ERROR TEST END ===== Expected 'Failed to refresh" +
+                                 " depth cache' WARN/ERROR sequence is complete. Asserting captured logs.");
                     List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
-                    // First 1–2 failures must appear at WARN (no "consecutive failures" label)
+                    // PRIMARY: every captured event must carry ConnectException in the cause chain.
+                    // This proves the DB-stopped scenario is what produced these failures — not an
+                    // NPE, misconfiguration, or any other unrelated error.
+                    // If PeeGeeQManager swallowed the exception (logged only e.getMessage()),
+                    // getThrowableProxy() returns null and this fails immediately.
+                    assertFalse(warns.isEmpty(),
+                            "Expected WARN events from timer failures after container stop; none captured");
+                    assertFalse(errors.isEmpty(),
+                            "Expected ERROR events after escalation threshold; none captured");
+
+                    boolean allWarnsHaveConnectException = warns.stream()
+                            .allMatch(e -> hasCauseOfType(e.getThrowableProxy(), "java.net.ConnectException"));
+                    assertTrue(allWarnsHaveConnectException,
+                            "Every WARN must carry ConnectException in cause chain — proves the DB-stopped " +
+                            "scenario produced these failures and the exception was not swallowed. " +
+                            "WARN count: " + warns.size());
+
+                    boolean allErrorsHaveConnectException = errors.stream()
+                            .allMatch(e -> hasCauseOfType(e.getThrowableProxy(), "java.net.ConnectException"));
+                    assertTrue(allErrorsHaveConnectException,
+                            "Every ERROR must carry ConnectException in cause chain — proves the DB-stopped " +
+                            "scenario produced these failures and the exception was not swallowed. " +
+                            "ERROR count: " + errors.size());
+
+                    // SECONDARY: escalation behaviour — first failures at WARN, then ERROR with count
                     boolean hasEarlyWarn = warns.stream()
-                            .map(ILoggingEvent::getFormattedMessage)
-                            .anyMatch(msg -> msg.contains("Failed to refresh depth cache")
-                                         && !msg.contains("consecutive failures"));
+                            .anyMatch(e -> !e.getFormattedMessage().contains("consecutive failures"));
                     assertTrue(hasEarlyWarn,
-                            "Initial failures should be logged at WARN without 'consecutive failures'. " +
+                            "Initial failures must be logged at WARN without '(N consecutive failures)'. " +
                             "WARN messages: " + warns.stream().map(ILoggingEvent::getFormattedMessage).toList());
 
-                    // 3rd+ failures must appear at ERROR with "(N consecutive failures)"
                     boolean hasEscalatedError = errors.stream()
-                            .map(ILoggingEvent::getFormattedMessage)
-                            .anyMatch(msg -> msg.contains("Failed to refresh depth cache")
-                                         && msg.contains("consecutive failures"));
+                            .anyMatch(e -> e.getFormattedMessage().contains("(3 consecutive") ||
+                                          e.getFormattedMessage().contains("(4 consecutive") ||
+                                          e.getFormattedMessage().contains("(5 consecutive"));
                     assertTrue(hasEscalatedError,
-                            "Failures at/beyond threshold (3) must be logged at ERROR with " +
-                            "'consecutive failures'. ERROR messages: " +
-                            errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
-
-                    // The failure count in the ERROR message must be ≥ 3
-                    boolean hasThresholdCount = errors.stream()
-                            .map(ILoggingEvent::getFormattedMessage)
-                            .anyMatch(msg -> msg.contains("Failed to refresh depth cache") &&
-                                    (msg.contains("(3 consecutive") ||
-                                     msg.contains("(4 consecutive") ||
-                                     msg.contains("(5 consecutive")));
-                    assertTrue(hasThresholdCount,
-                            "ERROR message must report the failure count (≥ 3). " +
+                            "At/beyond threshold (3), failures must be ERROR with '(N consecutive failures)'. " +
                             "ERROR messages: " + errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
 
-                    testContext.completeNow();
+                    // Close the manager before test completes so tearDown does not try to
+                    // close it against a stopped container (which would cause tearDown to failNow).
+                    // ownContainer is already stopped; closeReactive() cancels timers regardless.
+                    PeeGeeQManager closingManager = manager;
+                    manager = null; // prevent tearDown double-close
+                    closingManager.closeReactive()
+                            .eventually(() -> {
+                                testContext.completeNow();
+                                return Future.succeededFuture();
+                            });
                 })));
 
     }
@@ -371,16 +415,22 @@ public class PeeGeeQManagerTimerGuardTest {
     // Helpers
     // ─────────────────────────────────────────────────────────────────
 
+    private boolean hasCauseOfType(ch.qos.logback.classic.spi.IThrowableProxy proxy, String className) {
+        while (proxy != null) {
+            if (className.equals(proxy.getClassName())) return true;
+            proxy = proxy.getCause();
+        }
+        return false;
+    }
+
+    /**
+     * Returns all WARN/ERROR events captured from PeeGeeQManager since the last logCapture.clear().
+     * No message-string filtering: logCapture is scoped to PeeGeeQManager and cleared before each
+     * scenario, so any WARN or ERROR after the clear is a timer failure regardless of message text.
+     */
     private List<ILoggingEvent> captureTimerFailures() {
         return logCapture.snapshot().stream()
                 .filter(e -> e.getLevel().equals(Level.WARN) || e.getLevel().equals(Level.ERROR))
-                .filter(e -> {
-                    String msg = e.getFormattedMessage();
-                    return msg.contains("Failed to refresh depth cache")
-                            || msg.contains("Failed to persist metrics")
-                            || msg.contains("Failed to recover stuck messages")
-                            || msg.contains("Failed to cleanup old dead letter messages");
-                })
                 .toList();
     }
 
@@ -529,6 +579,15 @@ public class PeeGeeQManagerTimerGuardTest {
     // Log capture
     // ─────────────────────────────────────────────────────────────────
 
+    /**
+     * Logback appender that collects {@link ILoggingEvent} instances from the
+     * {@code PeeGeeQManager} logger into an in-memory list.
+     *
+     * <p>Scoping contract: the appender is attached only to the {@code PeeGeeQManager} logger,
+     * so every event it records originates from that class. Each test calls {@link #clear()}
+     * immediately before the scenario under observation, ensuring that assertions on
+     * {@link #snapshot()} or {@link #eventsAtLevel(Level)} see only events from that scenario.
+     */
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {
         private final List<ILoggingEvent> events = Collections.synchronizedList(new ArrayList<>());
 

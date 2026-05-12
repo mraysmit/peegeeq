@@ -364,6 +364,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     @Test
     @DisplayName("Schema name containing SQL injection characters is rejected with IllegalArgumentException before pool creation")
     void testInvalidSchemaFailsFast() {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to create pool for test-invalid') is EXPECTED this test deliberately uses a SQL injection schema name to verify the schema validation guard rejects it");
         logger.info("TEST: Invalid schema fails fast");
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();

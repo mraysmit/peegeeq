@@ -149,8 +149,18 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         .onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that {@link SqlTemplateProcessor#applyTemplate(io.vertx.sqlclient.SqlConnection, String, java.util.Map)}
+     * returns a failed {@code Future} and logs an ERROR when the requested template file does not exist.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Failed to load template: non-existent-template.sql') is EXPECTED —
+     * this test deliberately references a missing template file to verify error propagation.
+     * The test also captures the log output via a {@code ListAppender} to assert the message.
+     */
     @Test
     void testApplyTemplateWithNonExistentTemplate(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to load template: non-existent-template.sql') is EXPECTED this test deliberately references a missing template file to verify error propagation");
         ch.qos.logback.classic.Logger stpLogger = (ch.qos.logback.classic.Logger)
             LoggerFactory.getLogger(SqlTemplateProcessor.class);
         ListAppender<ILoggingEvent> listAppender = new ListAppender<>();

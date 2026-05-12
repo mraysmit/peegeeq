@@ -760,6 +760,322 @@ six executable examples (three anti-pattern proofs, three safe-pattern counterpa
 
 ---
 
+## HIGH: Discarded `Future<Void>` From Stop/Close Methods in Test Compose Chains
+
+Discovered: 2026-05-12 from full `peegeeq-db` test suite run.  
+Root cause of: `DeadConsumerDetectionJobIntegrationTest.testEndToEndDetectCleanupPipeline` — `expected: <COMPLETED> but was: <PENDING>`.
+
+### What Happens
+
+`DeadConsumerDetectionJob.stop()` returns a `Future<Void>` that resolves only after
+any in-flight detection cycle — including `cleanupAllDeadGroups` which writes
+`status='COMPLETED'` to the database — has fully completed.
+
+The original test code discarded this Future (fire-and-forget):
+
+```java
+.compose(messageIds -> {
+    job.stop();                        // Future<Void> discarded — returns immediately
+    assertTrue(job.getTotalDeadDetected() >= 1, ...);
+    return getSubscriptionStatus(topic, "group-b")
+            .map(v -> messageIds);
+})
+```
+
+The compose chain continued while the in-flight cleanup was still executing. The
+subsequent `verifyCompletedMessagesAndReturn` query ran before the `UPDATE outbox
+SET status='COMPLETED'` SQL had been written, finding `PENDING` instead.
+
+The same test passed in isolation because the single-test run had no concurrent
+activity making the timing window observable.
+
+### Pattern
+
+```java
+// WRONG: Future<Void> discarded — stop() not awaited
+.compose(messageIds -> {
+    job.stop();
+    // assertions run immediately — cleanup may still be in-flight
+    assertTrue(job.getTotalDeadDetected() >= 1, ...);
+    return verifyState().map(v -> messageIds);
+})
+
+// CORRECT: compose on stop() — assertions run only after stop completes
+.compose(messageIds -> job.stop().compose(v -> {
+    assertTrue(job.getTotalDeadDetected() >= 1, ...);
+    return verifyState().map(ignored -> messageIds);
+}))
+```
+
+### Rule
+
+Any `stop()`, `close()`, or `shutdown()` method that returns `Future<Void>` and is
+called as a prerequisite to an assertion **must** be composed on — not called and
+ignored. This applies in test code exactly as in production code.
+
+### Fixed In
+
+`peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/DeadConsumerDetectionJobIntegrationTest.java`
+— `testEndToEndDetectCleanupPipeline`, 2026-05-12.
+
+---
+
+## HIGH: Background Jobs Left Enabled When Creating `PeeGeeQManager` Directly in Tests
+
+Discovered: 2026-05-12 from full `peegeeq-db` test suite run.  
+Root cause of: `CompletionTrackerIntegrationTest.testMarkFailedRepeatedlyIncrementsRetryCount` — `expected: <error 2> but was: <null>`.
+
+### What Happens
+
+Any test that constructs a `PeeGeeQManager` with a custom `Properties` object without
+explicitly disabling background jobs inherits the production defaults, which enable both:
+
+- `peegeeq.queue.dead-consumer-detection.enabled` — default `true`
+- `peegeeq.queue.consumer-group-retry.enabled` — default `true`
+
+`ConsumerGroupRetryService` (started by the retry job) executes on a periodic timer:
+
+```sql
+UPDATE outbox_consumer_groups
+SET status = 'PENDING', error_message = NULL
+WHERE status = 'FAILED'
+  AND retry_count < max_retries
+  AND ...
+```
+
+This SQL clears `error_message` on **all** `FAILED` rows in the shared database —
+across every test running concurrently. `DeadConsumerDetectionJobLifecycleTest` started
+a manager with `dead-consumer-detection.enabled=true` but did not set
+`consumer-group-retry.enabled=false`, so `ConsumerGroupRetryJob` started and polluted
+rows owned by `CompletionTrackerIntegrationTest` running in parallel.
+
+The pollution was invisible in isolation runs — it only manifested under concurrent
+execution because the race window between `markFailed` and `getTrackingRowStatus` is
+too small to be hit when no other timer is firing.
+
+### Race Timeline
+
+```
+[lifecycle test setUp]       PeeGeeQManager starts → ConsumerGroupRetryJob timer starts
+[completion tracker test]    markFailed("error 1") → error_message="error 1", retry_count=1
+[completion tracker test]    markFailed("error 2") → error_message="error 2", retry_count=1
+[ConsumerGroupRetryJob fires] → error_message=NULL, status=PENDING  (retry_count unchanged)
+[completion tracker test]    getTrackingRowStatus → error_message=null  ← FAIL
+```
+
+Note: `retry_count` was NOT reset (the retry service only resets `status` and
+`error_message`), which is why the `retry_count=1` assertion passed while
+`error_message=null` failed.
+
+### Pattern
+
+```java
+// WRONG: relies on defaults — ConsumerGroupRetryJob starts globally
+testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "true");
+// no consumer-group-retry.enabled → defaults to true → retry job pollutes shared DB
+
+// CORRECT: explicitly disable every background job the test does not need
+testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "true");
+testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+```
+
+### Rule
+
+Any test that creates a `PeeGeeQManager` directly (not via `BaseIntegrationTest`) must
+explicitly set all background-job-enabled properties to a known safe value. Do not
+rely on defaults. Properties to consider:
+
+| Property | Default | Danger if left enabled |
+|---|---|---|
+| `peegeeq.queue.dead-consumer-detection.enabled` | `true` | Marks subscriptions DEAD globally |
+| `peegeeq.queue.consumer-group-retry.enabled` | `true` | Resets `error_message=NULL` globally on all FAILED rows |
+
+`BaseIntegrationTest` disables both. Every test that bypasses it must replicate that.
+
+### Fixed In
+
+`peegeeq-db/src/test/java/dev/mars/peegeeq/db/DeadConsumerDetectionJobLifecycleTest.java`
+— added `peegeeq.queue.consumer-group-retry.enabled=false` in `setUp()`, 2026-05-12.
+
+---
+
+## MEDIUM: Test Teardown Cleanup SQL Running After Pool Is Closed
+
+Discovered: 2026-05-12 from full `peegeeq-db` test suite run.  
+Observed in: `HealthCheckManagerTest` — `WARN Failed to cleanup test data: Pool closed`.
+
+### What Happens
+
+When a test closes its `PeeGeeQManager` (or pool) before running cleanup SQL in
+`@AfterEach`, the pool is already closed by the time the cleanup query fires:
+
+```
+09:38:39.264  PgConnectionManager  — Closed reactive pool for service: peegeeq-main
+09:38:39.273  HealthCheckManagerTest — Failed to cleanup test data: Pool closed   ← WARN
+09:38:39.273  HealthCheckManagerTest — Failed to cleanup test data in tearDown     ← WARN
+```
+
+This does not fail the test itself, but it:
+1. Leaves dirty data in the shared database that can affect subsequent tests
+2. Produces unintentional WARN-level log noise that obscures genuine warnings
+3. Masks the real teardown bug when future tests fail due to leftover state
+
+### Pattern
+
+```java
+// WRONG: manager (and pool) closed before cleanup SQL runs
+manager.closeReactive()
+    .eventually(() -> cleanupSql(pool))    // pool already closed — SQL fails
+    .onComplete(...)
+
+// CORRECT: run cleanup SQL first, close pool last
+cleanupSql(pool)
+    .eventually(() -> manager.closeReactive())
+    .onComplete(...)
+```
+
+### Rule
+
+In `@AfterEach`, reactive cleanup SQL must run **before** the pool or manager is closed.
+The close must be the terminal `.eventually(...)` step, not the first one.
+
+---
+
+## MEDIUM: Metrics Timer Left Running After Container Stops
+
+Discovered: 2026-05-12 from full `peegeeq-db` test suite run.  
+Observed in: `PeeGeeQManager` — recurring `WARN/ERROR Failed to persist metrics: Connection refused: localhost/127.0.0.1:54878`.
+
+### What Happens
+
+A `PeeGeeQManager` configured with a short metrics interval (`PT1S`) continues firing
+its periodic timer after the Testcontainers PostgreSQL container it was pointed at has
+stopped. The container stops when its owning test ends, but the manager's Vert.x timer
+is still alive:
+
+```
+09:38:58.999  PeeGeeQManager — WARN  Failed to persist metrics: Connection refused: localhost/127.0.0.1:54878
+09:39:01.000  PeeGeeQManager — ERROR Failed to persist metrics (3 consecutive failures): Connection refused
+09:39:04.010  PeeGeeQManager — ERROR Failed to persist metrics (6 consecutive failures): Connection refused
+```
+
+This happens when the manager's reactive close is not properly awaited before the
+container stops — either because the close was discarded (see "Discarded Future" entry
+above) or because the test's `@AfterEach` does not compose on the close Future.
+
+The escalating ERROR log pattern (consecutive failure counter) is correct production
+behaviour, but it should never fire in tests because the manager must be fully closed
+before the container stops.
+
+### Rule
+
+Any test that uses a short metrics interval (`PT1S`, `PT5S`) must ensure
+`manager.closeReactive()` (or `manager.close()`) is fully awaited — via compose or
+`awaitCompletion` — before the Testcontainers container stops. The container must
+outlive the manager, not the reverse.
+
+```java
+// WRONG: manager.closeReactive() Future not awaited before container stops
+@AfterEach
+void tearDown() {
+    manager.closeReactive(); // Future discarded — timer may still fire when container stops
+}
+
+// CORRECT: await close before test ends
+@AfterEach
+void tearDown(VertxTestContext ctx) {
+    manager.closeReactive()
+        .onSuccess(v -> ctx.completeNow())
+        .onFailure(ctx::failNow);
+    assertThat(ctx.awaitCompletion(10, TimeUnit.SECONDS)).isTrue();
+}
+```
+
+---
+
+## MEDIUM: Asserting on Log Message Strings Instead of Exception Type
+
+**Severity**: MEDIUM
+
+### Problem
+
+Tests that intentionally trigger a known failure scenario (e.g. stopping a DB container to
+produce connection errors) assert on substrings of the logged message rather than on the
+exception type. This means:
+
+- The assertion passes if any failure occurs, not just the expected one.
+- If `PeeGeeQManager` swallows the exception and logs only `e.getMessage()`, the test still
+  passes even though the Throwable was never attached to the log event.
+- The test does not prove that the scenario under test is actually what caused the failure.
+
+```java
+// WRONG: string-match assertions do not verify the exception was propagated
+boolean allWarnsHaveConnectCause = warns.stream()
+        .allMatch(e -> e.getFormattedMessage().contains("Connection refused"));
+trueAssert(allWarnsHaveConnectCause, ...);
+```
+
+### Why It Matters
+
+A test that stops a DB container and asserts the text `"Connection refused"` appeared in a
+log message would also pass if the timer failed for an unrelated reason (NPE, misconfiguration)
+and the log happened to contain that substring from a previous event. The test scenario is
+not actually being verified.
+
+### Fix
+
+Assert on the **exception type** via `IThrowableProxy`, using a helper that walks the cause
+chain:
+
+```java
+private boolean hasCauseOfType(IThrowableProxy proxy, String className) {
+    while (proxy != null) {
+        if (className.equals(proxy.getClassName())) return true;
+        proxy = proxy.getCause();
+    }
+    return false;
+}
+```
+
+Then assert:
+
+```java
+// PRIMARY: every captured failure must carry ConnectException in the cause chain.
+// If the container-stop scenario did not produce connection failures, or if
+// PeeGeeQManager swallowed the cause, this fails immediately.
+assertFalse(warns.isEmpty(), "Expected WARN events from timer failures; none captured");
+assertFalse(errors.isEmpty(), "Expected ERROR events from timer escalation; none captured");
+
+boolean allWarnsHaveConnectException = warns.stream()
+        .allMatch(e -> hasCauseOfType(e.getThrowableProxy(), "java.net.ConnectException"));
+assertTrue(allWarnsHaveConnectException,
+        "Every WARN must carry ConnectException — proves DB-stopped scenario. " +
+        "WARN count: " + warns.size());
+
+boolean allErrorsHaveConnectException = errors.stream()
+        .allMatch(e -> hasCauseOfType(e.getThrowableProxy(), "java.net.ConnectException"));
+assertTrue(allErrorsHaveConnectException,
+        "Every ERROR must carry ConnectException — proves DB-stopped scenario. " +
+        "ERROR count: " + errors.size());
+```
+
+`java.net.ConnectException` is a stable JDK type meaning "could not reach the host".
+`IThrowableProxy.getClassName()` and `getCause()` are part of the Logback SPI — no new
+imports required beyond `ch.qos.logback.classic.spi.IThrowableProxy` (same package as
+`ILoggingEvent`, which is already imported).
+
+**The escalation-behaviour assertions (WARN vs ERROR, count in message) are secondary**.
+They are only meaningful once the primary assertion has proven the cause is what the test
+intends. Put the exception-type assertions first.
+
+### Scope
+
+- `PeeGeeQManagerTimerGuardTest.testTimerFailuresEscalateWarnToError` — primary fix site
+- Any other test that captures `ILoggingEvent` events from an intentional-failure scenario
+  and asserts on message text instead of the attached `Throwable`
+
+---
+
 ## Summary of Required Actions
 
 > **All items below are mandatory.** Severity describes the impact of the violation — the higher the severity, the faster it causes test failures or masks production bugs. Every item must be addressed regardless of severity level.
@@ -778,6 +1094,10 @@ six executable examples (three anti-pattern proofs, three safe-pattern counterpa
 | MODERATE | Add logging to catch blocks in test bodies (not teardown) | 2-3 locations |
 | LOW | Move resource allocation inside try/finally | Tests with resources before try block |
 | LOW | Remove unused method parameters (`Vertx vertx`, etc.) | Test methods with injected but unused params |
+| HIGH | Compose on `Future<Void>` from `stop()`/`close()` — never discard | Test compose chains calling job/service stop |
+| HIGH | Explicitly disable all background jobs not under test when constructing `PeeGeeQManager` directly | Tests not extending `BaseIntegrationTest` |
+| MEDIUM | Run cleanup SQL before closing pool in `@AfterEach` | Tests with reactive teardown cleanup queries |
+| MEDIUM | Await `manager.closeReactive()` before Testcontainers container stops | Tests with short metrics intervals (`PT1S`, `PT5S`) |
 | LOW | Remove dead code branches in shared test helpers | Helpers with never-exercised paths |
 | HIGH | Replace hand-rolled schema DDL / raw JDBC with shared initializer + reactive pool | Tests with inline CREATE TABLE or JDBC verification |
 | LOW | Remove unnecessary `@TestMethodOrder` / `@Order` on independent tests | Tests with ordering annotations but no shared state |
@@ -806,6 +1126,7 @@ six executable examples (three anti-pattern proofs, three safe-pattern counterpa
 | SERIOUS | Remove manual `Vertx.vertx()` creation in classes annotated with `@ExtendWith(VertxExtension.class)` — either remove the extension or remove the manual instance | `ServiceDiscoveryExampleTest` and any class with both |
 | SERIOUS | Fix `@AfterEach` teardown to close resources in strict reverse-construction order using nested `finally` blocks | All integration tests with multi-resource teardown |
 | MEDIUM | Wrap code between `new VertxTestContext()` creation and `awaitCompletion` in `try/finally` to prevent orphaned contexts | Any test creating inline `VertxTestContext` instances |
+| MEDIUM | Assert on exception type via `IThrowableProxy.getClassName()` cause-chain walk, not on log message substrings | `PeeGeeQManagerTimerGuardTest` and any test capturing `ILoggingEvent` from intentional failure scenarios |
 
 ---
 

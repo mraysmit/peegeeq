@@ -293,8 +293,17 @@ class DeadLetterQueueManagerTest {
             })));
     }
 
+    /**
+     * Verifies that deleting a non-existent dead letter message returns {@code false}
+     * and logs a WARN (not an error), confirming graceful handling of missing records.
+     *
+     * <p><strong>INTENTIONAL WARN TEST:</strong> The next WARN log
+     * ('Dead letter message not found for deletion: 99999') is EXPECTED —
+     * this test deliberately deletes a non-existent ID to verify the not-found path.
+     */
     @Test
     void testDeleteNonExistentMessage(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Dead letter message not found for deletion: 99999') is EXPECTED this test deliberately deletes a non-existent ID to verify graceful not-found handling");
         deleteDeadLetterMessage(99999L, "Non-existent message")
             .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertFalse(result);
