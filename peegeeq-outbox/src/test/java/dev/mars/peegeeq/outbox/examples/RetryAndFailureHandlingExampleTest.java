@@ -119,15 +119,7 @@ class RetryAndFailureHandlingExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(RetryAndFailureHandlingExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_retry_failure_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -248,13 +240,13 @@ class RetryAndFailureHandlingExampleTest {
         // Set up consumer with failure-prone processor
         consumer.subscribe(message -> {
             return processor.process(message)
-                .onComplete(ar -> {
-                    if (ar.failed()) {
-                        logger.error("🎯 INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
-                            message.getPayload().id, ar.cause().getMessage());
-                        logger.info("   📋 This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
-                        latch.tryComplete();
-                    }
+                .onFailure(err -> {
+                    logger.error("🎯 INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
+                        message.getPayload().id, err.getMessage());
+                    logger.info("   📋 This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
+                    latch.tryComplete();
+                })
+                .onSuccess(v -> {
                     if (processor instanceof EventuallySuccessfulProcessor &&
                         ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {
                         latch.tryComplete();
@@ -276,7 +268,7 @@ class RetryAndFailureHandlingExampleTest {
         logger.info("📤 Sending message that will fail initially: {}", message.id);
         return producer.send(message, headers)
             .compose(v -> latch.future())
-            .onComplete(ar -> {
+            .onSuccess(v -> {
                 if (processor instanceof EventuallySuccessfulProcessor &&
                     ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {
                     logger.info("EXPECTED SUCCESS: Message eventually processed successfully after {} attempts",
@@ -284,8 +276,13 @@ class RetryAndFailureHandlingExampleTest {
                 } else {
                     logger.info("EXPECTED FAILURE: Message failed after maximum retries and moved to dead letter queue");
                 }
-                try { producer.close(); } catch (Exception ignored) {}
-                try { consumer.close(); } catch (Exception ignored) {}
+                try { producer.close(); } catch (Exception e) { logger.warn("producer.close() failed", e); }
+                try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close() failed", e); }
+            })
+            .onFailure(err -> {
+                logger.warn("Scenario '{}' future failed unexpectedly", scenarioName, err);
+                try { producer.close(); } catch (Exception e) { logger.warn("producer.close() failed", e); }
+                try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close() failed", e); }
             });
     }
 

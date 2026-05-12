@@ -119,15 +119,7 @@ public class ErrorHandlingRollbackExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(ErrorHandlingRollbackExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_error_rollback_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager manager;
     private QueueFactory outboxFactory;

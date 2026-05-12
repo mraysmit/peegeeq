@@ -29,6 +29,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
@@ -57,15 +58,7 @@ public class SystemPropertiesConfigurationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesConfigurationExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_sysprops_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private final Map<String, String> originalProperties = new HashMap<>();
     
@@ -197,7 +190,7 @@ public class SystemPropertiesConfigurationExampleTest {
                 System.setProperty("peegeeq.queue.batch-size", batchSize);
                 
                 // Create new configuration to pick up properties
-                PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+                PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", buildConfigProperties());
                 
                 // Validate properties are applied
                 assertEquals(Integer.parseInt(retries), config.getQueueConfig().getMaxRetries(),
@@ -219,7 +212,7 @@ public class SystemPropertiesConfigurationExampleTest {
         logger.info("📋 Scenario: {} - {}", scenarioName, description);
         
         // Initialize PeeGeeQ with current system properties
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", buildConfigProperties());
         try (PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry())) {
             manager.start().await();
             
@@ -311,6 +304,28 @@ public class SystemPropertiesConfigurationExampleTest {
                 originalProperties.put(prop, value);
             }
         }
+    }
+
+    /**
+     * Builds a Properties object from relevant system properties set by this test,
+     * to pass as overrides to PeeGeeQConfiguration (which no longer reads System.getProperty()).
+     */
+    private Properties buildConfigProperties() {
+        Properties props = new Properties();
+        String[] keys = {
+            "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+            "peegeeq.database.username", "peegeeq.database.password",
+            "peegeeq.database.ssl.enabled", "peegeeq.database.schema",
+            "peegeeq.queue.max-retries", "peegeeq.queue.polling-interval",
+            "peegeeq.consumer.threads", "peegeeq.queue.batch-size"
+        };
+        for (String key : keys) {
+            String value = System.getProperty(key);
+            if (value != null) {
+                props.setProperty(key, value);
+            }
+        }
+        return props;
     }
 
     private void restoreOriginalProperties() {

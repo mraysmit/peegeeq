@@ -105,7 +105,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
             Future<Void> second = member.processMessage(msg2);
             assertTrue(second.failed(), "Second message should be rejected at concurrency limit");
-            assertTrue(second.cause() instanceof IllegalStateException);
+            assertInstanceOf(IllegalStateException.class, second.cause());
             assertTrue(second.cause().getMessage().contains("max concurrency"));
         }
 

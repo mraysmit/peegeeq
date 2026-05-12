@@ -70,7 +70,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
 
         // Then: the consumer group should have captured the clientId
         assertNotNull(group);
-        assertTrue(group instanceof OutboxConsumerGroup, "Expected OutboxConsumerGroup instance");
+        assertInstanceOf(OutboxConsumerGroup.class, group, "Expected OutboxConsumerGroup instance");
 
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
 
@@ -108,8 +108,8 @@ class OutboxConsumerGroupClientIdPropagationTest {
         // before the polling loop tries to connect.
         try {
             group.start();
-        } catch (Exception ignored) {
-            // Expected no real database available
+        } catch (Exception e) {
+            logger.debug("Expected: group.start() failed without database: {}", e.getMessage());
         }
 
         // Then: the underlying consumer should have the same clientId
