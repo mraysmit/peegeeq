@@ -78,7 +78,7 @@ class VersionLineageBugSurfacingTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("peegeeq_lineage_test_" + System.currentTimeMillis());
         container.withUsername("test");
         container.withPassword("test");

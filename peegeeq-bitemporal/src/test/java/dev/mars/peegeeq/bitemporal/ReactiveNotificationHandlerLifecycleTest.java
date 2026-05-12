@@ -71,7 +71,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     private static final PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("reactive_lifecycle_test");
         container.withUsername("test_user");
         container.withPassword("test_password");
@@ -661,7 +661,8 @@ class ReactiveNotificationHandlerLifecycleTest {
                     .execute(Tuple.of(generalChannel, notificationPayload))
                     .compose(v -> conn.preparedQuery("SELECT pg_notify($1, $2)")
                         .execute(Tuple.of(typeChannel, notificationPayload)))
-                    .onComplete(ar -> conn.close())
+                    .onSuccess(v2 -> conn.close())
+                    .onFailure(e -> conn.close())
                     .mapEmpty();
             });
     }
@@ -688,7 +689,8 @@ class ReactiveNotificationHandlerLifecycleTest {
             });
 
             // Ensure timer is cancelled if future completes externally.
-            promise.future().onComplete(ar -> vertx.cancelTimer(timerId));
+            promise.future().onSuccess(v -> vertx.cancelTimer(timerId))
+                           .onFailure(e -> vertx.cancelTimer(timerId));
         });
     }
 

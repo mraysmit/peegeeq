@@ -54,7 +54,7 @@ class ReactiveNotificationHandlerFailurePathTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("reactive_failure_path_test");
         container.withUsername("test_user");
         container.withPassword("test_password");

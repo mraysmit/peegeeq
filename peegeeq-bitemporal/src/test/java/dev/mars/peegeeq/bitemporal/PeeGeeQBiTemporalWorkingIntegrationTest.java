@@ -77,7 +77,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         container.withDatabaseName("peegeeq_integration_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");

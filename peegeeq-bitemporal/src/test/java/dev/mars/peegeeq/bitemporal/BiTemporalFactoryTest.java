@@ -6,6 +6,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import java.util.Properties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -64,7 +65,7 @@ class BiTemporalFactoryTest {
 
     @Test
     void testFactoryRejectsQualifiedTableName() {
-        PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration());
+        PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", new Properties()));
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(Vertx.vertx(), manager);
 
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = factory rejects schema-qualified table name");
@@ -78,7 +79,7 @@ class BiTemporalFactoryTest {
 
     @Test
     void testFactoryRejectsInvalidTableIdentifier() {
-        PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration());
+        PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", new Properties()));
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(Vertx.vertx(), manager);
 
         logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = factory rejects invalid table identifier");

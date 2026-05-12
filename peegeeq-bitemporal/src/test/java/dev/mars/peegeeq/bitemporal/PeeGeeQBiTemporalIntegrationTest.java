@@ -80,17 +80,7 @@ class PeeGeeQBiTemporalIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_integration_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private Vertx vertx;
     private PeeGeeQManager manager;
@@ -103,7 +93,7 @@ class PeeGeeQBiTemporalIntegrationTest {
     private MessageConsumer<OrderEvent> consumer;
     
     @BeforeEach
-    void setUp(Vertx vertx) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         logger.info("Setting up integration test...");
         
@@ -127,83 +117,69 @@ class PeeGeeQBiTemporalIntegrationTest {
 
         // Configure PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().toCompletionStage().toCompletableFuture().join();
-        logger.info("PeeGeeQ Manager started");
         
-        // Create bi-temporal event store
-        eventStoreFactory = new BiTemporalEventStoreFactory(vertx, manager);
-        eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
-        logger.info("Bi-temporal event store created");
-        
-        // Create PeeGeeQ components
-        databaseService = new PgDatabaseService(manager);
-        queueFactoryProvider = new PgQueueFactoryProvider();
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started");
+                // Create bi-temporal event store
+                eventStoreFactory = new BiTemporalEventStoreFactory(vertx, manager);
+                eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
+                logger.info("Bi-temporal event store created");
 
-        // Register the native factory
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) queueFactoryProvider);
+                // Create PeeGeeQ components
+                databaseService = new PgDatabaseService(manager);
+                queueFactoryProvider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) queueFactoryProvider);
+                queueFactory = queueFactoryProvider.createFactory("native", databaseService);
 
-        queueFactory = queueFactoryProvider.createFactory("native", databaseService);
-        
-        // Create producer and consumer
-        producer = queueFactory.createProducer("order-events", OrderEvent.class);
-        consumer = queueFactory.createConsumer("order-events", OrderEvent.class);
-        logger.info("PeeGeeQ producer and consumer created");
-        
-        logger.info("Integration test setup completed");
+                // Create producer and consumer
+                producer = queueFactory.createProducer("order-events", OrderEvent.class);
+                consumer = queueFactory.createConsumer("order-events", OrderEvent.class);
+                logger.info("PeeGeeQ producer and consumer created");
+                logger.info("Integration test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "setUp timed out");
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down integration test...");
-
-        // Clean up database tables to ensure test isolation using pure Vert.x
-        if (manager != null) {
-            try {
-                var dbConfig = manager.getConfiguration().getDatabaseConfig();
-                io.vertx.pgclient.PgConnectOptions connectOptions = new io.vertx.pgclient.PgConnectOptions()
-                    .setHost(dbConfig.getHost())
-                    .setPort(dbConfig.getPort())
-                    .setDatabase(dbConfig.getDatabase())
-                    .setUser(dbConfig.getUsername())
-                    .setPassword(dbConfig.getPassword());
-
-                io.vertx.sqlclient.Pool pool = io.vertx.pgclient.PgBuilder.pool().connectingTo(connectOptions).build();
-
-                pool.withConnection(conn ->
-                    conn.query("DELETE FROM bitemporal_event_log").execute()
-                    .compose(v -> conn.query("DELETE FROM outbox").execute())
-                    .compose(v -> conn.query("DELETE FROM queue_messages").execute())
-                    .compose(v -> conn.query("DELETE FROM dead_letter_queue").execute())
-                ).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
-
-                pool.close();
-            } catch (Exception e) {
-                // Ignore cleanup errors - tables might not exist yet
-                logger.warn("Database cleanup failed: {}", e.getMessage());
-            }
-        }
 
         // Close resources in reverse order
         if (consumer != null) {
-            consumer.close();
+            try { consumer.close(); } catch (Exception e) { logger.warn("Consumer close: {}", e.getMessage()); }
         }
         if (producer != null) {
-            producer.close();
+            try { producer.close(); } catch (Exception e) { logger.warn("Producer close: {}", e.getMessage()); }
         }
         if (queueFactory != null) {
-            queueFactory.close();
+            try { queueFactory.close(); } catch (Exception e) { logger.warn("QueueFactory close: {}", e.getMessage()); }
         }
         if (eventStore != null) {
-            eventStore.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            try { eventStore.close(); } catch (Exception e) { logger.warn("EventStore close: {}", e.getMessage()); }
         }
 
-        logger.info("Integration test teardown completed");
+        if (manager != null) {
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    logger.info("Integration test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(e -> {
+                    logger.warn("Manager close warning: {}", e.getMessage());
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
+        }
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "tearDown timed out");
     }
     
     @Test
