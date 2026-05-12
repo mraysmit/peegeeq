@@ -28,6 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -49,6 +52,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Execution(ExecutionMode.SAME_THREAD)  // Run tests sequentially to avoid data conflicts
 @ResourceLock(value = "dead-letter-queue-database", mode = ResourceAccessMode.READ_WRITE)
 public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManagerCoreTest.class);
 
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
@@ -269,8 +274,17 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
             })));
     }
 
+    /**
+     * Verifies that deleting a non-existent dead letter message returns {@code false}
+     * and logs a WARN (not an error), confirming graceful handling of missing records.
+     *
+     * <p><strong>INTENTIONAL WARN TEST:</strong> The next WARN log
+     * ('Dead letter message not found for deletion: 999999') is EXPECTED —
+     * this test deliberately deletes a non-existent ID to verify the not-found path.
+     */
     @Test
     void testDeleteNonExistentMessage(VertxTestContext testContext) {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Dead letter message not found for deletion: 999999') is EXPECTED this test deliberately deletes a non-existent ID to verify graceful not-found handling");
         deleteDeadLetterMessage(999999L, "Test deletion")
             .onComplete(testContext.succeeding(deleted -> testContext.verify(() -> {
                 assertFalse(deleted);
@@ -321,8 +335,17 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that the synchronous read wrapper APIs fail fast (via failed Future) when the
+     * dead letter table has been renamed/dropped, logging an ERROR for each call.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 4 ERROR logs
+     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED —
+     * this test renames the table to simulate table unavailability for the sync wrapper paths.
+     */
     @Test
     void testSyncReadApisFailFastWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next 4 ERROR logs (dead letter read failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the sync read wrappers fail fast");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(getDeadLetterMessages("topic", 10, 0)))
             .compose(v -> assertFutureFailure(getAllDeadLetterMessages(10, 0)))
@@ -333,8 +356,17 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that the async read APIs on {@link DeadLetterQueueManager} complete exceptionally
+     * when the dead letter table is unavailable, logging an ERROR for each call.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 4 ERROR logs
+     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED —
+     * this test renames the table to simulate unavailability for the async read API paths.
+     */
     @Test
     void testAsyncReadApisCompleteExceptionallyWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next 4 ERROR logs (dead letter read failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the async read APIs complete exceptionally");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0)))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.getAllDeadLetterMessages(10, 0)))
@@ -345,8 +377,17 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that the async write APIs on {@link DeadLetterQueueManager} complete exceptionally
+     * when the dead letter table is unavailable, logging an ERROR for each call.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 3 ERROR logs
+     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED —
+     * this test renames the table to simulate unavailability for the async write API paths.
+     */
     @Test
     void testAsyncWriteApisCompleteExceptionallyWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next 3 ERROR logs (dead letter write failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the async write APIs complete exceptionally");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")))
@@ -356,8 +397,17 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that the synchronous write wrapper APIs fail fast (via failed Future) when the
+     * dead letter table is unavailable, logging an ERROR for each call.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 3 ERROR logs
+     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED —
+     * this test renames the table to simulate unavailability for the sync write wrapper paths.
+     */
     @Test
     void testSyncWriteInternalApisFailFastWhenDeadLetterTableUnavailable(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next 3 ERROR logs (dead letter write failures) are EXPECTED this test renames the DLQ table to simulate unavailability and verifies the sync write wrapper APIs fail fast");
         renameDeadLetterTable("dead_letter_queue_tmp")
             .compose(v -> assertFutureFailure(reprocessDeadLetterMessage(1L, "reason")))
             .compose(v -> assertFutureFailure(deleteDeadLetterMessage(1L, "reason")))

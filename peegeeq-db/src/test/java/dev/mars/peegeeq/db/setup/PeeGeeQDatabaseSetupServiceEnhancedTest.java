@@ -443,9 +443,18 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         ).compose(v -> verifyMgr.close());
     }
 
+    /**
+     * Verifies that {@code PeeGeeQDatabaseSetupService.createCompleteSetup()} rejects a null schema
+     * with an {@link IllegalArgumentException} before any database work is attempted.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Schema parameter is required and cannot be null or blank') is EXPECTED —
+     * this test deliberately supplies a null schema to verify the validation guard.
+     */
     @Test
     @Order(6)
     void testSchemaValidation_NullSchema(VertxTestContext ctx) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema parameter is required') is EXPECTED this test deliberately passes a null schema to verify validation rejects it");
         logger.info("=== Testing Schema Validation: Null Schema ===");
 
         DatabaseConfig dbConfig = new DatabaseConfig(
@@ -490,8 +499,17 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     }
 
     @Test
+    /**
+     * Verifies that {@code PeeGeeQDatabaseSetupService.createCompleteSetup()} rejects a blank/whitespace
+     * schema with an {@link IllegalArgumentException} before any database work is attempted.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Schema parameter is required and cannot be null or blank') is EXPECTED —
+     * this test deliberately supplies a blank schema to verify the validation guard.
+     */
     @Order(7)
     void testSchemaValidation_BlankSchema(VertxTestContext ctx) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema parameter is required') is EXPECTED this test deliberately passes a blank schema to verify validation rejects it");
         logger.info("=== Testing Schema Validation: Blank Schema ===");
 
         // Create database configuration with blank schema
@@ -583,8 +601,17 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     }
 
     @Test
+    /**
+     * Verifies that {@code PeeGeeQDatabaseSetupService.createCompleteSetup()} rejects a reserved
+     * PostgreSQL system schema name ({@code pg_*} prefix) with an {@link IllegalArgumentException}.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Schema validation failed: Reserved Schema name') is EXPECTED —
+     * this test deliberately uses {@code pg_catalog} to verify the reserved-name guard.
+     */
     @Order(9)
     void testSchemaValidation_ReservedSchemaName_PgPrefix(VertxTestContext ctx) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed: Reserved Schema name') is EXPECTED this test deliberately uses pg_catalog to verify reserved-name rejection");
         logger.info("=== Testing Schema Validation: Reserved Schema Name (pg_ prefix) ===");
 
         // Create database configuration with reserved schema name
@@ -629,9 +656,18 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 });
     }
 
+    /**
+     * Verifies that {@code PeeGeeQDatabaseSetupService.createCompleteSetup()} rejects the reserved
+     * PostgreSQL schema name {@code information_schema} with an {@link IllegalArgumentException}.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Schema validation failed: Reserved Schema name') is EXPECTED —
+     * this test deliberately uses {@code information_schema} to verify the reserved-name guard.
+     */
     @Test
     @Order(10)
     void testSchemaValidation_ReservedSchemaName_InformationSchema(VertxTestContext ctx) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed: Reserved Schema name') is EXPECTED this test deliberately uses information_schema to verify reserved-name rejection");
         logger.info("=== Testing Schema Validation: Reserved Schema Name (information_schema) ===");
 
         // Create database configuration with reserved schema name

@@ -21,6 +21,8 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
@@ -38,6 +40,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PgConnectionProviderCoreTest.class);
 
     private PgConnectionManager connectionManager;
     private PgClientFactory clientFactory;
@@ -93,8 +97,17 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that {@link PgConnectionProvider#getReactivePool(String)} returns a failed
+     * {@code Future} for an unregistered client name, logging an ERROR.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Failed to get reactive connection for client: non-existent-client') is EXPECTED —
+     * this test deliberately requests a pool for an unknown client to verify error propagation.
+     */
     @Test
     void testGetReactivePoolNonExistentClient(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to get reactive connection for client: non-existent-client') is EXPECTED this test deliberately requests a pool for an unregistered client name");
         connectionProvider.getReactivePool("non-existent-client")
             .onSuccess(pool -> testContext.failNow("Expected Exception"))
             .onFailure(err -> {
@@ -132,8 +145,17 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
         }).onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that {@link PgConnectionProvider#withConnection(String, java.util.function.Function)}
+     * returns a failed {@code Future} for an unregistered client name, logging an ERROR.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Failed to execute operation with connection for client: non-existent-client') is EXPECTED —
+     * this test deliberately uses an unknown client name to verify the error propagation path.
+     */
     @Test
     void testWithConnectionNonExistentClient(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to execute operation with connection for client: non-existent-client') is EXPECTED this test deliberately uses an unregistered client name");
         connectionProvider.withConnection("non-existent-client", connection ->
             connection.query("SELECT 1")
                 .execute()
@@ -155,8 +177,17 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
         }).onFailure(testContext::failNow);
     }
 
+    /**
+     * Verifies that {@link PgConnectionProvider#withTransaction(String, java.util.function.Function)}
+     * returns a failed {@code Future} for an unregistered client name, logging an ERROR.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Failed to execute operation with transaction for client: non-existent-client') is EXPECTED —
+     * this test deliberately uses an unknown client name to verify the error propagation path.
+     */
     @Test
     void testWithTransactionNonExistentClient(VertxTestContext testContext) {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to execute operation with transaction for client: non-existent-client') is EXPECTED this test deliberately uses an unregistered client name");
         connectionProvider.withTransaction("non-existent-client", connection ->
             connection.query("SELECT 1")
                 .execute()

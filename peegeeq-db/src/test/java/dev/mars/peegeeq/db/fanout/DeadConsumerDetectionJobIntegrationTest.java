@@ -382,8 +382,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     job.start();
                     return waitForDetectionAndReturn(messageIds);
                 })
-                .compose(messageIds -> {
-                    job.stop();
+                .compose(messageIds -> job.stop().compose(v -> {
                     assertTrue(job.getTotalDeadDetected() >= 1,
                             "Job should have detected at least 1 dead consumer");
                     assertTrue(job.getTotalRunCount() >= 1,
@@ -391,8 +390,8 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     assertEquals(0, job.getTotalFailures(),
                             "Job should have no failures");
                     return getSubscriptionStatus(topic, "group-b")
-                            .map(v -> messageIds);
-                })
+                            .map(ignored -> messageIds);
+                }))
                 .compose(messageIds -> verifyCompletedMessagesAndReturn(topic, messageIds))
                 .onSuccess(v -> {
                     logger.info("End-to-end pipeline verified: detect ÔåÆ cleanup ÔåÆ auto-complete");

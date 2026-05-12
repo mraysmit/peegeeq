@@ -69,6 +69,8 @@ public class DeadConsumerDetectionJobLifecycleTest {
         // Enable dead consumer detection with minimum allowed interval for testing
         testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "true");
         testProps.setProperty("peegeeq.queue.dead-consumer-detection.interval", "PT10S");
+        // Disable retry job — this test does not need it and it mutates outbox_consumer_groups globally
+        testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
 
         PeeGeeQConfiguration configuration = new PeeGeeQConfiguration("test", testProps);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());

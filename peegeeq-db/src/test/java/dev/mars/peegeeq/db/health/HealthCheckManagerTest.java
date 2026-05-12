@@ -160,7 +160,7 @@ class HealthCheckManagerTest {
             .onSuccess(v -> testContext.completeNow())
             .onFailure(t -> {
                 logger.error("TearDown failed", t);
-                testContext.completeNow();
+                testContext.failNow(t);
             });
     }
 
@@ -399,28 +399,54 @@ class HealthCheckManagerTest {
     void testHealthCheckWithDatabaseFailure(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN/ERROR logs ('Health check failed: database', 'Database connection pool validation failed') are EXPECTED this test deliberately closes the DB connection to verify failure detection");
 
-        startManagerAsync(healthCheckManager)
+        // Use a separate local connection manager so the class-level reactivePool remains
+        // open for tearDown cleanup. Closing the class-level connectionManager would leave
+        // tearDown unable to run cleanup SQL (Pool closed error).
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
+        PgConnectionManager localConnManager = new PgConnectionManager(vertx);
+        PgConnectionConfig localConnConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+        PgPoolConfig localPoolConfig = new PgPoolConfig.Builder()
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofMillis(500))
+                .build();
+        Pool localPool = localConnManager.getOrCreateReactivePool("test-failure", localConnConfig, localPoolConfig);
+        HealthCheckManager localHealthCheckManager = new HealthCheckManager(localPool, vertx, Duration.ofMillis(500), Duration.ofMillis(300));
+
+        startManagerAsync(localHealthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for initial healthy state
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                assertTrue(healthCheckManager.isHealthy());
+                assertTrue(localHealthCheckManager.isHealthy());
                 logger.info("Initial state: Health checks are healthy");
 
-                // Close database connection to simulate failure
-                logger.info("INTENTIONAL TEST FAILURE: Closing database connection to simulate failure");
-                
-                connectionManager.close()
+                // Close local database connection to simulate failure
+                logger.info("INTENTIONAL TEST FAILURE: Closing local database connection to simulate failure");
+
+                localConnManager.close()
                     .compose(v2 -> vertx.timer(1000).mapEmpty()) // Wait for health checks to detect failure
                     .onComplete(testContext.succeeding(v2 -> testContext.verify(() -> {
-                        assertFalse(healthCheckManager.isHealthy());
+                        assertFalse(localHealthCheckManager.isHealthy());
 
-                        HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
+                        HealthStatus dbHealth = localHealthCheckManager.getHealthStatus("database");
                         assertNotNull(dbHealth);
                         assertFalse(dbHealth.isHealthy());
 
                         logger.info("SUCCESS: Database failure was properly detected and reported");
                         logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
-                        
-                        testContext.completeNow();
+
+                        stopManagerAsync(localHealthCheckManager)
+                            .onSuccess(ignored -> testContext.completeNow())
+                            .onFailure(t -> {
+                                logger.warn("Failed to stop local health check manager (expected after pool close)", t);
+                                testContext.completeNow();
+                            });
                     })));
             })));
     }
