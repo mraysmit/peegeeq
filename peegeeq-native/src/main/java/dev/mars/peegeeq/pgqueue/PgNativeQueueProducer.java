@@ -179,7 +179,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
             );
 
                 // Use withTransaction for automatic commit/rollback and search_path support
-                return (Future<Void>) (Future<?>) pool.withTransaction(conn ->
+                return pool.<Void>withTransaction(conn ->
                     conn.preparedQuery(sql)
                         .execute(params)
                         .compose(result -> {
@@ -197,10 +197,19 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                                 "Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage()))
                             .mapEmpty()
-                            .otherwise(ignored -> (Void) null);
+                            .<Void>otherwise(ignored -> null);
                         }))
-                    .onFailure(error -> logger.error("Failed to send message to topic {}: {}", topic,
-                        error.getMessage()));
+                    .onFailure(error -> {
+                        String errorMsg = error.getMessage();
+                        if (closed && errorMsg != null && (errorMsg.contains("Pool closed") ||
+                                errorMsg.contains("connection may have been lost") ||
+                                errorMsg.contains("Failed to read any response") ||
+                                errorMsg.contains("Connection is not active now"))) {
+                            logger.debug("Send aborted for topic {} during shutdown: {}", topic, errorMsg);
+                        } else {
+                            logger.error("Failed to send message to topic {}: {}", topic, errorMsg);
+                        }
+                    });
 
         } catch (Exception e) {
             logger.error("Error preparing message for topic {}: {}", topic, e.getMessage());
@@ -288,7 +297,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     idempotencyKey);
 
                 // Use withTransaction for automatic commit/rollback and search_path support
-                return (Future<Void>) (Future<?>) pool.withTransaction(conn ->
+                return pool.<Void>withTransaction(conn ->
                     conn.preparedQuery(sql)
                         .execute(params)
                         .compose(result -> {
@@ -307,7 +316,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                                 "Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage()))
                             .mapEmpty()
-                            .otherwise(ignored -> (Void) null);
+                            .<Void>otherwise(ignored -> null);
                         })
                         .transform(ar -> {
                                 if (ar.failed()) {
@@ -319,16 +328,24 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                                         logger.info("Duplicate idempotency key detected for topic {}: {} - message already exists",
                                                 topic, idempotencyKey);
                                         // Return success - message already exists with this idempotency key
-                                        // This is the expected behavior for idempotent operations
-                                        return io.vertx.core.Future.succeededFuture((Object) null);
+                                        return Future.<Void>succeededFuture(null);
                                     }
                                     // Re-throw other errors
-                                    return io.vertx.core.Future.failedFuture(error);
+                                    return Future.<Void>failedFuture(error);
                                 }
-                                return io.vertx.core.Future.succeededFuture(ar.result());
+                                return Future.<Void>succeededFuture(null);
                             }))
-                    .onFailure(error -> logger.error("Failed to send message to topic {}: {}", topic,
-                            error.getMessage()));
+                    .onFailure(error -> {
+                        String errorMsg = error.getMessage();
+                        if (closed && errorMsg != null && (errorMsg.contains("Pool closed") ||
+                                errorMsg.contains("connection may have been lost") ||
+                                errorMsg.contains("Failed to read any response") ||
+                                errorMsg.contains("Connection is not active now"))) {
+                            logger.debug("Send aborted for topic {} during shutdown: {}", topic, errorMsg);
+                        } else {
+                            logger.error("Failed to send message to topic {}: {}", topic, errorMsg);
+                        }
+                    });
 
         } catch (Exception e) {
             logger.error("Error preparing message for topic {}: {}", topic, e.getMessage());
