@@ -15,6 +15,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 
 import java.util.List;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -34,6 +36,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(TopicConfigServiceCoreTest.class);
 
     private PgConnectionManager connectionManager;
     private TopicConfigService topicConfigService;
@@ -192,9 +196,19 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             })));
     }
 
+    /**
+     * Verifies that {@link TopicConfigService#updateTopic(TopicConfig)} returns a failed
+     * {@code Future} with {@link IllegalStateException} when the topic does not exist,
+     * logging an ERROR.
+     *
+     * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
+     * ('Topic configuration not found: \'test-topic-nonexistent\'') is EXPECTED —
+     * this test deliberately updates a topic that was never created to verify the not-found error path.
+     */
     @Test
     void testUpdateNonExistentTopic(VertxTestContext testContext) {
         String topic = "test-topic-nonexistent";
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Topic configuration not found: test-topic-nonexistent') is EXPECTED this test deliberately updates a topic that was never created to verify the not-found error path");
 
         TopicConfig config = TopicConfig.builder()
             .topic(topic)
@@ -269,9 +283,18 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             })));
     }
 
+    /**
+     * Verifies that {@link TopicConfigService#deleteTopic(String)} succeeds silently
+     * (no error thrown) when the topic does not exist, while logging a WARN.
+     *
+     * <p><strong>INTENTIONAL WARN TEST:</strong> The next WARN log
+     * ('Topic configuration not found for deletion: \'test-topic-delete-nonexistent\'') is EXPECTED —
+     * this test deliberately deletes a non-existent topic to verify idempotent delete behaviour.
+     */
     @Test
     void testDeleteNonExistentTopic(VertxTestContext testContext) {
         String topic = "test-topic-delete-nonexistent";
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Topic configuration not found for deletion: test-topic-delete-nonexistent') is EXPECTED this test deliberately deletes a non-existent topic to verify idempotent delete handling");
 
         topicConfigService.deleteTopic(topic)
             .onSuccess(v -> testContext.completeNow())

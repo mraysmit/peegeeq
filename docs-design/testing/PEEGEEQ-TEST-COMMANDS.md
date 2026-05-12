@@ -27,12 +27,8 @@ mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath log
 mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260511.txt
 ```
 
-**After the command finishes (or after "Large tool result written to file" appears):**
+**After the command finishes:**
 ```powershell
-# Check if Maven is still running
-Get-Process java
-
-# Read the result when done
 Get-Content logs\<name>.txt -Tail 30
 ```
 
@@ -41,21 +37,7 @@ Get-Content logs\<name>.txt -Tail 30
 **Platform**: Windows / PowerShell only. Always pipe with `Tee-Object`. Never use `Select-String` or `Select-Object`.  
 **Log naming**: `<description>-<YYYYMMDD>.txt`
 
-> **MANDATORY NO BACKGROUND/ASYNC MODE**: All Maven test commands MUST be run in foreground (`mode=sync`) using the `run_in_terminal` tool. Never use `mode=async`, background, or fire-and-forget execution for test runs. The `Tee-Object` pipe handles logging. Running in background hides output from the user and is forbidden regardless of how long the test run takes.
-
-> **MANDATORY TIMEOUT VALUES for `run_in_terminal`**: Always set `timeout` large enough to cover the full expected run. Using no timeout is also acceptable for foreground sync runs. **Never set a timeout shorter than the expected duration** — when `run_in_terminal` times out it moves Maven to the background, which is forbidden. Required minimums:
-> - `core-tests` / `smoke-tests`: `timeout=120000` (2 min)
-> - `integration-tests` (single module): `timeout=900000` (15 min)
-> - `integration-tests` (all modules): `timeout=3600000` (60 min)
-> - `performance-tests`: `timeout=1800000` (30 min)
-> - `all-tests` (full suite): `timeout=3600000` (60 min)
-
-> **DO NOT RE-RUN AFTER "Large tool result written to file"**: The `run_in_terminal` tool stops returning inline output to the agent after ~60KB. This is a hard limit of the **tool display buffer only** — it is NOT a failure. Tee-Object has no limit. Maven and Tee-Object keep running to full completion in the terminal regardless. After the tool returns this message:
-> 1. **Do NOT re-run the command.**
-> 2. Use `Get-Process java` to check if Maven is still running.
-> 3. Wait until `Get-Process java` returns nothing (Maven has finished).
-> 4. Read the result: `Get-Content logs\<name>.txt -Tail 30`
-> 5. The complete Surefire summary and `BUILD SUCCESS`/`FAILURE` will always be in the log file.
+> Run all Maven commands manually in the terminal. Do not ask Copilot to execute them — the agent tool has a ~60KB output cap and unreliable timeout behaviour.
 
 ---
 

@@ -332,6 +332,7 @@ public class AdvancedConfigurationExampleTest {
             "Valid queue configuration should pass validation");
 
         // Test invalid configurations
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next 3 WARN logs (validation rejection messages) are EXPECTED this test deliberately passes invalid configuration values to verify each validation guard");
         logger.info("--- Testing Invalid Configurations ---");
         assertFalse(validateDatabaseConfiguration("", 5432, "peegeeq_test"),
             "Empty database host should fail validation");
