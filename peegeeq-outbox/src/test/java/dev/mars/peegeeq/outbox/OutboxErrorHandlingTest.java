@@ -278,7 +278,7 @@ public class OutboxErrorHandlingTest {
         producer.send(null).onComplete(ar -> testContext.verify(() -> {
         logger.info("Test: null message handling");
             assertTrue(ar.failed(), "Sending null payload should return a failed Future");
-            assertTrue(ar.cause() instanceof IllegalArgumentException,
+            assertInstanceOf(IllegalArgumentException.class, ar.cause(),
                 "Cause should be IllegalArgumentException, got: " + ar.cause().getClass().getSimpleName());
             logger.info("**SUCCESS** - Null payload properly returned failed Future");
             logger.info("===== INTENTIONAL TEST COMPLETED =====");

@@ -29,10 +29,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Transaction;
+import io.vertx.sqlclient.Tuple;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -154,21 +153,18 @@ class OutboxConsumerCoverageTest {
         startSignal.future().await();
 
         // Query DB for ID
-        long id;
-        try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.createStatement()) {
-            var rs = stmt.executeQuery("SELECT id FROM outbox ORDER BY id DESC LIMIT 1");
-            rs.next();
-            id = rs.getLong(1);
-        }
+        long id = manager.getPool()
+                .preparedQuery("SELECT id FROM outbox ORDER BY id DESC LIMIT 1")
+                .execute()
+                .map(rows -> rows.iterator().next().getLong(0))
+                .await();
         String messageId = String.valueOf(id);
 
         // Delete message from DB directly
-        try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.prepareStatement("DELETE FROM outbox WHERE id = ?")) {
-            stmt.setLong(1, Long.parseLong(messageId));
-            stmt.executeUpdate();
-        }
+        manager.getPool()
+                .preparedQuery("DELETE FROM outbox WHERE id = $1")
+                .execute(Tuple.of(id))
+                .await();
 
         continueGate.tryComplete(); // Resume processing
 
@@ -221,20 +217,15 @@ class OutboxConsumerCoverageTest {
 
     @Test
     void testCompletionPersistenceBlocksNextMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        producer.send("first-blocked").onFailure(testContext::failNow);
-        producer.send("second-waits").onFailure(testContext::failNow);
+        producer.send("first-blocked").await();
+        producer.send("second-waits").await();
 
-        long firstMessageId;
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(),
-                postgres.getPassword());
-                PreparedStatement stmt = conn
-                        .prepareStatement("SELECT id FROM outbox WHERE topic = ? ORDER BY id ASC LIMIT 1");) {
-            stmt.setString(1, testTopic);
-            try (ResultSet rs = stmt.executeQuery()) {
-                assertTrue(rs.next(), "Expected first outbox message row to exist");
-                firstMessageId = rs.getLong(1);
-            }
-        }
+        var firstRows = manager.getPool()
+                .preparedQuery("SELECT id FROM outbox WHERE topic = $1 ORDER BY id ASC LIMIT 1")
+                .execute(Tuple.of(testTopic))
+                .await();
+        assertTrue(firstRows.iterator().hasNext(), "Expected first outbox message row to exist");
+        long firstMessageId = firstRows.iterator().next().getLong(0);
 
         io.vertx.core.Promise<Void> firstHandled = io.vertx.core.Promise.promise();
         io.vertx.core.Promise<Void> bothHandled = io.vertx.core.Promise.promise();
@@ -245,30 +236,30 @@ class OutboxConsumerCoverageTest {
                 .build();
         consumer = outboxFactory.createConsumer(testTopic, String.class, singleThreadConfig);
 
-        try (Connection lockConn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(),
-                postgres.getPassword())) {
-            lockConn.setAutoCommit(false);
+        SqlConnection lockConn = manager.getPool().getConnection().await();
+        try {
+            Transaction tx = lockConn.begin().await();
+            lockConn.preparedQuery("SELECT id FROM outbox WHERE id = $1 FOR UPDATE")
+                    .execute(Tuple.of(firstMessageId))
+                    .await();
 
-            try (PreparedStatement lockStmt = lockConn.prepareStatement("SELECT id FROM outbox WHERE id = ? FOR UPDATE")) {
-                lockStmt.setLong(1, firstMessageId);
-                try (ResultSet ignored = lockStmt.executeQuery()) {
-                    consumer.subscribe(message -> {
-                        int count = handledCount.incrementAndGet();
-                        firstHandled.tryComplete();
-                        if (count >= 2) {
-                            bothHandled.tryComplete();
-                        }
-                        return Future.succeededFuture();
-                    });
-
-                    firstHandled.future().await();
-                    vertx.timer(800).await();
-                    assertFalse(bothHandled.future().isComplete(),
-                            "Second message must wait while first completion update is blocked");
+            consumer.subscribe(message -> {
+                int count = handledCount.incrementAndGet();
+                firstHandled.tryComplete();
+                if (count >= 2) {
+                    bothHandled.tryComplete();
                 }
-            }
+                return Future.succeededFuture();
+            });
 
-            lockConn.commit();
+            firstHandled.future().await();
+            vertx.timer(800).await();
+            assertFalse(bothHandled.future().isComplete(),
+                    "Second message must wait while first completion update is blocked");
+
+            tx.commit().await();
+        } finally {
+            lockConn.close();
         }
 
         bothHandled.future().await();

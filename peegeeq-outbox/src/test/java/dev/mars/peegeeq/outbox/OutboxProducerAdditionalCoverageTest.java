@@ -42,15 +42,7 @@ class OutboxProducerAdditionalCoverageTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerAdditionalCoverageTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -98,7 +90,7 @@ class OutboxProducerAdditionalCoverageTest {
         producer.send(null)
             .onSuccess(v -> testContext.failNow("Should have failed for null payload"))
             .onFailure(err -> testContext.verify(() -> {
-                assertTrue(err instanceof IllegalArgumentException,
+                assertInstanceOf(IllegalArgumentException.class, err,
                         "Should throw IllegalArgumentException for null payload");
                 assertTrue(err.getMessage().contains("payload cannot be null"),
                         "Error message should indicate null payload");

@@ -25,10 +25,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import io.vertx.sqlclient.Tuple;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -113,13 +110,13 @@ class OutboxIdempotencyKeyTest {
 
         // First send should succeed
         producer.send("test-payload-1", headers)
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                // Verify message was inserted
-                int count = getMessageCountForIdempotencyKey(idempotencyKey);
+            .compose(v -> getMessageCountForIdempotencyKey(idempotencyKey))
+            .onSuccess(count -> testContext.verify(() -> {
                 assertEquals(1, count, "Should have exactly 1 message with this idempotency key");
                 logger.info("First send with idempotency key succeeded");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -135,17 +132,18 @@ class OutboxIdempotencyKeyTest {
         producer.send("test-payload-1", headers)
             .compose(v -> producer.send("test-payload-2", headers))
             .compose(v -> producer.send("test-payload-3", headers))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                // Verify only one message was inserted
-                int count = getMessageCountForIdempotencyKey(idempotencyKey);
+            .compose(v -> Future.all(
+                getMessageCountForIdempotencyKey(idempotencyKey),
+                getPayloadForIdempotencyKey(idempotencyKey)))
+            .onSuccess(cf -> testContext.verify(() -> {
+                int count = cf.resultAt(0);
+                String payload = cf.resultAt(1);
                 assertEquals(1, count, "Should have exactly 1 message despite 3 send attempts");
-
-                // Verify the payload is from the first send
-                String payload = getPayloadForIdempotencyKey(idempotencyKey);
                 assertEquals("{\"value\": \"test-payload-1\"}", payload, "Should have payload from first send");
                 logger.info("Duplicate sends were correctly ignored");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -160,13 +158,13 @@ class OutboxIdempotencyKeyTest {
         producer.send("duplicate-payload", headers)
             .compose(v -> producer.send("duplicate-payload", headers))
             .compose(v -> producer.send("duplicate-payload", headers))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                // All messages should be inserted
-                int count = getMessageCountForTopic(testTopic);
+            .compose(v -> getMessageCountForTopic(testTopic))
+            .onSuccess(count -> testContext.verify(() -> {
                 assertTrue(count >= 3, "Should have at least 3 messages when no idempotency key is used");
                 logger.info("Messages without idempotency key allow duplicates as expected");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -184,13 +182,14 @@ class OutboxIdempotencyKeyTest {
             });
         }
 
-        chain.onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                // All 5 messages should be inserted
-                int count = getMessageCountForTopic(testTopic);
+        chain
+            .compose(v -> getMessageCountForTopic(testTopic))
+            .onSuccess(count -> testContext.verify(() -> {
                 assertEquals(5, count, "Should have 5 messages with different idempotency keys");
                 logger.info("All messages with different idempotency keys were inserted");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -220,15 +219,15 @@ class OutboxIdempotencyKeyTest {
         // Wait for all concurrent sends to complete, then verify
         Future.all(sendFutures)
             .compose(cf -> vertx.timer(500))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            .compose(v -> getMessageCountForIdempotencyKey(idempotencyKey))
+            .onSuccess(count -> testContext.verify(() -> {
                 assertEquals(sendCount, successCount.get(), "All sends should succeed (duplicates ignored)");
                 assertEquals(0, failureCount.get(), "No failures expected");
-
-                int count = getMessageCountForIdempotencyKey(idempotencyKey);
                 assertEquals(1, count, "Should have exactly 1 message despite concurrent sends");
                 logger.info("Concurrent duplicate sends handled correctly");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
@@ -280,12 +279,13 @@ class OutboxIdempotencyKeyTest {
         // Send multiple times with null idempotency key
         producer.send("payload-1", headers)
             .compose(v -> producer.send("payload-2", headers))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                int count = getMessageCountForTopic(testTopic);
+            .compose(v -> getMessageCountForTopic(testTopic))
+            .onSuccess(count -> testContext.verify(() -> {
                 assertEquals(2, count, "Should have 2 messages when idempotency key is null");
                 logger.info("Null idempotency key allows duplicates");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -299,70 +299,40 @@ class OutboxIdempotencyKeyTest {
         // Send multiple times with empty idempotency key
         producer.send("payload-1", headers)
             .compose(v -> producer.send("payload-2", headers))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                int count = getMessageCountForTopic(testTopic);
+            .compose(v -> getMessageCountForTopic(testTopic))
+            .onSuccess(count -> testContext.verify(() -> {
                 assertEquals(2, count, "Should have 2 messages when idempotency key is empty");
                 logger.info("Empty idempotency key allows duplicates");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods
 
-    private int getMessageCountForIdempotencyKey(String idempotencyKey) throws Exception {
-        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
-             Statement stmt = conn.createStatement()) {
-
-            String sql = String.format(
-                    "SELECT COUNT(*) FROM outbox WHERE topic = '%s' AND idempotency_key = '%s'",
-                    testTopic, idempotencyKey);
-
-            ResultSet rs = stmt.executeQuery(sql);
-            if (rs.next()) {
-                return rs.getInt(1);
-            }
-            return 0;
-        }
+    private Future<Integer> getMessageCountForIdempotencyKey(String idempotencyKey) {
+        return manager.getPool()
+                .preparedQuery("SELECT COUNT(*) as cnt FROM outbox WHERE topic = $1 AND idempotency_key = $2")
+                .execute(Tuple.of(testTopic, idempotencyKey))
+                .map(rows -> rows.iterator().next().getInteger("cnt"));
     }
 
-    private String getPayloadForIdempotencyKey(String idempotencyKey) throws Exception {
-        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
-             Statement stmt = conn.createStatement()) {
-
-            String sql = String.format(
-                    "SELECT payload::text FROM outbox WHERE topic = '%s' AND idempotency_key = '%s'",
-                    testTopic, idempotencyKey);
-
-            ResultSet rs = stmt.executeQuery(sql);
-            if (rs.next()) {
-                return rs.getString(1);
-            }
-            return null;
-        }
+    private Future<String> getPayloadForIdempotencyKey(String idempotencyKey) {
+        return manager.getPool()
+                .preparedQuery("SELECT payload::text FROM outbox WHERE topic = $1 AND idempotency_key = $2")
+                .execute(Tuple.of(testTopic, idempotencyKey))
+                .map(rows -> {
+                    var it = rows.iterator();
+                    return it.hasNext() ? it.next().getString(0) : null;
+                });
     }
 
-    private int getMessageCountForTopic(String topic) throws Exception {
-        String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-
-        try (Connection conn = DriverManager.getConnection(jdbcUrl, postgres.getUsername(), postgres.getPassword());
-             Statement stmt = conn.createStatement()) {
-
-            String sql = String.format("SELECT COUNT(*) FROM outbox WHERE topic = '%s'", topic);
-
-            ResultSet rs = stmt.executeQuery(sql);
-            if (rs.next()) {
-                return rs.getInt(1);
-            }
-            return 0;
-        }
+    private Future<Integer> getMessageCountForTopic(String topic) {
+        return manager.getPool()
+                .preparedQuery("SELECT COUNT(*) as cnt FROM outbox WHERE topic = $1")
+                .execute(Tuple.of(topic))
+                .map(rows -> rows.iterator().next().getInteger("cnt"));
     }
 }
 

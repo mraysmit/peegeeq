@@ -39,10 +39,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import io.vertx.sqlclient.Tuple;
 import java.util.*;
 
 import java.util.concurrent.TimeUnit;
@@ -310,27 +307,17 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     // ========================================================================
 
     /**
-     * Queries the outbox table directly via JDBC to check message statuses.
-     * This bypasses the application layer to verify actual database state.
+     * Queries the outbox table via the reactive pool to check message statuses.
      */
-    private Map<String, Integer> queryMessageStatusCounts(String topic) throws Exception {
-        Map<String, Integer> counts = new HashMap<>();
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT status, COUNT(*) as cnt FROM public.outbox WHERE topic = ? GROUP BY status")) {
-            stmt.setString(1, topic);
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    counts.put(rs.getString("status"), rs.getInt("cnt"));
-                }
-            }
-        }
-        return counts;
-    }
-
     private Future<Map<String, Integer>> queryMessageStatusCountsAsync(Vertx vertx, String topic) {
-        return vertx.executeBlocking(() -> queryMessageStatusCounts(topic));
+        return manager.getPool()
+                .preparedQuery("SELECT status, COUNT(*) as cnt FROM public.outbox WHERE topic = $1 GROUP BY status")
+                .execute(Tuple.of(topic))
+                .map(rows -> {
+                    Map<String, Integer> counts = new HashMap<>();
+                    rows.forEach(row -> counts.put(row.getString("status"), row.getInteger("cnt")));
+                    return counts;
+                });
     }
 
     /**

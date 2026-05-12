@@ -133,10 +133,10 @@ public class OutboxConsumerLifecycleBugReproducerTest {
 
         // Force-close the consumer if still alive (cleanup only)
         if (consumer != null) {
-            try { consumer.close(); } catch (Exception ignored) { }
+            try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close() failed", e); }
         }
         if (outboxFactory != null) {
-            try { outboxFactory.close(); } catch (Exception ignored) { }
+            try { outboxFactory.close(); } catch (Exception e) { logger.warn("outboxFactory.close() failed", e); }
         }
     }
 

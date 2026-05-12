@@ -35,21 +35,12 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.PERFORMANCE)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PerformanceBenchmarkTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PerformanceBenchmarkTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
@@ -99,7 +90,6 @@ public class PerformanceBenchmarkTest {
     }
 
     @Test
-    @Order(1)
     @DisplayName("BENCHMARK: JDBC vs Reactive Performance Comparison")
     void benchmarkJdbcVsReactivePerformance() throws Exception {
         logger.info("=== PERFORMANCE BENCHMARK: JDBC vs Reactive ===");
@@ -176,7 +166,6 @@ public class PerformanceBenchmarkTest {
     }
 
     @Test
-    @Order(2)
     @DisplayName("BENCHMARK: TransactionPropagation Performance")
     void benchmarkTransactionPropagationPerformance() throws Exception {
         logger.info("=== BENCHMARK: TransactionPropagation Performance ===");
@@ -238,7 +227,6 @@ public class PerformanceBenchmarkTest {
     }
 
     @Test
-    @Order(3)
     @DisplayName("BENCHMARK: Batch Operations Performance")
     void benchmarkBatchOperationsPerformance() throws Exception {
         logger.info("=== BENCHMARK: Batch Operations Performance ===");
