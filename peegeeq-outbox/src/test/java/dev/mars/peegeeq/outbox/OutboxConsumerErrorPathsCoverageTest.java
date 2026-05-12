@@ -46,7 +46,6 @@ import org.slf4j.LoggerFactory;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerErrorPathsCoverageTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerErrorPathsCoverageTest.class);
@@ -107,7 +106,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(1)
     @DisplayName("Test handler throws exception triggering error handling")
     void testHandlerExceptionTriggersErrorHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint failureCheckpoint = testContext.checkpoint();
@@ -132,7 +130,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(2)
     @DisplayName("Test async handler completes exceptionally")
     void testAsyncHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint messageCheckpoint = testContext.checkpoint();
@@ -161,7 +158,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(3)
     @DisplayName("Test rapid message failures to stress error paths")
     void testRapidMessageFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
@@ -188,7 +184,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(4)
     @DisplayName("Test handler throws null pointer exception")
     void testHandlerThrowsNullPointerException(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint errorCheckpoint = testContext.checkpoint();
@@ -211,7 +206,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(5)
     @DisplayName("Test handler throws error (not exception)")
     void testHandlerThrowsError(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint errorCheckpoint = testContext.checkpoint();
@@ -232,7 +226,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(6)
     @DisplayName("Test message with special characters in error scenario")
     void testMessageWithSpecialCharactersFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint errorCheckpoint = testContext.checkpoint();
@@ -255,7 +248,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(7)
     @DisplayName("Test very large message failure")
     void testLargeMessageFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint errorCheckpoint = testContext.checkpoint();
@@ -281,7 +273,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(8)
     @DisplayName("Test handler with timeout simulation")
     void testHandlerTimeoutSimulation(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint startCheckpoint = testContext.checkpoint();
@@ -305,7 +296,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(9)
     @DisplayName("Test multiple consumers with failures")
     void testMultipleConsumersWithFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         MessageConsumer<TestMessage> consumer2 = outboxFactory.createConsumer(testTopic, TestMessage.class);
@@ -335,7 +325,6 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @Test
-    @Order(10)
     @DisplayName("Test failure then success pattern to cover retry reset")
     void testFailureThenSuccessPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger attemptCount = new AtomicInteger(0);

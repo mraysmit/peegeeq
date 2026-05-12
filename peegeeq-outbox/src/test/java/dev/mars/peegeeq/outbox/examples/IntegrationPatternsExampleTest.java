@@ -69,15 +69,7 @@ public class IntegrationPatternsExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(IntegrationPatternsExampleTest.class);
     
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_integration_test");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory outboxFactory;
@@ -462,86 +454,6 @@ public class IntegrationPatternsExampleTest {
         expressProducer.close();
 
         logger.info("Message Router pattern validated successfully");
-    }
-
-    /**
-     * Test Pattern 4: Content-Based Router Pattern
-     * Validates routing based on message payload content analysis
-     */
-    @Test
-    void testContentBasedRouterPattern() throws Exception {
-        logger.info("=== Testing Content-Based Router Pattern ===");
-        logger.info("Content-Based Router: Routes messages based on message content analysis");
-        logger.info("   This pattern would analyze message payload and route accordingly");
-        logger.info("   Implementation would parse JSON/XML content and make routing decisions");
-
-        // Validate pattern concept
-        assertTrue(true, "Content-Based Router pattern concept validated");
-        logger.info("Content-Based Router pattern validated successfully");
-    }
-
-    /**
-     * Test Pattern 5: Aggregator Pattern
-     * Validates combining related messages into a single message
-     */
-    @Test
-    void testAggregatorPattern() throws Exception {
-        logger.info("=== Testing Aggregator Pattern ===");
-        logger.info("Aggregator Pattern: Combines related messages into a single message");
-        logger.info("   This pattern would collect and combine messages based on correlation");
-        logger.info("   Implementation would buffer messages and aggregate when complete");
-
-        // Validate pattern concept
-        assertTrue(true, "Aggregator pattern concept validated");
-        logger.info("Aggregator pattern validated successfully");
-    }
-
-    /**
-     * Test Pattern 6: Scatter-Gather Pattern
-     * Validates broadcasting requests and aggregating responses
-     */
-    @Test
-    void testScatterGatherPattern() throws Exception {
-        logger.info("=== Testing Scatter-Gather Pattern ===");
-        logger.info("📡 Scatter-Gather Pattern: Broadcasts request and aggregates responses");
-        logger.info("   This pattern would scatter requests to multiple services");
-        logger.info("   Implementation would gather responses and combine results");
-
-        // Validate pattern concept
-        assertTrue(true, "Scatter-Gather pattern concept validated");
-        logger.info("Scatter-Gather pattern validated successfully");
-    }
-
-    /**
-     * Test Pattern 7: Saga Pattern
-     * Validates distributed transaction management with compensation
-     */
-    @Test
-    void testSagaPattern() throws Exception {
-        logger.info("=== Testing Saga Pattern ===");
-        logger.info("🔄 Saga Pattern: Manages distributed transactions with compensation");
-        logger.info("   This pattern would coordinate distributed transactions");
-        logger.info("   Implementation would handle rollback and compensation logic");
-
-        // Validate pattern concept
-        assertTrue(true, "Saga pattern concept validated");
-        logger.info("Saga pattern validated successfully");
-    }
-
-    /**
-     * Test Pattern 8: CQRS Pattern
-     * Validates separation of command and query responsibilities
-     */
-    @Test
-    void testCQRSPattern() throws Exception {
-        logger.info("=== Testing CQRS Pattern ===");
-        logger.info("CQRS Pattern: Separates command and query responsibilities");
-        logger.info("   This pattern would separate read and write models");
-        logger.info("   Implementation would use different data stores for commands and queries");
-
-        // Validate pattern concept
-        assertTrue(true, "CQRS pattern concept validated");
-        logger.info("CQRS pattern validated successfully");
     }
 
     /**
