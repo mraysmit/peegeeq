@@ -58,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * "closed or shutting down" errors.</p>
  *
  * <p>The bug is now fixed: OutboxFactory registers a close hook that calls
- * {@code consumer.closeAsync()} before the manager destroys pools.
+ * {@code consumer.close()} before the manager destroys pools.
  * This test is a regression guard it asserts that no such errors appear.</p>
  *
  * <p>Scenario:</p>
@@ -149,7 +149,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         vertx.timer(500).await();
 
         // Close the manager WITHOUT explicitly closing the consumer/factory first.
-        // If the OutboxFactory close hook properly calls consumer.closeAsync(), the consumer
+        // If the OutboxFactory close hook properly calls consumer.close(), the consumer
         // will be cleanly stopped before pools are destroyed the bug is fixed.
         // If the hook is a no-op, the consumer keeps polling and hits "Client not found".
         manager.closeReactive()
@@ -179,7 +179,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
                         logger.info("=== BUG FIXED === consumer was closed cleanly by OutboxFactory hook. {} log events captured.", events.size());
                     }
 
-                    // The OutboxFactory close hook now properly calls consumer.closeAsync() before
+                    // The OutboxFactory close hook now properly calls consumer.close() before
                     // pools are destroyed, so no "Client not found" errors should appear.
                     // This test is a regression guard: if the close hook is broken in future,
                     // error messages will reappear and this assertion will catch it.
