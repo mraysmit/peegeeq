@@ -300,6 +300,13 @@ public class OutboxFactory implements QueueFactory {
         assertNotEventLoopForBlocking("createBrowser()", "use a worker thread for browser creation");
         logger.debug("Creating browser for topic: {}", topic);
 
+        if (topic == null || topic.trim().isEmpty()) {
+            throw new IllegalArgumentException("Topic cannot be null or empty");
+        }
+        if (payloadType == null) {
+            throw new IllegalArgumentException("Payload type cannot be null");
+        }
+
         io.vertx.sqlclient.Pool pool = getPoolBlocking();
         if (pool == null) {
             throw new IllegalStateException("Pool not available for browser creation");

@@ -535,7 +535,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             // Not active nothing to stop
             return;
         }
-        stopInternal();
+        try {
+            stopInternal().await();
+        } catch (Exception e) {
+            logger.warn("Error while waiting for outbox consumer group '{}' to stop: {}",
+                    groupName, e.getMessage());
+        }
     }
 
     @Override
