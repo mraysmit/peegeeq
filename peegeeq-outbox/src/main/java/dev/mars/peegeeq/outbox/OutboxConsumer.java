@@ -874,6 +874,13 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             pollingTimerId = -1;
         }
 
+        // Fast path: if no in-flight processing and pool is not yet acquired, complete synchronously.
+        // This keeps closeAsync() synchronous for callers in the core (non-polling) path.
+        if (inflightProcessing.isComplete() && reactivePool == null) {
+            logger.info("Closed outbox consumer for topic: {}", topic);
+            return Future.succeededFuture();
+        }
+
         // Wait for any in-flight processing to finish so borrowed connections are
         // returned before pool.close() is called. Without this, pool.close() hangs
         // waiting for connections that are still held by in-flight query chains.
