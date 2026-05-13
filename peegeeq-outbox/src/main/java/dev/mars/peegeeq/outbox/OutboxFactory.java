@@ -584,9 +584,12 @@ public class OutboxFactory implements QueueFactory {
         java.util.List<io.vertx.core.Future<Void>> asyncCloses = new java.util.ArrayList<>();
         for (AutoCloseable resource : createdResources) {
             if (resource instanceof OutboxConsumer<?> consumer) {
-                asyncCloses.add(consumer.closeAsync()
-                    .onFailure(e -> logger.warn("Error closing consumer: {}", e.getMessage()))
-                    .transform(ar -> io.vertx.core.Future.<Void>succeededFuture()));
+                try {
+                    consumer.close();
+                } catch (Exception e) {
+                    logger.warn("Error closing consumer: {}", e.getMessage());
+                }
+                asyncCloses.add(io.vertx.core.Future.succeededFuture());
             } else if (resource instanceof OutboxConsumerGroup<?> group) {
                 asyncCloses.add(group.closeAsync()
                     .onFailure(e -> logger.warn("Error closing consumer group: {}", e.getMessage()))
