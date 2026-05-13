@@ -309,18 +309,11 @@ class OutboxConsumerGroupFaultToleranceTest {
                     return entered.future();
                 })
                 .compose(v -> {
-                    // Now stop the group gracefully while handler is in-flight.
-                    // closeAsync() waits for in-flight processing to finish, so we must
-                    // release the handler gate concurrently otherwise stopGracefully()
-                    // would block forever waiting for the handler that is waiting on the gate.
+                    // Stop the group while the user handler is still in-flight.
+                    // stopGracefully() no longer waits for user-handler futures, so the hung
+                    // gate is simply abandoned that is the documented contract: handler
+                    // lifetime is the caller's concern, not the consumer's.
                     logger.info("Calling stopGracefully() while handler is in-flight");
-
-                    // Schedule gate release after a short delay so closeAsync() can proceed
-                    vertx.timer(500).onSuccess(id -> {
-                        logger.info("Releasing handler gate to allow in-flight processing to complete");
-                        handlerGate.complete();
-                    });
-
                     return consumerGroup.stopGracefully();
                 })
                 .compose(v -> {

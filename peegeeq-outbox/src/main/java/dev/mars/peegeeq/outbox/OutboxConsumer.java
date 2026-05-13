@@ -86,18 +86,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     private MessageHandler<T> messageHandler;
     private volatile long pollingTimerId = -1;
 
-    // Tracks the in-flight processAvailableMessages future so closeAsync() can
-    // wait for it to complete before signalling done. This prevents pool.close()
-    // from hanging on borrowed connections held by in-flight queries.
-    private volatile Future<Void> inflightProcessing = Future.succeededFuture();
-
-    // Maximum time (ms) to wait for in-flight processing before proceeding with pool close.
-    // Package-private so tests can override with a shorter timeout.
-    long closeInflightTimeoutMs = 30_000L;
-
-    // Vert.x 5.x reactive pool for non-blocking database operations
-    private volatile Pool reactivePool;
-
     public OutboxConsumer(PgClientFactory clientFactory, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics) {
         this(clientFactory, objectMapper, topic, payloadType, metrics, null, null, null);
@@ -241,7 +229,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         // Use reactive processing for Vert.x 5.x compliance
         try {
-            Future<Void> processing = processAvailableMessages()
+            processAvailableMessages()
                     .onSuccess(result -> logger.debug("Successfully processed messages for topic {}", topic))
                     .onFailure(error -> {
                         if (isShutdownRelatedError(error)) {
@@ -250,7 +238,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                             logger.error("Reactive message processing failed for topic {}: {}", topic, error.getMessage(), error);
                         }
                     });
-            inflightProcessing = processing;
         } catch (Exception e) {
             logger.error("Failed to start reactive message processing for topic {}: {}", topic, e.getMessage(), e);
         }
@@ -852,75 +839,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // All database operations should now use getReactivePoolFuture().compose(...)
     // for better performance and consistency
 
-    /**
-     * Non-blocking close that initiates orderly shutdown and returns a Future
-     * that completes when in-flight processing is done and the reactive pool is
-     * closed. The Vert.x periodic timer is cancelled, in-flight message processing
-     * is awaited, and then the reactive pool is closed.
-     * Safe to call from a Vert.x event-loop context.
-     *
-     * @return Future that completes when in-flight processing finishes and the pool is closed
-     */
-    public Future<Void> closeAsync() {
-        if (!closed.compareAndSet(false, true)) {
-            return Future.succeededFuture();
-        }
-
-        unsubscribe();
-
-        // Cancel Vert.x periodic timer no new processing cycles will start
-        if (pollingTimerId != -1) {
-            vertx.cancelTimer(pollingTimerId);
-            pollingTimerId = -1;
-        }
-
-        // Fast path: if no in-flight processing and pool is not yet acquired, complete synchronously.
-        // This keeps closeAsync() synchronous for callers in the core (non-polling) path.
-        if (inflightProcessing.isComplete() && reactivePool == null) {
-            logger.info("Closed outbox consumer for topic: {}", topic);
-            return Future.succeededFuture();
-        }
-
-        // Wait for any in-flight processing to finish so borrowed connections are
-        // returned before pool.close() is called. Without this, pool.close() hangs
-        // waiting for connections that are still held by in-flight query chains.
-        // A timeout guard ensures closeAsync() never hangs indefinitely if the handler stalls.
-        final long timeoutMs = closeInflightTimeoutMs;
-
-        io.vertx.core.Promise<Void> timeoutSignal = io.vertx.core.Promise.promise();
-        long timeoutTimerId = vertx.setTimer(timeoutMs, id -> {
-            logger.warn("Timed out ({}ms) waiting for in-flight processing for topic '{}' during close proceeding with pool close",
-                timeoutMs, topic);
-            timeoutSignal.tryComplete();
-        });
-
-        Future<Void> normalCompletion = inflightProcessing
-            .onFailure(e ->
-                logger.debug("In-flight processing completed with error during close for topic {}: {}",
-                    topic, e.getMessage()))
-            .transform(ar -> Future.<Void>succeededFuture());
-
-        Future<Void> awaitInflight = Future.any(normalCompletion, timeoutSignal.future())
-            .<Void>mapEmpty()
-            .eventually(() -> {
-                vertx.cancelTimer(timeoutTimerId);
-                return Future.succeededFuture();
-            });
-
-        return awaitInflight.compose(v -> {
-            // Close reactive pool this is the resource that matters for callers
-            Future<Void> poolClose;
-            if (reactivePool != null) {
-                poolClose = reactivePool.close()
-                    .onSuccess(v2 -> logger.debug("Closed reactive pool for topic: {}", topic))
-                    .onFailure(err -> logger.warn("Error closing reactive pool for topic {}: {}", topic, err.getMessage()));
-            } else {
-                poolClose = Future.succeededFuture();
-            }
-            return poolClose;
-        }).onSuccess(v -> logger.info("Closed outbox consumer for topic: {}", topic));
-    }
-
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
@@ -930,12 +848,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             if (pollingTimerId != -1) {
                 vertx.cancelTimer(pollingTimerId);
                 pollingTimerId = -1;
-            }
-
-            // Close reactive pool
-            if (reactivePool != null) {
-                reactivePool.close();
-                logger.debug("Closed reactive pool for topic: {}", topic);
             }
 
             logger.info("Closed outbox consumer for topic: {}", topic);

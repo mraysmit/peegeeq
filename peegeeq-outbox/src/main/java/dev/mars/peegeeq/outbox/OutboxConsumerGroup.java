@@ -576,21 +576,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
 
-            // Await all in-flight member processing before closing the underlying consumer pool.
-            // Using stopAsync() ensures no message handler is abandoned mid-execution.
-            java.util.List<Future<Void>> memberStops = members.values().stream()
-                .map(m -> m.stopAsync().transform(ar -> Future.<Void>succeededFuture()))
-                .collect(java.util.stream.Collectors.toList());
-
-            Future<Void> allMembersStopped = memberStops.isEmpty()
-                ? Future.succeededFuture()
-                : Future.all(memberStops).mapEmpty();
+            // Stop members synchronously. User-handler future lifetime is the caller's
+            // concern, not the consumer's: we do not await in-flight handler futures.
+            members.values().forEach(OutboxConsumerGroupMember::stop);
 
             startedWithSubscription = false;
 
-            return allMembersStopped
-                .compose(v -> closeUnderlyingConsumerAsync(
-                    "Error closing outbox consumer for group '{}' during stop: {}", groupName))
+            return closeUnderlyingConsumerAsync(
+                    "Error closing outbox consumer for group '{}' during stop: {}", groupName)
                 .compose(v -> stopPartitionedEngineAsync())
                 .eventually(() -> {
                     state.set(State.NEW);
@@ -610,17 +603,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
 
         underlyingConsumer.unsubscribe();
 
-        Future<Void> consumerClose;
-        if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-            consumerClose = oc.closeAsync()
-                    .onFailure(err -> logger.warn(logMessage, logGroupName, err.getMessage()));
-        } else {
+        try {
             underlyingConsumer.close();
-            consumerClose = Future.succeededFuture();
+        } catch (Exception err) {
+            logger.warn(logMessage, logGroupName, err.getMessage());
         }
 
         underlyingConsumer = null;
-        return consumerClose;
+        return Future.succeededFuture();
     }
 
     /**
