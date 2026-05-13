@@ -84,9 +84,6 @@ public class OutboxParallelProcessingTest {
         // Use unique topic for each test to avoid interference
         testTopic = "parallel-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // CRITICAL: Clear ALL system properties first to ensure test isolation
-        clearAllPeeGeeQSystemProperties();
-
         // Set up database connection
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -112,17 +109,6 @@ public class OutboxParallelProcessingTest {
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-    }
-
-    /**
-     * Clear all PeeGeeQ-related system properties to ensure test isolation.
-     */
-    private void clearAllPeeGeeQSystemProperties() {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.getProperties().stringPropertyNames().stream()
-            .filter(name -> name.startsWith("peegeeq."))
-            .forEach(System::clearProperty);
-        logger.info("Cleared all PeeGeeQ system properties for test isolation");
     }
 
     @AfterEach
