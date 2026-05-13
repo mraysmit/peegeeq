@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.database.ConnectionProvider;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
@@ -8,6 +9,13 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import java.util.Properties;
 import org.junit.jupiter.api.DisplayName;
@@ -23,15 +31,25 @@ import static org.junit.jupiter.api.Assertions.*;
 @SuppressWarnings({"resource", "unused"})
 class OutboxFactoryUnitTest {
 
+    private Vertx vertx;
     private TestDatabaseService testDatabaseService;
     private ObjectMapper testObjectMapper;
     private PeeGeeQConfiguration testConfiguration;
 
     @BeforeEach
     void setUp() {
-        testDatabaseService = new TestDatabaseService();
+        vertx = Vertx.vertx();
+        testDatabaseService = new TestDatabaseService(vertx);
         testObjectMapper = new ObjectMapper();
         testConfiguration = new PeeGeeQConfiguration("test", new Properties());
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (vertx != null) {
+            vertx.close();
+            vertx = null;
+        }
     }
 
     // Constructor Tests
@@ -185,7 +203,7 @@ class OutboxFactoryUnitTest {
         OutboxFactory factory = new OutboxFactory(testDatabaseService);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-                factory.createConsumerGroup(null, "test-group", String.class)
+                factory.createConsumerGroup("test-group", null, String.class)
         );
         assertTrue(ex.getMessage().contains("Topic"));
     }
@@ -196,7 +214,7 @@ class OutboxFactoryUnitTest {
         OutboxFactory factory = new OutboxFactory(testDatabaseService);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-                factory.createConsumerGroup("", "test-group", String.class)
+                factory.createConsumerGroup("test-group", "", String.class)
         );
         assertTrue(ex.getMessage().contains("Topic"));
     }
@@ -207,7 +225,7 @@ class OutboxFactoryUnitTest {
         OutboxFactory factory = new OutboxFactory(testDatabaseService);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-                factory.createConsumerGroup("test-topic", null, String.class)
+                factory.createConsumerGroup(null, "test-topic", String.class)
         );
         assertTrue(ex.getMessage().contains("Group name"));
     }
@@ -218,7 +236,7 @@ class OutboxFactoryUnitTest {
         OutboxFactory factory = new OutboxFactory(testDatabaseService);
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () ->
-                factory.createConsumerGroup("test-topic", "", String.class)
+                factory.createConsumerGroup("", "test-topic", String.class)
         );
         assertTrue(ex.getMessage().contains("Group name"));
     }
@@ -399,48 +417,63 @@ class OutboxFactoryUnitTest {
 
     /**
      * Minimal test implementation of DatabaseService for validation tests.
-     * Returns null/default values since we're only testing validation logic.
+     * Provides a real Vertx instance and a lazy pool so that valid-parameter tests
+     * can construct consumers and browsers without a live database connection.
      */
     private static class TestDatabaseService implements DatabaseService {
+        private final Vertx vertx;
+        private final Pool pool;
+
+        TestDatabaseService(Vertx vertx) {
+            this.vertx = vertx;
+            this.pool = PgBuilder.pool()
+                    .with(new PoolOptions().setMaxSize(1))
+                    .connectingTo(new PgConnectOptions().setHost("localhost").setPort(5432))
+                    .using(vertx)
+                    .build();
+        }
+
         @Override
-        public io.vertx.core.Future<Void> initialize() { return io.vertx.core.Future.succeededFuture(); }
-        
+        public Future<Void> initialize() { return Future.succeededFuture(); }
+
         @Override
-        public io.vertx.core.Future<Void> start() { return io.vertx.core.Future.succeededFuture(); }
-        
+        public Future<Void> start() { return Future.succeededFuture(); }
+
         @Override
-        public io.vertx.core.Future<Void> stop() { return io.vertx.core.Future.succeededFuture(); }
-        
+        public Future<Void> stop() { return Future.succeededFuture(); }
+
         @Override
         public boolean isRunning() { return true; }
-        
+
         @Override
         public boolean isHealthy() { return true; }
-        
+
         @Override
-        public dev.mars.peegeeq.api.database.ConnectionProvider getConnectionProvider() { return null; }
-        
+        public ConnectionProvider getConnectionProvider() {
+            return clientId -> Future.succeededFuture(pool);
+        }
+
         @Override
         public MetricsProvider getMetricsProvider() { return null; }
-        
+
         @Override
         public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
-        
+
         @Override
-        public io.vertx.core.Future<Void> runMigrations() { return io.vertx.core.Future.succeededFuture(); }
-        
+        public Future<Void> runMigrations() { return Future.succeededFuture(); }
+
         @Override
-        public io.vertx.core.Future<Boolean> performHealthCheck() { return io.vertx.core.Future.succeededFuture(true); }
-        
+        public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
+
         @Override
-        public io.vertx.core.Vertx getVertx() { return null; }
-        
+        public Vertx getVertx() { return vertx; }
+
         @Override
-        public io.vertx.sqlclient.Pool getPool() { return null; }
-        
+        public Pool getPool() { return pool; }
+
         @Override
         public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
-        
+
         @Override
         public void close() { }
     }
