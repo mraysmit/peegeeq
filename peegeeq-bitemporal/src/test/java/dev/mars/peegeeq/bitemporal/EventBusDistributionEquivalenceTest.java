@@ -127,13 +127,10 @@ class EventBusDistributionEquivalenceTest {
     private Pool verificationPool;
 
     private String resolveSchema() {
-        String configured = System.getProperty("peegeeq.database.schema", "public");
-        String schema = (configured == null) ? "public" : configured.trim();
-        if (schema.isEmpty()) return "public";
-        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            throw new IllegalArgumentException("Invalid schema name for test: " + schema);
-        }
-        return schema;
+        // Schema is always "public" for this test — set via peegeeq-default.properties.
+        // Phase 11 removed the System property sweep from PeeGeeQConfiguration.loadProperties()
+        // so System.getProperty("peegeeq.database.schema") can no longer inject a value here.
+        return "public";
     }
 
     private PgConnectOptions connectOptions() {

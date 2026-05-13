@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Properties;
+
 /**
  * Debug test to check what configuration values are being loaded.
  */
@@ -18,7 +20,7 @@ public class ConfigurationDebugTest {
     void debugConfigurationLoading() {
         logger.info("=== Configuration Debug Test ===");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         logger.info("Profile: {}", config.getProfile());
         logger.info("Max retries from config: {}", config.getQueueConfig().getMaxRetries());
@@ -26,8 +28,8 @@ public class ConfigurationDebugTest {
         logger.info("Batch size: {}", config.getQueueConfig().getBatchSize());
         logger.info("Visibility timeout: {}", config.getQueueConfig().getVisibilityTimeout());
 
-        // Check system properties
-        logger.info("System property peegeeq.queue.max-retries: {}", System.getProperty("peegeeq.queue.max-retries"));
+        // Phase 11: System property sweep removed — values come from config instance only
+        logger.info("Max retries (from config, not System): {}", config.getQueueConfig().getMaxRetries());
 
         // Check if the properties file is being loaded
         logger.info("Database host: {}", config.getDatabaseConfig().getHost());

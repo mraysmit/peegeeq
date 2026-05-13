@@ -89,11 +89,11 @@ public class ConfigurationGuideExamplesTest {
      */
     @Test
     void constructor_noArg_loadsDefaultProfileInCleanEnvironment() {
-        // Skip if another test has set peegeeq.profile as a system property,
-        // because the no-arg constructor reads that global state.
+        // Skip if peegeeq.profile has been overridden via env var or JVM arg,
+        // because the no-arg constructor delegates to PeeGeeQConfiguration.getActiveProfile().
         Assumptions.assumeTrue(
-            System.getProperty("peegeeq.profile") == null,
-            "Skipping: peegeeq.profile system property is already set by another test"
+            PeeGeeQConfiguration.getActiveProfile().equals("default"),
+            "Skipping: active profile is not 'default' — overridden by environment or JVM arg"
         );
 
         // peegeeq-default.properties provides: host=localhost, port=5432, name=peegeeq,
