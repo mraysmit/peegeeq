@@ -325,16 +325,17 @@ public class PartitionedConsumerEngine<T> {
                 return (T) value;
             }
         }
+        // For String type, return the JSON string representation. Jackson cannot
+        // deserialize a JSON object to String, so handle this before ObjectMapper.
+        if (payloadType == String.class) {
+            return (T) payload.encode();
+        }
         if (objectMapper != null) {
             try {
                 return objectMapper.readValue(payload.encode(), payloadType);
             } catch (Exception e) {
                 throw new RuntimeException("Failed to deserialize payload to " + payloadType.getName(), e);
             }
-        }
-        if (payloadType == String.class) {
-            // Last-resort fallback for String when no ObjectMapper is configured.
-            return (T) payload.encode();
         }
         throw new RuntimeException("Cannot deserialize payload: no ObjectMapper configured and type is not String/JsonObject");
     }

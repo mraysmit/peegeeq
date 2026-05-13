@@ -336,10 +336,10 @@ class PartitionedConsumerEngineLifecycleTest {
         }
 
         @Test
-        @DisplayName("String type extracts 'data' field")
+        @DisplayName("String type extracts 'value' field")
         void stringType_extractsDataField() {
             var engine = createEngine("t", "g", "i");
-            JsonObject payload = new JsonObject().put("data", "hello world");
+            JsonObject payload = new JsonObject().put("value", "hello world");
             assertEquals("hello world", engine.parsePayload(payload));
         }
 
@@ -495,7 +495,7 @@ class PartitionedConsumerEngineLifecycleTest {
             OutboxMessage outboxMsg = OutboxMessage.builder()
                     .id(42L)
                     .topic("test-topic")
-                    .payload(new JsonObject().put("data", "hello world"))
+                    .payload(new JsonObject().put("value", "hello world"))
                     .headers(new JsonObject().put("traceparent", "00-abc-def-01"))
                     .correlationId("corr-1")
                     .messageGroup("grp-1")
@@ -523,7 +523,7 @@ class PartitionedConsumerEngineLifecycleTest {
             OutboxMessage outboxMsg = OutboxMessage.builder()
                     .id(1L)
                     .topic("test-topic")
-                    .payload(new JsonObject().put("data", "test"))
+                    .payload(new JsonObject().put("value", "test"))
                     .build();
 
             Future<Void> result = engine.dispatchMessage(outboxMsg);
@@ -587,7 +587,7 @@ class PartitionedConsumerEngineLifecycleTest {
             OutboxMessage outboxMsg = OutboxMessage.builder()
                     .id(99L)
                     .topic("orders")
-                    .payload(new JsonObject().put("data", "order-data"))
+                    .payload(new JsonObject().put("value", "order-data"))
                     .headers(new JsonObject()
                             .put("traceparent", "00-trace-span-01")
                             .put("content-type", "application/json"))
