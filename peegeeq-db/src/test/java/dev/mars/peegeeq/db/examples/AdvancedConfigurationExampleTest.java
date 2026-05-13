@@ -67,6 +67,7 @@ public class AdvancedConfigurationExampleTest {
         containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
         containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
         containerProps.setProperty("peegeeq.database.schema", "public");
+        containerProps.setProperty("peegeeq.database.pool.min-size", "1");
         containerProps.setProperty("peegeeq.database.pool.max-size", "3");
         containerProps.setProperty("peegeeq.database.pool.shared", "false");
         containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
@@ -179,12 +180,16 @@ public class AdvancedConfigurationExampleTest {
     void testExternalConfigurationManagement() throws Exception {
         logger.info("=== Testing External Configuration Management ===");
 
-        // Test system properties configuration
-        logger.info("--- Testing System Properties Configuration ---");
-        System.setProperty("peegeeq.test.property", "system-value");
-        String systemValue = getConfigValue("peegeeq.test.property", "default");
-        assertEquals("system-value", systemValue, "System property should take precedence");
-        logger.info("System property configuration: {}", systemValue);
+        // Test instance-level properties configuration (correct pattern since Phase 11 removed
+        // the System.getProperties() sweep — use the 2-arg constructor to pass per-instance values)
+        logger.info("--- Testing Instance Properties Configuration ---");
+        Properties instanceProps = new Properties();
+        containerProps.forEach((k, v) -> instanceProps.setProperty(k.toString(), v.toString()));
+        instanceProps.setProperty("peegeeq.test.property", "instance-value");
+        PeeGeeQConfiguration instanceConfig = new PeeGeeQConfiguration("default", instanceProps);
+        String instanceValue = instanceConfig.getString("peegeeq.test.property", "default");
+        assertEquals("instance-value", instanceValue, "Instance property override should take precedence");
+        logger.info("Instance properties configuration: {}", instanceValue);
 
         // Test environment variables simulation
         logger.info("--- Testing Environment Variables Configuration ---");
@@ -352,27 +357,29 @@ public class AdvancedConfigurationExampleTest {
     void testRuntimeConfigurationUpdates() throws Exception {
         logger.info("=== Testing Runtime Configuration Updates ===");
 
-        // Test updatable configuration properties
-        logger.info("--- Testing Updatable Configuration Properties ---");
+        // Properties are supplied at construction time — System.setProperty has no effect on
+        // PeeGeeQConfiguration since the System sweep was removed in version 2.0.
+        // Each instance owns its isolated Properties object; configuration is never global.
+        logger.info("--- Testing Instance-Isolated Configuration Properties ---");
 
-        // Test queue configuration updates
-        System.setProperty("peegeeq.queue.max-retries", "5");
-        System.setProperty("peegeeq.queue.batch-size", "20");
-        System.setProperty("peegeeq.queue.polling-interval", "2000");
+        Properties configProps = new Properties();
+        containerProps.forEach((k, v) -> configProps.setProperty(k.toString(), v.toString()));
+        configProps.setProperty("peegeeq.queue.max-retries", "5");
+        configProps.setProperty("peegeeq.queue.batch-size", "20");
+        configProps.setProperty("peegeeq.queue.polling-interval", "2000");
+        configProps.setProperty("peegeeq.monitoring.enabled", "true");
+        PeeGeeQConfiguration testConfig = new PeeGeeQConfiguration("default", configProps);
 
-        assertEquals("5", System.getProperty("peegeeq.queue.max-retries"));
-        assertEquals("20", System.getProperty("peegeeq.queue.batch-size"));
-        assertEquals("2000", System.getProperty("peegeeq.queue.polling-interval"));
+        assertEquals("5", testConfig.getString("peegeeq.queue.max-retries", null));
+        assertEquals("20", testConfig.getString("peegeeq.queue.batch-size", null));
+        assertEquals("2000", testConfig.getString("peegeeq.queue.polling-interval", null));
+        assertTrue(testConfig.getBoolean("peegeeq.monitoring.enabled", false));
 
-        logger.info("Runtime Configuration Updates:");
-        logger.info("   Max Retries: {}", System.getProperty("peegeeq.queue.max-retries"));
-        logger.info("   Batch Size: {}", System.getProperty("peegeeq.queue.batch-size"));
-        logger.info("   Polling Interval: {}ms", System.getProperty("peegeeq.queue.polling-interval"));
-
-        // Test monitoring toggle
-        System.setProperty("peegeeq.monitoring.enabled", "true");
-        assertTrue(Boolean.parseBoolean(System.getProperty("peegeeq.monitoring.enabled")));
-        logger.info("   Monitoring Enabled: {}", System.getProperty("peegeeq.monitoring.enabled"));
+        logger.info("Instance Configuration Values:");
+        logger.info("   Max Retries: {}", testConfig.getString("peegeeq.queue.max-retries", null));
+        logger.info("   Batch Size: {}", testConfig.getString("peegeeq.queue.batch-size", null));
+        logger.info("   Polling Interval: {}ms", testConfig.getString("peegeeq.queue.polling-interval", null));
+        logger.info("   Monitoring Enabled: {}", testConfig.getBoolean("peegeeq.monitoring.enabled", false));
 
         // Test safety considerations
         logger.info("--- Testing Safety Considerations ---");
@@ -394,15 +401,10 @@ public class AdvancedConfigurationExampleTest {
     // Helper methods for configuration management
 
     private void clearTestProperties() {
-        System.clearProperty("peegeeq.test.property");
         System.clearProperty(DB_URL_KEY);
         System.clearProperty(DB_USERNAME_KEY);
         System.clearProperty(DB_PASSWORD_KEY);
         System.clearProperty(MONITORING_ENABLED_KEY);
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.monitoring.enabled");
     }
 
     private String getConfigValue(String key, String defaultValue) {
