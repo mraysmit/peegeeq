@@ -578,7 +578,7 @@
         <profile>
             <id>all-tests</id>
             <properties>
-                <test.groups>core,integration,performance,slow</test.groups>
+                <test.groups></test.groups>
                 <test.excludedGroups></test.excludedGroups>
                 <test.parallel>none</test.parallel>
                 <test.threadCount>1</test.threadCount>
