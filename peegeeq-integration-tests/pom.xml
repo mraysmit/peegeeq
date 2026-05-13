@@ -170,7 +170,7 @@
         <profile>
             <id>all-tests</id>
             <properties>
-                <test.groups>smoke,integration</test.groups>
+                <test.groups></test.groups>
                 <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
