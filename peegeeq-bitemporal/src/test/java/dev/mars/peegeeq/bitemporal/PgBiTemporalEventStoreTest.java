@@ -69,7 +69,7 @@ class PgBiTemporalEventStoreTest {
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;

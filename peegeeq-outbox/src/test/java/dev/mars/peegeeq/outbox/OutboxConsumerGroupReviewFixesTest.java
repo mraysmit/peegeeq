@@ -17,18 +17,25 @@ package dev.mars.peegeeq.outbox;
  */
 
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember.ProcessingState;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,8 +43,12 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -49,35 +60,48 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Targeted tests for the four review fixes applied on 2026-03-30:
- * <ul>
- *   <li>Fix #6  Per-member concurrency gate (maxConcurrency / inFlightCount)</li>
- *   <li>Fix #8  Non-blocking {@code closeAsync()} lifecycle</li>
- *   <li>Fix #10 Remove/route race (post-selection liveness check)</li>
- *   <li>Shared Vert.x instance for filter retry timers</li>
- * </ul>
- * Also covers the weighted-average stats computation fix (#7).
- *
- * <p>These are fast in-process CORE tests no database or Testcontainers.</p>
+ * Integration tests for {@link OutboxConsumerGroup} review fixes: per-member concurrency gate,
+ * non-blocking close lifecycle, remove/route race safety, and weighted-average stats.
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
 @ExtendWith(VertxExtension.class)
 @DisplayName("OutboxConsumerGroup \u2014 review fix coverage")
 class OutboxConsumerGroupReviewFixesTest {
 
+    @Container
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
+
     private OutboxConsumerGroup<String> group;
     private Vertx vertx;
+    private PeeGeeQManager manager;
+    private DatabaseService databaseService;
+    private PeeGeeQConfiguration config;
 
     @BeforeEach
-    void setUp(Vertx vertx) {
+    void setUp(Vertx vertx) throws Exception {
         this.vertx = vertx;
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        this.config = new PeeGeeQConfiguration("default", testProps);
+        this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        this.manager.start().await();
+        this.databaseService = new PgDatabaseService(manager);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (group != null) {
             group.close();
         }
+        if (manager != null) {
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -675,8 +699,7 @@ class OutboxConsumerGroupReviewFixesTest {
     private OutboxConsumerGroup<String> createGroup(String groupName, String topic) {
         return new OutboxConsumerGroup<>(
             groupName, topic, String.class,
-            new StubDatabaseService(vertx), null, null,
-            new PeeGeeQConfiguration("test"));
+            databaseService, null, null, config);
     }
 
     private OutboxConsumerGroupMember<String> createMember(String consumerId,
@@ -687,25 +710,5 @@ class OutboxConsumerGroupReviewFixesTest {
 
     private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message) {
         return group.distributeMessage(message);
-    }
-
-    private static class StubDatabaseService implements DatabaseService {
-        private final io.vertx.core.Vertx vertx;
-        StubDatabaseService() { this(null); }
-        StubDatabaseService(io.vertx.core.Vertx vertx) { this.vertx = vertx; }
-        @Override public Future<Void> initialize() { return Future.succeededFuture(); }
-        @Override public Future<Void> start() { return Future.succeededFuture(); }
-        @Override public Future<Void> stop() { return Future.succeededFuture(); }
-        @Override public boolean isRunning() { return true; }
-        @Override public boolean isHealthy() { return true; }
-        @Override public dev.mars.peegeeq.api.database.ConnectionProvider getConnectionProvider() { return null; }
-        @Override public MetricsProvider getMetricsProvider() { return null; }
-        @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
-        @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
-        @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return vertx; }
-        @Override public io.vertx.sqlclient.Pool getPool() { return null; }
-        @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
-        @Override public void close() { }
     }
 }

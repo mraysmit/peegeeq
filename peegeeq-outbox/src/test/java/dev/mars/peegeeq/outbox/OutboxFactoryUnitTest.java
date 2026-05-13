@@ -9,6 +9,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import org.junit.jupiter.api.BeforeEach;
+import java.util.Properties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +31,7 @@ class OutboxFactoryUnitTest {
     void setUp() {
         testDatabaseService = new TestDatabaseService();
         testObjectMapper = new ObjectMapper();
-        testConfiguration = new PeeGeeQConfiguration("test");
+        testConfiguration = new PeeGeeQConfiguration("test", new Properties());
     }
 
     // Constructor Tests
