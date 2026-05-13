@@ -26,30 +26,33 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Field;
+import java.util.Properties;
 
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * TDD tests for H1: clientId propagation through the consumer group path.
+ * Tests for H1: clientId propagation through the consumer group path.
  *
  * <p>These tests verify that when an {@link OutboxFactory} is constructed with a
  * non-null clientId, that clientId is propagated through to the {@link OutboxConsumerGroup}
  * and ultimately to the {@link OutboxConsumer} created inside
  * {@link OutboxConsumerGroup#start()}.</p>
  *
- * <p>Current defect: {@code OutboxFactory.createConsumerGroup()} does not pass its
- * {@code clientId} field to the {@code OutboxConsumerGroup} constructor. The consumer
- * group has no clientId field at all. When {@code OutboxConsumerGroup.start()} creates
- * an {@code OutboxConsumer}, it uses a constructor without clientId, defaulting to null
- * (default pool). In multi-pool/multi-tenant deployments, this silently uses the wrong
- * database.</p>
+ * <p>The fix is complete: {@code OutboxFactory.createConsumerGroup()} passes its
+ * {@code clientId} to the {@code OutboxConsumerGroup} constructor, which stores it
+ * in a {@code clientId} field and passes it to both {@code OutboxConsumer} constructor
+ * code paths in {@code start()}.</p>
  */
 @Tag(TestCategories.CORE)
 @DisplayName("H1: clientId propagation through consumer group path")
 class OutboxConsumerGroupClientIdPropagationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupClientIdPropagationTest.class);
 
     // ========================================================================
     // Positive tests: clientId SHOULD be propagated
@@ -61,7 +64,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         // Given: a factory constructed with an explicit clientId
         String expectedClientId = "tenant-pool-42";
         DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxFactory factory = new OutboxFactory(databaseService, null, config, expectedClientId);
 
@@ -89,7 +92,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         // Given: a consumer group that was created with a specific clientId
         String expectedClientId = "tenant-pool-99";
         DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxConsumerGroup<String> group = new OutboxConsumerGroup<>(
                 "test-group", "test-topic", String.class,
@@ -133,7 +136,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
     void factoryWithNullClientIdShouldPropagateNullToConsumerGroup() throws Exception {
         // Given: a factory constructed without a clientId (uses default pool)
         DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxFactory factory = new OutboxFactory(databaseService, config);
 
@@ -157,7 +160,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         // Given: a factory with an explicit clientId
         String expectedClientId = "shared-pool";
         DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxFactory factory = new OutboxFactory(databaseService, null, config, expectedClientId);
 
