@@ -83,16 +83,7 @@ public class ResilienceSmokeTest extends SmokeTestBase {
     @Test
     @DisplayName("Verify 503 Service Unavailable when DB connection is lost")
     void testDatabaseConnectionLossReturns503() throws Exception {
-        // Set short connection timeout for this test to ensure fast failure detection
-        String originalTimeout = System.getProperty("peegeeq.database.pool.connection-timeout-ms");
-        String originalHealthInterval = System.getProperty("peegeeq.health-check.interval");
-        
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "2000");
-        // Set health check interval to 1s to ensure status updates quickly
-        System.setProperty("peegeeq.health-check.interval", "PT1S");
-
-        try {
-            String setupId = UUID.randomUUID().toString();
+        String setupId = UUID.randomUUID().toString();
             String dbName = "peegeeq_resilience_" + setupId.replace("-", "_");
 
             DatabaseConfig dbConfig = new DatabaseConfig.Builder()
@@ -189,39 +180,12 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             CountDownLatch destroyLatch = new CountDownLatch(1);
             setupService.destroySetup(setupId).onComplete(ar -> destroyLatch.countDown());
             destroyLatch.await(10, TimeUnit.SECONDS);
-        } finally {
-            if (originalTimeout != null) {
-                System.setProperty("peegeeq.database.pool.connection-timeout-ms", originalTimeout);
-            } else {
-                System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
-            }
-            
-            if (originalHealthInterval != null) {
-                System.setProperty("peegeeq.health-check.interval", originalHealthInterval);
-            } else {
-                System.clearProperty("peegeeq.health-check.interval");
-            }
-        }
     }
 
     @Test
     @DisplayName("Verify Circuit Breaker opens under load/failure")
     void testCircuitBreakerOpen() throws Exception {
-        // Configure sensitive circuit breaker
-        String originalThreshold = System.getProperty("peegeeq.circuit-breaker.failure-threshold");
-        String originalWait = System.getProperty("peegeeq.circuit-breaker.wait-duration-ms");
-        String originalTimeout = System.getProperty("peegeeq.database.pool.connection-timeout-ms");
-        String originalHealthInterval = System.getProperty("peegeeq.health-check.interval");
-        String originalRingBufferSize = System.getProperty("peegeeq.circuit-breaker.ring-buffer-size");
-        
-        System.setProperty("peegeeq.circuit-breaker.failure-threshold", "3");
-        System.setProperty("peegeeq.circuit-breaker.wait-duration-ms", "5000");
-        System.setProperty("peegeeq.circuit-breaker.ring-buffer-size", "5"); // Small window for testing
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "1000"); // Fast timeout for failures
-        System.setProperty("peegeeq.health-check.interval", "PT1S"); // Fast health check updates
-
-        try {
-            String setupId = UUID.randomUUID().toString();
+        String setupId = UUID.randomUUID().toString();
             String dbName = "peegeeq_cb_" + setupId.replace("-", "_");
 
             DatabaseConfig dbConfig = new DatabaseConfig.Builder()
@@ -297,23 +261,5 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             CountDownLatch destroyLatch = new CountDownLatch(1);
             setupService.destroySetup(setupId).onComplete(ar -> destroyLatch.countDown());
             destroyLatch.await(10, TimeUnit.SECONDS);
-
-        } finally {
-            // Restore properties
-            if (originalThreshold != null) System.setProperty("peegeeq.circuit-breaker.failure-threshold", originalThreshold);
-            else System.clearProperty("peegeeq.circuit-breaker.failure-threshold");
-            
-            if (originalWait != null) System.setProperty("peegeeq.circuit-breaker.wait-duration-ms", originalWait);
-            else System.clearProperty("peegeeq.circuit-breaker.wait-duration-ms");
-            
-            if (originalTimeout != null) System.setProperty("peegeeq.database.pool.connection-timeout-ms", originalTimeout);
-            else System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
-            
-            if (originalHealthInterval != null) System.setProperty("peegeeq.health-check.interval", originalHealthInterval);
-            else System.clearProperty("peegeeq.health-check.interval");
-
-            if (originalRingBufferSize != null) System.setProperty("peegeeq.circuit-breaker.ring-buffer-size", originalRingBufferSize);
-            else System.clearProperty("peegeeq.circuit-breaker.ring-buffer-size");
-        }
     }
 }
