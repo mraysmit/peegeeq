@@ -13,19 +13,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
-    services:
-      postgres:
-        image: postgres:15.13-alpine3.20
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: peegeeq_test
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+    # No service postgres needed: every DB test uses @Testcontainers with its
+    # own isolated container. A service container here is unused and its
+    # pg_isready health-cmd generates spurious "role root/user does not exist"
+    # errors in the postgres log.
 
     steps:
     - name: Checkout code
@@ -48,25 +39,13 @@ jobs:
       run: mvn clean install -DskipTests -q
 
     - name: Run core tests
-      run: mvn test -Dgroups=core -q
-      env:
-        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
+      run: mvn test -Pcore-tests -q
 
     - name: Run smoke tests
-      run: mvn test -Dgroups=smoke -q
-      env:
-        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
+      run: mvn test -pl peegeeq-integration-tests -Psmoke-tests -q
 
     - name: Run integration tests
-      run: mvn test -Dgroups=integration -q
-      env:
-        POSTGRES_URL: jdbc:postgresql://localhost:5432/peegeeq_test
-        POSTGRES_USER: postgres
-        POSTGRES_PASSWORD: postgres
+      run: mvn test -Pintegration-tests -q
 
     - name: Publish test results
       uses: EnricoMi/publish-unit-test-result-action@v2
