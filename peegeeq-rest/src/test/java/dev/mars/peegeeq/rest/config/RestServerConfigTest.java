@@ -23,9 +23,10 @@ class RestServerConfigTest {
     class RestServerConfigValidationTests {
 
         @Test
-        @DisplayName("Should accept valid port range (1-65535)")
+        @DisplayName("Should accept valid port range (0-65535)")
         void testValidPortRange() {
             List<String> origins = List.of("http://localhost");
+            assertDoesNotThrow(() -> new RestServerConfig(0, RestServerConfig.MonitoringConfig.defaults(), origins));
             assertDoesNotThrow(() -> new RestServerConfig(1, RestServerConfig.MonitoringConfig.defaults(), origins));
             assertDoesNotThrow(() -> new RestServerConfig(8080, RestServerConfig.MonitoringConfig.defaults(), origins));
             assertDoesNotThrow(
@@ -33,14 +34,11 @@ class RestServerConfigTest {
         }
 
         @Test
-        @DisplayName("Should reject port 0")
+        @DisplayName("Should allow port 0 (OS-assigned)")
         void testPortZero() {
             var config = RestServerConfig.MonitoringConfig.defaults();
             List<String> origins = List.of("http://localhost");
-            IllegalArgumentException exception = assertThrows(
-                    IllegalArgumentException.class,
-                    () -> new RestServerConfig(0, config, origins));
-            assertTrue(exception.getMessage().contains("port must be 1-65535"));
+            assertDoesNotThrow(() -> new RestServerConfig(0, config, origins));
         }
 
         @Test
@@ -51,7 +49,7 @@ class RestServerConfigTest {
             IllegalArgumentException exception = assertThrows(
                     IllegalArgumentException.class,
                     () -> new RestServerConfig(-1, config, origins));
-            assertTrue(exception.getMessage().contains("port must be 1-65535"));
+            assertTrue(exception.getMessage().contains("port must be 0-65535"));
         }
 
         @Test
@@ -62,7 +60,7 @@ class RestServerConfigTest {
             IllegalArgumentException exception = assertThrows(
                     IllegalArgumentException.class,
                     () -> new RestServerConfig(65536, config, origins));
-            assertTrue(exception.getMessage().contains("port must be 1-65535"));
+            assertTrue(exception.getMessage().contains("port must be 0-65535"));
         }
 
         @Test
