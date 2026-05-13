@@ -126,6 +126,9 @@ class PeeGeeQPerformanceTest {
         testProps.setProperty("peegeeq.queue.polling-interval", "PT100MS");
         testProps.setProperty("peegeeq.metrics.enabled", "true");
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT5S");
+        // Unlimited wait queue: several tests saturate the pool deliberately; -1 prevents
+        // ConnectionPoolTooBusyException. See class-level Javadoc.
+        testProps.setProperty("peegeeq.database.pool.max-wait-queue-size", "-1");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("performance", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

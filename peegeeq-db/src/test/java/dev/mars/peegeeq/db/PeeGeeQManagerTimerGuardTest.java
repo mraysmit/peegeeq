@@ -222,29 +222,44 @@ public class PeeGeeQManagerTimerGuardTest {
                     List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
-                    // PRIMARY: every captured event must carry ConnectException in the cause chain.
+                    // PRIMARY: every captured event must carry a network-failure exception in the cause chain.
                     // This proves the DB-stopped scenario is what produced these failures — not an
                     // NPE, misconfiguration, or any other unrelated error.
                     // If PeeGeeQManager swallowed the exception (logged only e.getMessage()),
                     // getThrowableProxy() returns null and this fails immediately.
+                    //
+                    // On Windows, two distinct paths occur:
+                    //   1st tick: java.io.IOException ("An established connection was aborted by the
+                    //             software in your host machine") — Netty reports the force-killed open
+                    //             socket as a plain IOException, not a SocketException.
+                    //   Subsequent: io.netty.channel.AbstractChannel$AnnotatedConnectException wrapping
+                    //             java.net.ConnectException ("Connection refused") — new connection
+                    //             attempts fail because the port is gone.
+                    // hasCauseOfAnyType checks for any of the three by exact class name.
                     assertFalse(warns.isEmpty(),
                             "Expected WARN events from timer failures after container stop; none captured");
                     assertFalse(errors.isEmpty(),
                             "Expected ERROR events after escalation threshold; none captured");
 
-                    boolean allWarnsHaveConnectException = warns.stream()
-                            .allMatch(e -> hasCauseOfType(e.getThrowableProxy(), "java.net.ConnectException"));
-                    assertTrue(allWarnsHaveConnectException,
-                            "Every WARN must carry ConnectException in cause chain — proves the DB-stopped " +
-                            "scenario produced these failures and the exception was not swallowed. " +
-                            "WARN count: " + warns.size());
+                    boolean allWarnsHaveConnectionFailure = warns.stream()
+                            .allMatch(e -> hasCauseOfAnyType(e.getThrowableProxy(),
+                                    "java.io.IOException",
+                                    "java.net.SocketException",
+                                    "java.net.ConnectException"));
+                    assertTrue(allWarnsHaveConnectionFailure,
+                            "Every WARN must carry a network I/O exception (IOException/SocketException/ConnectException) " +
+                            "in cause chain — proves the DB-stopped scenario produced these failures and the exception " +
+                            "was not swallowed. WARN count: " + warns.size());
 
-                    boolean allErrorsHaveConnectException = errors.stream()
-                            .allMatch(e -> hasCauseOfType(e.getThrowableProxy(), "java.net.ConnectException"));
-                    assertTrue(allErrorsHaveConnectException,
-                            "Every ERROR must carry ConnectException in cause chain — proves the DB-stopped " +
-                            "scenario produced these failures and the exception was not swallowed. " +
-                            "ERROR count: " + errors.size());
+                    boolean allErrorsHaveConnectionFailure = errors.stream()
+                            .allMatch(e -> hasCauseOfAnyType(e.getThrowableProxy(),
+                                    "java.io.IOException",
+                                    "java.net.SocketException",
+                                    "java.net.ConnectException"));
+                    assertTrue(allErrorsHaveConnectionFailure,
+                            "Every ERROR must carry a network I/O exception (IOException/SocketException/ConnectException) " +
+                            "in cause chain — proves the DB-stopped scenario produced these failures and the exception " +
+                            "was not swallowed. ERROR count: " + errors.size());
 
                     // SECONDARY: escalation behaviour — first failures at WARN, then ERROR with count
                     boolean hasEarlyWarn = warns.stream()
@@ -418,6 +433,23 @@ public class PeeGeeQManagerTimerGuardTest {
     private boolean hasCauseOfType(ch.qos.logback.classic.spi.IThrowableProxy proxy, String className) {
         while (proxy != null) {
             if (className.equals(proxy.getClassName())) return true;
+            proxy = proxy.getCause();
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if the cause chain contains any of the given class names.
+     * Used to handle platform-specific exception wrapping: on Windows, a force-killed
+     * container produces java.io.IOException ("connection aborted") on the open socket,
+     * while subsequent attempts produce io.netty.channel.AbstractChannel$AnnotatedConnectException
+     * wrapping java.net.ConnectException ("connection refused"). Both are network failures;
+     * both satisfy the intent of the assertion.
+     */
+    private boolean hasCauseOfAnyType(ch.qos.logback.classic.spi.IThrowableProxy proxy, String... classNames) {
+        java.util.Set<String> names = java.util.Set.of(classNames);
+        while (proxy != null) {
+            if (names.contains(proxy.getClassName())) return true;
             proxy = proxy.getCause();
         }
         return false;
