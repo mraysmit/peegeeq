@@ -62,6 +62,8 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
     protected static WebClient webClient;
     protected static String deploymentId;
     protected static DatabaseSetupService setupService;
+    protected static PeeGeeQRestServer restServer;
+    protected static int actualServerPort;
 
     @Container
     protected static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -87,22 +89,25 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
         JsonObject serverConfig = testConfig.getJsonObject("server");
         JsonObject clientConfig = testConfig.getJsonObject("client");
 
-        webClient = WebClient.create(vertx, new WebClientOptions()
-                .setDefaultHost(serverConfig.getString("host"))
-                .setDefaultPort(serverConfig.getInteger("port"))
-                .setConnectTimeout(clientConfig.getInteger("timeout")));
-
         setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
+        // Port 0 lets the OS assign a free ephemeral port, avoiding conflicts
+        // when multiple test classes run in parallel.
         RestServerConfig config = new RestServerConfig(
-                serverConfig.getInteger("port"),
+                0,
                 RestServerConfig.MonitoringConfig.defaults(),
                 serverConfig.getJsonArray("cors").getList());
 
-        vertx.deployVerticle(new PeeGeeQRestServer(config, setupService))
+        restServer = new PeeGeeQRestServer(config, setupService);
+        vertx.deployVerticle(restServer)
                 .onSuccess(id -> {
                     deploymentId = id;
-                    logger.info("REST server deployed on port {}", config.port());
+                    actualServerPort = restServer.actualPort();
+                    webClient = WebClient.create(vertx, new WebClientOptions()
+                            .setDefaultHost(serverConfig.getString("host"))
+                            .setDefaultPort(actualServerPort)
+                            .setConnectTimeout(clientConfig.getInteger("timeout")));
+                    logger.info("REST server deployed on port {}", actualServerPort);
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -137,7 +142,7 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
 
     protected String getApiBaseUrl() {
         JsonObject serverConfig = testConfig.getJsonObject("server");
-        return "http://" + serverConfig.getString("host") + ":" + serverConfig.getInteger("port");
+        return "http://" + serverConfig.getString("host") + ":" + actualServerPort;
     }
 
     protected String getPostgresHost() {

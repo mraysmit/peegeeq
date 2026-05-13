@@ -279,11 +279,13 @@ public class HealthCheckManager implements HealthService {
 
         logger.debug("Performing health checks");
 
-        Future<Void> chain = Future.succeededFuture();
+        // Run all checks in parallel so failures are detected within one timeout window
+        // rather than accumulating sequentially (which would delay DB-down detection)
+        List<Future<Void>> checkFutures = new ArrayList<>();
         for (Map.Entry<String, HealthCheck> entry : new HashMap<>(healthChecks).entrySet()) {
             final String name = entry.getKey();
             final HealthCheck check = entry.getValue();
-            chain = chain.compose(v -> runHealthCheckWithTimeout(name, check)
+            checkFutures.add(runHealthCheckWithTimeout(name, check)
                 .onSuccess(status -> {
                     lastResults.put(name, status);
                     logUnhealthyStatusIfNeeded(name, status);
@@ -299,17 +301,18 @@ public class HealthCheckManager implements HealthService {
                     }
                     lastResults.put(name, status);
                 })
-                .mapEmpty());
+                // Always succeed so Future.all() waits for all checks rather than failing fast
+                .transform(ar -> Future.<Void>succeededFuture()));
         }
 
         // Track in-flight cycle so stop() can await it before pools close
-        inFlightCheckCycle = chain
+        inFlightCheckCycle = Future.all(checkFutures)
             .eventually(() -> {
                 healthChecksInProgress.set(false);
                 inFlightCheckCycle = null;
                 return Future.succeededFuture();
             })
-            .transform(ar -> Future.succeededFuture());
+            .transform(ar -> Future.<Void>succeededFuture());
     }
 
     private Future<HealthStatus> runHealthCheckWithTimeout(String name, HealthCheck check) {
@@ -448,6 +451,28 @@ public class HealthCheckManager implements HealthService {
 
     @Override
     public Future<OverallHealthInfo> getOverallHealthAsync() {
+        if (!running) {
+            return Future.succeededFuture(getOverallHealth());
+        }
+        // When the circuit breaker is OPEN the system is already known to be DOWN.
+        // Return the cached state immediately — no live probe needed.
+        // The CB manages its own half-open probe cycle; triggering an extra probe
+        // here would block for the full health-check timeout before responding.
+        if (circuitBreakerManager != null) {
+            CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker("database");
+            if (cb != null && cb.getState() == CircuitBreaker.State.OPEN) {
+                return Future.succeededFuture(getOverallHealth());
+            }
+        }
+        // Trigger a fresh check cycle if none is currently in flight
+        if (inFlightCheckCycle == null) {
+            performHealthChecks();
+        }
+        // Chain off the in-flight cycle (started by this call or by the periodic timer)
+        Future<Void> pending = inFlightCheckCycle;
+        if (pending != null) {
+            return pending.map(v -> getOverallHealth());
+        }
         return Future.succeededFuture(getOverallHealth());
     }
 

@@ -213,8 +213,12 @@ public class ResilienceSmokeTest extends SmokeTestBase {
 
             try {
                 // 3. Trigger failures to open circuit breaker
-                // We need at least 3 failures.
-                for (int i = 0; i < 6; i++) {
+                // Default config: minimumNumberOfCalls=5, health-check timeout=PT5S.
+                // Each getOverallHealthAsync() call chains onto an in-flight probe cycle
+                // (~5s each), so two iterations share each probe. We need at least
+                // 5 completed probe cycles (5 failures) before the fast check.
+                // 12 iterations at ~3.1s each = ~37s, yielding 6 probe completions.
+                for (int i = 0; i < 12; i++) {
                     CountDownLatch checkLatch = new CountDownLatch(1);
                     webClient.get("/api/v1/setups/" + setupId + "/health")
                             .timeout(2000)
