@@ -18,6 +18,7 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +35,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -120,6 +122,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
      * This test measures end-to-end throughput including production, fanout, consumption, and cleanup.
      */
     @Test
+    @Timeout(value = 120, timeUnit = TimeUnit.SECONDS)
     void testBasicThroughputValidation(VertxTestContext testContext) {
         logger.info("=== TEST METHOD: testBasicThroughputValidation STARTED ===");
 
