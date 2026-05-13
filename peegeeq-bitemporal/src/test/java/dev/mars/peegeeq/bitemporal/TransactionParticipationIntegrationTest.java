@@ -64,7 +64,7 @@ public class TransactionParticipationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private PeeGeeQManager peeGeeQManager;
     private Vertx vertx;

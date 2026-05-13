@@ -10,6 +10,7 @@ import org.junit.jupiter.api.DisplayName;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -77,7 +78,7 @@ class OutboxFactoryRegistrarTest {
         OutboxFactoryRegistrar.registerWith(testRegistrar);
         
         TestDatabaseService dbService = new TestDatabaseService();
-        PeeGeeQConfiguration peeGeeQConfig = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration peeGeeQConfig = new PeeGeeQConfiguration("test", new Properties());
         Map<String, Object> config = new HashMap<>();
         config.put("peeGeeQConfiguration", peeGeeQConfig);
         

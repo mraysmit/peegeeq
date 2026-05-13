@@ -196,8 +196,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                             .onFailure(notifyError -> logger.warn(
                                 "Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage()))
-                            .mapEmpty()
-                            .<Void>otherwise(ignored -> null);
+                            .transform(ar -> Future.<Void>succeededFuture());
                         }))
                     .onFailure(error -> {
                         String errorMsg = error.getMessage();
@@ -315,8 +314,7 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                             .onFailure(notifyError -> logger.warn(
                                 "Failed to send notification for message {} (DB ID: {}): {}",
                                 messageId, generatedId, notifyError.getMessage()))
-                            .mapEmpty()
-                            .<Void>otherwise(ignored -> null);
+                            .transform(ar -> Future.succeededFuture());
                         })
                         .transform(ar -> {
                                 if (ar.failed()) {

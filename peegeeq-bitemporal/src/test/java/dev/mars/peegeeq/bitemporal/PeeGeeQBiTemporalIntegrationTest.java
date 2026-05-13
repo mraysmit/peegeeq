@@ -80,7 +80,7 @@ class PeeGeeQBiTemporalIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
     
     private Vertx vertx;
     private PeeGeeQManager manager;
