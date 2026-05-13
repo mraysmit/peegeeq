@@ -218,7 +218,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 })
                 .compose(httpServer -> {
                     server = httpServer;
-                    logger.info("PeeGeeQ REST API server started on port {}", config.port());
+                    logger.info("PeeGeeQ REST API server started on port {}", httpServer.actualPort());
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> startPromise.complete())
@@ -226,6 +226,15 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                     logger.error("Failed to start PeeGeeQ REST API server", cause);
                     startPromise.fail(cause);
                 });
+    }
+
+    /**
+     * Returns the actual port the HTTP server is listening on.
+     * This is useful when the server was started with port 0 (OS-assigned port).
+     * Returns -1 if the server has not started yet.
+     */
+    public int actualPort() {
+        return server != null ? server.actualPort() : -1;
     }
 
     @Override

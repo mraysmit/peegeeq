@@ -144,10 +144,11 @@ public record RestServerConfig(
     /**
      * Validation in compact constructor.
      * Throws IllegalArgumentException if port is invalid.
+     * Port 0 is allowed and means the OS will assign an ephemeral port (useful in tests).
      */
     public RestServerConfig {
-        if (port < 1 || port > 65535) {
-            throw new IllegalArgumentException("port must be 1-65535");
+        if (port < 0 || port > 65535) {
+            throw new IllegalArgumentException("port must be 0-65535 (0 = OS-assigned)");
         }
         Objects.requireNonNull(monitoring, "monitoring config must not be null");
         Objects.requireNonNull(allowedOrigins, "allowedOrigins must not be null");
