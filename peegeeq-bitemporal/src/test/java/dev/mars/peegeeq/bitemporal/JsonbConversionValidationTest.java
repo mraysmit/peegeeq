@@ -42,6 +42,8 @@ import io.vertx.junit5.VertxTestContext;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;

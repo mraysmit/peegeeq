@@ -28,6 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.HashMap;
+import java.util.Properties;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;

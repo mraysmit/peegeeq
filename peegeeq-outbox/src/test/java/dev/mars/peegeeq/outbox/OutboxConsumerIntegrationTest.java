@@ -120,7 +120,7 @@ class OutboxConsumerIntegrationTest {
     @Test
     void testConstructorWithClientFactory_WithConfiguration() {
         // Given
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         // When
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null, config);

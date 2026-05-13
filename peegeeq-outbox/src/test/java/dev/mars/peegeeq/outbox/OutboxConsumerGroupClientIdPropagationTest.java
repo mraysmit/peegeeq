@@ -17,42 +17,83 @@ package dev.mars.peegeeq.outbox;
  */
 
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.reflect.Field;
 import java.util.Properties;
-
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for H1: clientId propagation through the consumer group path.
+ * Integration tests for H1: clientId propagation through the consumer group path.
  *
  * <p>These tests verify that when an {@link OutboxFactory} is constructed with a
  * non-null clientId, that clientId is propagated through to the {@link OutboxConsumerGroup}
  * and ultimately to the {@link OutboxConsumer} created inside
  * {@link OutboxConsumerGroup#start()}.</p>
- *
- * <p>The fix is complete: {@code OutboxFactory.createConsumerGroup()} passes its
- * {@code clientId} to the {@code OutboxConsumerGroup} constructor, which stores it
- * in a {@code clientId} field and passes it to both {@code OutboxConsumer} constructor
- * code paths in {@code start()}.</p>
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+@ExtendWith(VertxExtension.class)
 @DisplayName("H1: clientId propagation through consumer group path")
 class OutboxConsumerGroupClientIdPropagationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupClientIdPropagationTest.class);
+
+    @Container
+    @SuppressWarnings("resource")
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
+
+    private PeeGeeQManager manager;
+    private DatabaseService databaseService;
+    private PeeGeeQConfiguration config;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        this.config = new PeeGeeQConfiguration("default", testProps);
+        this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        this.manager.start().await();
+        this.databaseService = new PgDatabaseService(manager);
+    }
+
+    @AfterEach
+    void tearDown(VertxTestContext testContext) throws Exception {
+        if (manager != null) {
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
 
     // ========================================================================
     // Positive tests: clientId SHOULD be propagated
@@ -63,8 +104,6 @@ class OutboxConsumerGroupClientIdPropagationTest {
     void factoryWithClientIdShouldPropagateToConsumerGroup() throws Exception {
         // Given: a factory constructed with an explicit clientId
         String expectedClientId = "tenant-pool-42";
-        DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxFactory factory = new OutboxFactory(databaseService, null, config, expectedClientId);
 
@@ -78,7 +117,6 @@ class OutboxConsumerGroupClientIdPropagationTest {
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
 
         // Verify clientId is present on the consumer group itself
-        // (currently fails OutboxConsumerGroup has no clientId field)
         String actualClientId = getPrivateField(outboxGroup, "clientId", String.class);
         assertEquals(expectedClientId, actualClientId,
                 "Consumer group should hold the factory's clientId for propagation to its underlying consumer");
@@ -91,8 +129,6 @@ class OutboxConsumerGroupClientIdPropagationTest {
     void consumerGroupStartShouldPassClientIdToUnderlyingConsumer() throws Exception {
         // Given: a consumer group that was created with a specific clientId
         String expectedClientId = "tenant-pool-99";
-        DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxConsumerGroup<String> group = new OutboxConsumerGroup<>(
                 "test-group", "test-topic", String.class,
@@ -107,12 +143,10 @@ class OutboxConsumerGroupClientIdPropagationTest {
         group.addConsumer("member-1", message -> Future.succeededFuture());
 
         // When: we start the group (creates the underlying OutboxConsumer)
-        // This will fail without a real DB, but we can still inspect the state
-        // before the polling loop tries to connect.
         try {
             group.start();
         } catch (Exception e) {
-            logger.debug("Expected: group.start() failed without database: {}", e.getMessage());
+            logger.debug("group.start() failed: {}", e.getMessage());
         }
 
         // Then: the underlying consumer should have the same clientId
@@ -122,7 +156,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
             assertEquals(expectedClientId, actualClientId,
                     "Underlying consumer created by start() should have the group's clientId");
         }
-        // If underlyingConsumer is null, start() failed before creating it acceptable in unit context
+        // If underlyingConsumer is null, start() failed before creating it — acceptable
 
         group.close();
     }
@@ -135,9 +169,6 @@ class OutboxConsumerGroupClientIdPropagationTest {
     @DisplayName("OutboxFactory with null clientId should propagate null to consumer groups")
     void factoryWithNullClientIdShouldPropagateNullToConsumerGroup() throws Exception {
         // Given: a factory constructed without a clientId (uses default pool)
-        DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
-
         OutboxFactory factory = new OutboxFactory(databaseService, config);
 
         // When: we create a consumer group
@@ -159,8 +190,6 @@ class OutboxConsumerGroupClientIdPropagationTest {
     void directConsumerAndGroupConsumerShouldHaveSameClientId() throws Exception {
         // Given: a factory with an explicit clientId
         String expectedClientId = "shared-pool";
-        DatabaseService databaseService = new StubDatabaseService();
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         OutboxFactory factory = new OutboxFactory(databaseService, null, config, expectedClientId);
 
@@ -213,26 +242,5 @@ class OutboxConsumerGroupClientIdPropagationTest {
             }
         }
         throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
-    }
-
-    /**
-     * Minimal DatabaseService stub for unit tests no real database needed.
-     */
-    private static class StubDatabaseService implements DatabaseService {
-        @Override public io.vertx.core.Future<Void> initialize() { return io.vertx.core.Future.succeededFuture(); }
-        @Override public io.vertx.core.Future<Void> start() { return io.vertx.core.Future.succeededFuture(); }
-        @Override public io.vertx.core.Future<Void> stop() { return io.vertx.core.Future.succeededFuture(); }
-        @Override public boolean isRunning() { return true; }
-        @Override public boolean isHealthy() { return true; }
-        @Override public dev.mars.peegeeq.api.database.ConnectionProvider getConnectionProvider() { return null; }
-        @Override public MetricsProvider getMetricsProvider() { return null; }
-        @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
-        @Override public io.vertx.core.Future<Void> runMigrations() { return io.vertx.core.Future.succeededFuture(); }
-        @Override public io.vertx.core.Future<Boolean> performHealthCheck() { return io.vertx.core.Future.succeededFuture(true); }
-        private final Vertx vertx = Vertx.vertx();
-        @Override public io.vertx.core.Vertx getVertx() { return vertx; }
-        @Override public io.vertx.sqlclient.Pool getPool() { return null; }
-        @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
-        @Override public void close() { }
     }
 }
