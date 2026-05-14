@@ -180,100 +180,12 @@
         </plugins>
     </build>
 
-    <profiles>
-        <!-- Core Tests Profile - Fast unit tests only (excludes integration) -->
-        <profile>
-            <id>core-tests</id>
-            <properties>
-                <test.groups>core</test.groups>
-                <test.excludedGroups>integration,performance,slow</test.excludedGroups>
-                <test.parallel>methods</test.parallel>
-                <test.threadCount>4</test.threadCount>
-                <test.timeout.default>30s</test.timeout.default>
-                <test.timeout.method>10s</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- Core + Integration Tests Profile - DEFAULT for comprehensive validation -->
-        <!-- This ensures integration tests ALWAYS run unless explicitly excluded -->
-        <profile>
-            <id>core-integration-tests</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
-            <properties>
-                <test.groups>core,integration</test.groups>
-                <test.excludedGroups>performance,slow</test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>5m</test.timeout.default>
-                <test.timeout.method>3m</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- Integration Tests Profile - Tests with TestContainers and real infrastructure -->
-        <profile>
-            <id>integration-tests</id>
-            <properties>
-                <test.groups>integration</test.groups>
-                <test.excludedGroups>performance,slow</test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>5m</test.timeout.default>
-                <test.timeout.method>3m</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- Performance Tests Profile - Load and throughput tests -->
-        <profile>
-            <id>performance-tests</id>
-            <properties>
-                <test.groups>performance</test.groups>
-                <test.excludedGroups>slow</test.excludedGroups>
-                <test.parallel>none</test.parallel>
-                <test.threadCount>1</test.threadCount>
-                <test.timeout.default>10m</test.timeout.default>
-                <test.timeout.method>5m</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- Smoke Tests Profile - Ultra-fast basic verification -->
-        <profile>
-            <id>smoke-tests</id>
-            <properties>
-                <test.groups>smoke</test.groups>
-                <test.excludedGroups>integration,performance,slow</test.excludedGroups>
-                <test.parallel>methods</test.parallel>
-                <test.threadCount>8</test.threadCount>
-                <test.timeout.default>10s</test.timeout.default>
-                <test.timeout.method>5s</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- Slow Tests Profile - Long-running comprehensive tests -->
-        <profile>
-            <id>slow-tests</id>
-            <properties>
-                <test.groups>slow</test.groups>
-                <test.excludedGroups></test.excludedGroups>
-                <test.parallel>none</test.parallel>
-                <test.threadCount>1</test.threadCount>
-                <test.timeout.default>30m</test.timeout.default>
-                <test.timeout.method>15m</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- All Tests Profile -->
-        <profile>
-            <id>all-tests</id>
-            <properties>
-                <test.groups></test.groups>
-                <test.excludedGroups></test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>30m</test.timeout.default>
-                <test.timeout.method>15m</test.timeout.method>
-            </properties>
-        </profile>
-    </profiles>
+    <!--
+      NOTE: Test-execution profiles are defined ONLY in the root pom.
+      This module previously defaulted to a `core-integration-tests`
+      profile that ran @Tag("integration") tests under `mvn test`. That
+      behaviour was inconsistent with every other module and is removed:
+      integration-tagged tests in this module now require -Pintegration-tests
+      or -Pall-tests, in line with the rest of the repository.
+    -->
 </project>
