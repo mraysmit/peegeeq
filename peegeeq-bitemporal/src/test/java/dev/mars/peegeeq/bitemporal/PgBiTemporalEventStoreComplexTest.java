@@ -721,16 +721,14 @@ class PgBiTemporalEventStoreComplexTest {
             .validTime(Instant.now())
             .execute()
             .compose(appended -> objectStore.getById(appended.getEventId()))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertEquals("hello-world", fetched.getPayload());
-                    assertTrue(fetched.getPayload() instanceof String,
-                        "Object payload should unwrap to scalar value, not a wrapper map");
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertEquals("hello-world", fetched.getPayload());
+                assertTrue(fetched.getPayload() instanceof String,
+                    "Object payload should unwrap to scalar value, not a wrapper map");
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -760,16 +758,14 @@ class PgBiTemporalEventStoreComplexTest {
                     .eventType("ObjectBoolean").payload(true).validTime(Instant.now()).execute();
             })
             .compose(boolAppended -> objectStore.getById(boolAppended.getEventId()))
-            .onSuccess(boolFetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(boolFetched);
-                    assertEquals(true, boolFetched.getPayload());
-                    assertTrue(boolFetched.getPayload() instanceof Boolean,
-                        "Boolean Object payload should unwrap to Boolean scalar");
-                });
+            .onSuccess(boolFetched -> testContext.verify(() -> {
+                assertNotNull(boolFetched);
+                assertEquals(true, boolFetched.getPayload());
+                assertTrue(boolFetched.getPayload() instanceof Boolean,
+                    "Boolean Object payload should unwrap to Boolean scalar");
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -811,15 +807,13 @@ class PgBiTemporalEventStoreComplexTest {
                 "\"legacy-scalar\"", "{}", eventId, null, null))
             .compose(v -> pool.close())
             .compose(v -> objectStore.getById(eventId))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertEquals("legacy-scalar", fetched.getPayload());
-                    assertTrue(fetched.getPayload() instanceof String);
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertEquals("legacy-scalar", fetched.getPayload());
+                assertTrue(fetched.getPayload() instanceof String);
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -861,15 +855,13 @@ class PgBiTemporalEventStoreComplexTest {
                 "[1,2,3]", "{}", eventId, null, null))
             .compose(v -> pool.close())
             .compose(v -> objectStore.getById(eventId))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertTrue(fetched.getPayload() instanceof List, "Array JSON should deserialize to List for Object payload");
-                    assertEquals(List.of(1, 2, 3), fetched.getPayload());
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertTrue(fetched.getPayload() instanceof List, "Array JSON should deserialize to List for Object payload");
+                assertEquals(List.of(1, 2, 3), fetched.getPayload());
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -2282,15 +2274,13 @@ class PgBiTemporalEventStoreComplexTest {
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "NullHeaders", eventId))
             .compose(v -> pool.close())
             .compose(v -> objectStore.getById(eventId))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertNotNull(fetched.getHeaders(), "Null headers column should produce empty map, not null");
-                    assertTrue(fetched.getHeaders().isEmpty(), "Null headers column should produce empty map");
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertNotNull(fetched.getHeaders(), "Null headers column should produce empty map, not null");
+                assertTrue(fetched.getHeaders().isEmpty(), "Null headers column should produce empty map");
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -2327,16 +2317,14 @@ class PgBiTemporalEventStoreComplexTest {
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "NullValueHeaders", eventId))
             .compose(v -> pool.close())
             .compose(v -> objectStore.getById(eventId))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertEquals("yes", fetched.getHeaders().get("present"));
-                    assertFalse(fetched.getHeaders().containsKey("absent"),
-                        "Null-valued JSONB header entry should be skipped");
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertEquals("yes", fetched.getHeaders().get("present"));
+                assertFalse(fetched.getHeaders().containsKey("absent"),
+                    "Null-valued JSONB header entry should be skipped");
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -2371,17 +2359,15 @@ class PgBiTemporalEventStoreComplexTest {
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "LegacyNumber", eventId))
             .compose(v -> pool.close())
             .compose(v -> objectStore.getById(eventId))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertTrue(fetched.getPayload() instanceof Number,
-                        "Raw numeric JSONB should deserialize to Number, got: "
-                        + fetched.getPayload().getClass().getSimpleName());
-                    assertEquals(42, ((Number) fetched.getPayload()).intValue());
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertTrue(fetched.getPayload() instanceof Number,
+                    "Raw numeric JSONB should deserialize to Number, got: "
+                    + fetched.getPayload().getClass().getSimpleName());
+                assertEquals(42, ((Number) fetched.getPayload()).intValue());
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);
@@ -2416,17 +2402,15 @@ class PgBiTemporalEventStoreComplexTest {
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "LegacyBool", eventId))
             .compose(v -> pool.close())
             .compose(v -> objectStore.getById(eventId))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertTrue(fetched.getPayload() instanceof Boolean,
-                        "Raw boolean JSONB should deserialize to Boolean, got: "
-                        + fetched.getPayload().getClass().getSimpleName());
-                    assertEquals(true, fetched.getPayload());
-                });
+            .onSuccess(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertTrue(fetched.getPayload() instanceof Boolean,
+                    "Raw boolean JSONB should deserialize to Boolean, got: "
+                    + fetched.getPayload().getClass().getSimpleName());
+                assertEquals(true, fetched.getPayload());
                 objectStore.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 objectStore.close();
                 testContext.failNow(err);

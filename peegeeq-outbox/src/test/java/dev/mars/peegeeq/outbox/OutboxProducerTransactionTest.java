@@ -464,11 +464,11 @@ public class OutboxProducerTransactionTest {
 
         // Second producer should still work because the pool is shared
         producer2.sendInOwnTransaction("after-close-" + System.currentTimeMillis())
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("Second producer works after first producer closed shared pool intact");
                 producer2.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

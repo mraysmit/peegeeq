@@ -455,11 +455,10 @@ public class CallPropagationIntegrationTest {
                     "ORDER BY transaction_time DESC LIMIT 1"
                 ).execute();
             })
-            .onSuccess(rows -> {
+            .onSuccess(rows -> testContext.verify(() -> {
                 if (eventPoolHolder[0] != null) {
                     eventPoolHolder[0].close();
                 }
-                testContext.verify(() -> {
                     assertTrue(rows.size() > 0, "Event should exist in database");
 
                     var row = rows.iterator().next();
@@ -486,8 +485,7 @@ public class CallPropagationIntegrationTest {
                     logger.info("  - Event Data: {}", eventData.encode());
 
                     testContext.completeNow();
-                });
-            })
+            }))
             .onFailure(err -> {
                 if (eventPoolHolder[0] != null) {
                     eventPoolHolder[0].close();

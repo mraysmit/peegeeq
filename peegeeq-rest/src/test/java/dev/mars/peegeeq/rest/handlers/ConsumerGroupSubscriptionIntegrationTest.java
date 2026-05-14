@@ -196,7 +196,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
         
         webClient.post(TEST_PORT, "localhost", path)
             .sendJsonObject(subscriptionOptions)
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 logger.info("Response status: {}", response.statusCode());
                 logger.info("Response body: {}", response.bodyAsString());
                 
@@ -210,7 +210,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 
                 logger.info("Correctly rejected subscription options for non-existent group");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -227,7 +227,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 logger.info("SSE Response status: {}", response.statusCode());
                 
                 // Should succeed with 200 but use default options
@@ -258,7 +258,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         }
                     }
                 });
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -339,7 +339,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         return request.send();
                     });
             })
-            .onSuccess(sseResponse -> {
+            .onSuccess(sseResponse -> testContext.verify(() -> {
                 // If sseResponse is null, we already completed (subscription table not available)
                 if (sseResponse == null) {
                     return;
@@ -387,7 +387,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         }
                     }
                 });
-            })
+            }))
             .onFailure(testContext::failNow);
         
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -403,7 +403,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
         
         webClient.get(TEST_PORT, "localhost", path)
             .send()
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 logger.info("Response status: {}", response.statusCode());
                 logger.info("Response body: {}", response.bodyAsString());
 
@@ -429,7 +429,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 logger.info("Returns default options for non-existent group");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -482,7 +482,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 return webClient.delete(TEST_PORT, "localhost", deletePath)
                     .send();
             })
-            .onSuccess(deleteResponse -> {
+            .onSuccess(deleteResponse -> testContext.verify(() -> {
                 // If deleteResponse is null, we already completed (subscription table not available)
                 if (deleteResponse == null) {
                     return;
@@ -503,7 +503,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 logger.info("Subscription options deleted successfully");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -520,7 +520,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 logger.info("SSE Response status: {}", response.statusCode());
                 assertEquals(200, response.statusCode());
                 
@@ -555,7 +555,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         }
                     }
                 });
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -614,7 +614,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                               setupId, QUEUE_NAME, groupName);
                 return webClient.get(TEST_PORT, "localhost", getPath).send();
             })
-            .onSuccess(getResponse -> {
+            .onSuccess(getResponse -> testContext.verify(() -> {
                 // If getResponse is null, we already completed (subscription table not available)
                 if (getResponse == null) {
                     return;
@@ -630,7 +630,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 logger.info("FROM_MESSAGE_ID(42) persisted and retrieved correctly");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -706,7 +706,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                               setupId, QUEUE_NAME, groupName);
                 return webClient.get(TEST_PORT, "localhost", getPath).send();
             })
-            .onSuccess(getResponse -> {
+            .onSuccess(getResponse -> testContext.verify(() -> {
                 // If getResponse is null, we already completed (subscription table not available)
                 if (getResponse == null) {
                     return;
@@ -720,7 +720,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 logger.info("Subscription update FROM_NOW → FROM_BEGINNING verified");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -850,7 +850,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 return webClient.post(TEST_PORT, "localhost", setOptionsPath)
                     .sendJsonObject(invalidOptions);
             })
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 logger.info("Response status: {}", response.statusCode());
                 logger.info("Response body: {}", response.bodyAsString());
                 
@@ -860,7 +860,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 
                 logger.info("Invalid start position rejected correctly");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
     
@@ -1126,7 +1126,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         return request.send();
                     });
             })
-            .onSuccess(sseResponse -> {
+            .onSuccess(sseResponse -> testContext.verify(() -> {
                 // If sseResponse is null, we already completed (subscription table not available)
                 if (sseResponse == null) {
                     return;
@@ -1173,7 +1173,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         }
                     }
                 });
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 

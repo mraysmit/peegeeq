@@ -132,11 +132,11 @@ public class ModernVertxCompositionExampleTest {
                 assertEquals("Recovered successfully", result);
                 return Future.succeededFuture("Final result");
             })
-            .onSuccess(finalResult -> {
+            .onSuccess(finalResult -> testContext.verify(() -> {
                 logger.info("Error recovery pattern validated successfully: {}", finalResult);
                 assertEquals("Final result", finalResult);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(throwable -> {
                 logger.error("❌ Error recovery failed", throwable);
                 testContext.failNow(throwable);

@@ -154,16 +154,15 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                     return Future.failedFuture(e);
                 }
             })
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 // 6. Verify NO webhook was triggered the DB query above already proved the row
                 // was absent after rollback, so the poller can never dispatch it.
-                testContext.verify(() ->
-                    assertTrue(receivedMessages.isEmpty(),
-                        "Webhook should not have been called for a rolled-back message. Received: " + receivedMessages.size()));
+                assertTrue(receivedMessages.isEmpty(),
+                    "Webhook should not have been called for a rolled-back message. Received: " + receivedMessages.size());
                 webhookServer.close();
                 cleanupSetup(setupId);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 

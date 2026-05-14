@@ -1,8 +1,24 @@
 # Refactoring Plan: Fix `onSuccess` Exception Swallowing in Tests
 
-Created: 2026-05-05  
-Branch: `feature/offset-watermark-phase1`  
-Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 COMPLETE (2026-05-06)**
+Created: 2026-05-05
+Branch: `feature/offset-watermark-phase1`
+Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 PARTIALLY COMPLETE (2026-05-14, updated 2026-05-14)**
+
+> **2026-05-14 review correction.** The earlier "PHASE 3 COMPLETE" claim was wrong for `peegeeq-outbox`:
+> - Tier 1 conversion (~46 patterns across 10 files) was deferred, not done — see the outbox section below.
+> - A second-pass audit found additional gaps the original sweep missed (now fixed in this update):
+>   - `OutboxQueueUnitTest.testClose_MultipleInvocations` — Tier 3 bare `assertNotNull` + sync `queue.close()` inside `onSuccess` (fixed).
+>   - `OutboxIdempotencyKeyTest.testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce` — Tier 2 sync `consumer.close()` after `testContext.verify(...)` (fixed).
+>   - `OutboxConsumerGroupSubscriptionEdgeCasesTest.testCleanup_PreventOperationsAfterClose` — Tier 2 sync `group.close()` inside bare `onSuccess` (fixed).
+>
+> **2026-05-14 follow-up audit (this update).** A CI guard test (`OnSuccessExceptionSwallowingGuardTest` in `peegeeq-test-support`) was built to detect Tier 3 patterns programmatically. Running it across the whole workspace revealed **47 additional Tier 3 sites** missed by all earlier sweeps:
+> - **`peegeeq-db` — 24 sites fixed**: `PgClientCoreTest` (1), `PgDatabaseServiceCoreTest` (1), `PgConnectionProviderCoreTest` (4), `DeadConsumerDetectionJobIntegrationTest` (8), `DatabaseTemplateManagerCoreTest` (10).
+> - **`peegeeq-rest` — 23 sites fixed**: `ModernVertxCompositionExampleTest` (1), `EndToEndValidationTest` (4), `EventStoreIntegrationTest` (8), `ConsumerGroupSubscriptionIntegrationTest` (10).
+> - Canonical fix applied: wrap the entire `onSuccess` lambda body in `testContext.verify(() -> { ... })`, preserving any existing nested `verify` blocks and `.onFailure(testContext::failNow)` tails.
+> - `peegeeq-outbox` Tier 1 partial conversion: 7 of 8 `OutboxIdempotencyKeyTest` `.onSuccess(x -> testContext.verify(...))` patterns converted to canonical `.onComplete(testContext.succeeding(...))` form. Remaining 1 site is nested inside a chained `.compose(...)` and intentionally left alone.
+> - The guard test is now the regression boundary: any future `.onSuccess` with a bare assertion (no wrapping `verify` and no `try/catch(Throwable)→failNow` shield) will fail the `peegeeq-test-support` build.
+>
+> Modules other than `peegeeq-outbox`, `peegeeq-db`, and `peegeeq-rest` were not re-audited in this pass beyond what the guard test covers; their previous "complete" claims have not been re-verified.
 
 ---
 
@@ -305,7 +321,11 @@ grep -rn "assertEquals\|assertTrue\|assertNotNull" --include="*Test*.java" | \
 - [x] `peegeeq-native` Phase 3 Tier 1 — zero Tier 1 patterns found; no changes needed.
 - [x] `peegeeq-service-manager` Phase 3 Tier 1 — 24 patterns across 4 files converted (2026-05-06). **20 tests pass (2026-05-06)**.
 - [x] `peegeeq-integration-tests` Phase 3 Tier 1 — zero Tier 1 patterns found; no changes needed.
-- [x] **Phase 3 COMPLETE** — all modules audited and converted (2026-05-06).
+- [ ] **Phase 3 NOT YET COMPLETE** — `peegeeq-outbox` Tier 1 conversion (~46 patterns across 10 files) deferred. Other modules' "complete" status not re-verified under the stricter 2026-05-14 audit regex `\.onSuccess\([^)]*->\s*\{`.
+- [x] **Outbox second-pass Tier 3 / Tier 2 fixes (2026-05-14)**:
+    - `OutboxQueueUnitTest.testClose_MultipleInvocations` — Tier 3 bare `assertNotNull` + sync `queue.close()` wrapped in canonical `onComplete(testContext.succeeding(v -> testContext.verify(...)))`.
+    - `OutboxIdempotencyKeyTest.testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce` — moved `consumer.close()` and log call inside the `testContext.verify(...)` block so a sync throw can't be swallowed.
+    - `OutboxConsumerGroupSubscriptionEdgeCasesTest.testCleanup_PreventOperationsAfterClose` — wrapped outer `.onSuccess(v -> { group.close(); ... })` body (which called sync `group.close()` and nested `group.start()`) with `onComplete(testContext.succeeding(v -> testContext.verify(...)))`.
 
 ---
 
