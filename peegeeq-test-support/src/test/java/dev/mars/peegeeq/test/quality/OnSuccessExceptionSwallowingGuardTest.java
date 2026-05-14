@@ -213,7 +213,12 @@ class OnSuccessExceptionSwallowingGuardTest {
         } catch (IOException e) {
             return;
         }
-        Matcher m = ON_SUCCESS_START.matcher(content);
+        // Mask comments and string literals before the initial finder so this guard
+        // does not match `.onSuccess(...)` examples that appear inside Javadoc or
+        // string content. The masked string preserves length and line breaks, so
+        // every offset returned by the matcher is still valid against `content`.
+        String masked = maskNonCode(content);
+        Matcher m = ON_SUCCESS_START.matcher(masked);
         while (m.find()) {
             int openParen = m.end() - 1;
             int arrow = findLambdaArrow(content, openParen);
@@ -351,6 +356,50 @@ class OnSuccessExceptionSwallowingGuardTest {
             }
         }
         return -1;
+    }
+
+    /**
+     * Return a copy of {@code content} with every comment (line or block) and every
+     * string/char literal (including text blocks) replaced by spaces, preserving length
+     * and line breaks. Used to prevent the initial {@code .onSuccess(} finder from
+     * matching tokens inside Javadoc examples or string content.
+     */
+    private static String maskNonCode(String content) {
+        char[] out = content.toCharArray();
+        int i = 0;
+        int n = content.length();
+        while (i < n) {
+            char c = content.charAt(i);
+            if (c == '/' && i + 1 < n) {
+                char next = content.charAt(i + 1);
+                if (next == '/') {
+                    int end = skipLineComment(content, i);
+                    for (int k = i; k <= end && k < n; k++) {
+                        if (out[k] != '\n' && out[k] != '\r') out[k] = ' ';
+                    }
+                    i = end + 1;
+                    continue;
+                }
+                if (next == '*') {
+                    int end = skipBlockComment(content, i);
+                    for (int k = i; k <= end && k < n; k++) {
+                        if (out[k] != '\n' && out[k] != '\r') out[k] = ' ';
+                    }
+                    i = end + 1;
+                    continue;
+                }
+            }
+            if (c == '"' || c == '\'') {
+                int end = skipStringLiteral(content, i);
+                for (int k = i; k <= end && k < n; k++) {
+                    if (out[k] != '\n' && out[k] != '\r') out[k] = ' ';
+                }
+                i = end + 1;
+                continue;
+            }
+            i++;
+        }
+        return new String(out);
     }
 
     private static int skipStringLiteral(String s, int i) {
