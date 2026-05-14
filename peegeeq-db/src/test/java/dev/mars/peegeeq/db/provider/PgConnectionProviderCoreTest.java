@@ -90,10 +90,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
     @Test
     void testGetReactivePool(VertxTestContext testContext) {
         connectionProvider.getReactivePool("test-client")
-            .onSuccess(pool -> {
+            .onSuccess(pool -> testContext.verify(() -> {
                 assertNotNull(pool);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -119,10 +119,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
     @Test
     void testGetConnection(VertxTestContext testContext) {
         connectionProvider.getConnection("test-client")
-            .onSuccess(connection -> {
+            .onSuccess(connection -> testContext.verify(() -> {
                 assertNotNull(connection);
                 connection.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -139,10 +139,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
             connection.query("SELECT 1 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).onSuccess(result -> {
+        ).onSuccess(result -> testContext.verify(() -> {
             assertEquals(1, result);
             testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        })).onFailure(testContext::failNow);
     }
 
     /**
@@ -171,10 +171,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
             connection.query("SELECT 1 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).onSuccess(result -> {
+        ).onSuccess(result -> testContext.verify(() -> {
             assertEquals(1, result);
             testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        })).onFailure(testContext::failNow);
     }
 
     /**

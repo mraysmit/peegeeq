@@ -758,7 +758,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults())
-                .onSuccess(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     group.close();
 
                     // start(options) returns failed Future (not throw) after close
@@ -774,8 +774,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
                             testContext.completeNow();
                         }));
-                })
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }

@@ -249,13 +249,12 @@ class OutboxQueueUnitTest {
     @Test
     void testClose_MultipleInvocations(VertxTestContext testContext) {
         queue.close()
-            .onSuccess(v -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 // Second close should also complete (pool already closed)
                 Future<Void> future2 = queue.close();
                 assertNotNull(future2);
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // ========== CreateMessage Method Tests ==========

@@ -134,11 +134,11 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     assertEquals(1, markedDead, "Should detect 1 dead subscription");
                     return getSubscriptionStatus(topic, groupName);
                 })
-                .onSuccess(status -> {
+                .onSuccess(status -> ctx.verify(() -> {
                     assertEquals("DEAD", status, "Subscription should be marked as DEAD");
                     logger.info("Dead consumer detection verified");
                     ctx.completeNow();
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 
@@ -164,11 +164,11 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     assertEquals(0, markedDead, "Should not detect any dead subscriptions");
                     return getSubscriptionStatus(topic, groupName);
                 })
-                .onSuccess(status -> {
+                .onSuccess(status -> ctx.verify(() -> {
                     assertEquals("ACTIVE", status, "Subscription should remain ACTIVE");
                     logger.info("Healthy subscription preserved");
                     ctx.completeNow();
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 
@@ -205,11 +205,11 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     assertEquals("DEAD", status1, topic1 + "/dead-group should be DEAD");
                     return getSubscriptionStatus(topic2, "dead-group");
                 })
-                .onSuccess(status2 -> {
+                .onSuccess(status2 -> ctx.verify(() -> {
                     assertEquals("DEAD", status2, topic2 + "/dead-group should be DEAD");
                     logger.info("Cross-topic dead detection verified");
                     ctx.completeNow();
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 
@@ -226,12 +226,12 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         assertTrue(job.isRunning(), "Job should be running after start");
 
         manager.getVertx().timer(1200)
-                .onSuccess(v -> {
+                .onSuccess(v -> ctx.verify(() -> {
                     job.stop();
                     assertFalse(job.isRunning(), "Job should not be running after stop");
                     logger.info("Job start/stop lifecycle verified");
                     ctx.completeNow();
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 
@@ -279,11 +279,11 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);
                     return job.runDetectionOnce();
                 })
-                .onSuccess(result -> {
+                .onSuccess(result -> ctx.verify(() -> {
                     assertTrue(result >= 1, "Should detect at least 1 dead subscription");
                     logger.info("Manual detection run verified");
                     ctx.completeNow();
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 
@@ -296,21 +296,21 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         job.start();
 
         manager.getVertx().timer(250)
-                .onSuccess(v -> {
+                .onSuccess(v -> ctx.verify(() -> {
                     long beforeStopRuns = job.getTotalRunCount();
                     job.stop();
                     assertFalse(job.isRunning(), "Job should report stopped");
 
                     manager.getVertx().timer(250)
-                            .onSuccess(v2 -> {
+                            .onSuccess(v2 -> ctx.verify(() -> {
                                 long afterStopRuns = job.getTotalRunCount();
                                 assertEquals(beforeStopRuns, afterStopRuns,
                                         "Run count should not increase after stop");
                                 logger.info("Stop fencing verified: runCount stayed at {}", afterStopRuns);
                                 ctx.completeNow();
-                            })
+                            }))
                             .onFailure(ctx::failNow);
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 
@@ -430,7 +430,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     job.start();
                     return manager.getVertx().timer(2000);
                 })
-                .onSuccess(v -> {
+                .onSuccess(v -> ctx.verify(() -> {
                     job.stop();
                     long runCount = job.getTotalRunCount();
                     long failures = job.getTotalFailures();
@@ -448,7 +448,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
 
                     logger.info("Concurrent detection guard verified: {} runs (not ~100)", runCount);
                     ctx.completeNow();
-                })
+                }))
                 .onFailure(ctx::failNow);
     }
 

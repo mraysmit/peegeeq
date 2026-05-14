@@ -758,6 +758,110 @@ six executable examples (three anti-pattern proofs, three safe-pattern counterpa
 | `safePattern_compose_keepFailuresInPipeline` | `Future.failedFuture()` in `compose()` properly reaches `onFailure` |
 | `safePattern_testContextVerify_autoRoutesExceptions` | `testContext.verify()` auto-routes exceptions to `failNow()` |
 
+### Same Root Cause, Second Blast Radius: Resource Cleanup in `onSuccess`
+
+The same swallowing mechanism applies to **any synchronous call** placed inside an
+`onSuccess` lambda outside `testContext.verify()` — not just assertions. The most
+common second form is **resource cleanup** (`.close()`, `.stop()`, `.shutdown()`,
+`.commit()`, `.rollback()`) placed *after* the verify block:
+
+```java
+// WRONG: .close() and completeNow() are outside verify()
+.onSuccess(pool -> {
+    testContext.verify(() -> {
+        assertNotNull(pool);
+        assertTrue(pool.isOpen());
+    });
+    pool.close();              // if this throws, exception is swallowed by the event loop
+    testContext.completeNow(); // never reached on throw — test hangs for 30 s
+})
+```
+
+Failure mode is different from the assertion form but equally invisible:
+
+- If `.close()` throws (pool already closed, connection dropped, native handle error)
+  the exception is routed to `vertx.exceptionHandler`, logged as `Unhandled exception`,
+  and **`completeNow()` is never reached**. The test hangs to its timeout.
+- If `.close()` succeeds but a prior step has already leaked state, the leak persists
+  to the next test (`PgPool`, `HttpServer`, `WebClient`, container-bound resources).
+
+#### Correct Pattern
+
+Move every synchronous call — assertions, resource cleanup, and `completeNow()` —
+**inside** the single `testContext.verify()` block:
+
+```java
+// CORRECT: everything synchronous lives inside verify()
+.onSuccess(pool -> testContext.verify(() -> {
+    assertNotNull(pool);
+    assertTrue(pool.isOpen());
+    pool.close();
+    testContext.completeNow();
+}))
+.onFailure(testContext::failNow);
+```
+
+This is the canonical shape for the entire codebase. `testContext.verify(Executable)`
+catches any exception thrown inside it and routes it to `failNow(e)` — assertion
+failures, cleanup failures, and arithmetic bugs all surface as ordinary test failures
+with full stack traces instead of 30-second timeouts.
+
+#### Acceptable Alternative: Explicit Containment Shield
+
+When the cleanup call is allowed to fail and the test must still complete (for
+example, closing a transient mock server during teardown), the explicit form is a
+`try { ... } catch (Exception e) { /* log */ }` block. The catch must not re-throw:
+
+```java
+.onSuccess(server -> testContext.verify(() -> {
+    assertTrue(server.isRunning());
+    try {
+        server.close();
+    } catch (Exception e) {
+        logger.warn("Test mock server close failed (non-fatal): {}", e.getMessage());
+    }
+    testContext.completeNow();
+}))
+```
+
+A bare `try { ... } catch (Exception e) {}` (empty catch) is an empty-catch
+antipattern (see "MODERATE: Empty Catch Blocks in Test Teardown" above). Always log.
+
+### Permanent Regression Boundary: CI Guard Test
+
+The repository enforces both forms of this antipattern through a single static-analysis
+test that runs in the default Maven profile:
+
+```
+peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/quality/
+    OnSuccessExceptionSwallowingGuardTest.java
+```
+
+It scans every `peegeeq-*/src/test/java/**.java` file with a precise tokeniser
+(balanced parens/braces, string/text-block/char/comment aware) and fails the build on:
+
+| Tier | Pattern | Detection |
+|---|---|---|
+| **Tier 3** | `assertX(...)` / `fail(...)` inside `onSuccess(...)` but **outside** `testContext.verify(...)` | `ASSERT_OR_FAIL` regex applied after `stripVerifyCalls` |
+| **Tier 2** | `.close(`  inside `onSuccess(...)` but outside both `verify(...)` and an `onSuccess`-nested-lambda block | `CLOSE_CALL` regex applied after `stripVerifyCalls` + `stripTryCatchFailNow` + `stripNestedBraceBlocks` |
+
+A `try { ... } catch (Throwable|Exception ...) { /* no re-throw */ }` block around
+the sync call is treated as a containment shield and stripped before detection
+(this is the explicit acceptable-alternative form documented above).
+
+Properties:
+
+- Runs in default profile (`@Tag(TestCategories.CORE)`, no `-Pintegration-tests` needed).
+- ≈ 0.3 s total; no database or Testcontainers required.
+- Failure report is a list of `[Tier N] absolute/path/File.java:line — snippet` entries.
+- The companion `VertxOnSuccessExceptionSwallowTest` (above) provides six runtime
+  proofs; the guard provides static enforcement. Both layers run on every PR.
+
+If a future change reintroduces either Tier 2 or Tier 3 in any module's tests, the
+build fails before the offending code can land. **Do not relax, exclude, or weaken
+the guard to make a test pass — fix the test by moving the sync call inside
+`testContext.verify(...)`.**
+
 ---
 
 ## HIGH: Discarded `Future<Void>` From Stop/Close Methods in Test Compose Chains

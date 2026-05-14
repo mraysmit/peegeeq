@@ -94,10 +94,10 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, postgres.getDatabaseName())
         )
-        .onSuccess(exists -> {
+        .onSuccess(exists -> testContext.verify(() -> {
             assertTrue(exists);
             testContext.completeNow();
-        })
+        }))
         .onFailure(testContext::failNow);
     }
 
@@ -107,10 +107,10 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, "non_existent_database_12345")
         )
-        .onSuccess(exists -> {
+        .onSuccess(exists -> testContext.verify(() -> {
             assertFalse(exists);
             testContext.completeNow();
-        })
+        }))
         .onFailure(testContext::failNow);
     }
 
@@ -131,7 +131,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(exists -> {
+        .onSuccess(exists -> testContext.verify(() -> {
             assertTrue(exists);
             // Clean up - drop the test database
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -143,7 +143,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             )
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-        })
+        }))
         .onFailure(cause -> {
             // Attempt cleanup on failure
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -177,7 +177,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(existsBefore -> {
+        .onSuccess(existsBefore -> testContext.verify(() -> {
             assertTrue(existsBefore);
             // Drop the database
             reactivePool.withConnection(connection ->
@@ -186,12 +186,12 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> reactivePool.withConnection(connection ->
                 databaseTemplateManager.databaseExists(connection, testDbName)
             ))
-            .onSuccess(existsAfter -> {
+            .onSuccess(existsAfter -> testContext.verify(() -> {
                 assertFalse(existsAfter);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
-        })
+        }))
         .onFailure(testContext::failNow);
     }
 
@@ -214,7 +214,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(existsBefore -> {
+        .onSuccess(existsBefore -> testContext.verify(() -> {
             assertTrue(existsBefore);
             // Drop the database using admin method
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -227,12 +227,12 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> reactivePool.withConnection(connection ->
                 databaseTemplateManager.databaseExists(connection, testDbName)
             ))
-            .onSuccess(existsAfter -> {
+            .onSuccess(existsAfter -> testContext.verify(() -> {
                 assertFalse(existsAfter);
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
-        })
+        }))
         .onFailure(testContext::failNow);
     }
 
@@ -254,7 +254,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(exists -> {
+        .onSuccess(exists -> testContext.verify(() -> {
             assertTrue(exists);
             // Clean up
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -266,7 +266,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             )
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-        })
+        }))
         .onFailure(cause -> {
             // Attempt cleanup on failure
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -299,7 +299,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(exists -> {
+        .onSuccess(exists -> testContext.verify(() -> {
             assertTrue(exists);
             // Clean up
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -311,7 +311,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             )
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-        })
+        }))
         .onFailure(cause -> {
             // Attempt cleanup on failure
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -390,7 +390,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(exists -> {
+        .onSuccess(exists -> testContext.verify(() -> {
             assertTrue(exists);
             databaseTemplateManager.dropDatabaseFromAdmin(
                 postgres.getHost(), postgres.getFirstMappedPort(),
@@ -398,7 +398,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             )
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-        })
+        }))
         .onFailure(cause -> {
             databaseTemplateManager.dropDatabaseFromAdmin(
                 postgres.getHost(), postgres.getFirstMappedPort(),

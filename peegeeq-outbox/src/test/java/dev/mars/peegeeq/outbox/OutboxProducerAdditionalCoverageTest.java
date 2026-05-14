@@ -285,12 +285,12 @@ class OutboxProducerAdditionalCoverageTest {
         producer.send("from-producer-1")
             .compose(v -> producer2.send("from-producer-2"))
             .compose(v -> producer3.send("from-producer-3"))
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("Multiple producers to same topic working correctly");
                 producer2.close();
                 producer3.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 producer2.close();
                 producer3.close();
@@ -305,13 +305,13 @@ class OutboxProducerAdditionalCoverageTest {
         MessageProducer<String> testProducer = outboxFactory.createProducer(testTopic + "-close-test", String.class);
         
         testProducer.send("test-before-close")
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 testProducer.close();
                 testProducer.close(); // Second close should be safe
                 testProducer.close(); // Third close should be safe
                 logger.info("Producer close is idempotent");
                 testContext.completeNow();
-            })
+            }))
             .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -345,11 +345,11 @@ class OutboxProducerAdditionalCoverageTest {
         );
         
         complexProducer.send(payload)
-            .onSuccess(v -> {
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("Complex payload object serialization working");
                 complexProducer.close();
                 testContext.completeNow();
-            })
+            }))
             .onFailure(err -> {
                 complexProducer.close();
                 testContext.failNow(err);

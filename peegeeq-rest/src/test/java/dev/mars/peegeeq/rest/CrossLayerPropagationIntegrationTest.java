@@ -443,10 +443,10 @@ public class CrossLayerPropagationIntegrationTest {
                     logger.info("Consumer 1 received: {}, Consumer 2 received: {}",
                         consumer1Received, consumer2Received);
                     logger.info("Multiple SSE consumers test complete");
+                    if (response1Ref.get() != null) response1Ref.get().request().connection().close();
+                    if (response2Ref.get() != null) response2Ref.get().request().connection().close();
+                    testContext.completeNow();
                 });
-                if (response1Ref.get() != null) response1Ref.get().request().connection().close();
-                if (response2Ref.get() != null) response2Ref.get().request().connection().close();
-                testContext.completeNow();
             })
             .onFailure(testContext::failNow);
     }

@@ -152,7 +152,7 @@ public class SSEReconnectionIntegrationTest {
         // Undeploy server
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onSuccess(v -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     if (httpClient != null) {
                         httpClient.close();
                     }
@@ -160,7 +160,7 @@ public class SSEReconnectionIntegrationTest {
                         webClient.close();
                     }
                     testContext.completeNow();
-                })
+                }))
                 .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
