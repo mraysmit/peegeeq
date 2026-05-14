@@ -136,48 +136,11 @@
         </plugins>
     </build>
 
-    <profiles>
-        <!-- Smoke Tests Profile - E2E verification -->
-        <profile>
-            <id>smoke-tests</id>
-            <activation>
-                <activeByDefault>true</activeByDefault>
-            </activation>
-            <properties>
-                <test.groups>smoke</test.groups>
-                <test.excludedGroups></test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>5m</test.timeout.default>
-                <test.timeout.method>3m</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- Integration Tests Profile -->
-        <profile>
-            <id>integration-tests</id>
-            <properties>
-                <test.groups>integration</test.groups>
-                <test.excludedGroups></test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>5m</test.timeout.default>
-                <test.timeout.method>3m</test.timeout.method>
-            </properties>
-        </profile>
-
-        <!-- All Tests Profile -->
-        <profile>
-            <id>all-tests</id>
-            <properties>
-                <test.groups></test.groups>
-                <test.excludedGroups></test.excludedGroups>
-                <test.parallel>classes</test.parallel>
-                <test.threadCount>2</test.threadCount>
-                <test.timeout.default>10m</test.timeout.default>
-                <test.timeout.method>5m</test.timeout.method>
-            </properties>
-        </profile>
-    </profiles>
+    <!--
+      NOTE: Test-execution profiles are defined ONLY in the root pom.
+      This module's tests are tagged @Tag("integration") (or "smoke"), so they
+      run under -Pintegration-tests, -Psmoke-tests, or -Pall-tests, and are
+      excluded from the default `mvn test` (core-only) — which is correct.
+    -->
 </project>
 

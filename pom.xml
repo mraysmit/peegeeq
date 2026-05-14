@@ -89,6 +89,22 @@
         <scram.version>3.1</scram.version>
         <spring.boot.version>3.5.6</spring.boot.version>
         <reactor.version>3.5.8</reactor.version>
+
+        <!--
+          Single source of truth for Surefire/Failsafe JUnit 5 tag filtering.
+          Every module pom binds <groups>${test.groups}</groups> and
+          <excludedGroups>${test.excludedGroups}</excludedGroups> in its surefire
+          plugin config and inherits these defaults from here. Override them by
+          activating one of the root-level test profiles (integration-tests,
+          performance-tests, smoke-tests, all-tests). No module pom should
+          redefine these — duplicating them per module silently overrides
+          -P… activations and causes untagged tests to be excluded.
+        -->
+        <test.groups>core</test.groups>
+        <test.excludedGroups>integration,performance,slow</test.excludedGroups>
+        <test.parallel>methods</test.parallel>
+        <test.threadCount>4</test.threadCount>
+        <peegeeq.performance.tests>false</peegeeq.performance.tests>
     </properties>
 
     <dependencyManagement>
@@ -473,30 +489,85 @@
     </build>
 
     <profiles>
-        <!-- FAILSAFE: Run untagged tests to catch tests missing @Tag annotations -->
-        <!-- This is a safety net to ensure no tests are accidentally excluded from execution -->
+        <!--
+          Test-execution profiles. These are the SINGLE SOURCE OF TRUTH for
+          JUnit 5 tag filtering across every module. Activating one of these
+          profiles overrides the default properties declared above.
+
+          Default (no -P flag):  test.groups=core, excludedGroups=integration,performance,slow
+            mvn test                    -> runs @Tag("core") only
+            mvn test -Pintegration-tests-> runs @Tag("integration")
+            mvn test -Pperformance-tests-> runs @Tag("performance"); performance flag on
+            mvn test -Psmoke-tests      -> runs @Tag("smoke")
+            mvn test -Pall-tests        -> runs EVERY test (tagged and untagged, every module)
+            mvn test -Puntagged-tests   -> safety net: runs only tests with NO known tag
+        -->
+
+        <!-- Integration Tests - With real infrastructure (Testcontainers) -->
         <profile>
-            <id>untagged-tests</id>
+            <id>integration-tests</id>
             <properties>
-                <!-- Empty groups means: run tests that don't match any tag -->
-                <test.groups></test.groups>
-                <!-- Exclude all known tags to isolate untagged tests -->
-                <test.excludedGroups>core,integration,performance,slow,smoke</test.excludedGroups>
+                <test.groups>integration</test.groups>
+                <test.excludedGroups>performance,slow</test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
             </properties>
         </profile>
 
-        <!-- Run ALL tests (tagged and untagged) - comprehensive safety check -->
+        <!-- Performance Tests - Load and throughput -->
         <profile>
-            <id>all-tests-unfiltered</id>
+            <id>performance-tests</id>
             <properties>
-                <!-- Empty values = no filtering, run everything -->
+                <test.groups>performance</test.groups>
+                <test.excludedGroups></test.excludedGroups>
+                <test.parallel>none</test.parallel>
+                <test.threadCount>1</test.threadCount>
+                <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
+        <!-- Smoke Tests - Ultra-fast basic verification -->
+        <profile>
+            <id>smoke-tests</id>
+            <properties>
+                <test.groups>smoke</test.groups>
+                <test.excludedGroups>integration,performance,slow</test.excludedGroups>
+                <test.parallel>methods</test.parallel>
+                <test.threadCount>8</test.threadCount>
+            </properties>
+        </profile>
+
+        <!--
+          ALL TESTS - the single profile that runs every test in every module,
+          tagged or untagged. This is the regression-safety profile: any test
+          that exists in the repo will execute under this profile. Use this
+          in CI for full coverage, and locally before merging significant
+          changes. It must NEVER silently exclude a test.
+        -->
+        <profile>
+            <id>all-tests</id>
+            <properties>
                 <test.groups></test.groups>
                 <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
                 <peegeeq.performance.tests>true</peegeeq.performance.tests>
+            </properties>
+        </profile>
+
+        <!--
+          UNTAGGED TESTS - safety-net audit profile. Runs only tests that
+          carry none of the known tags. If this profile reports any test
+          executions, those tests are missing a @Tag annotation and need
+          to be classified.
+        -->
+        <profile>
+            <id>untagged-tests</id>
+            <properties>
+                <test.groups></test.groups>
+                <test.excludedGroups>core,integration,performance,slow,smoke</test.excludedGroups>
+                <test.parallel>classes</test.parallel>
+                <test.threadCount>2</test.threadCount>
             </properties>
         </profile>
 
