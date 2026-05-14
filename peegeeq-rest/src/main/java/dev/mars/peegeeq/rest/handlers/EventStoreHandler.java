@@ -281,10 +281,23 @@ public class EventStoreHandler {
                                 logger.info("Retrieved {} events from event store {}", eventResponses.size(), eventStoreName);
                             })
                             .onFailure(ex -> {
-                                logger.error("Error querying events from event store {}: {}", eventStoreName, ex.getMessage(), ex);
-                                sendError(ctx, 500, "Failed to query events: " + ex.getMessage());
+                                // Treat domain invariant violations (e.g. invalid temporal range) as client errors.
+                                Throwable cause = ex instanceof IllegalArgumentException ? ex
+                                        : (ex.getCause() instanceof IllegalArgumentException ? ex.getCause() : null);
+                                if (cause != null) {
+                                    logger.warn("Invalid query parameters for event store {}: {}", eventStoreName, cause.getMessage());
+                                    sendError(ctx, 400, "Invalid query parameters: " + cause.getMessage());
+                                } else {
+                                    logger.error("Error querying events from event store {}: {}", eventStoreName, ex.getMessage(), ex);
+                                    sendError(ctx, 500, "Failed to query events: " + ex.getMessage());
+                                }
                             });
 
+                    } catch (IllegalArgumentException e) {
+                        // Client supplied invalid query parameters (e.g. validTimeFrom > validTimeTo).
+                        // This is a client error, not a server fault — return 400, log at WARN without stack trace.
+                        logger.warn("Invalid query parameters for event store {}: {}", eventStoreName, e.getMessage());
+                        sendError(ctx, 400, "Invalid query parameters: " + e.getMessage());
                     } catch (Exception e) {
                         logger.error("Error querying events from event store {}: {}", eventStoreName, e.getMessage(), e);
                         sendError(ctx, 500, "Failed to query events: " + e.getMessage());

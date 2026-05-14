@@ -130,7 +130,7 @@ public class PeeGeeQRestPerformanceTest {
                     .timeout(60000)
                     .sendJsonObject(setupRequest)
                     .compose(response -> {
-                        if (response.statusCode() == 200) {
+                        if (response.statusCode() == 200 || response.statusCode() == 201) {
                             successCount.incrementAndGet();
                             logger.info("Setup {} created successfully", setupId);
                         } else {
@@ -263,7 +263,7 @@ public class PeeGeeQRestPerformanceTest {
                                 .timeout(30000)
                                 .sendJsonObject(eventRequest)
                                 .compose(response -> {
-                                    if (response.statusCode() == 200) {
+                                    if (response.statusCode() == 200 || response.statusCode() == 201) {
                                         eventSuccessCount.incrementAndGet();
                                     }
                                     return Future.succeededFuture();
@@ -385,12 +385,15 @@ public class PeeGeeQRestPerformanceTest {
     // Helper methods for creating performance test requests
     
     private JsonObject createPerformanceTestSetupRequest(String setupId) {
+        // Derive a unique, PG-identifier-safe database name from setupId so concurrent
+        // setups never share a database (which would race on CREATE EXTENSION in pg_extension).
+        String dbName = "perf_db_" + setupId.toLowerCase().replaceAll("[^a-z0-9]", "_");
         return new JsonObject()
                 .put("setupId", setupId)
                 .put("databaseConfig", new JsonObject()
                         .put("host", postgres.getHost())
                         .put("port", postgres.getFirstMappedPort())
-                        .put("databaseName", "perf_db_" + System.currentTimeMillis())
+                        .put("databaseName", dbName)
                         .put("username", postgres.getUsername())
                         .put("password", postgres.getPassword())
                         .put("schema", "public"))

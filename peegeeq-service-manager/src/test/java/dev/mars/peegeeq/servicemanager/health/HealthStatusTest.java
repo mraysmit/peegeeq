@@ -165,7 +165,8 @@ class HealthStatusTest {
         HealthStatus status = HealthStatus.healthy("All good");
         String str = status.toString();
         
-        assertTrue(str.contains("HEALTHY"));
+        // ServiceHealth.toString() returns the lowercase wire-format status.
+        assertTrue(str.contains("healthy"));
         assertTrue(str.contains("All good"));
         assertTrue(str.contains("ageMillis"));
     }

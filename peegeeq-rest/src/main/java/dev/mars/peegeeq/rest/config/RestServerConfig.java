@@ -152,5 +152,8 @@ public record RestServerConfig(
         }
         Objects.requireNonNull(monitoring, "monitoring config must not be null");
         Objects.requireNonNull(allowedOrigins, "allowedOrigins must not be null");
+        if (allowedOrigins.isEmpty()) {
+            throw new IllegalArgumentException("allowedOrigins must be provided and non-empty");
+        }
     }
 }

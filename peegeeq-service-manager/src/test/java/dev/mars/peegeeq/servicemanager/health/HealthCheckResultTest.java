@@ -115,7 +115,8 @@ class HealthCheckResultTest {
         JsonObject json = result.toJson();
         
         assertEquals("test-instance-1", json.getString("instanceId"));
-        assertEquals("HEALTHY", json.getString("health"));
+        // ServiceHealth.toString() returns the lowercase wire-format status ("healthy").
+        assertEquals("healthy", json.getString("health"));
         assertTrue(json.getBoolean("successful"));
         assertEquals("localhost", json.getString("host"));
         assertEquals(8080, json.getInteger("port"));
