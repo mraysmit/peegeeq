@@ -1060,26 +1060,21 @@ public class ManagementApiHandler {
 
     /**
      * Update an existing queue.
-     * PUT /api/v1/management/queues/:queueId
+     * PUT /api/v1/management/queues/:setupId/:queueName
      */
     public void updateQueue(RoutingContext ctx) {
         logger.debug("Update queue requested");
 
         try {
-            String queueId = ctx.pathParam("queueId");
-            // Extract queue parameters - queueId format is typically "setupId-queueName"
-            String[] parts = queueId.split("-", 2);
-            if (parts.length != 2) {
-                sendError(ctx, 400, "Invalid queue ID format. Expected: setupId-queueName");
+            String setupId = ctx.pathParam("setupId");
+            String queueName = ctx.pathParam("queueName");
+            if (setupId == null || setupId.isBlank() || queueName == null || queueName.isBlank()) {
+                sendError(ctx, 400, "Both setupId and queueName path parameters are required");
                 return;
             }
 
-            String setupId = parts[0];
-            String queueName = parts[1];
-
             // For now, queue updates are limited since we can't modify the underlying table
-            // structure
-            // We can only update configuration parameters that don't require schema changes
+            // structure. We can only update configuration parameters that don't require schema changes
             logger.info("Queue update requested for setup: {}, queue: {}", setupId, queueName);
 
             // Verify the queue exists
@@ -1100,7 +1095,6 @@ public class ManagementApiHandler {
                         // complex implementation)
                         JsonObject response = new JsonObject()
                                 .put("message", "Queue '" + queueName + "' configuration updated successfully in setup '" + setupId + "'")
-                                .put("queueId", queueId)
                                 .put("setupId", setupId)
                                 .put("queueName", queueName)
                                 .put("note", "Configuration updates are applied to runtime settings")
@@ -1114,8 +1108,9 @@ public class ManagementApiHandler {
                         logger.info("Queue {} updated successfully in setup {}", queueName, setupId);
                     })
                     .onFailure(throwable -> {
-                        logger.error("Error updating queue {} in setup {}: {}", queueName, setupId,
-                                throwable.getMessage());
+                        // Setup-not-found is a client error (wrong setupId), not a server fault.
+                        logger.warn("Setup or queue not found while updating queue {} in setup {}: {}",
+                                queueName, setupId, throwable.getMessage());
                         sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
                     });
 
@@ -1127,23 +1122,18 @@ public class ManagementApiHandler {
 
     /**
      * Delete a queue.
-     * DELETE /api/v1/management/queues/:queueId
+     * DELETE /api/v1/management/queues/:setupId/:queueName
      */
     public void deleteQueue(RoutingContext ctx) {
         logger.debug("Delete queue requested");
 
         try {
-            String queueId = ctx.pathParam("queueId");
-
-            // Extract queue parameters - queueId format is typically "setupId-queueName"
-            String[] parts = queueId.split("-", 2);
-            if (parts.length != 2) {
-                sendError(ctx, 400, "Invalid queue ID format. Expected: setupId-queueName");
+            String setupId = ctx.pathParam("setupId");
+            String queueName = ctx.pathParam("queueName");
+            if (setupId == null || setupId.isBlank() || queueName == null || queueName.isBlank()) {
+                sendError(ctx, 400, "Both setupId and queueName path parameters are required");
                 return;
             }
-
-            String setupId = parts[0];
-            String queueName = parts[1];
 
             logger.info("Queue deletion requested for setup: {}, queue: {}", setupId, queueName);
 
@@ -1178,7 +1168,6 @@ public class ManagementApiHandler {
 
                         JsonObject response = new JsonObject()
                             .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
-                            .put("queueId", queueId)
                             .put("setupId", setupId)
                             .put("queueName", queueName)
                             .put("note", "Queue resources have been cleaned up")
@@ -1192,8 +1181,9 @@ public class ManagementApiHandler {
                         logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
                     })
                     .onFailure(throwable -> {
-                        logger.error("Error deleting queue {} from setup {}: {}", queueName, setupId,
-                                throwable.getMessage());
+                        // Setup-not-found is a client error (wrong setupId), not a server fault.
+                        logger.warn("Setup or queue not found while deleting queue {} from setup {}: {}",
+                                queueName, setupId, throwable.getMessage());
                         sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
                     });
 

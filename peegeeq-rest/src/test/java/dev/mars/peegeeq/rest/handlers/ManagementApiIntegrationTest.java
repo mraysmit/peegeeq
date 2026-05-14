@@ -35,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.*;
  * - GET /api/v1/management/messages
  * - GET /api/v1/management/metrics
  * - POST /api/v1/management/queues
- * - PUT /api/v1/management/queues/:queueId
- * - DELETE /api/v1/management/queues/:queueId
+ * - PUT /api/v1/management/queues/:setupId/:queueName
+ * - DELETE /api/v1/management/queues/:setupId/:queueName
  * - POST /api/v1/management/consumer-groups
  * - DELETE /api/v1/management/consumer-groups/:groupId
  * - POST /api/v1/management/event-stores
@@ -418,18 +418,17 @@ public class ManagementApiIntegrationTest {
 
     @Test
     @Order(9)
-    @DisplayName("Management API - DELETE /management/queues/:queueId handles queue deletion")
+    @DisplayName("Management API - DELETE /management/queues/:setupId/:queueName handles queue deletion")
     void testDeleteQueueEndpoint(Vertx vertx, VertxTestContext testContext) {
-        String queueId = setupId + "-delete_test_queue";
+        String queueName = "delete_test_queue";
 
-        webClient.delete(TEST_PORT, "localhost", "/api/v1/management/queues/" + queueId)
+        webClient.delete(TEST_PORT, "localhost",
+                "/api/v1/management/queues/" + setupId + "/" + queueName)
             .send()
             .onSuccess(response -> {
                 testContext.verify(() -> {
-                    // Accept 200, 204, or 404 (if queue doesn't exist)
-                    assertTrue(response.statusCode() == 200 ||
-                               response.statusCode() == 204 ||
-                               response.statusCode() == 404,
+                    // Accept 200 (deleted) or 404 (queue did not exist) — both are valid outcomes.
+                    assertTrue(response.statusCode() == 200 || response.statusCode() == 404,
                         "Should return success or not found, got: " + response.statusCode());
 
                     logger.info("Delete queue response: {}", response.statusCode());
