@@ -1463,7 +1463,7 @@ public class EventStoreIntegrationTest {
     void testDeadLetterStats(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/deadletter/stats")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Dead letter stats response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200) {
@@ -1481,7 +1481,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1490,7 +1490,7 @@ public class EventStoreIntegrationTest {
     void testDeadLetterListMessages(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/deadletter/messages")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Dead letter messages response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200) {
@@ -1506,7 +1506,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1518,7 +1518,7 @@ public class EventStoreIntegrationTest {
                 .addQueryParam("limit", "10")
                 .addQueryParam("offset", "0")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Dead letter messages with filter response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200) {
@@ -1531,7 +1531,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1562,7 +1562,7 @@ public class EventStoreIntegrationTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/deadletter/cleanup")
                 .addQueryParam("retentionDays", "30")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Dead letter cleanup response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200) {
@@ -1578,7 +1578,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1587,7 +1587,7 @@ public class EventStoreIntegrationTest {
     void testDeadLetterInvalidMessageId(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/deadletter/messages/invalid")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Dead letter invalid ID response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 400) {
@@ -1602,7 +1602,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1613,7 +1613,7 @@ public class EventStoreIntegrationTest {
     void testSubscriptionListEmpty(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/subscriptions/test_topic")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Subscription list response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200) {
@@ -1628,7 +1628,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1734,7 +1734,7 @@ public class EventStoreIntegrationTest {
     void testHealthOverall(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/health")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Health response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200 || response.statusCode() == 503) {
@@ -1750,7 +1750,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -1759,7 +1759,7 @@ public class EventStoreIntegrationTest {
     void testHealthComponentsList(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId + "/health/components")
                 .send()
-                .onSuccess(response -> {
+                .onSuccess(response -> testContext.verify(() -> {
                     logger.info("Health components response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() == 200) {
@@ -1773,7 +1773,7 @@ public class EventStoreIntegrationTest {
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
                     }
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 

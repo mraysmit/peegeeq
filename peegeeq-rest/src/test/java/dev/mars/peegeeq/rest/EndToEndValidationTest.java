@@ -102,7 +102,7 @@ class EndToEndValidationTest {
         
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/api/v1/health")
             .compose(HttpClientRequest::send)
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 
                 response.body().onSuccess(body -> {
@@ -119,7 +119,7 @@ class EndToEndValidationTest {
                         testContext.failNow(t);
                     }
                 }).onFailure(testContext::failNow);
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -129,7 +129,7 @@ class EndToEndValidationTest {
         
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/api/v1/management/overview")
             .compose(HttpClientRequest::send)
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 
                 response.body().onSuccess(body -> {
@@ -153,7 +153,7 @@ class EndToEndValidationTest {
                         testContext.failNow(e);
                     }
                 }).onFailure(testContext::failNow);
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -163,7 +163,7 @@ class EndToEndValidationTest {
         
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/metrics")
             .compose(HttpClientRequest::send)
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 assertEquals("text/plain; version=0.0.4; charset=utf-8", 
                     response.getHeader("content-type"));
@@ -182,7 +182,7 @@ class EndToEndValidationTest {
                         testContext.failNow(t);
                     }
                 }).onFailure(testContext::failNow);
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
@@ -192,7 +192,7 @@ class EndToEndValidationTest {
         
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/api/v1/management/queues")
             .compose(HttpClientRequest::send)
-            .onSuccess(response -> {
+            .onSuccess(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode());
                 
                 response.body().onSuccess(body -> {
@@ -209,7 +209,7 @@ class EndToEndValidationTest {
                         testContext.failNow(e);
                     }
                 }).onFailure(testContext::failNow);
-            })
+            }))
             .onFailure(testContext::failNow);
     }
 
