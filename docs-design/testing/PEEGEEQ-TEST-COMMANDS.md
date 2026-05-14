@@ -59,7 +59,7 @@ mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-mo
 mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260514.txt
 
 # Full suite — every tag, every module (~60m+) — THE regression-safety command
-mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260514.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260514.txt
 
 # Audit — tests missing @Tag (should report Tests run: 0 if tagging is healthy)
 mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260514.txt
@@ -131,13 +131,18 @@ combined, e.g. `-Pperformance-tests,load-test`.
 ## 5 Full Suite (release / nightly / regression boundary)
 
 ```powershell
-mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260514.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260514.txt
 ```
 
 `-Pall-tests` is the **single guarantee** that every test in every module
-runs. If a test exists in the repo and a `mvn test -Pall-tests` invocation
+runs. If a test exists in the repo and a `mvn clean test -Pall-tests` invocation
 does not execute it, that is a bug — file it. There is no longer any
 per-module `activeByDefault` profile that can silently override the filters.
+
+> **Use `clean`** for regression-safety runs. Maven's incremental compiler
+> can leave stale synthetic inner classes (e.g. enum-switch `$1` SwitchMap
+> classes) in `target/test-classes`, producing `NoClassDefFoundError` at
+> runtime. `clean` removes that trap.
 
 ---
 

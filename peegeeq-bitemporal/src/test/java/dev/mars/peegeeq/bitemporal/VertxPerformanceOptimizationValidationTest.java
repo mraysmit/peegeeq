@@ -85,9 +85,8 @@ class VertxPerformanceOptimizationValidationTest {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
-                .property("peegeeq.database.pool.max-size", "100")
+                .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.database.pool.min-size", "5")
-                .property("peegeeq.database.pool.wait-queue-multiplier", "10")
                 .property("peegeeq.database.pipelining.limit", "1024")
                 .property("peegeeq.database.event.loop.size", "8")
                 .property("peegeeq.database.worker.pool.size", "16")
@@ -112,20 +111,25 @@ class VertxPerformanceOptimizationValidationTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future<Void> closeFuture = Future.succeededFuture();
-        if (eventStore != null) {
-            eventStore.close();
-        }
-        if (manager != null) {
-            closeFuture = manager.closeReactive().transform(ar -> {
-                if (ar.failed()) logger.warn("Error during manager close: {}", ar.cause().getMessage());
-                return Future.succeededFuture();
-            });
-        }
-        closeFuture.onSuccess(v -> {
-            logger.info("Test teardown completed");
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        logger.info("Tearing down Vert.x performance optimization validation test...");
+
+        Future<Void> closeStoreFuture = eventStore != null ? eventStore.close() : Future.succeededFuture();
+        Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
+
+        closeStoreFuture
+                .transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing event store: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
+                })
+                .compose(v -> closeManagerFuture.transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing manager: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
+                }))
+                .onSuccess(v -> {
+                    logger.info("Test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
     
     @Test
@@ -262,7 +266,7 @@ class VertxPerformanceOptimizationValidationTest {
         String pipeliningLimit = config.getString("peegeeq.database.pipelining.limit", null);
         String eventLoopSize = config.getString("peegeeq.database.event.loop.size", null);
         
-        assertEquals("100", poolSize);
+        assertEquals("20", poolSize);
         assertEquals("1024", pipeliningLimit);
         assertEquals("8", eventLoopSize);
         
