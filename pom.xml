@@ -104,6 +104,15 @@
         <test.excludedGroups>integration,performance,slow</test.excludedGroups>
         <test.parallel>methods</test.parallel>
         <test.threadCount>4</test.threadCount>
+        <!--
+          Timeout defaults are passed to JUnit Jupiter via surefire as
+          configurationParameters (junit.jupiter.execution.timeout.*). They MUST
+          be valid JUnit duration strings (e.g. "30s", "5m"). If left unset,
+          JUnit logs a DateTimeParseException for the literal "${test.timeout.*}"
+          token. Override per-profile (integration-tests, performance-tests, etc.).
+        -->
+        <test.timeout.default>30s</test.timeout.default>
+        <test.timeout.method>10s</test.timeout.method>
         <peegeeq.performance.tests>false</peegeeq.performance.tests>
     </properties>
 
@@ -511,6 +520,8 @@
                 <test.excludedGroups>performance,slow</test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
+                <test.timeout.default>5m</test.timeout.default>
+                <test.timeout.method>3m</test.timeout.method>
             </properties>
         </profile>
 
@@ -522,6 +533,8 @@
                 <test.excludedGroups></test.excludedGroups>
                 <test.parallel>none</test.parallel>
                 <test.threadCount>1</test.threadCount>
+                <test.timeout.default>15m</test.timeout.default>
+                <test.timeout.method>10m</test.timeout.method>
                 <peegeeq.performance.tests>true</peegeeq.performance.tests>
             </properties>
         </profile>
@@ -534,6 +547,8 @@
                 <test.excludedGroups>integration,performance,slow</test.excludedGroups>
                 <test.parallel>methods</test.parallel>
                 <test.threadCount>8</test.threadCount>
+                <test.timeout.default>30s</test.timeout.default>
+                <test.timeout.method>10s</test.timeout.method>
             </properties>
         </profile>
 
@@ -551,6 +566,8 @@
                 <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
+                <test.timeout.default>30m</test.timeout.default>
+                <test.timeout.method>15m</test.timeout.method>
                 <peegeeq.performance.tests>true</peegeeq.performance.tests>
             </properties>
         </profile>
@@ -568,6 +585,8 @@
                 <test.excludedGroups>core,integration,performance,slow,smoke</test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
+                <test.timeout.default>5m</test.timeout.default>
+                <test.timeout.method>3m</test.timeout.method>
             </properties>
         </profile>
 
