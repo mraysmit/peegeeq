@@ -245,12 +245,11 @@ public class PostgresNoticeHandlerIntegrationTest {
         connectionManager.withConnection("test-notice-handler", conn ->
             conn.query("SELECT * FROM non_existent_table").execute()
         )
-            .onSuccess(result -> testContext.failNow(new AssertionError("Query should have failed but succeeded")))
-            .onFailure(err -> testContext.verify(() -> {
+            .onComplete(testContext.failing(err -> testContext.verify(() -> {
                 logger.info("Correctly received error: {}", err.getMessage());
                 assertNotNull(err, "Error should be propagated correctly");
                 testContext.completeNow();
-            }));
+            })));
     }
 
     @Test

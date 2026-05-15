@@ -93,22 +93,20 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
     @Test
     void testCleanupCompletedMessagesWithInvalidBatchSize(VertxTestContext ctx) {
         cleanupService.cleanupCompletedMessages("test-topic", 0)
-            .onFailure(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); }))
-            .onSuccess(v -> ctx.failNow(new AssertionError("Expected IllegalArgumentException")));
+            .onComplete(ctx.failing(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); })));
     }
 
     @Test
     void testCleanupCompletedMessagesWithNegativeBatchSize(VertxTestContext ctx) {
         cleanupService.cleanupCompletedMessages("test-topic", -1)
-            .onFailure(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); }))
-            .onSuccess(v -> ctx.failNow(new AssertionError("Expected IllegalArgumentException")));
+            .onComplete(ctx.failing(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); })));
     }
 
     @Test
     void testCleanupCompletedMessagesNoMessages(VertxTestContext ctx) {
         cleanupService.cleanupCompletedMessages("non-existent-topic", 100)
-            .onSuccess(deleted -> ctx.verify(() -> { assertEquals(0, deleted); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(
+                ctx.succeeding(deleted -> ctx.verify(() -> { assertEquals(0, deleted); ctx.completeNow(); })));
     }
 
     @Test
@@ -120,15 +118,14 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
     @Test
     void testCountEligibleForCleanupNoMessages(VertxTestContext ctx) {
         cleanupService.countEligibleForCleanup("non-existent-topic")
-            .onSuccess(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(
+                ctx.succeeding(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); })));
     }
 
     @Test
     void testCleanupAllTopicsWithInvalidBatchSize(VertxTestContext ctx) {
         cleanupService.cleanupAllTopics(0)
-            .onFailure(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); }))
-            .onSuccess(v -> ctx.failNow(new AssertionError("Expected IllegalArgumentException")));
+            .onComplete(ctx.failing(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); })));
     }
 
     @Test
@@ -140,8 +137,7 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
         // this should return 0.
         // The test validates the cleanup logic works correctly, not global database state.
         cleanupService.cleanupAllTopics(100)
-            .onSuccess(deleted -> ctx.verify(() -> { assertTrue(deleted >= 0, "Deleted count should be non-negative"); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(ctx.succeeding(deleted -> ctx.verify(() -> { assertTrue(deleted >= 0, "Deleted count should be non-negative"); ctx.completeNow(); })));
     }
 }
 

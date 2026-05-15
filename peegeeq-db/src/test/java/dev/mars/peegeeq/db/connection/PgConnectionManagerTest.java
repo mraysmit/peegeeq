@@ -147,12 +147,11 @@ public class PgConnectionManagerTest {
     @Test
     void testGetReactiveConnectionThrowsExceptionForNonExistentService(VertxTestContext testContext) {
         connectionManager.getReactiveConnection("non-existent-service")
-            .onSuccess(conn -> testContext.failNow("Expected exception for non-existent service"))
-            .onFailure(err -> testContext.verify(() -> {
+            .onComplete(testContext.failing(err -> testContext.verify(() -> {
                 assertTrue(err instanceof IllegalStateException,
                     "Expected IllegalStateException but got " + err.getClass().getName());
                 testContext.completeNow();
-            }));
+            })));
     }
 
     @Test

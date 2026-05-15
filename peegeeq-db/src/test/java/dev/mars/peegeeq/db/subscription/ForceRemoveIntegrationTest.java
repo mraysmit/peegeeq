@@ -126,12 +126,11 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
                     // Verify subscription is now CANCELLED
                     return subscriptionManager.getSubscription(topic, groupName);
                 })
-                .onSuccess(info -> ctx.verify(() -> {
+                .onComplete(ctx.succeeding(info -> ctx.verify(() -> {
                     assertNotNull(info);
                     assertEquals(SubscriptionState.CANCELLED, info.state());
                     ctx.completeNow();
-                }))
-                .onFailure(ctx::failNow);
+                })));
     }
 
     // =========================================================================
@@ -155,11 +154,10 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
                     });
                     return subscriptionManager.getSubscription(topic, groupName);
                 })
-                .onSuccess(info -> ctx.verify(() -> {
+                .onComplete(ctx.succeeding(info -> ctx.verify(() -> {
                     assertEquals(SubscriptionState.CANCELLED, info.state());
                     ctx.completeNow();
-                }))
-                .onFailure(ctx::failNow);
+                })));
     }
 
     // =========================================================================
@@ -173,11 +171,10 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         String groupName = "no-such-group";
 
         subscriptionManager.forceRemoveConsumerGroup(topic, groupName)
-                .onSuccess(result -> ctx.failNow("Should have failed for non-existent subscription"))
-                .onFailure(err -> ctx.verify(() -> {
+                .onComplete(ctx.failing(err -> ctx.verify(() -> {
                     assertNotNull(err.getMessage());
                     ctx.completeNow();
-                }));
+                })));
     }
 
     // =========================================================================
@@ -193,11 +190,10 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
         subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.builder().build())
                 .compose(v -> subscriptionManager.cancel(topic, groupName))
                 .compose(v -> subscriptionManager.forceRemoveConsumerGroup(topic, groupName))
-                .onSuccess(result -> ctx.failNow("Should have failed for already-cancelled subscription"))
-                .onFailure(err -> ctx.verify(() -> {
+                .onComplete(ctx.failing(err -> ctx.verify(() -> {
                     assertNotNull(err.getMessage());
                     ctx.completeNow();
-                }));
+                })));
     }
 
     // =========================================================================
@@ -217,11 +213,10 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
                     // Second call should fail (already CANCELLED)
                     return subscriptionManager.forceRemoveConsumerGroup(topic, groupName);
                 })
-                .onSuccess(result -> ctx.failNow("Second force-remove should have failed"))
-                .onFailure(err -> ctx.verify(() -> {
+                .onComplete(ctx.failing(err -> ctx.verify(() -> {
                     assertNotNull(err.getMessage());
                     ctx.completeNow();
-                }));
+                })));
     }
 
     // =========================================================================

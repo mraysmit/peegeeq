@@ -102,11 +102,10 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
         databaseService.initialize()
             .compose(v -> databaseService.start())
             .compose(v -> databaseService.performHealthCheck())
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                 assertTrue(healthy, "Database should be healthy");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

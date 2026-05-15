@@ -98,8 +98,7 @@ class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
     @Test
     void testDetectDeadSubscriptionsNoDeadSubscriptions(VertxTestContext ctx) {
         detector.detectDeadSubscriptions("non-existent-topic")
-            .onSuccess(markedDead -> ctx.verify(() -> { assertEquals(0, markedDead); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(ctx.succeeding(markedDead -> ctx.verify(() -> { assertEquals(0, markedDead); ctx.completeNow(); })));
     }
 
     @Test
@@ -109,8 +108,7 @@ class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
         // have created subscriptions that could be marked as dead.
         // The key validation is that the operation completes successfully.
         detector.detectAllDeadSubscriptions()
-            .onSuccess(markedDead -> ctx.verify(() -> { assertTrue(markedDead >= 0, "Marked dead count should be non-negative"); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(ctx.succeeding(markedDead -> ctx.verify(() -> { assertTrue(markedDead >= 0, "Marked dead count should be non-negative"); ctx.completeNow(); })));
     }
 
     @Test
@@ -122,8 +120,7 @@ class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
     @Test
     void testCountDeadSubscriptionsNoSubscriptions(VertxTestContext ctx) {
         detector.countDeadSubscriptions("non-existent-topic")
-            .onSuccess(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(ctx.succeeding(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); })));
     }
 
     @Test
@@ -135,8 +132,7 @@ class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
     @Test
     void testCountEligibleForDeadDetectionNoSubscriptions(VertxTestContext ctx) {
         detector.countEligibleForDeadDetection("non-existent-topic")
-            .onSuccess(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); }))
-            .onFailure(ctx::failNow);
+            .onComplete(ctx.succeeding(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); })));
     }
 }
 
