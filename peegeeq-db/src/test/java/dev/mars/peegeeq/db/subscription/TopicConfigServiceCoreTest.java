@@ -216,12 +216,11 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
             .build();
 
         topicConfigService.updateTopic(config)
-            .onSuccess(v -> testContext.failNow(new AssertionError("Expected failure but update succeeded")))
-            .onFailure(t -> testContext.verify(() -> {
+            .onComplete(testContext.failing(t -> testContext.verify(() -> {
                 assertInstanceOf(IllegalStateException.class, t);
                 assertTrue(t.getMessage().contains("not found"));
                 testContext.completeNow();
-            }));
+            })));
     }
 
     @Test

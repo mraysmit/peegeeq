@@ -186,12 +186,11 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testGetReactiveConnectionWithNonExistentService(VertxTestContext testContext) {
         connectionManager.getReactiveConnection("non-existent-service")
-            .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
-            .onFailure(e -> testContext.verify(() -> {
+            .onComplete(testContext.failing(e -> testContext.verify(() -> {
                 assertTrue(e instanceof IllegalStateException);
                 assertTrue(e.getMessage().contains("No reactive pool found"));
                 testContext.completeNow();
-            }));
+            })));
     }
 
     @Test
@@ -225,12 +224,11 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         connectionManager.withConnection("non-existent-service", conn ->
             conn.query("SELECT 1").execute().map(rs -> 1)
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
-        .onFailure(e -> testContext.verify(() -> {
+        .onComplete(testContext.failing(e -> testContext.verify(() -> {
             assertTrue(e instanceof IllegalStateException);
             assertTrue(e.getMessage().contains("No reactive pool found"));
             testContext.completeNow();
-        }));
+        })));
     }
 
     @Test
@@ -263,12 +261,11 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         connectionManager.withTransaction("non-existent-service", conn ->
             conn.query("SELECT 1").execute().map(rs -> 1)
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
-        .onFailure(e -> testContext.verify(() -> {
+        .onComplete(testContext.failing(e -> testContext.verify(() -> {
             assertTrue(e instanceof IllegalStateException);
             assertTrue(e.getMessage().contains("No reactive pool found"));
             testContext.completeNow();
-        }));
+        })));
     }
 
     @Test

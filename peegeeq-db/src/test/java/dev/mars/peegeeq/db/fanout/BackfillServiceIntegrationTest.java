@@ -296,13 +296,12 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> subscriptionManager.pause(topic, groupName))
                 .compose(v -> backfillService.startBackfill(topic, groupName))
-                .onSuccess(result -> testContext.failNow("Backfill should fail for PAUSED subscription"))
-                .onFailure(err -> testContext.verify(() -> {
+                .onComplete(testContext.failing(err -> testContext.verify(() -> {
                     assertTrue(err.getMessage().contains("ACTIVE"),
                             "Error should mention ACTIVE requirement");
                     logger.info("Backfill validation for non-ACTIVE subscription verified");
                     testContext.completeNow();
-                }));
+                })));
     }
 
     /**
@@ -311,13 +310,12 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     @Test
     void testBackfillFailsForMissingSubscription(VertxTestContext testContext) {
         backfillService.startBackfill("nonexistent-topic", "nonexistent-group")
-                .onSuccess(result -> testContext.failNow("Backfill should fail for non-existent subscription"))
-                .onFailure(err -> testContext.verify(() -> {
+                .onComplete(testContext.failing(err -> testContext.verify(() -> {
                     assertTrue(err.getMessage().contains("not found"),
                             "Error should mention subscription not found");
                     logger.info("Backfill validation for missing subscription verified");
                     testContext.completeNow();
-                }));
+                })));
     }
 
     /**

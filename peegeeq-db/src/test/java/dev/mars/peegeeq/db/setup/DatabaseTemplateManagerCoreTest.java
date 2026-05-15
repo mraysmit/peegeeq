@@ -94,11 +94,10 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, postgres.getDatabaseName())
         )
-        .onSuccess(exists -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(exists -> testContext.verify(() -> {
             assertTrue(exists);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -107,11 +106,10 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, "non_existent_database_12345")
         )
-        .onSuccess(exists -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(exists -> testContext.verify(() -> {
             assertFalse(exists);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -177,7 +175,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(existsBefore -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(existsBefore -> testContext.verify(() -> {
             assertTrue(existsBefore);
             // Drop the database
             reactivePool.withConnection(connection ->
@@ -186,13 +184,11 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> reactivePool.withConnection(connection ->
                 databaseTemplateManager.databaseExists(connection, testDbName)
             ))
-            .onSuccess(existsAfter -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(existsAfter -> testContext.verify(() -> {
                 assertFalse(existsAfter);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-        }))
-        .onFailure(testContext::failNow);
+            })));
+        })));
     }
 
     @Test
@@ -214,7 +210,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
         ))
-        .onSuccess(existsBefore -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(existsBefore -> testContext.verify(() -> {
             assertTrue(existsBefore);
             // Drop the database using admin method
             databaseTemplateManager.dropDatabaseFromAdmin(
@@ -227,13 +223,11 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> reactivePool.withConnection(connection ->
                 databaseTemplateManager.databaseExists(connection, testDbName)
             ))
-            .onSuccess(existsAfter -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(existsAfter -> testContext.verify(() -> {
                 assertFalse(existsAfter);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
-        }))
-        .onFailure(testContext::failNow);
+            })));
+        })));
     }
 
     @Test
@@ -368,14 +362,10 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             databaseTemplateManager.dropDatabase(connection, "db; DROP TABLE users;--")
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
-        .onFailure(cause -> {
-            if (cause instanceof IllegalArgumentException) {
-                testContext.completeNow();
-            } else {
-                testContext.failNow(cause);
-            }
-        });
+        .onComplete(testContext.failing(cause -> testContext.verify(() -> {
+            assertInstanceOf(IllegalArgumentException.class, cause);
+            testContext.completeNow();
+        })));
     }
 
     @Test

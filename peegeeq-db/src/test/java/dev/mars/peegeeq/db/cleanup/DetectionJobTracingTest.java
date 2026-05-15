@@ -126,12 +126,11 @@ public class DetectionJobTracingTest {
                 vertx, failingDetector, stubCleanup, 60_000);
 
         job.runDetectionOnceWithDetails()
-                .onSuccess(result -> testContext.failNow(new AssertionError("Expected failure from failing detector")))
-                .onFailure(throwable -> testContext.verify(() -> {
+                .onComplete(testContext.failing(throwable -> testContext.verify(() -> {
                     assertTrue(throwable.getMessage().contains("Simulated detection failure"));
                     assertNull(MDC.get("traceId"), "traceId should not leak after failed detection");
                     testContext.completeNow();
-                }));
+                })));
     }
 
     @Test
