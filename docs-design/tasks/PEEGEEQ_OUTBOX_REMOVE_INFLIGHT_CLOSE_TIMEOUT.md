@@ -1,9 +1,9 @@
 # Task: Remove `inflightProcessing` / `inflightFutures` Timeout Machinery and Audit `*Async` Naming
 
 Created: 2026-05-13  
-Updated: 2026-05-13 (expanded after deeper audit)  
+Updated: 2026-05-15 (marked complete)  
 Branch: `master`  
-Status: **PENDING**
+Status: **COMPLETE** — implemented in commits `29a6379a` and `84ac1201`. Verified 2026-05-15: 40/40 outbox tests pass (`OutboxConsumerEdgeCasesCoverageTest`, `OutboxConsumerGroupFaultToleranceTest`, `OutboxConsumerGroupReviewFixesTest`); F3 `HungHandlerBlocking` now completes in ~10.8s (previously a 30-second hang). Absence-check passes: no `inflightProcessing` / `closeInflightTimeoutMs` / `inflightFutures` / `stopAsync` remain in `peegeeq-outbox/src/main`; only `OutboxConsumerGroup.closeAsync()` survives by design.
 
 ---
 
