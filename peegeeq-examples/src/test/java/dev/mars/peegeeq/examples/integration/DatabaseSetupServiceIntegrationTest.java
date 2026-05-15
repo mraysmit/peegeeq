@@ -269,12 +269,11 @@ public class DatabaseSetupServiceIntegrationTest {
         );
 
         setupService.createCompleteSetup(invalidRequest)
-                .onSuccess(result -> ctx.failNow(new AssertionError("Expected createCompleteSetup to fail for invalid config")))
-                .onFailure(err -> {
+                .onComplete(ctx.failing(err -> {
                     logger.info("Invalid setup request properly rejected");
                     logger.info("=== Invalid Setup Request Handling Test Passed ===");
                     ctx.completeNow();
-                });
+                }));
     }
 
     private DatabaseSetupRequest createMinimalSetupRequest() {

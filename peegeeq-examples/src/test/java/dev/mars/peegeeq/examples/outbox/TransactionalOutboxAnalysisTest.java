@@ -30,7 +30,6 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +48,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -192,18 +192,16 @@ public class TransactionalOutboxAnalysisTest {
 
             // Verify message can be consumed
             List<Message<String>> messages = new ArrayList<>();
-            VertxTestContext msgContext = new VertxTestContext();
-            var msgCheckpoint = msgContext.checkpoint();
-            
+            CountDownLatch msgLatch = new CountDownLatch(1);
+
             consumer.subscribe(msg -> {
                 messages.add(msg);
                 logger.info("✓ Received message: {}", msg.getPayload());
-                msgCheckpoint.flag();
+                msgLatch.countDown();
                 return Future.succeededFuture();
             });
 
-            assertTrue(msgContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
-            if (msgContext.failed()) throw new AssertionError("Async message delivery failed", msgContext.causeOfFailure());
+            assertTrue(msgLatch.await(10, TimeUnit.SECONDS), "Should receive message within timeout");
             assertEquals(1, messages.size(), "Should receive exactly one message");
             assertTrue(messages.get(0).getPayload().contains(orderId), "Message should contain order ID");
 

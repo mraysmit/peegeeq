@@ -55,9 +55,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -201,8 +200,7 @@ class MessagePriorityExampleTest {
 
             // Track processing order
             AtomicInteger processedCount = new AtomicInteger(0);
-            VertxTestContext methodCtx = new VertxTestContext();
-            Checkpoint allDone = methodCtx.checkpoint(5);
+            CountDownLatch allDone = new CountDownLatch(5);
 
             // Set up consumer to track processing order
             consumer.subscribe(message -> {
@@ -210,7 +208,7 @@ class MessagePriorityExampleTest {
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processed #{}: {} (Priority: {})",
                     order, payload.getContent(), payload.getPriorityLabel());
-                allDone.flag();
+                allDone.countDown();
                 return Future.succeededFuture();
             });
 
@@ -224,7 +222,7 @@ class MessagePriorityExampleTest {
             sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL);
 
             // Wait for processing
-            boolean completed = methodCtx.awaitCompletion(30, TimeUnit.SECONDS);
+            boolean completed = allDone.await(30, TimeUnit.SECONDS);
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should have processed exactly 5 messages");
 
@@ -240,8 +238,7 @@ class MessagePriorityExampleTest {
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-levels", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            VertxTestContext methodCtx = new VertxTestContext();
-            Checkpoint allDone = methodCtx.checkpoint(5);
+            CountDownLatch allDone = new CountDownLatch(5);
 
             // Consumer that shows priority level handling
             consumer.subscribe(message -> {
@@ -249,7 +246,7 @@ class MessagePriorityExampleTest {
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processed #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.flag();
+                allDone.countDown();
                 return Future.succeededFuture();
             });
 
@@ -263,7 +260,7 @@ class MessagePriorityExampleTest {
             sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Generate daily report", PRIORITY_BULK);
 
             // Wait for processing
-            boolean completed = methodCtx.awaitCompletion(30, TimeUnit.SECONDS);
+            boolean completed = allDone.await(30, TimeUnit.SECONDS);
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should have processed exactly 5 messages");
 
@@ -279,8 +276,7 @@ class MessagePriorityExampleTest {
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("ecommerce-orders", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            VertxTestContext methodCtx = new VertxTestContext();
-            Checkpoint allDone = methodCtx.checkpoint(8);
+            CountDownLatch allDone = new CountDownLatch(8);
 
             // Consumer that processes e-commerce orders
             consumer.subscribe(message -> {
@@ -288,7 +284,7 @@ class MessagePriorityExampleTest {
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processing Order #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.flag();
+                allDone.countDown();
                 return Future.succeededFuture();
             });
 
@@ -312,7 +308,7 @@ class MessagePriorityExampleTest {
             sendPriorityMessage(producer, "analytics-001", "ANALYTICS", "Daily sales report", PRIORITY_BULK);
 
             // Wait for processing
-            boolean completed = methodCtx.awaitCompletion(30, TimeUnit.SECONDS);
+            boolean completed = allDone.await(30, TimeUnit.SECONDS);
             assertTrue(completed, "All e-commerce messages should be processed within timeout");
             assertEquals(8, processedCount.get(), "Should have processed exactly 8 messages");
 
@@ -328,8 +324,7 @@ class MessagePriorityExampleTest {
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("financial-transactions", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            VertxTestContext methodCtx = new VertxTestContext();
-            Checkpoint allDone = methodCtx.checkpoint(7);
+            CountDownLatch allDone = new CountDownLatch(7);
 
             // Consumer that processes financial transactions
             consumer.subscribe(message -> {
@@ -337,7 +332,7 @@ class MessagePriorityExampleTest {
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processing Transaction #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.flag();
+                allDone.countDown();
                 return Future.succeededFuture();
             });
 
@@ -360,7 +355,7 @@ class MessagePriorityExampleTest {
             sendPriorityMessage(producer, "batch-001", "BATCH_TX", "End-of-day reconciliation", PRIORITY_BULK);
 
             // Wait for processing
-            boolean completed = methodCtx.awaitCompletion(30, TimeUnit.SECONDS);
+            boolean completed = allDone.await(30, TimeUnit.SECONDS);
             assertTrue(completed, "All financial messages should be processed within timeout");
             assertEquals(7, processedCount.get(), "Should have processed exactly 7 messages");
 
@@ -376,8 +371,7 @@ class MessagePriorityExampleTest {
              MessageConsumer<PriorityMessage> consumer = factory.createConsumer("system-monitoring", PriorityMessage.class)) {
 
             AtomicInteger processedCount = new AtomicInteger(0);
-            VertxTestContext methodCtx = new VertxTestContext();
-            Checkpoint allDone = methodCtx.checkpoint(6);
+            CountDownLatch allDone = new CountDownLatch(6);
 
             // Consumer that processes monitoring alerts
             consumer.subscribe(message -> {
@@ -385,7 +379,7 @@ class MessagePriorityExampleTest {
                 PriorityMessage payload = message.getPayload();
                 logger.info("Processing Alert #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
-                allDone.flag();
+                allDone.countDown();
                 return Future.succeededFuture();
             });
 
@@ -407,7 +401,7 @@ class MessagePriorityExampleTest {
             sendPriorityMessage(producer, "analytics-001", "METRICS", "Generate performance metrics", PRIORITY_BULK);
 
             // Wait for processing
-            boolean completed = methodCtx.awaitCompletion(30, TimeUnit.SECONDS);
+            boolean completed = allDone.await(30, TimeUnit.SECONDS);
             assertTrue(completed, "All monitoring messages should be processed within timeout");
             assertEquals(6, processedCount.get(), "Should have processed exactly 6 messages");
 
@@ -424,8 +418,7 @@ class MessagePriorityExampleTest {
 
             int messageCount = 50; // Reduced for test environment
             AtomicInteger processedCount = new AtomicInteger(0);
-            VertxTestContext methodCtx = new VertxTestContext();
-            Checkpoint allDone = methodCtx.checkpoint(messageCount);
+            CountDownLatch allDone = new CountDownLatch(messageCount);
             long startTime = System.currentTimeMillis();
 
             // Consumer that tracks performance
@@ -436,7 +429,7 @@ class MessagePriorityExampleTest {
                     logger.info("Processed {} messages - Current: [{}] {}",
                         order, payload.getPriorityLabel(), payload.getMessageType());
                 }
-                allDone.flag();
+                allDone.countDown();
                 return Future.succeededFuture();
             });
 
@@ -451,7 +444,7 @@ class MessagePriorityExampleTest {
             }
 
             // Wait for processing
-            boolean completed = methodCtx.awaitCompletion(60, TimeUnit.SECONDS);
+            boolean completed = allDone.await(60, TimeUnit.SECONDS);
             assertTrue(completed, "All performance messages should be processed within timeout");
             assertEquals(messageCount, processedCount.get(), "Should have processed exactly " + messageCount + " messages");
 

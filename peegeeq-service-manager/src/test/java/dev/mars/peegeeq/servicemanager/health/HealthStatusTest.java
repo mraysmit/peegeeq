@@ -17,20 +17,23 @@
 package dev.mars.peegeeq.servicemanager.health;
 
 import dev.mars.peegeeq.servicemanager.model.ServiceHealth;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Instant;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for HealthStatus.
  */
+@Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 class HealthStatusTest {
 
@@ -104,11 +107,12 @@ class HealthStatusTest {
 
     @Test
     @DisplayName("getAgeMillis() returns positive value")
-    void getAgeMillis_returnsPositiveValue(Vertx vertx) throws Exception {
+    void getAgeMillis_returnsPositiveValue(Vertx vertx, VertxTestContext ctx) {
         HealthStatus status = HealthStatus.healthy();
-        vertx.timer(10).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        
-        assertTrue(status.getAgeMillis() >= 10);
+        vertx.timer(10).onComplete(ctx.succeeding(v -> ctx.verify(() -> {
+            assertTrue(status.getAgeMillis() >= 10);
+            ctx.completeNow();
+        })));
     }
 
     @Test

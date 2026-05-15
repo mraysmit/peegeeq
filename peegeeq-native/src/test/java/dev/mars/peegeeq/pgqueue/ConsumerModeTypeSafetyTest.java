@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -231,17 +232,17 @@ class ConsumerModeTypeSafetyTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
 
-        VertxTestContext nullCtx = new VertxTestContext();
+        CountDownLatch nullLatch = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
-            nullCtx.completeNow();
+            nullLatch.countDown();
             return Future.succeededFuture();
         });
 
         try {
             producer.send(null).await();
 
-            boolean received = nullCtx.awaitCompletion(5, TimeUnit.SECONDS);
+            boolean received = nullLatch.await(5, TimeUnit.SECONDS);
             assertFalse(received, "Consumer should not receive null payload (moved to dead letter queue)");
         } finally {
             consumer.close();
@@ -267,17 +268,17 @@ class ConsumerModeTypeSafetyTest {
 
         try {
             AtomicReference<T> receivedMessage = new AtomicReference<>();
-            VertxTestContext modeCtx = new VertxTestContext();
+            CountDownLatch modeLatch = new CountDownLatch(1);
 
             consumer.subscribe(message -> {
                 receivedMessage.set(message.getPayload());
-                modeCtx.completeNow();
+                modeLatch.countDown();
                 return Future.succeededFuture();
             });
 
             producer.send(expectedMessage).await();
 
-            boolean received = modeCtx.awaitCompletion(10, TimeUnit.SECONDS);
+            boolean received = modeLatch.await(10, TimeUnit.SECONDS);
             assertTrue(received, "Should receive message in " + mode + " mode");
 
             T actualMessage = receivedMessage.get();

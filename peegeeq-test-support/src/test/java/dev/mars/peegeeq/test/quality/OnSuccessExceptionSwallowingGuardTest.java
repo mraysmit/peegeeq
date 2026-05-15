@@ -140,6 +140,9 @@ class OnSuccessExceptionSwallowingGuardTest {
     /** Matches {@code try {} — used to strip {@code try/catch(Throwable)/failNow} shields. */
     private static final Pattern TRY_BLOCK_START =
             Pattern.compile("\\btry\\s*\\{");
+    /** Matches a class-level {@code @Tag("demonstration")} — marks intentional anti-pattern fixtures. */
+    private static final Pattern DEMONSTRATION_TAG =
+            Pattern.compile("@Tag\\s*\\(\\s*\"demonstration\"\\s*\\)");
 
     @Test
     void noTier3OnSuccessExceptionSwallowingInTestSources() throws IOException {
@@ -211,6 +214,13 @@ class OnSuccessExceptionSwallowingGuardTest {
         try {
             content = Files.readString(file, StandardCharsets.UTF_8);
         } catch (IOException e) {
+            return;
+        }
+        // Skip intentional anti-pattern catalogue files (class-level @Tag("demonstration")).
+        // These fixtures exist specifically to exhibit the patterns this guard detects so
+        // that reviewers and contributors can see the swallowing behaviour with their own
+        // eyes. They are @Disabled at class level and never run in CI.
+        if (DEMONSTRATION_TAG.matcher(content).find()) {
             return;
         }
         // Mask comments and string literals before the initial finder so this guard
