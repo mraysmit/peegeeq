@@ -2,7 +2,15 @@
 
 Created: 2026-05-05
 Branch: `feature/offset-watermark-phase1`
-Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 PARTIALLY COMPLETE (2026-05-14, updated 2026-05-14)**
+Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 COMPLETE (2026-05-15)**
+
+> **2026-05-15 closeout.** The deferred `peegeeq-outbox` Tier 1 conversion has been completed. Inventory re-scan against the live source found only **5 remaining Tier 1 candidates** (not ~46 — earlier estimate was outdated by prior incremental commits):
+> - `OutboxProducerAdditionalCoverageTest.testProducerCloseIdempotency` (L308) — converted to `onComplete(testContext.succeeding(...))`.
+> - `OutboxProducerTransactionTest` (L467) — converted to `onComplete(testContext.succeeding(...))`.
+> - `OutboxProducerAdditionalCoverageTest.testMultipleProducersToSameTopic` (L288) — **left as-is** (non-trivial `onFailure` cleanup closes `producer2`/`producer3`; same precedent as the 7 SSE/WebSocket sites in `peegeeq-rest`).
+> - `OutboxProducerAdditionalCoverageTest.testSendWithComplexPayloadObject` (L348) — **left as-is** (non-trivial `onFailure` cleanup closes `complexProducer`).
+> - `OutboxIdempotencyKeyTest` (L255) — **left as-is** as previously documented; it is a `vertx.timer(...).onSuccess(...)` nested inside a `.compose(...)` chain, not a Tier 1 candidate.
+> Tests pass: `OutboxProducerAdditionalCoverageTest` 19/19, `OutboxProducerTransactionTest` 19/19. CI guard test `OnSuccessExceptionSwallowingGuardTest` continues to report 0 Tier 3 violations workspace-wide.
 
 > **2026-05-14 review correction.** The earlier "PHASE 3 COMPLETE" claim was wrong for `peegeeq-outbox`:
 > - Tier 1 conversion (~46 patterns across 10 files) was deferred, not done — see the outbox section below.
@@ -321,7 +329,7 @@ grep -rn "assertEquals\|assertTrue\|assertNotNull" --include="*Test*.java" | \
 - [x] `peegeeq-native` Phase 3 Tier 1 — zero Tier 1 patterns found; no changes needed.
 - [x] `peegeeq-service-manager` Phase 3 Tier 1 — 24 patterns across 4 files converted (2026-05-06). **20 tests pass (2026-05-06)**.
 - [x] `peegeeq-integration-tests` Phase 3 Tier 1 — zero Tier 1 patterns found; no changes needed.
-- [ ] **Phase 3 NOT YET COMPLETE** — `peegeeq-outbox` Tier 1 conversion (~46 patterns across 10 files) deferred. Other modules' "complete" status not re-verified under the stricter 2026-05-14 audit regex `\.onSuccess\([^)]*->\s*\{`.
+- [x] **Phase 3 COMPLETE (2026-05-15)** — `peegeeq-outbox` Tier 1 closeout: 2 sites canonicalized (`OutboxProducerAdditionalCoverageTest.testProducerCloseIdempotency`, `OutboxProducerTransactionTest` L467); 3 sites intentionally left alone (non-trivial `onFailure` cleanup × 2, plus the previously-documented `vertx.timer().onSuccess(...)` inside `.compose(...)`). 38/38 tests pass. Guard test reports 0 violations workspace-wide.
 - [x] **Outbox second-pass Tier 3 / Tier 2 fixes (2026-05-14)**:
     - `OutboxQueueUnitTest.testClose_MultipleInvocations` — Tier 3 bare `assertNotNull` + sync `queue.close()` wrapped in canonical `onComplete(testContext.succeeding(v -> testContext.verify(...)))`.
     - `OutboxIdempotencyKeyTest.testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce` — moved `consumer.close()` and log call inside the `testContext.verify(...)` block so a sync throw can't be swallowed.
