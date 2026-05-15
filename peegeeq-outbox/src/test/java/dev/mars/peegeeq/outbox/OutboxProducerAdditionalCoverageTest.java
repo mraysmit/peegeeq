@@ -305,14 +305,13 @@ class OutboxProducerAdditionalCoverageTest {
         MessageProducer<String> testProducer = outboxFactory.createProducer(testTopic + "-close-test", String.class);
         
         testProducer.send("test-before-close")
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 testProducer.close();
                 testProducer.close(); // Second close should be safe
                 testProducer.close(); // Third close should be safe
                 logger.info("Producer close is idempotent");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
