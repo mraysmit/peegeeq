@@ -123,11 +123,10 @@ public class PgClientCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(99, result);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

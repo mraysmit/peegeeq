@@ -153,7 +153,7 @@ public class PeeGeeQMetricsLogLevelTest {
 
         logCapture.clear();
         metrics.persistMetrics(registry)
-                .onFailure(err -> testContext.verify(() -> {
+                .onComplete(testContext.failing(err -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
                     boolean hasErrorForPersist = errors.stream()
@@ -165,8 +165,7 @@ public class PeeGeeQMetricsLogLevelTest {
                             "Missing table should produce ERROR for persist failure, errors were: " +
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onSuccess(v -> testContext.failNow("Expected failed future from persistMetrics with missing table"));
+                })));
     }
 
     @Test

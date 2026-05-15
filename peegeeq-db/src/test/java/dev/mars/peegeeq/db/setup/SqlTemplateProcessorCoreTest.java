@@ -205,14 +205,10 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
-        .onFailure(cause -> {
-            if (cause instanceof IllegalArgumentException) {
-                testContext.completeNow();
-            } else {
-                testContext.failNow(cause);
-            }
-        });
+        .onComplete(testContext.failing(cause -> testContext.verify(() -> {
+            assertInstanceOf(IllegalArgumentException.class, cause);
+            testContext.completeNow();
+        })));
     }
 
     @Test
@@ -223,14 +219,10 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
-        .onFailure(cause -> {
-            if (cause instanceof IllegalArgumentException) {
-                testContext.completeNow();
-            } else {
-                testContext.failNow(cause);
-            }
-        });
+        .onComplete(testContext.failing(cause -> testContext.verify(() -> {
+            assertInstanceOf(IllegalArgumentException.class, cause);
+            testContext.completeNow();
+        })));
     }
 
     @Test
@@ -241,14 +233,10 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
-        .onFailure(cause -> {
-            if (cause instanceof IllegalArgumentException) {
-                testContext.completeNow();
-            } else {
-                testContext.failNow(cause);
-            }
-        });
+        .onComplete(testContext.failing(cause -> testContext.verify(() -> {
+            assertInstanceOf(IllegalArgumentException.class, cause);
+            testContext.completeNow();
+        })));
     }
 
     @Test
@@ -259,13 +247,9 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         reactivePool.withConnection(connection ->
             sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
         )
-        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
-        .onFailure(cause -> {
-            if (cause instanceof IllegalArgumentException) {
-                testContext.completeNow();
-            } else {
-                testContext.failNow(cause);
-            }
-        });
+        .onComplete(testContext.failing(cause -> testContext.verify(() -> {
+            assertInstanceOf(IllegalArgumentException.class, cause);
+            testContext.completeNow();
+        })));
     }
 }

@@ -90,11 +90,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
     @Test
     void testGetReactivePool(VertxTestContext testContext) {
         connectionProvider.getReactivePool("test-client")
-            .onSuccess(pool -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pool -> testContext.verify(() -> {
                 assertNotNull(pool);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -109,28 +108,25 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
     void testGetReactivePoolNonExistentClient(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to get reactive connection for client: non-existent-client') is EXPECTED this test deliberately requests a pool for an unregistered client name");
         connectionProvider.getReactivePool("non-existent-client")
-            .onSuccess(pool -> testContext.failNow("Expected Exception"))
-            .onFailure(err -> {
+            .onComplete(testContext.failing(err -> testContext.verify(() -> {
                 assertTrue(err instanceof IllegalArgumentException);
                 testContext.completeNow();
-            });
+            })));
     }
 
     @Test
     void testGetConnection(VertxTestContext testContext) {
         connectionProvider.getConnection("test-client")
-            .onSuccess(connection -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(connection -> testContext.verify(() -> {
                 assertNotNull(connection);
-                connection.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
-            }))
-            .onFailure(testContext::failNow);
+                connection.close().onComplete(testContext.succeeding(v -> testContext.completeNow()));
+            })));
     }
 
     @Test
     void testGetConnectionNonExistentClient(VertxTestContext testContext) {
         connectionProvider.getConnection("non-existent-client")
-            .onSuccess(pool -> testContext.failNow("Expected Exception"))
-            .onFailure(err -> testContext.completeNow());
+            .onComplete(testContext.failing(err -> testContext.completeNow()));
     }
 
     @Test
@@ -139,10 +135,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
             connection.query("SELECT 1 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).onSuccess(result -> testContext.verify(() -> {
+        ).onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(1, result);
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
     }
 
     /**
@@ -161,8 +157,7 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> 1)
         )
-        .onSuccess(result -> testContext.failNow("Expected exception"))
-        .onFailure(err -> testContext.completeNow());
+        .onComplete(testContext.failing(err -> testContext.completeNow()));
     }
 
     @Test
@@ -171,10 +166,10 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
             connection.query("SELECT 1 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).onSuccess(result -> testContext.verify(() -> {
+        ).onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(1, result);
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
     }
 
     /**
@@ -193,8 +188,7 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> 1)
         )
-        .onSuccess(result -> testContext.failNow("Expected exception"))
-        .onFailure(err -> testContext.completeNow());
+        .onComplete(testContext.failing(err -> testContext.completeNow()));
     }
 }
 
