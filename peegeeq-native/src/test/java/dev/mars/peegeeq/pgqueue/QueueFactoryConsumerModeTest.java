@@ -33,7 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
+import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -132,12 +132,12 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly
         AtomicInteger messageCount = new AtomicInteger(0);
-        VertxTestContext methodCtx = new VertxTestContext();
+        CountDownLatch methodLatch = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received factory test message: {}", message.getPayload());
-            methodCtx.completeNow();
+            methodLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -145,7 +145,7 @@ class QueueFactoryConsumerModeTest {
         producer.send("Factory test message").await();
 
         // Verify message received
-        boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
+        boolean received = methodLatch.await(5, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message via factory-created consumer");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
@@ -169,12 +169,12 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly (should default to HYBRID mode)
         AtomicInteger messageCount = new AtomicInteger(0);
-        VertxTestContext methodCtx = new VertxTestContext();
+        CountDownLatch methodLatch = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received null config test message: {}", message.getPayload());
-            methodCtx.completeNow();
+            methodLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -182,7 +182,7 @@ class QueueFactoryConsumerModeTest {
         producer.send("Null config test message").await();
 
         // Verify message received
-        boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
+        boolean received = methodLatch.await(5, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message via consumer created with null config");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
@@ -277,12 +277,12 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly (should default to HYBRID mode)
         AtomicInteger messageCount = new AtomicInteger(0);
-        VertxTestContext methodCtx = new VertxTestContext();
+        CountDownLatch methodLatch = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received backward compatibility test message: {}", message.getPayload());
-            methodCtx.completeNow();
+            methodLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -290,7 +290,7 @@ class QueueFactoryConsumerModeTest {
         producer.send("Backward compatibility test message").await();
 
         // Verify message received
-        boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
+        boolean received = methodLatch.await(5, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message via backward compatible consumer");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
@@ -314,8 +314,7 @@ class QueueFactoryConsumerModeTest {
         int consumerCount = 3;
         @SuppressWarnings("unchecked")
         MessageConsumer<String>[] consumers = new MessageConsumer[consumerCount];
-        VertxTestContext creationCtx = new VertxTestContext();
-        io.vertx.junit5.Checkpoint allDone = creationCtx.checkpoint(consumerCount);
+        CountDownLatch allDone = new CountDownLatch(consumerCount);
         AtomicInteger successCount = new AtomicInteger(0);
 
         // Create consumers in parallel threads
@@ -331,14 +330,14 @@ class QueueFactoryConsumerModeTest {
                 } catch (Exception e) {
                     logger.error("Failed to create consumer {}: {}", index, e.getMessage());
                 } finally {
-                    allDone.flag();
+                    allDone.countDown();
                 }
             });
             creationThread.start();
         }
 
         // Wait for all creation attempts to complete
-        boolean allCreated = creationCtx.awaitCompletion(10, TimeUnit.SECONDS);
+        boolean allCreated = allDone.await(10, TimeUnit.SECONDS);
         assertTrue(allCreated, "All consumer creation attempts should complete");
         assertEquals(consumerCount, successCount.get(), "All consumers should be created successfully");
 

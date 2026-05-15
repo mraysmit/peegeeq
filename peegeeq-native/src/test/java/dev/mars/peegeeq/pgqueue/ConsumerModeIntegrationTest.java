@@ -27,6 +27,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -162,13 +163,13 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-polling-only", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-polling-only", String.class);
 
-        VertxTestContext methodCtx = new VertxTestContext();
+        CountDownLatch methodLatch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            methodCtx.completeNow();
+            methodLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -176,7 +177,7 @@ public class ConsumerModeIntegrationTest {
         producer.send("Hello POLLING_ONLY!");
 
         // Wait for message (should be received via polling)
-        assertTrue(methodCtx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received via polling");
+        assertTrue(methodLatch.await(10, TimeUnit.SECONDS), "Message should be received via polling");
         assertEquals("Hello POLLING_ONLY!", receivedMessage.get());
 
         consumer.close();
@@ -197,13 +198,13 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-hybrid", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-hybrid", String.class);
 
-        VertxTestContext methodCtx = new VertxTestContext();
+        CountDownLatch methodLatch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            methodCtx.completeNow();
+            methodLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -211,7 +212,7 @@ public class ConsumerModeIntegrationTest {
         producer.send("Hello HYBRID!");
 
         // Wait for message (should be received via LISTEN/NOTIFY or polling)
-        assertTrue(methodCtx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received via HYBRID mode");
+        assertTrue(methodLatch.await(10, TimeUnit.SECONDS), "Message should be received via HYBRID mode");
         assertEquals("Hello HYBRID!", receivedMessage.get());
 
         consumer.close();
@@ -227,13 +228,13 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-backward-compat", String.class);
         MessageProducer<String> producer = factory.createProducer("test-backward-compat", String.class);
 
-        VertxTestContext methodCtx = new VertxTestContext();
+        CountDownLatch methodLatch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            methodCtx.completeNow();
+            methodLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -241,7 +242,7 @@ public class ConsumerModeIntegrationTest {
         producer.send("Hello Backward Compatibility!");
 
         // Wait for message
-        assertTrue(methodCtx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received in backward compatibility mode");
+        assertTrue(methodLatch.await(10, TimeUnit.SECONDS), "Message should be received in backward compatibility mode");
         assertEquals("Hello Backward Compatibility!", receivedMessage.get());
 
         consumer.close();

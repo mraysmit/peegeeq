@@ -32,6 +32,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -309,22 +310,21 @@ class ConsumerModeBackwardCompatibilityTest {
             MessageConsumer<String> newConsumer = factory.createConsumer(topicName, String.class,
                 ConsumerConfig.builder().mode(ConsumerMode.HYBRID).build());
 
-            VertxTestContext phase2 = new VertxTestContext();
-            Checkpoint newMessages = phase2.checkpoint(2);
+            CountDownLatch phase2 = new CountDownLatch(2);
 
             newConsumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
                 logger.info("📨 New API migration processed: {}", message.getPayload());
-                newMessages.flag();
+                phase2.countDown();
                 return Future.succeededFuture();
             })
             .onSuccess(ignored -> producer.send("Migration message 3")
                     .compose(v -> producer.send("Migration message 4"))
-                    .onFailure(e -> { /* Best effort - phase2 will timeout */ }))
-            .onFailure(phase2::failNow);
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for processing
-            boolean newReceived = phase2.awaitCompletion(10, TimeUnit.SECONDS);
+            boolean newReceived = phase2.await(10, TimeUnit.SECONDS);
             assertTrue(newReceived, "New consumer should process migrated messages");
 
             assertEquals(4, totalProcessed.get(), "Should process all 4 messages during migration");

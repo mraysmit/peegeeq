@@ -45,6 +45,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -172,7 +173,7 @@ class MultiTenantSchemaIsolationTest {
         logger.info("Tenant A sent message: tenant-a-message");
 
         // Give a moment for the message to be persisted
-        VertxTestContext tenantBContext = new VertxTestContext();
+        CountDownLatch tenantBLatch = new CountDownLatch(1);
 
         // Tenant B creates a consumer
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer("test-queue", String.class);
@@ -180,12 +181,12 @@ class MultiTenantSchemaIsolationTest {
 
         consumerB.subscribe(msg -> {
             receivedB.add(msg.getPayload());
-            tenantBContext.completeNow();
+            tenantBLatch.countDown();
             return Future.succeededFuture();
         });
 
         // Wait for any cross-tenant leakage
-        boolean receivedMessage = tenantBContext.awaitCompletion(3, TimeUnit.SECONDS);
+        boolean receivedMessage = tenantBLatch.await(3, TimeUnit.SECONDS);
 
         // Verify tenant B did NOT receive tenant A's message
         assertFalse(receivedMessage, "Tenant B should not receive Tenant A's messages");
@@ -268,15 +269,15 @@ class MultiTenantSchemaIsolationTest {
         // Tenant A consumes from its queue
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer(queueName, String.class);
         List<String> receivedA = new ArrayList<>();
-        VertxTestContext ctxA = new VertxTestContext();
+        CountDownLatch latchA = new CountDownLatch(1);
 
         consumerA.subscribe(msg -> {
             receivedA.add(msg.getPayload());
-            ctxA.completeNow();
+            latchA.countDown();
             return Future.succeededFuture();
         });
 
-        assertTrue(ctxA.awaitCompletion(10, TimeUnit.SECONDS), "Tenant A should receive message");
+        assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A should receive message");
         assertEquals(1, receivedA.size(), "Tenant A should have 1 message");
         assertEquals("tenant-a-data", receivedA.get(0), "Tenant A should receive its own message");
 

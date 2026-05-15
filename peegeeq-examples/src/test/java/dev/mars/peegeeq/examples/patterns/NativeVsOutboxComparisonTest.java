@@ -30,9 +30,8 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
+import java.util.concurrent.CountDownLatch;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
@@ -181,18 +180,17 @@ class NativeVsOutboxComparisonTest {
         MessageProducer<String> nativeProducer = nativeFactory.createProducer(nativeQueueName, String.class);
         MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(nativeQueueName, String.class);
         
-        VertxTestContext nativeContext = new VertxTestContext();
-        Checkpoint nativeCheckpoint = nativeContext.checkpoint();
+        CountDownLatch nativeLatch = new CountDownLatch(1);
         List<String> nativeMessages = new ArrayList<>();
         
         nativeConsumer.subscribe(message -> {
             nativeMessages.add(message.getPayload());
-            nativeCheckpoint.flag();
+            nativeLatch.countDown();
             return Future.succeededFuture();
         });
         
         nativeProducer.send(testMessage).await();
-        assertTrue(nativeContext.awaitCompletion(10, TimeUnit.SECONDS));
+        assertTrue(nativeLatch.await(10, TimeUnit.SECONDS));
         assertEquals(1, nativeMessages.size());
         assertEquals(testMessage, nativeMessages.get(0));
         
@@ -201,18 +199,17 @@ class NativeVsOutboxComparisonTest {
         MessageProducer<String> outboxProducer = outboxFactory.createProducer(outboxQueueName, String.class);
         MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(outboxQueueName, String.class);
         
-        VertxTestContext outboxContext = new VertxTestContext();
-        Checkpoint outboxCheckpoint = outboxContext.checkpoint();
+        CountDownLatch outboxLatch = new CountDownLatch(1);
         List<String> outboxMessages = new ArrayList<>();
         
         outboxConsumer.subscribe(message -> {
             outboxMessages.add(message.getPayload());
-            outboxCheckpoint.flag();
+            outboxLatch.countDown();
             return Future.succeededFuture();
         });
         
         outboxProducer.send(testMessage).await();
-        assertTrue(outboxContext.awaitCompletion(10, TimeUnit.SECONDS));
+        assertTrue(outboxLatch.await(10, TimeUnit.SECONDS));
         assertEquals(1, outboxMessages.size());
         assertEquals(testMessage, outboxMessages.get(0));
         
@@ -237,8 +234,7 @@ class NativeVsOutboxComparisonTest {
         MessageProducer<String> nativeProducer = nativeFactory.createProducer(nativePerfQueueName, String.class);
         MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(nativePerfQueueName, String.class);
         
-        VertxTestContext nativePerfContext = new VertxTestContext();
-        Checkpoint nativeCheckpoint = nativePerfContext.checkpoint(messageCount);
+        CountDownLatch nativeLatch = new CountDownLatch(messageCount);
         AtomicLong nativeFirstReceiveTime = new AtomicLong();
         AtomicLong nativeLastReceiveTime = new AtomicLong();
         
@@ -247,7 +243,7 @@ class NativeVsOutboxComparisonTest {
                 nativeFirstReceiveTime.set(System.currentTimeMillis());
             }
             nativeLastReceiveTime.set(System.currentTimeMillis());
-            nativeCheckpoint.flag();
+            nativeLatch.countDown();
             return Future.succeededFuture();
         });
         
@@ -259,7 +255,7 @@ class NativeVsOutboxComparisonTest {
             delay.future().await();
         }
         
-        assertTrue(nativePerfContext.awaitCompletion(30, TimeUnit.SECONDS));
+        assertTrue(nativeLatch.await(30, TimeUnit.SECONDS));
         long nativeEndTime = System.currentTimeMillis();
         long nativeTotalTime = nativeEndTime - nativeStartTime;
         long nativeFirstMessageLatency = nativeFirstReceiveTime.get() - nativeStartTime;
@@ -270,8 +266,7 @@ class NativeVsOutboxComparisonTest {
         MessageProducer<String> outboxProducer = outboxFactory.createProducer(outboxPerfQueueName, String.class);
         MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(outboxPerfQueueName, String.class);
         
-        VertxTestContext outboxPerfContext = new VertxTestContext();
-        Checkpoint outboxCheckpoint = outboxPerfContext.checkpoint(messageCount);
+        CountDownLatch outboxLatch = new CountDownLatch(messageCount);
         AtomicLong outboxFirstReceiveTime = new AtomicLong();
         AtomicLong outboxLastReceiveTime = new AtomicLong();
         
@@ -280,7 +275,7 @@ class NativeVsOutboxComparisonTest {
                 outboxFirstReceiveTime.set(System.currentTimeMillis());
             }
             outboxLastReceiveTime.set(System.currentTimeMillis());
-            outboxCheckpoint.flag();
+            outboxLatch.countDown();
             return Future.succeededFuture();
         });
         
@@ -292,7 +287,7 @@ class NativeVsOutboxComparisonTest {
             delay.future().await();
         }
         
-        assertTrue(outboxPerfContext.awaitCompletion(30, TimeUnit.SECONDS));
+        assertTrue(outboxLatch.await(30, TimeUnit.SECONDS));
         long outboxEndTime = System.currentTimeMillis();
         long outboxTotalTime = outboxEndTime - outboxStartTime;
         long outboxFirstMessageLatency = outboxFirstReceiveTime.get() - outboxStartTime;
@@ -326,19 +321,18 @@ class NativeVsOutboxComparisonTest {
         ConsumerGroup<String> nativeGroup = nativeFactory.createConsumerGroup(nativeGroupName, topic, String.class);
         MessageProducer<String> nativeProducer = nativeFactory.createProducer(topic, String.class);
         
-        VertxTestContext nativeGroupContext = new VertxTestContext();
-        Checkpoint nativeCheckpoint = nativeGroupContext.checkpoint(6);
+        CountDownLatch nativeLatch = new CountDownLatch(6);
         AtomicInteger nativeProcessed = new AtomicInteger();
         
         nativeGroup.addConsumer("native-member-1", message -> {
             nativeProcessed.incrementAndGet();
-            nativeCheckpoint.flag();
+            nativeLatch.countDown();
             return Future.succeededFuture();
         });
 
         nativeGroup.addConsumer("native-member-2", message -> {
             nativeProcessed.incrementAndGet();
-            nativeCheckpoint.flag();
+            nativeLatch.countDown();
             return Future.succeededFuture();
         });
         
@@ -349,7 +343,7 @@ class NativeVsOutboxComparisonTest {
             nativeProducer.send("Native group message " + i).await();
         }
         
-        assertTrue(nativeGroupContext.awaitCompletion(15, TimeUnit.SECONDS));
+        assertTrue(nativeLatch.await(15, TimeUnit.SECONDS));
         assertEquals(6, nativeProcessed.get());
         
         // Test outbox consumer group with unique group name
@@ -357,19 +351,18 @@ class NativeVsOutboxComparisonTest {
         ConsumerGroup<String> outboxGroup = outboxFactory.createConsumerGroup(outboxGroupName, topic, String.class);
         MessageProducer<String> outboxProducer = outboxFactory.createProducer(topic, String.class);
         
-        VertxTestContext outboxGroupContext = new VertxTestContext();
-        Checkpoint outboxCheckpoint = outboxGroupContext.checkpoint(6);
+        CountDownLatch outboxLatch = new CountDownLatch(6);
         AtomicInteger outboxProcessed = new AtomicInteger();
         
         outboxGroup.addConsumer("outbox-member-1", message -> {
             outboxProcessed.incrementAndGet();
-            outboxCheckpoint.flag();
+            outboxLatch.countDown();
             return Future.succeededFuture();
         });
 
         outboxGroup.addConsumer("outbox-member-2", message -> {
             outboxProcessed.incrementAndGet();
-            outboxCheckpoint.flag();
+            outboxLatch.countDown();
             return Future.succeededFuture();
         });
         
@@ -380,7 +373,7 @@ class NativeVsOutboxComparisonTest {
             outboxProducer.send("Outbox group message " + i).await();
         }
         
-        assertTrue(outboxGroupContext.awaitCompletion(15, TimeUnit.SECONDS));
+        assertTrue(outboxLatch.await(15, TimeUnit.SECONDS));
         assertEquals(6, outboxProcessed.get());
         
         // Verify stats for both

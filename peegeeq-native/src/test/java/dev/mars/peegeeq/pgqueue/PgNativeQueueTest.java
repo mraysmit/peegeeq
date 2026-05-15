@@ -105,13 +105,9 @@ public class PgNativeQueueTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) {
         logger.info("Tearing down test environment");
-        queue.close()
-            .toCompletionStage().toCompletableFuture()
-            .orTimeout(5, TimeUnit.SECONDS)
-            .join();
-        logger.info("Test environment teardown complete");
+        queue.close().onComplete(ctx.succeedingThenComplete());
     }
 
     @Test

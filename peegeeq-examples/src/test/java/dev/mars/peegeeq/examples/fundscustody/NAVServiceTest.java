@@ -45,7 +45,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                 Currency.USD, "nav-calculator")
             .compose(v -> delay(vertx, 100))
             .compose(v -> navService.getNAVCorrected(fundId, navDate))
-            .onSuccess(nav -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(nav -> testContext.verify(() -> {
                 assertNotNull(nav);
                 assertEquals(fundId, nav.fundId());
                 assertEquals(navDate, nav.navDate());
@@ -56,8 +56,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                 assertEquals(0, new BigDecimal("95.000000").compareTo(nav.navPerShare()));
                 assertEquals(Currency.USD, nav.currency());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -81,7 +80,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                         navService.getNAVCorrected(fundId, navDate)
                     ));
             })
-            .onSuccess(composite -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
                 NAVSnapshot reported = composite.resultAt(0);
                 NAVSnapshot corrected = composite.resultAt(1);
                 assertNotNull(reported);
@@ -90,8 +89,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                 assertEquals(0, new BigDecimal("96.000000").compareTo(corrected.navPerShare()));
                 assertNotEquals(reported.navPerShare(), corrected.navPerShare());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -112,7 +110,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                     .compose(v2 -> delay(vertx, 100))
                     .compose(v2 -> navService.analyzeNAVCorrection(fundId, navDate, reportingTime));
             })
-            .onSuccess(impact -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(impact -> testContext.verify(() -> {
                 assertNotNull(impact);
                 assertEquals(fundId, impact.fundId());
                 assertEquals(navDate, impact.navDate());
@@ -124,8 +122,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                 assertTrue(impact.isPositiveCorrection());
                 assertFalse(impact.isNegativeCorrection());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -146,13 +143,12 @@ class NAVServiceTest extends FundsCustodyTestBase {
                     .compose(v2 -> delay(vertx, 100))
                     .compose(v2 -> navService.analyzeNAVCorrection(fundId, navDate, reportingTime));
             })
-            .onSuccess(impact -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(impact -> testContext.verify(() -> {
                 assertNotNull(impact);
                 assertFalse(impact.requiresInvestorCompensation());
                 assertTrue(impact.percentageError().compareTo(new BigDecimal("0.005")) < 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -175,7 +171,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                     new BigDecimal("100000"), Currency.USD, "calc3"))
             .compose(v -> delay(vertx, 100))
             .compose(v -> navService.getNAVHistory(fundId, date1, date3))
-            .onSuccess(history -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(history -> testContext.verify(() -> {
                 assertNotNull(history);
                 assertEquals(3, history.size());
                 assertEquals(date1, history.get(0).navDate());
@@ -185,8 +181,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
                 assertEquals(0, new BigDecimal("96.000000").compareTo(history.get(1).navPerShare()));
                 assertEquals(0, new BigDecimal("97.000000").compareTo(history.get(2).navPerShare()));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -199,12 +194,11 @@ class NAVServiceTest extends FundsCustodyTestBase {
                 BigDecimal.ZERO, Currency.USD, "nav-calculator")
             .compose(v -> delay(vertx, 100))
             .compose(v -> navService.getNAVCorrected(fundId, navDate))
-            .onSuccess(nav -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(nav -> testContext.verify(() -> {
                 assertNotNull(nav);
                 assertEquals(BigDecimal.ZERO, nav.navPerShare());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 

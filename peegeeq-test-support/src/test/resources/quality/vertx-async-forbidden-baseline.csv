@@ -1,0 +1,4 @@
+# Vertx async forbidden-pattern baseline. One row per (file, pattern) with count > 0.
+# Guard: VertxAsyncForbiddenPatternsGuardTest. Build fails on any mismatch with this baseline.
+# To FIX a file: remediate it, then update or delete its row(s) here in the same commit.
+path,pattern,count

@@ -166,9 +166,11 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
         logger.info("Testing performance with profile: {}", profile.getDisplayName());
         
         PerformanceTestResult result = runTestWithProfile(profile, () -> {
-            // Simulate some work
-            vertx.timer(50).toCompletionStage().toCompletableFuture().join();
-            
+            // No simulated work: runTestWithProfile's operation contract is synchronous,
+            // so a reactive timer await is not possible here without changing that API.
+            // The test validates the framework wiring and the mocked metrics below;
+            // duration is not asserted.
+
             // Return some mock performance metrics
             return createPerformanceMetrics(
                 1000.0,  // throughput: 1000 ops/sec
