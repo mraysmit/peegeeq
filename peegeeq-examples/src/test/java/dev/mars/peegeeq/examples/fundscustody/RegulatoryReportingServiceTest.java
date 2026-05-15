@@ -40,7 +40,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         setupFundDataAsync(fundId, reportingDate, vertx)
             .compose(v -> delay(vertx, 200))
             .compose(v -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD"))
-            .onSuccess(report -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertEquals(fundId, report.fundId());
                 assertEquals(reportingDate, report.reportingDate());
@@ -54,8 +54,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 assertNotNull(report.tradesInPeriod());
                 assertFalse(report.tradesInPeriod().isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -66,7 +65,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         setupFundDataAsync(fundId, reportingDate, vertx)
             .compose(v -> delay(vertx, 200))
             .compose(v -> regulatoryService.getAIFMDReport(fundId, reportingDate))
-            .onSuccess(report -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertEquals("AIFMD", report.reportType());
                 assertTrue(report.isAIFMD());
@@ -74,8 +73,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 assertNotNull(report.positions());
                 assertNotNull(report.tradesInPeriod());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -92,7 +90,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                     new BigDecimal("50000"), Currency.USD, "nav-calc"))
             .compose(v -> delay(vertx, 100))
             .compose(v -> regulatoryService.getMiFIDTransactionReport(fundId, tradingDay))
-            .onSuccess(report -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertEquals(fundId, report.fundId());
                 assertEquals(tradingDay, report.reportingDate());
@@ -104,8 +102,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 assertNotNull(report.navSnapshot());
                 assertNotNull(report.positions());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -128,7 +125,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 .compose(v -> regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD"))
                 .map(report2 -> new RegulatoryReport[]{ report1, report2 })
             )
-            .onSuccess(reports -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(reports -> testContext.verify(() -> {
                 RegulatoryReport report1 = reports[0];
                 RegulatoryReport report2 = reports[1];
                 assertNotNull(report1.navSnapshot());
@@ -136,8 +133,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 assertEquals(0, new BigDecimal("95.000000").compareTo(report1.navSnapshot().navPerShare()));
                 assertEquals(0, new BigDecimal("96.000000").compareTo(report2.navSnapshot().navPerShare()));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -146,7 +142,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         LocalDate reportingDate = LocalDate.of(2025, 10, 1);
 
         regulatoryService.getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-            .onSuccess(report -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertEquals(fundId, report.fundId());
                 assertNotNull(report.positions());
@@ -154,8 +150,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 assertNotNull(report.tradesInPeriod());
                 assertTrue(report.tradesInPeriod().isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -170,14 +165,13 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
             .compose(v -> recordTradeAsync(fundId, "GOOGL", nextDay, TradeType.SELL, "50", "2800.00"))
             .compose(v -> delay(vertx, 200))
             .compose(v -> regulatoryService.getMiFIDTransactionReport(fundId, tradingDay))
-            .onSuccess(report -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(report -> testContext.verify(() -> {
                 assertNotNull(report);
                 assertNotNull(report.tradesInPeriod());
                 assertEquals(1, report.tradesInPeriod().size());
                 assertEquals("MSFT", report.tradesInPeriod().get(0).securityId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     // Helper methods

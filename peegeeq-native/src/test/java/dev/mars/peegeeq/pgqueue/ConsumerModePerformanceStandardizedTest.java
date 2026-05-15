@@ -16,8 +16,6 @@ import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceP
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.junit5.Checkpoint;
-import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -239,8 +238,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
-        VertxTestContext measureCtx = new VertxTestContext();
-        Checkpoint allProcessed = measureCtx.checkpoint(messageCount);
+        CountDownLatch allProcessed = new CountDownLatch(messageCount);
 
         MessageConsumer<String> consumer = null;
         MessageProducer<String> producer = null;
@@ -266,7 +264,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                         long sendTime = messageSentTimes[index - 1];
                         long latency = receiveTime - sendTime;
                         totalLatency.addAndGet(latency);
-                        allProcessed.flag();
+                        allProcessed.countDown();
 
                         if (index % 10 == 0) {
                             logger.debug("Processed {} messages", index);
@@ -296,7 +294,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             // Wait for all test messages to be processed (excluding warmup) with timeout
             // Adjust timeout based on performance profile - BASIC needs more time
             int timeoutSeconds = scenario.getPerformanceProfile() == PerformanceProfile.BASIC ? 20 : 10;
-            boolean completed = measureCtx.awaitCompletion(timeoutSeconds, TimeUnit.SECONDS);
+            boolean completed = allProcessed.await(timeoutSeconds, TimeUnit.SECONDS);
             long endTime = System.currentTimeMillis();
 
             if (!completed) {

@@ -15,9 +15,7 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -222,8 +221,7 @@ public class ConsumerModePerformanceTest {
                                               Vertx vertx) throws Exception {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
-        VertxTestContext measureCtx = new VertxTestContext();
-        Checkpoint allProcessed = measureCtx.checkpoint(messageCount);
+        CountDownLatch allProcessed = new CountDownLatch(messageCount);
         
         // Create consumer with specific mode
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -235,7 +233,7 @@ public class ConsumerModePerformanceTest {
         long[] messageSentTimes = new long[messageCount + warmupMessages];
         
         // Subscribe and wait for LISTEN to be established before sending.
-        VertxTestContext listenReady = new VertxTestContext();
+        CountDownLatch listenReady = new CountDownLatch(1);
         consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.incrementAndGet();
@@ -245,14 +243,14 @@ public class ConsumerModePerformanceTest {
                 long sendTime = messageSentTimes[index - 1];
                 long latency = receiveTime - sendTime;
                 totalLatency.addAndGet(latency);
-                allProcessed.flag();
+                allProcessed.countDown();
             }
             
             return Future.succeededFuture();
         })
-        .onSuccess(v -> listenReady.completeNow())
-        .onFailure(listenReady::failNow);
-        listenReady.awaitCompletion(5, TimeUnit.SECONDS);
+        .onSuccess(v -> listenReady.countDown())
+        .onFailure(err -> listenReady.countDown());
+        listenReady.await(5, TimeUnit.SECONDS);
 
         // Send messages
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -266,7 +264,7 @@ public class ConsumerModePerformanceTest {
         }
         
         // Wait for all test messages to be processed (excluding warmup)
-        boolean completed = measureCtx.awaitCompletion(30, TimeUnit.SECONDS);
+        boolean completed = allProcessed.await(30, TimeUnit.SECONDS);
         long endTime = System.currentTimeMillis();
         
         producer.close();
@@ -284,8 +282,7 @@ public class ConsumerModePerformanceTest {
     private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount,
                                          Vertx vertx) throws Exception {
         List<Long> latencies = new ArrayList<>();
-        VertxTestContext latencyCtx = new VertxTestContext();
-        Checkpoint allProcessed = latencyCtx.checkpoint(messageCount);
+        CountDownLatch allProcessed = new CountDownLatch(messageCount);
         
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
@@ -296,7 +293,7 @@ public class ConsumerModePerformanceTest {
         long[] messageSentTimes = new long[messageCount];
         AtomicInteger processedCount = new AtomicInteger(0);
         
-        VertxTestContext listenReady = new VertxTestContext();
+        CountDownLatch listenReady = new CountDownLatch(1);
         consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.getAndIncrement();
@@ -307,16 +304,16 @@ public class ConsumerModePerformanceTest {
                 synchronized (latencies) {
                     latencies.add(latency);
                 }
-                allProcessed.flag();
+                allProcessed.countDown();
             }
             
             return Future.succeededFuture();
         })
-            .onSuccess(v -> listenReady.completeNow())
-            .onFailure(listenReady::failNow);
+            .onSuccess(v -> listenReady.countDown())
+            .onFailure(err -> listenReady.countDown());
 
         // Wait for the LISTEN channel to establish before sending.
-        listenReady.awaitCompletion(5, TimeUnit.SECONDS);
+        listenReady.await(5, TimeUnit.SECONDS);
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
@@ -325,7 +322,7 @@ public class ConsumerModePerformanceTest {
             producer.send("Latency test message " + i).await();
         }
         
-        boolean completed = latencyCtx.awaitCompletion(20, TimeUnit.SECONDS);
+        boolean completed = allProcessed.await(20, TimeUnit.SECONDS);
         
         producer.close();
         consumer.close();

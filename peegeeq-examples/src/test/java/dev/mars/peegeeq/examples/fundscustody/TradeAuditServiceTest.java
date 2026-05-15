@@ -73,7 +73,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                     })
                     .map(corrections -> new Object[]{ tradeId, corrections });
             })
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 String tradeId = (String) result[0];
                 @SuppressWarnings("unchecked")
                 List<CorrectionAudit> corrections = (List<CorrectionAudit>) result[1];
@@ -88,8 +88,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                 assertEquals("auditor1", audit.correctedBy());
                 assertNotNull(audit.correctedAt());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -117,7 +116,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                     )
                 )
             )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 String tradeId1 = (String) result[0];
                 String tradeId2 = (String) result[1];
                 String tradeId3 = (String) result[2];
@@ -130,8 +129,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                 assertTrue(correctedTradeIds.contains(tradeId2));
                 assertFalse(correctedTradeIds.contains(tradeId3));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -146,7 +144,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                 .compose(v -> auditService.getTradeCorrectionHistory(tradeId))
                 .map(history -> new Object[]{ tradeId, history })
             )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 String tradeId = (String) result[0];
                 @SuppressWarnings("unchecked")
                 List<CorrectionAudit> history = (List<CorrectionAudit>) result[1];
@@ -156,8 +154,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                 assertEquals(tradeId, audit.tradeId());
                 assertEquals("First correction - wrong quantity", audit.reason());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -184,7 +181,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                         })
                     );
             })
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 ChangeReport changes1 = (ChangeReport) result[0];
                 ChangeReport changes2 = (ChangeReport) result[1];
                 assertNotNull(changes1);
@@ -199,8 +196,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                 assertEquals(1, changes2.newTrades().size());
                 assertEquals(1, changes2.correctedTrades().size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -211,12 +207,11 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
         Instant periodEnd = Instant.now();
 
         auditService.getCorrectionsInPeriod(fundId, periodStart, periodEnd)
-            .onSuccess(corrections -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(corrections -> testContext.verify(() -> {
                 assertNotNull(corrections);
                 assertTrue(corrections.isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     // Helper methods

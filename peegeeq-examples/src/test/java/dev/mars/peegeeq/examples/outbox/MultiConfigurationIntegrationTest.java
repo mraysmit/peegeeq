@@ -31,6 +31,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Map;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -235,11 +236,10 @@ class MultiConfigurationIntegrationTest {
         MessageConsumer<BatchEvent> consumer = factory.createConsumer(queueName, BatchEvent.class);
 
         // Reduced number of messages for more reliable testing
-        VertxTestContext batchContext = new VertxTestContext();
-        Checkpoint checkpoint = batchContext.checkpoint(10);
+        CountDownLatch batchLatch = new CountDownLatch(10);
 
         consumer.subscribe(message -> {
-            checkpoint.flag();
+            batchLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -250,7 +250,7 @@ class MultiConfigurationIntegrationTest {
         }
 
         // Increased timeout for more reliable testing
-        boolean completed = batchContext.awaitCompletion(30, TimeUnit.SECONDS);
+        boolean completed = batchLatch.await(30, TimeUnit.SECONDS);
         assertTrue(completed, "Batch processing did not complete in time");
 
         consumer.close();
@@ -265,14 +265,13 @@ class MultiConfigurationIntegrationTest {
         MessageConsumer<RealTimeEvent> consumer = factory.createConsumer(queueName, RealTimeEvent.class);
 
         // Reduced number of messages for more reliable testing
-        VertxTestContext realtimeContext = new VertxTestContext();
-        Checkpoint checkpoint = realtimeContext.checkpoint(3);
+        CountDownLatch realtimeLatch = new CountDownLatch(3);
 
         consumer.subscribe(message -> {
             long latency = System.currentTimeMillis() - message.getPayload().getTimestamp();
             logger.info("Real-time processed: {} (latency: {}ms)",
                 message.getPayload().getEventId(), latency);
-            checkpoint.flag();
+            realtimeLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -286,7 +285,7 @@ class MultiConfigurationIntegrationTest {
         }
 
         // Increased timeout for more reliable testing
-        boolean completed = realtimeContext.awaitCompletion(20, TimeUnit.SECONDS);
+        boolean completed = realtimeLatch.await(20, TimeUnit.SECONDS);
         assertTrue(completed, "Real-time processing did not complete in time");
 
         consumer.close();
@@ -301,13 +300,12 @@ class MultiConfigurationIntegrationTest {
         MessageConsumer<CriticalEvent> consumer = factory.createConsumer(queueName, CriticalEvent.class);
 
         // Reduced number of messages for more reliable testing
-        VertxTestContext txContext = new VertxTestContext();
-        Checkpoint checkpoint = txContext.checkpoint(2);
+        CountDownLatch txLatch = new CountDownLatch(2);
 
         consumer.subscribe(message -> {
             logger.info("Critical processed: {} (importance: {})",
                 message.getPayload().getEventId(), message.getPayload().getImportanceLevel());
-            checkpoint.flag();
+            txLatch.countDown();
             return Future.succeededFuture();
         });
 
@@ -318,7 +316,7 @@ class MultiConfigurationIntegrationTest {
         }
 
         // Increased timeout for more reliable testing
-        boolean completed = txContext.awaitCompletion(20, TimeUnit.SECONDS);
+        boolean completed = txLatch.await(20, TimeUnit.SECONDS);
         assertTrue(completed, "Transactional processing did not complete in time");
 
         consumer.close();

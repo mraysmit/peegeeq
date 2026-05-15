@@ -10,6 +10,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -142,10 +143,10 @@ class MultiConfigurationManagerSimpleTest {
     void testConfigurationProfiles() {
         // Test that configuration profiles can be created
         assertDoesNotThrow(() -> {
-            PeeGeeQConfiguration defaultConfig = new PeeGeeQConfiguration();
+            PeeGeeQConfiguration defaultConfig = new PeeGeeQConfiguration("default", new Properties());
             assertNotNull(defaultConfig);
             
-            PeeGeeQConfiguration testConfig = new PeeGeeQConfiguration("test");
+            PeeGeeQConfiguration testConfig = new PeeGeeQConfiguration("test", new Properties());
             assertNotNull(testConfig);
             
             // Test that different profiles create different configurations

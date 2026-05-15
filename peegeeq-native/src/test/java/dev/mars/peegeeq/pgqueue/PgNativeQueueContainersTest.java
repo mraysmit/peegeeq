@@ -19,6 +19,7 @@ package dev.mars.peegeeq.pgqueue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.Checkpoint;
@@ -28,6 +29,7 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -54,9 +56,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive integration tests for the PgNativeQueue class using TestContainers.
  * This class focuses on testing the send and receive functionality with real PostgreSQL notifications.
  */
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-public class PgNativeQueueTestContainers {
+public class PgNativeQueueContainersTest {
 
     @Container
     private static final PostgreSQLContainer postgres = createPostgresContainer();
@@ -96,12 +99,10 @@ public class PgNativeQueueTestContainers {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) {
         queue.close()
             .compose(v -> vertx.close())
-            .toCompletionStage().toCompletableFuture()
-            .orTimeout(5, TimeUnit.SECONDS)
-            .join();
+            .onComplete(ctx.succeedingThenComplete());
     }
 
     @Test
