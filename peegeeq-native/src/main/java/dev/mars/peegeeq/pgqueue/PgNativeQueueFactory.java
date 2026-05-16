@@ -245,18 +245,25 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     @Override
-    public <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
-        checkNotClosed();
-        TopicNameValidator.validate(topic);
+    public <T> Future<dev.mars.peegeeq.api.messaging.QueueBrowser<T>> createBrowser(String topic, Class<T> payloadType) {
+        try {
+            checkNotClosed();
+            TopicNameValidator.validate(topic);
+        } catch (RuntimeException e) {
+            return Future.failedFuture(e);
+        }
+        if (payloadType == null) {
+            return Future.failedFuture(new IllegalArgumentException("Payload type cannot be null"));
+        }
         logger.debug("Creating browser for topic: {}", topic);
 
         io.vertx.sqlclient.Pool pool = poolAdapter.getPool();
         if (pool == null) {
-            throw new IllegalStateException("Pool not available for browser creation");
+            return Future.failedFuture(new IllegalStateException("Pool not available for browser creation"));
         }
 
         String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
-        return registerResource(new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema));
+        return Future.succeededFuture(registerResource(new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema)));
     }
 
     @Override
@@ -265,32 +272,27 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     @Override
-    public boolean isHealthy() {
+    public Future<Boolean> isHealthy() {
         if (closed) {
-            return false;
+            return Future.succeededFuture(false);
         }
 
-        try {
-            if (databaseService != null) {
-                return databaseService.isHealthy();
-            }
-            return false;
-        } catch (Exception e) {
-            logger.warn("Health check failed for native queue factory", e);
-            return false;
+        if (databaseService != null) {
+            return databaseService.getConnectionProvider()
+                    .isHealthy()
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.warn("Health check failed for native queue factory", ar.cause());
+                            return Future.succeededFuture(false);
+                        }
+                        return Future.succeededFuture(ar.result());
+                    });
         }
+        return Future.succeededFuture(false);
     }
 
     @Override
-    public QueueStats getStats(String topic) {
-        // Sync callers should migrate to getStatsAsync() this returns zeros.
-        // The blocking bridge that was here violated Vert.x reactive principles.
-        logger.debug("getStats(sync) called for topic {} use getStatsAsync() for real data", topic);
-        return QueueStats.basic(topic, 0, 0, 0);
-    }
-
-    @Override
-    public Future<QueueStats> getStatsAsync(String topic) {
+    public Future<QueueStats> getStats(String topic) {
         checkNotClosed();
         logger.debug("Getting stats for topic (async): {}", topic);
 
@@ -356,7 +358,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     @Override
-    public Future<Long> countMessagesAsync(String topic) {
+    public Future<Long> countMessages(String topic) {
         checkNotClosed();
         logger.debug("Counting messages for topic (async): {}", topic);
 
@@ -372,7 +374,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     @Override
-    public Future<Integer> purgeMessagesAsync(String topic) {
+    public Future<Integer> purgeMessages(String topic) {
         checkNotClosed();
         logger.info("Purging native queue messages for topic: {}", topic);
 

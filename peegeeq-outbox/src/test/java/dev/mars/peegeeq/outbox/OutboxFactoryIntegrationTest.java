@@ -28,6 +28,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -342,6 +343,96 @@ class OutboxFactoryIntegrationTest {
     }
 
     // ============================================================
+    // createBrowser Tests
+    // ============================================================
+
+    @Test
+    void testCreateBrowser_DatabaseServiceMode(VertxTestContext testContext) {
+        OutboxFactory factory = new OutboxFactory(databaseService, objectMapper, null);
+
+        factory.<String>createBrowser("test-topic", String.class)
+                .onSuccess(browser -> testContext.verify(() -> {
+                    assertNotNull(browser);
+                    assertInstanceOf(OutboxQueueBrowser.class, browser);
+                    try { browser.close(); } catch (Exception ignored) { }
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    @Test
+    void testCreateBrowser_NullTopic_FailsFuture(VertxTestContext testContext) {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+
+        factory.<String>createBrowser(null, String.class)
+                .onSuccess(b -> testContext.failNow("Expected failure but got browser: " + b))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalArgumentException.class, err);
+                    assertTrue(err.getMessage().contains("Topic cannot be null or empty"));
+                    testContext.completeNow();
+                }));
+    }
+
+    @Test
+    void testCreateBrowser_EmptyTopic_FailsFuture(VertxTestContext testContext) {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+
+        factory.<String>createBrowser("   ", String.class)
+                .onSuccess(b -> testContext.failNow("Expected failure but got browser: " + b))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalArgumentException.class, err);
+                    assertTrue(err.getMessage().contains("Topic cannot be null or empty"));
+                    testContext.completeNow();
+                }));
+    }
+
+    @Test
+    void testCreateBrowser_NullPayloadType_FailsFuture(VertxTestContext testContext) {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+
+        factory.createBrowser("test-topic", null)
+                .onSuccess(b -> testContext.failNow("Expected failure but got browser: " + b))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalArgumentException.class, err);
+                    assertTrue(err.getMessage().contains("Payload type cannot be null"));
+                    testContext.completeNow();
+                }));
+    }
+
+    @Test
+    void testCreateBrowser_AfterClose_FailsFuture(VertxTestContext testContext) throws Exception {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+        factory.close();
+
+        factory.<String>createBrowser("test-topic", String.class)
+                .onSuccess(b -> testContext.failNow("Expected failure but got browser: " + b))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, err);
+                    assertTrue(err.getMessage().contains("Queue factory is closed"));
+                    testContext.completeNow();
+                }));
+    }
+
+    @Test
+    void testCreateBrowser_MultipleBrowsers(VertxTestContext testContext) {
+        OutboxFactory factory = new OutboxFactory(databaseService);
+
+        io.vertx.core.Future.all(
+                factory.<String>createBrowser("topic-a", String.class),
+                factory.<String>createBrowser("topic-b", String.class)
+        ).onSuccess(cf -> testContext.verify(() -> {
+            Object b1 = cf.resultAt(0);
+            Object b2 = cf.resultAt(1);
+            assertNotNull(b1);
+            assertNotNull(b2);
+            assertNotSame(b1, b2);
+            try { ((AutoCloseable) b1).close(); } catch (Exception ignored) { }
+            try { ((AutoCloseable) b2).close(); } catch (Exception ignored) { }
+            testContext.completeNow();
+        })).onFailure(testContext::failNow);
+    }
+
+    // ============================================================
     // getImplementationType Tests
     // ============================================================
 
@@ -359,22 +450,28 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testIsHealthy_DatabaseServiceMode_Healthy() {
+    void testIsHealthy_DatabaseServiceMode_Healthy(VertxTestContext testContext) {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
-        boolean healthy = factory.isHealthy();
-
-        assertTrue(healthy);
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertTrue(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testIsHealthy_AfterClose_ReturnsFalse() throws Exception {
+    void testIsHealthy_AfterClose_ReturnsFalse(VertxTestContext testContext) throws Exception {
         OutboxFactory factory = new OutboxFactory(databaseService);
         factory.close();
 
-        boolean healthy = factory.isHealthy();
-
-        assertFalse(healthy);
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertFalse(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ============================================================
@@ -382,23 +479,33 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testClose_SuccessfullyClosesFactory() throws Exception {
+    void testClose_SuccessfullyClosesFactory(VertxTestContext testContext) throws Exception {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.close();
 
         // Verify factory is closed by checking isHealthy
-        assertFalse(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertFalse(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClose_IdempotentClose() throws Exception {
+    void testClose_IdempotentClose(VertxTestContext testContext) throws Exception {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.close();
         factory.close(); // Second close should not throw
 
-        assertFalse(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertFalse(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -435,24 +542,34 @@ class OutboxFactoryIntegrationTest {
     }
 
     @Test
-    void testCloseLegacy_SwallowsExceptions() {
+    void testCloseLegacy_SwallowsExceptions(VertxTestContext testContext) {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         // closeLegacy should not throw even if close() throws
         factory.closeLegacy();
 
         // Verify factory is closed
-        assertFalse(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertFalse(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCloseLegacy_IdempotentClose() {
+    void testCloseLegacy_IdempotentClose(VertxTestContext testContext) {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.closeLegacy();
         factory.closeLegacy(); // Second close should not throw
 
-        assertFalse(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertFalse(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ============================================================
@@ -493,7 +610,7 @@ class OutboxFactoryIntegrationTest {
     // ============================================================
 
     @Test
-    void testMultipleOperations_CreateProducerAndConsumer() {
+    void testMultipleOperations_CreateProducerAndConsumer(VertxTestContext testContext) {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         var producer = factory.createProducer("topic", String.class);
@@ -501,11 +618,16 @@ class OutboxFactoryIntegrationTest {
 
         assertNotNull(producer);
         assertNotNull(consumer);
-        assertTrue(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertTrue(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleOperations_CreateAllResourceTypes() {
+    void testMultipleOperations_CreateAllResourceTypes(VertxTestContext testContext) {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         var producer = factory.createProducer("topic", String.class);
@@ -515,11 +637,16 @@ class OutboxFactoryIntegrationTest {
         assertNotNull(producer);
         assertNotNull(consumer);
         assertNotNull(group);
-        assertTrue(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertTrue(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleOperations_CreateAndClose() throws Exception {
+    void testMultipleOperations_CreateAndClose(VertxTestContext testContext) throws Exception {
         OutboxFactory factory = new OutboxFactory(databaseService);
 
         factory.createProducer("topic1", String.class);
@@ -528,7 +655,12 @@ class OutboxFactoryIntegrationTest {
 
         factory.close();
 
-        assertFalse(factory.isHealthy());
+        factory.isHealthy()
+                .onSuccess(healthy -> testContext.verify(() -> {
+                    assertFalse(healthy);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ============================================================

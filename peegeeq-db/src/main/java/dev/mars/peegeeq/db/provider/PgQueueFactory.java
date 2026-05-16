@@ -42,8 +42,8 @@ public abstract class PgQueueFactory implements QueueFactory {
     public abstract String getImplementationType();
     
     @Override
-    public boolean isHealthy() {
-        return !closed && databaseService != null;
+    public io.vertx.core.Future<Boolean> isHealthy() {
+        return io.vertx.core.Future.succeededFuture(!closed && databaseService != null);
     }
     
     @Override

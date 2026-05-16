@@ -381,18 +381,28 @@ public class DatabaseSetupHandler {
         logger.debug("Listing queues for setup: {}", setupId);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(result -> {
-                    JsonArray queuesArray = new JsonArray();
+                .compose(result -> {
+                    java.util.List<io.vertx.core.Future<JsonObject>> queueFutures = new java.util.ArrayList<>();
                     for (var entry : result.getQueueFactories().entrySet()) {
                         String queueName = entry.getKey();
                         var factory = entry.getValue();
-                        JsonObject queueInfo = new JsonObject()
+                        queueFutures.add(factory.isHealthy().map(healthy -> new JsonObject()
                                 .put("queueName", queueName)
                                 .put("implementationType", factory.getImplementationType())
-                                .put("healthy", factory.isHealthy());
-                        queuesArray.add(queueInfo);
+                                .put("healthy", healthy)));
                     }
-
+                    if (queueFutures.isEmpty()) {
+                        return io.vertx.core.Future.succeededFuture(new JsonArray());
+                    }
+                    return io.vertx.core.Future.all(queueFutures).map(cf -> {
+                        JsonArray arr = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            arr.add(cf.<JsonObject>resultAt(i));
+                        }
+                        return arr;
+                    });
+                })
+                .onSuccess(queuesArray -> {
                     JsonObject response = new JsonObject()
                             .put("setupId", setupId)
                             .put("count", queuesArray.size())
