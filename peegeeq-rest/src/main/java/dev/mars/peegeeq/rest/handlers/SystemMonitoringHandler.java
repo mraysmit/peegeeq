@@ -533,42 +533,53 @@ public class SystemMonitoringHandler {
                         return Future.succeededFuture(agg);
                     }
 
-                    // Queues and Messages (synchronous no DB call)
+                    // Queues and Messages - aggregate pending messages reactively
                     Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
                     int setupQueues = queueFactories.size();
-                    long setupMessages = 0;
-                    for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
-                        try {
-                            var stats = entry.getValue().getStats(entry.getKey());
-                            setupMessages += stats.getPendingMessages();
-                        } catch (Exception e) {
-                            log.debug("Could not get stats for queue {}", entry.getKey(), e);
-                        }
-                    }
 
-                    // Event Stores (synchronous)
+                    // Update queue/event-store counts up front (no DB call)
                     int setupEventStores = setupResult.getEventStores().size();
-
-                    // Update accumulator with synchronous metrics
-                    long totalMessagesNow = agg.getLong("totalMessages", 0L) + setupMessages;
                     agg.put("totalQueues", agg.getInteger("totalQueues", 0) + setupQueues);
-                    agg.put("totalMessages", totalMessagesNow);
                     agg.put("totalEventStores", agg.getInteger("totalEventStores", 0) + setupEventStores);
 
-                    // Consumer Groups and Connections (async listSubscriptions returns Future)
-                    dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
-                            .getSubscriptionServiceForSetup(setupId);
-                    if (subService == null) {
-                        return Future.succeededFuture(agg);
+                    // Gather pending message counts via reactive getStats per topic
+                    java.util.List<Future<Long>> statFutures = new java.util.ArrayList<>();
+                    for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
+                        String topic = entry.getKey();
+                        statFutures.add(entry.getValue().getStats(topic)
+                                .map(s -> s.getPendingMessages()));
                     }
 
-                    // Collect subscription metrics for each topic sequentially
-                    Future<JsonObject> topicAccumulator = Future.succeededFuture(agg);
-                    for (String topic : queueFactories.keySet()) {
-                        topicAccumulator = topicAccumulator.compose(
-                                acc -> collectTopicSubscriptionMetrics(subService, topic, acc));
-                    }
-                    return topicAccumulator;
+                    Future<Long> setupMessagesFut = statFutures.isEmpty()
+                            ? Future.succeededFuture(0L)
+                            : Future.all(statFutures).map(cf -> {
+                                long sum = 0L;
+                                for (int i = 0; i < cf.size(); i++) {
+                                    Long v = cf.resultAt(i);
+                                    if (v != null) sum += v;
+                                }
+                                return sum;
+                            });
+
+                    return setupMessagesFut.compose(setupMessages -> {
+                        long totalMessagesNow = agg.getLong("totalMessages", 0L) + setupMessages;
+                        agg.put("totalMessages", totalMessagesNow);
+
+                        // Consumer Groups and Connections (async listSubscriptions returns Future)
+                        dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
+                                .getSubscriptionServiceForSetup(setupId);
+                        if (subService == null) {
+                            return Future.succeededFuture(agg);
+                        }
+
+                        // Collect subscription metrics for each topic sequentially
+                        Future<JsonObject> topicAccumulator = Future.succeededFuture(agg);
+                        for (String topic : queueFactories.keySet()) {
+                            topicAccumulator = topicAccumulator.compose(
+                                    acc -> collectTopicSubscriptionMetrics(subService, topic, acc));
+                        }
+                        return topicAccumulator;
+                    });
                 })
                 .transform(ar -> {
                     if (ar.failed()) {

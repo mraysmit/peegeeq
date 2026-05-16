@@ -31,6 +31,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.CountDownLatch;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -395,33 +396,43 @@ class NativeVsOutboxComparisonTest {
     }
     
     @Test
-    void testHealthAndResourceManagement() {
+    void testHealthAndResourceManagement(VertxTestContext testContext) {
         // Test that both implementations properly manage health and resources
-        assertTrue(nativeFactory.isHealthy());
-        assertTrue(outboxFactory.isHealthy());
-        
-        // Create resources with unique queue names
-        String healthTestQueueName = getUniqueQueueName("health-test");
-        MessageProducer<String> nativeProducer = nativeFactory.createProducer(healthTestQueueName, String.class);
-        MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(healthTestQueueName, String.class);
-        MessageProducer<String> outboxProducer = outboxFactory.createProducer(healthTestQueueName, String.class);
-        MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(healthTestQueueName, String.class);
-        
-        // Both should still be healthy
-        assertTrue(nativeFactory.isHealthy());
-        assertTrue(outboxFactory.isHealthy());
-        
-        // Close resources
-        nativeProducer.close();
-        nativeConsumer.close();
-        outboxProducer.close();
-        outboxConsumer.close();
-        
-        // Should still be healthy after cleanup
-        assertTrue(nativeFactory.isHealthy());
-        assertTrue(outboxFactory.isHealthy());
-        
-        logger.info("Health and resource management test passed");
+        io.vertx.core.Future.all(nativeFactory.isHealthy(), outboxFactory.isHealthy())
+                .compose(cf -> {
+                    assertTrue((Boolean) cf.resultAt(0));
+                    assertTrue((Boolean) cf.resultAt(1));
+
+                    // Create resources with unique queue names
+                    String healthTestQueueName = getUniqueQueueName("health-test");
+                    MessageProducer<String> nativeProducer = nativeFactory.createProducer(healthTestQueueName, String.class);
+                    MessageConsumer<String> nativeConsumer = nativeFactory.createConsumer(healthTestQueueName, String.class);
+                    MessageProducer<String> outboxProducer = outboxFactory.createProducer(healthTestQueueName, String.class);
+                    MessageConsumer<String> outboxConsumer = outboxFactory.createConsumer(healthTestQueueName, String.class);
+
+                    // Both should still be healthy
+                    return io.vertx.core.Future.all(nativeFactory.isHealthy(), outboxFactory.isHealthy())
+                            .compose(cf2 -> {
+                                assertTrue((Boolean) cf2.resultAt(0));
+                                assertTrue((Boolean) cf2.resultAt(1));
+
+                                // Close resources
+                                nativeProducer.close();
+                                nativeConsumer.close();
+                                outboxProducer.close();
+                                outboxConsumer.close();
+
+                                // Should still be healthy after cleanup
+                                return io.vertx.core.Future.all(nativeFactory.isHealthy(), outboxFactory.isHealthy());
+                            });
+                })
+                .onSuccess(cf -> testContext.verify(() -> {
+                    assertTrue((Boolean) cf.resultAt(0));
+                    assertTrue((Boolean) cf.resultAt(1));
+                    logger.info("Health and resource management test passed");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 }
 

@@ -333,13 +333,16 @@ public class QueueHandler {
                     }
 
                     // Get real stats from the queue factory
-                    boolean isHealthy = queueFactory.isHealthy();
                     String implementationType = queueFactory.getImplementationType();
 
-                    // Get real statistics from the database via QueueFactory.getStatsAsync()
-                    queueFactory.getStatsAsync(queueName)
-                        .onSuccess(stats -> {
+                    // Compose health check + stats query reactively (no blocking)
+                    queueFactory.isHealthy()
+                        .compose(isHealthy -> queueFactory.getStats(queueName)
+                            .map(stats -> new Object[]{isHealthy, stats}))
+                        .onSuccess(pair -> {
                             try {
+                                boolean isHealthy = (boolean) pair[0];
+                                var stats = (dev.mars.peegeeq.api.messaging.QueueStats) pair[1];
                                 // Build response with real statistics
                                 JsonObject response = new JsonObject()
                                     .put("queueName", queueName)

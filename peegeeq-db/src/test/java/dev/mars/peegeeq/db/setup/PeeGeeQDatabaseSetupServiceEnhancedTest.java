@@ -160,29 +160,34 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                     assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Setup should be active");
                     assertFalse(result.getQueueFactories().isEmpty(), "Should have created queue factories");
 
+                    java.util.List<io.vertx.core.Future<?>> healthFutures = new java.util.ArrayList<>();
                     for (Map.Entry<String, QueueFactory> entry : result.getQueueFactories().entrySet()) {
                         String queueName = entry.getKey();
                         QueueFactory factory = entry.getValue();
 
                         logger.info("Testing factory for queue: {}", queueName);
-                        
-                        assertNotNull(factory, "Factory should not be null");
-                        assertTrue(factory.isHealthy(), "Factory should be healthy");
 
-                        // Test creating producer and consumer
-                        assertDoesNotThrow(() -> {
-                            var producer = factory.createProducer(queueName, String.class);
-                            var consumer = factory.createConsumer(queueName, String.class);
-                            
-                            assertNotNull(producer, "Producer should be created");
-                            assertNotNull(consumer, "Consumer should be created");
-                            
-                            producer.close();
-                            consumer.close();
-                        });
+                        assertNotNull(factory, "Factory should not be null");
+                        healthFutures.add(factory.isHealthy().map(healthy -> {
+                            assertTrue(healthy, "Factory should be healthy");
+
+                            // Test creating producer and consumer
+                            assertDoesNotThrow(() -> {
+                                var producer = factory.createProducer(queueName, String.class);
+                                var consumer = factory.createConsumer(queueName, String.class);
+
+                                assertNotNull(producer, "Producer should be created");
+                                assertNotNull(consumer, "Consumer should be created");
+
+                                producer.close();
+                                consumer.close();
+                            });
+                            return (Void) null;
+                        }));
                     }
 
-                    return setupService.destroySetup(testSetupId);
+                    return io.vertx.core.Future.all(healthFutures)
+                            .compose(cf -> setupService.destroySetup(testSetupId));
                 })
                 .onSuccess(v -> {
                     logger.info("Queue factory creation and usage test passed");

@@ -18,18 +18,22 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * PROBLEM DEMONSTRATION: Why System properties MUST NOT be used to configure PeeGeeQ instances.
+ * REGRESSION GUARD: System properties MUST NOT leak into {@link PeeGeeQConfiguration}.
  *
- * <p>This test class demonstrates the multi-tenant contamination defect caused by
- * {@code PeeGeeQConfiguration.loadProperties()} sweeping process-wide JVM System properties
- * on every construction. System properties are a single global namespace shared by ALL
- * threads and ALL PeeGeeQ instances in the same JVM. Two tenants cannot hold different
- * values for the same {@code peegeeq.*} key simultaneously.
+ * <p>Historically {@code PeeGeeQConfiguration.loadProperties()} swept process-wide JVM
+ * System properties on every construction. That created a multi-tenant contamination
+ * defect: System properties are a single global namespace shared by ALL threads and ALL
+ * PeeGeeQ instances in the same JVM, so two tenants could not hold different values for
+ * the same {@code peegeeq.*} key simultaneously. The sweep has been removed.
  *
- * <p><b>These tests prove the defect, not a solution. Do not copy these System.setProperty
- * patterns.</b> The correct isolation pattern is demonstrated in the final test: build a
- * {@code Properties} object via {@code PeeGeeQTestConfig.builder()} and pass it to the
- * 2-arg constructor {@code new PeeGeeQConfiguration(profile, props)}.
+ * <p>The tests in this class are <b>regression guards</b> that fail if the sweep is
+ * reintroduced. They write {@code peegeeq.*} values into the JVM-global System property
+ * table and assert that fresh {@code PeeGeeQConfiguration} instances do <i>not</i>
+ * observe those values — the default supplied to {@code getInt} must win.
+ *
+ * <p>The correct isolation pattern is shown in {@link #builderPatternProvidesCompleteIsolation()}:
+ * build a {@code Properties} object via {@code PeeGeeQTestConfig.builder()} and pass it
+ * to the 2-arg constructor {@code new PeeGeeQConfiguration(profile, props)}.
  *
  * @see PeeGeeQTestConfig for the correct isolation pattern
  */
@@ -53,17 +57,19 @@ class SystemPropertiesConfigurationDemoTest {
     // -------------------------------------------------------------------------
 
     /**
-     * PROBLEM: A System property written anywhere in the JVM bleeds into every
-     * {@code PeeGeeQConfiguration} constructed afterwards that does not explicitly
-     * override that key via the 2-arg constructor.
+     * REGRESSION GUARD: A System property written anywhere in the JVM must NOT bleed into
+     * a {@code PeeGeeQConfiguration} that did not request it via the 2-arg constructor's
+     * overrides argument.
      *
      * <p>Scenario: some other component (another tenant, a Spring bean, a tuning tool)
-     * sets {@code peegeeq.queue.batch-size} in System. Our instance never asked for
-     * that value, but {@code loadProperties()} sweeps it in silently on construction.
+     * sets {@code peegeeq.queue.batch-size} in System. Our instance never asked for that
+     * value, so {@code getInt(key, 10)} must return the supplied default (10) — not the
+     * System property value. If this test fails with {@code expected: <10> but was: <999>}
+     * the System property sweep has been reintroduced.
      */
     @Test
-    @DisplayName("PROBLEM: System property set by any code contaminates all subsequent instances")
-    void systemPropertyContaminatesUnrelatedInstances() {
+    @DisplayName("REGRESSION GUARD: System property set by unrelated code does NOT contaminate other instances")
+    void systemPropertyDoesNotContaminateUnrelatedInstances() {
         // DB params for our instance — correct builder pattern, no batch-size set
         Properties baseProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
@@ -73,56 +79,60 @@ class SystemPropertiesConfigurationDemoTest {
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", baseProps);
             int batchSize = config.getInt(BATCH_SIZE_KEY, 10);
 
-            logger.warn("CONTAMINATION CONFIRMED: expected default=10, actual batch-size={}", batchSize);
-            logger.warn("Value 999 was written by unrelated code — our instance never requested it.");
+            logger.info("ISOLATION CONFIRMED: System.setProperty(\"{}\", \"999\") did not leak; got batch-size={}",
+                BATCH_SIZE_KEY, batchSize);
 
-            assertEquals(999, batchSize,
-                "DEFECT: System.setProperty by unrelated code silently overrides our instance's " +
-                "configuration. loadProperties() sweeps ALL peegeeq.* System properties on every construction.");
+            assertEquals(10, batchSize,
+                "REGRESSION: System.setProperty by unrelated code leaked into a config that did not " +
+                "request it. PeeGeeQConfiguration.loadProperties() must not sweep peegeeq.* System properties.");
         } finally {
             System.clearProperty(BATCH_SIZE_KEY);
         }
     }
 
     /**
-     * PROBLEM: The last {@code System.setProperty} call wins for ALL instances
-     * constructed afterwards — regardless of which tenant intended the write.
+     * REGRESSION GUARD: Sequential {@code System.setProperty} writes by different tenants
+     * must NOT influence any {@code PeeGeeQConfiguration} that did not declare those values
+     * in its explicit overrides.
      *
-     * <p>Scenario: Tenant A and Tenant B initialise sequentially in the same JVM,
-     * each setting their desired {@code peegeeq.queue.batch-size}. Tenant A constructs
-     * its config, then Tenant B sets its (different) value. Any subsequent reconstruction
-     * of Tenant A's config — on reconnect, reload, or failover — silently inherits
-     * Tenant B's value. The two values cannot coexist in System properties simultaneously.
+     * <p>Scenario: Tenant A and Tenant B initialise sequentially in the same JVM. Each
+     * writes its desired {@code peegeeq.queue.batch-size} to System properties (a thing
+     * neither tenant should do, but we simulate it here to prove the sweep is gone). Both
+     * tenants construct configs without supplying batch-size in overrides. Every
+     * {@code getInt(key, 10)} call must return the supplied default (10), regardless of
+     * which value was most recently written to System.
      */
     @Test
-    @DisplayName("PROBLEM: Last writer wins — two tenants cannot hold different values for the same key")
-    void lastWriterWins_multiTenantContamination() {
+    @DisplayName("REGRESSION GUARD: Sequential System.setProperty writes do NOT contaminate independent tenants")
+    void sequentialSystemPropertyWritesDoNotContaminateTenants() {
         Properties propsA = PeeGeeQTestConfig.builder().from(postgres).build();
         Properties propsB = PeeGeeQTestConfig.builder().from(postgres).build();
 
         try {
-            // Tenant A sets its desired batch size and constructs
+            // Tenant A writes its desired batch size to System and constructs.
             System.setProperty(BATCH_SIZE_KEY, "7");
             PeeGeeQConfiguration tenantAFirst = new PeeGeeQConfiguration("default", propsA);
-            assertEquals(7, tenantAFirst.getInt(BATCH_SIZE_KEY, -1),
-                "Tenant A initially reads its own value — looks correct so far");
+            assertEquals(10, tenantAFirst.getInt(BATCH_SIZE_KEY, 10),
+                "REGRESSION: Tenant A's config picked up its own System.setProperty(\"7\"). " +
+                "The sweep must remain removed; only explicit overrides should win.");
 
-            // Tenant B sets its desired batch size and constructs — overwrites A's global value
+            // Tenant B writes a different value to System and constructs.
             System.setProperty(BATCH_SIZE_KEY, "13");
             PeeGeeQConfiguration tenantBConfig = new PeeGeeQConfiguration("default", propsB);
-            assertEquals(13, tenantBConfig.getInt(BATCH_SIZE_KEY, -1),
-                "Tenant B reads its own value — still looks correct");
+            assertEquals(10, tenantBConfig.getInt(BATCH_SIZE_KEY, 10),
+                "REGRESSION: Tenant B's config picked up its own System.setProperty(\"13\"). " +
+                "The sweep must remain removed; only explicit overrides should win.");
 
-            // Tenant A reconnects or its config is reconstructed (connection pool reset, etc.)
+            // Tenant A reconnects or its config is reconstructed.
             PeeGeeQConfiguration tenantAReconstructed = new PeeGeeQConfiguration("default", propsA);
-            int tenantABatchSize = tenantAReconstructed.getInt(BATCH_SIZE_KEY, -1);
+            int tenantABatchSize = tenantAReconstructed.getInt(BATCH_SIZE_KEY, 10);
 
-            logger.warn("CONTAMINATION CONFIRMED: Tenant A's reconstructed config has batch-size={}, " +
-                "but Tenant A asked for 7. Tenant B's System.setProperty(\"...\", \"13\") won.", tenantABatchSize);
+            logger.info("ISOLATION CONFIRMED: tenantA reconstructed batch-size={} — unaffected by " +
+                "either System.setProperty write (7 or 13).", tenantABatchSize);
 
-            assertEquals(13, tenantABatchSize,
-                "DEFECT: Tenant A's config is contaminated by Tenant B's System.setProperty. " +
-                "Two tenants cannot hold different values for the same System property key simultaneously.");
+            assertEquals(10, tenantABatchSize,
+                "REGRESSION: Tenant A's reconstructed config was contaminated by a System property. " +
+                "Two tenants must be able to coexist without leaking through JVM-global state.");
         } finally {
             System.clearProperty(BATCH_SIZE_KEY);
         }

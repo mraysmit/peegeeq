@@ -197,10 +197,6 @@ public class OrderController {
             });
     }
 
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
     private static <T> Future<T> toCompletableFuture(io.vertx.core.Future<T> future) {
         return future;
     }

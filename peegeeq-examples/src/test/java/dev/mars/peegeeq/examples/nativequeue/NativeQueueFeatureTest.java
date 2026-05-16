@@ -312,34 +312,42 @@ class NativeQueueFeatureTest {
     }
     
     @Test
-    void testNativeFactoryResourceManagement() throws Exception {
+    void testNativeFactoryResourceManagement(VertxTestContext testContext) throws Exception {
         // Test that native factory properly manages resources
-        assertTrue(nativeFactory.isHealthy());
-        
-        // Create multiple producers and consumers
-        List<MessageProducer<String>> producers = new ArrayList<>();
-        List<MessageConsumer<String>> consumers = new ArrayList<>();
-        
-        for (int i = 0; i < 5; i++) {
-            producers.add(nativeFactory.createProducer("resource-test-" + i, String.class));
-            consumers.add(nativeFactory.createConsumer("resource-test-" + i, String.class));
-        }
-        
-        // Verify all are healthy
-        assertTrue(nativeFactory.isHealthy());
-        
-        // Close all resources
-        for (MessageProducer<String> producer : producers) {
-            producer.close();
-        }
-        for (MessageConsumer<String> consumer : consumers) {
-            consumer.close();
-        }
-        
-        // Factory should still be healthy
-        assertTrue(nativeFactory.isHealthy());
-        
-        logger.info("Native factory resource management test passed");
+        nativeFactory.isHealthy()
+                .compose(h1 -> {
+                    assertTrue(h1);
+
+                    // Create multiple producers and consumers
+                    List<MessageProducer<String>> producers = new ArrayList<>();
+                    List<MessageConsumer<String>> consumers = new ArrayList<>();
+                    for (int i = 0; i < 5; i++) {
+                        producers.add(nativeFactory.createProducer("resource-test-" + i, String.class));
+                        consumers.add(nativeFactory.createConsumer("resource-test-" + i, String.class));
+                    }
+
+                    // Verify all are healthy
+                    return nativeFactory.isHealthy().compose(h2 -> {
+                        assertTrue(h2);
+
+                        // Close all resources
+                        for (MessageProducer<String> producer : producers) {
+                            producer.close();
+                        }
+                        for (MessageConsumer<String> consumer : consumers) {
+                            consumer.close();
+                        }
+
+                        // Factory should still be healthy
+                        return nativeFactory.isHealthy();
+                    });
+                })
+                .onSuccess(h3 -> testContext.verify(() -> {
+                    assertTrue(h3);
+                    logger.info("Native factory resource management test passed");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     /**
