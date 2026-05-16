@@ -172,11 +172,16 @@ public class ManagementApiHandler {
                         QueueFactory factory = entry.getValue();
                         queueFutures.add(
                                 getRealConsumerCount(setupResult, queueName).compose(consumerCount ->
-                                    factory.countMessagesAsync(queueName)
-                                        .otherwise(0L)
-                                        .map(messageCount -> {
-                                            double messageRate = getRealMessageRate(setupResult, queueName);
-                                            double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                                    Future.all(
+                                            factory.countMessages(queueName),
+                                            getRealMessageRate(setupResult, queueName),
+                                            getRealAvgProcessingTime(setupResult, queueName),
+                                            factory.isHealthy()
+                                    ).map(cf -> {
+                                            long messageCount = cf.resultAt(0);
+                                            double messageRate = cf.resultAt(1);
+                                            double avgProcessingTime = cf.resultAt(2);
+                                            boolean healthy = cf.resultAt(3);
                                             JsonObject statistics = new JsonObject()
                                                     .put("totalMessages", messageCount)
                                                     .put("activeConsumers", consumerCount)
@@ -189,7 +194,7 @@ public class ManagementApiHandler {
                                                     .put("name", queueName)
                                                     .put("type", factory.getImplementationType())
                                                     .put("implementationType", factory.getImplementationType())
-                                                    .put("status", factory.isHealthy() ? "active" : "error")
+                                                    .put("status", healthy ? "active" : "error")
                                                     .put("messageCount", messageCount)
                                                     .put("messages", messageCount)
                                                     .put("consumerCount", consumerCount)
@@ -689,45 +694,13 @@ public class ManagementApiHandler {
      * Get real message rate for a specific queue.
      * Uses QueueFactory.getStats() to get the actual messages per second rate.
      */
-    private double getRealMessageRate(DatabaseSetupResult setupResult, String queueName) {
-        try {
-            var queueFactory = setupResult.getQueueFactories().get(queueName);
-            if (queueFactory != null) {
-                var stats = queueFactory.getStats(queueName);
-                return stats.getMessagesPerSecond();
-            }
-            return 0.0;
-        } catch (Exception e) {
-            logger.debug("Failed to get real message rate for queue {}: {}", queueName, e.getMessage());
-            return 0.0;
+    private Future<Double> getRealMessageRate(DatabaseSetupResult setupResult, String queueName) {
+        var queueFactory = setupResult.getQueueFactories().get(queueName);
+        if (queueFactory == null) {
+            return Future.succeededFuture(0.0);
         }
-    }
-
-    /**
-     * Get real consumer rate for a specific queue.
-     * Consumer rate is derived from processed messages per second.
-     * Uses QueueFactory.getStats() to calculate based on processing time.
-     */
-    private double getRealConsumerRate(DatabaseSetupResult setupResult, String queueName) {
-        try {
-            var queueFactory = setupResult.getQueueFactories().get(queueName);
-            if (queueFactory != null) {
-                var stats = queueFactory.getStats(queueName);
-                // Consumer rate is effectively the same as message rate for processed messages
-                // If we have avg processing time, we can estimate throughput
-                double avgTimeMs = stats.getAvgProcessingTimeMs();
-                if (avgTimeMs > 0) {
-                    // Theoretical max rate based on processing time
-                    return 1000.0 / avgTimeMs;
-                }
-                // Fall back to message rate as a proxy for consumer rate
-                return stats.getMessagesPerSecond();
-            }
-            return 0.0;
-        } catch (Exception e) {
-            logger.debug("Failed to get real consumer rate for queue {}: {}", queueName, e.getMessage());
-            return 0.0;
-        }
+        return queueFactory.getStats(queueName)
+                .map(stats -> stats.getMessagesPerSecond());
     }
 
     /**
@@ -735,18 +708,13 @@ public class ManagementApiHandler {
      * Uses QueueFactory.getStats() to get the actual average processing time in
      * milliseconds.
      */
-    private double getRealAvgProcessingTime(DatabaseSetupResult setupResult, String queueName) {
-        try {
-            var queueFactory = setupResult.getQueueFactories().get(queueName);
-            if (queueFactory != null) {
-                var stats = queueFactory.getStats(queueName);
-                return stats.getAvgProcessingTimeMs();
-            }
-            return 0.0;
-        } catch (Exception e) {
-            logger.debug("Failed to get real avg processing time for queue {}: {}", queueName, e.getMessage());
-            return 0.0;
+    private Future<Double> getRealAvgProcessingTime(DatabaseSetupResult setupResult, String queueName) {
+        var queueFactory = setupResult.getQueueFactories().get(queueName);
+        if (queueFactory == null) {
+            return Future.succeededFuture(0.0);
         }
+        return queueFactory.getStats(queueName)
+                .map(stats -> stats.getAvgProcessingTimeMs());
     }
 
     /**
@@ -955,8 +923,8 @@ public class ManagementApiHandler {
                         return Future.succeededFuture(new JsonArray());
                     }
                     logger.info("Retrieving messages from setup: {}, queue: {}", setupId, queueName);
-                    var browser = queueFactory.createBrowser(queueName, Object.class);
-                    return browser.browse(limit, offset)
+                    return queueFactory.<Object>createBrowser(queueName, Object.class).compose(browser ->
+                        browser.browse(limit, offset)
                             .map(messageList -> {
                                 JsonArray messages = new JsonArray();
                                 for (var message : messageList) {
@@ -978,7 +946,7 @@ public class ManagementApiHandler {
                             .eventually(() -> {
                                 try { browser.close(); } catch (Exception ignored) { }
                                 return Future.succeededFuture();
-                            });
+                            }));
                 })
                 .transform(ar -> {
                     if (ar.failed()) {
@@ -1602,26 +1570,6 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Gets real message count for a specific queue using QueueFactory.getStats().
-     */
-    private long getRealMessageCount(DatabaseSetupResult setupResult, String queueName) {
-        try {
-            QueueFactory factory = setupResult.getQueueFactories().get(queueName);
-            if (factory == null) {
-                return 0;
-            }
-
-            // Get real stats from the database via QueueFactory.getStats()
-            var stats = factory.getStats(queueName);
-            return stats.getTotalMessages();
-
-        } catch (Exception e) {
-            logger.debug("Error getting real message count for queue {}: {}", queueName, e.getMessage());
-            return 0;
-        }
-    }
-
-    /**
      * Gets real consumer count for a specific queue using SubscriptionService.
      *
      * Counts the number of active subscriptions for the given queue/topic.
@@ -1682,11 +1630,16 @@ public class ManagementApiHandler {
 
                     getRealConsumerCount(setupResult, queueName)
                             .compose(consumerCount ->
-                                queueFactory.countMessagesAsync(queueName)
-                                    .otherwise(0L)
-                                    .map(messageCount -> {
-                                        double messageRate = getRealMessageRate(setupResult, queueName);
-                                        double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                                Future.all(
+                                        queueFactory.countMessages(queueName),
+                                        getRealMessageRate(setupResult, queueName),
+                                        getRealAvgProcessingTime(setupResult, queueName),
+                                        queueFactory.isHealthy()
+                                ).map(cf -> {
+                                        long messageCount = cf.resultAt(0);
+                                        double messageRate = cf.resultAt(1);
+                                        double avgProcessingTime = cf.resultAt(2);
+                                        boolean healthy = cf.resultAt(3);
 
                                         JsonObject statistics = new JsonObject()
                                                 .put("totalMessages", messageCount)
@@ -1698,7 +1651,7 @@ public class ManagementApiHandler {
                                                 .put("name", queueName)
                                                 .put("setup", setupId)
                                                 .put("implementationType", queueFactory.getImplementationType())
-                                                .put("status", queueFactory.isHealthy() ? "active" : "error")
+                                                .put("status", healthy ? "active" : "error")
                                                 .put("messages", messageCount)
                                                 .put("consumers", consumerCount)
                                                 .put("statistics", statistics)
@@ -1894,8 +1847,8 @@ public class ManagementApiHandler {
                         return;
                     }
 
-                    var browser = queueFactory.createBrowser(queueName, Object.class);
-                    browser.browse(count, offset)
+                    queueFactory.<Object>createBrowser(queueName, Object.class).compose(browser ->
+                        browser.browse(count, offset)
                             .map(messageList -> {
                                 JsonArray messages = new JsonArray();
                                 for (var message : messageList) {
@@ -1937,7 +1890,11 @@ public class ManagementApiHandler {
                                 try { browser.close(); } catch (Exception ignored) { }
                                 logger.error("Error browsing messages for setup: {}, queue: {}", setupId, queueName, e);
                                 sendError(ctx, 500, "Failed to browse messages: " + e.getMessage());
-                            });
+                            }))
+                        .onFailure(e -> {
+                            logger.error("Error creating browser for setup: {}, queue: {}", setupId, queueName, e);
+                            sendError(ctx, 500, "Failed to create browser: " + e.getMessage());
+                        });
                 })
                 .onFailure(throwable -> {
                     logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);
@@ -1993,7 +1950,7 @@ public class ManagementApiHandler {
                     String implementationType = queueFactory.getImplementationType();
                     logger.info("Purging queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
 
-                    queueFactory.purgeMessagesAsync(queueName)
+                    queueFactory.purgeMessages(queueName)
                             .onSuccess(deletedCount -> {
                                 logger.info("Purged {} messages from queue: {} (type: {})",
                                         deletedCount, queueName, implementationType);
@@ -2164,14 +2121,14 @@ public class ManagementApiHandler {
                     String implementationType = queueFactory.getImplementationType();
                     logger.info("Deleting queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
 
-                    queueFactory.countMessagesAsync(queueName)
+                    queueFactory.countMessages(queueName)
                                 .compose(messageCount -> {
                                     if (messageCount > 0) {
                                         logger.warn("Queue {} has {} messages. Deleting anyway.", queueName,
                                                 messageCount);
                                     }
 
-                                    return queueFactory.purgeMessagesAsync(queueName)
+                                    return queueFactory.purgeMessages(queueName)
                                             .map(deletedCount -> {
                                                 logger.info("Deleted {} messages from queue: {}", deletedCount,
                                                         queueName);

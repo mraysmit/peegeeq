@@ -18,6 +18,7 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
@@ -124,7 +125,7 @@ class MultiConfigurationIntegrationTest {
      * Configures system properties to use the TestContainer database.
      */
     @Test
-    void testMultipleQueueConfigurationsInSameApplication(Vertx vertx) throws Exception {
+    void testMultipleQueueConfigurationsInSameApplication(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing multiple queue configurations in same application");
 
         // Create different queue factories for different use cases (using outbox due to native compatibility issues)
@@ -132,28 +133,32 @@ class MultiConfigurationIntegrationTest {
         QueueFactory realTimeQueue = configManager.createFactory("low-latency", "outbox");
         QueueFactory transactionalQueue = configManager.createFactory("reliable", "outbox");
 
-        // Verify all factories are healthy
-        assertTrue(batchProcessingQueue.isHealthy());
-        assertTrue(realTimeQueue.isHealthy());
-        assertTrue(transactionalQueue.isHealthy());
+        // Verify all factories are healthy, then run the per-queue tests, then clean up
+        io.vertx.core.Future.all(
+                        batchProcessingQueue.isHealthy(),
+                        realTimeQueue.isHealthy(),
+                        transactionalQueue.isHealthy())
+                .onSuccess(cf -> testContext.verify(() -> {
+                    assertTrue((Boolean) cf.resultAt(0));
+                    assertTrue((Boolean) cf.resultAt(1));
+                    assertTrue((Boolean) cf.resultAt(2));
 
-        // Test batch processing queue
-        testBatchProcessing(batchProcessingQueue);
-
-        // Test real-time queue
-        testRealTimeProcessing(realTimeQueue, vertx);
-
-        // Test transactional queue
-        testTransactionalProcessing(transactionalQueue);
-
-        // Clean up
-        batchProcessingQueue.close();
-        realTimeQueue.close();
-        transactionalQueue.close();
+                    try {
+                        testBatchProcessing(batchProcessingQueue);
+                        testRealTimeProcessing(realTimeQueue, vertx);
+                        testTransactionalProcessing(transactionalQueue);
+                    } finally {
+                        batchProcessingQueue.close();
+                        realTimeQueue.close();
+                        transactionalQueue.close();
+                    }
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
-    void testConfigurationBuilderIntegration() throws Exception {
+    void testConfigurationBuilderIntegration(VertxTestContext testContext) throws Exception {
         logger.info("Testing configuration builder integration");
 
         // Create specialized queues using the registered factory provider
@@ -161,20 +166,27 @@ class MultiConfigurationIntegrationTest {
         QueueFactory reliableQueue2 = configManager.createFactory("test", "outbox");
         QueueFactory reliableQueue3 = configManager.createFactory("test", "outbox");
 
-        // Verify all queues are healthy
-        assertTrue(reliableQueue1.isHealthy());
-        assertTrue(reliableQueue2.isHealthy());
-        assertTrue(reliableQueue3.isHealthy());
+        io.vertx.core.Future.all(
+                        reliableQueue1.isHealthy(),
+                        reliableQueue2.isHealthy(),
+                        reliableQueue3.isHealthy())
+                .onSuccess(cf -> testContext.verify(() -> {
+                    assertTrue((Boolean) cf.resultAt(0));
+                    assertTrue((Boolean) cf.resultAt(1));
+                    assertTrue((Boolean) cf.resultAt(2));
 
-        // Test that they all use outbox implementation (since native is not available)
-        assertEquals("outbox", reliableQueue1.getImplementationType());
-        assertEquals("outbox", reliableQueue2.getImplementationType());
-        assertEquals("outbox", reliableQueue3.getImplementationType());
+                    // Test that they all use outbox implementation (since native is not available)
+                    assertEquals("outbox", reliableQueue1.getImplementationType());
+                    assertEquals("outbox", reliableQueue2.getImplementationType());
+                    assertEquals("outbox", reliableQueue3.getImplementationType());
 
-        // Clean up
-        reliableQueue1.close();
-        reliableQueue2.close();
-        reliableQueue3.close();
+                    // Clean up
+                    reliableQueue1.close();
+                    reliableQueue2.close();
+                    reliableQueue3.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test

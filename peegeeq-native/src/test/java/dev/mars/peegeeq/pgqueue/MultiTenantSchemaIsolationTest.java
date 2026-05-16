@@ -236,10 +236,10 @@ class MultiTenantSchemaIsolationTest {
         logger.info("Tenant B sent 3 messages");
 
         // Get stats for tenant A
-        QueueStats statsA = factoryTenantA.getStatsAsync("stats-queue").await();
+        QueueStats statsA = factoryTenantA.getStats("stats-queue").await();
 
         // Get stats for tenant B
-        QueueStats statsB = factoryTenantB.getStatsAsync("stats-queue").await();
+        QueueStats statsB = factoryTenantB.getStats("stats-queue").await();
 
         // Verify stats are isolated
         assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");

@@ -295,27 +295,32 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
-    public synchronized <T> QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
-        checkNotClosed();
-        assertNotEventLoopForBlocking("createBrowser()", "use a worker thread for browser creation");
+    public <T> io.vertx.core.Future<QueueBrowser<T>> createBrowser(String topic, Class<T> payloadType) {
+        try {
+            checkNotClosed();
+        } catch (IllegalStateException e) {
+            return io.vertx.core.Future.failedFuture(e);
+        }
         logger.debug("Creating browser for topic: {}", topic);
 
         if (topic == null || topic.trim().isEmpty()) {
-            throw new IllegalArgumentException("Topic cannot be null or empty");
+            return io.vertx.core.Future.failedFuture(new IllegalArgumentException("Topic cannot be null or empty"));
         }
         if (payloadType == null) {
-            throw new IllegalArgumentException("Payload type cannot be null");
+            return io.vertx.core.Future.failedFuture(new IllegalArgumentException("Payload type cannot be null"));
         }
 
-        io.vertx.sqlclient.Pool pool = getPoolBlocking();
-        if (pool == null) {
-            throw new IllegalStateException("Pool not available for browser creation");
-        }
-
-        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq";
-        OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
-        createdResources.add(browser);
-        return browser;
+        return getPool().compose(pool -> {
+            if (pool == null) {
+                return io.vertx.core.Future.failedFuture(new IllegalStateException("Pool not available for browser creation"));
+            }
+            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq";
+            OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
+            synchronized (this) {
+                createdResources.add(browser);
+            }
+            return io.vertx.core.Future.succeededFuture(browser);
+        });
     }
 
     @Override
@@ -324,30 +329,7 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
-    public boolean isHealthy() {
-        assertNotEventLoopForBlocking("isHealthy()", "use isHealthyAsync() on Vert.x contexts");
-        if (closed.get()) {
-            return false;
-        }
-
-        try {
-            if (databaseService != null) {
-                // Prefer a real reactive health probe via ConnectionProvider
-                return databaseService.getConnectionProvider()
-                        .isHealthy()
-                        .toCompletionStage()
-                        .toCompletableFuture()
-                        .get(2, java.util.concurrent.TimeUnit.SECONDS);
-            }
-            return false;
-        } catch (Exception e) {
-            logger.warn("Health check failed for outbox queue factory", e);
-            return false;
-        }
-    }
-
-    @Override
-    public io.vertx.core.Future<Boolean> isHealthyAsync() {
+    public io.vertx.core.Future<Boolean> isHealthy() {
         if (closed.get()) {
             return io.vertx.core.Future.succeededFuture(false);
         }
@@ -368,75 +350,7 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
-    public QueueStats getStats(String topic) {
-        checkNotClosed();
-        assertNotEventLoopForBlocking("getStats()", "use getStatsAsync() on Vert.x contexts");
-        logger.debug("Getting stats for topic: {}", topic);
-
-        try {
-            // Query the outbox table for statistics
-            String sql = """
-                    SELECT
-                        COUNT(*) as total,
-                        COUNT(*) FILTER (WHERE status = 'PENDING') as pending,
-                        COUNT(*) FILTER (WHERE status = 'COMPLETED') as processed,
-                        COUNT(*) FILTER (WHERE status = 'PROCESSING') as in_flight,
-                        COUNT(*) FILTER (WHERE status = 'DEAD_LETTER') as dead_lettered,
-                        MIN(created_at) as first_message,
-                        MAX(created_at) as last_message
-                    FROM %s.outbox
-                    WHERE topic = $1
-                    """.formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
-
-            io.vertx.sqlclient.Pool pool = getPoolBlocking();
-            if (pool == null) {
-                logger.warn("Pool not available for stats query");
-                return QueueStats.basic(topic, 0, 0, 0);
-            }
-
-            var result = pool.preparedQuery(sql)
-                    .execute(io.vertx.sqlclient.Tuple.of(topic))
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .get(5, java.util.concurrent.TimeUnit.SECONDS);
-
-            if (result.rowCount() == 0) {
-                return QueueStats.basic(topic, 0, 0, 0);
-            }
-
-            var row = result.iterator().next();
-            long total = row.getLong("total");
-            long pending = row.getLong("pending");
-            long processed = row.getLong("processed");
-            long inFlight = row.getLong("in_flight");
-            long deadLettered = row.getLong("dead_lettered");
-            java.time.Instant firstMessage = row.getLocalDateTime("first_message") != null
-                    ? row.getLocalDateTime("first_message").toInstant(java.time.ZoneOffset.UTC)
-                    : null;
-            java.time.Instant lastMessage = row.getLocalDateTime("last_message") != null
-                    ? row.getLocalDateTime("last_message").toInstant(java.time.ZoneOffset.UTC)
-                    : null;
-
-            // Calculate messages per second (rough estimate based on time range)
-            double messagesPerSecond = 0.0;
-            if (firstMessage != null && lastMessage != null && total > 1) {
-                long durationSeconds = java.time.Duration.between(firstMessage, lastMessage).getSeconds();
-                if (durationSeconds > 0) {
-                    messagesPerSecond = (double) total / durationSeconds;
-                }
-            }
-
-            return new dev.mars.peegeeq.api.messaging.QueueStats(
-                    topic, total, pending, processed, inFlight, deadLettered,
-                    messagesPerSecond, 0.0, firstMessage, lastMessage);
-        } catch (Exception e) {
-            logger.warn("Failed to get stats for topic {}: {}", topic, e.getMessage());
-            return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
-        }
-    }
-
-    @Override
-    public io.vertx.core.Future<QueueStats> getStatsAsync(String topic) {
+    public io.vertx.core.Future<QueueStats> getStats(String topic) {
         if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
@@ -501,7 +415,7 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
-    public io.vertx.core.Future<Long> countMessagesAsync(String topic) {
+    public io.vertx.core.Future<Long> countMessages(String topic) {
         if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
@@ -522,7 +436,7 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
-    public io.vertx.core.Future<Integer> purgeMessagesAsync(String topic) {
+    public io.vertx.core.Future<Integer> purgeMessages(String topic) {
         if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
@@ -549,24 +463,6 @@ public class OutboxFactory implements QueueFactory {
             return databaseService.getConnectionProvider().getReactivePool(clientId);
         }
         return io.vertx.core.Future.succeededFuture(null);
-    }
-
-    private io.vertx.sqlclient.Pool getPoolBlocking() {
-        assertNotEventLoopForBlocking("getPoolBlocking()", "use async pool acquisition on Vert.x contexts");
-        // clientId can be null - ConnectionProvider resolves null to the default pool
-        try {
-            if (databaseService != null) {
-                // Use the same pattern as OutboxProducer.getReactivePoolFuture()
-                return databaseService.getConnectionProvider()
-                        .getReactivePool(clientId)
-                        .toCompletionStage()
-                        .toCompletableFuture()
-                        .get(5, java.util.concurrent.TimeUnit.SECONDS);
-            }
-        } catch (Exception e) {
-            logger.warn("Could not get pool for stats query: {}", e.getMessage());
-        }
-        return null;
     }
 
     /**

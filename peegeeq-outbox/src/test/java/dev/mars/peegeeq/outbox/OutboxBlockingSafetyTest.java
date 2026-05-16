@@ -22,15 +22,9 @@ class OutboxBlockingSafetyTest {
         try {
             OutboxFactory factory = new OutboxFactory(null);
 
-            Throwable isHealthyError = invokeOnEventLoop(vertx, factory::isHealthy);
-            assertIllegalStateWithMessage(isHealthyError, "Do not call blocking isHealthy() on event-loop thread");
-
-            Throwable getStatsError = invokeOnEventLoop(vertx, () -> factory.getStats("topic-a"));
-            assertIllegalStateWithMessage(getStatsError, "Do not call blocking getStats() on event-loop thread");
-
-            Throwable createBrowserError = invokeOnEventLoop(vertx, () -> factory.createBrowser("topic-a", String.class));
-            assertIllegalStateWithMessage(createBrowserError,
-                    "Do not call blocking createBrowser() on event-loop thread");
+            // isHealthy(), getStats(), and createBrowser() are reactive (return Future) and
+            // are safe to call from the event loop they no longer throw synchronously.
+            // Only close() remains blocking and must not run on the event loop.
 
             Throwable closeError = invokeOnEventLoop(vertx, () -> {
                 try {
@@ -44,6 +38,24 @@ class OutboxBlockingSafetyTest {
             Throwable effectiveCloseError = closeError.getCause() != null ? closeError.getCause() : closeError;
             assertIllegalStateWithMessage(effectiveCloseError,
                     "Do not call blocking close() on event-loop thread");
+        } finally {
+            vertx.close().await();
+        }
+    }
+
+    @Test
+    void outboxFactoryCreateBrowserOnEventLoopReturnsFutureWithoutThrowing() throws Exception {
+        // createBrowser() is now reactive (returns Future<QueueBrowser<T>>) and must NOT
+        // throw synchronously on the event loop. Without a real DatabaseService the future
+        // will fail asynchronously, but no synchronous exception is acceptable.
+        Vertx vertx = Vertx.vertx();
+        try {
+            OutboxFactory factory = new OutboxFactory(null);
+
+            Throwable thrown = invokeOnEventLoop(vertx, () -> factory.createBrowser("topic-a", String.class));
+
+            assertNull(thrown,
+                    "createBrowser() should not throw on event loop; got: " + thrown);
         } finally {
             vertx.close().await();
         }

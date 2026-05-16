@@ -213,7 +213,7 @@ class OutboxSchemaQuotingTest {
 
         var producer = factory.createProducer("test-topic", String.class);
         producer.send("hello")
-            .compose(v -> factory.getStatsAsync("test-topic"))
+            .compose(v -> factory.getStats("test-topic"))
             .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertEquals(1, stats.getPendingMessages(),
                     "Stats query with simple schema name should work");
@@ -249,7 +249,7 @@ class OutboxSchemaQuotingTest {
 
         var producer = factory.createProducer("stats-topic", String.class);
         producer.send("hello")
-            .compose(v -> factory.getStatsAsync("stats-topic"))
+            .compose(v -> factory.getStats("stats-topic"))
             .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 // With the old bug: recover() used to swallow the SQL error and return 0.
                 // With the fix: query succeeds and returns 1.
@@ -282,7 +282,7 @@ class OutboxSchemaQuotingTest {
 
         var producer = factory.createProducer("count-topic", String.class);
         producer.send("hello")
-            .compose(v -> factory.countMessagesAsync("count-topic"))
+            .compose(v -> factory.countMessages("count-topic"))
             .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1L, count,
                     "countMessagesAsync with schema 'order' should return 1. " +
@@ -312,7 +312,7 @@ class OutboxSchemaQuotingTest {
 
         var producer = factory.createProducer("purge-topic", String.class);
         producer.send("to-be-purged")
-            .compose(v -> factory.purgeMessagesAsync("purge-topic"))
+            .compose(v -> factory.purgeMessages("purge-topic"))
             .onComplete(testContext.succeeding(purged -> testContext.verify(() -> {
                 assertEquals(1, purged,
                     "purgeMessagesAsync with schema 'order' should purge 1 message. " +
@@ -343,7 +343,7 @@ class OutboxSchemaQuotingTest {
 
         var producer = factory.createProducer("select-topic", String.class);
         producer.send("hello")
-            .compose(v -> factory.countMessagesAsync("select-topic"))
+            .compose(v -> factory.countMessages("select-topic"))
             .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1L, count,
                     "countMessagesAsync with schema 'select' should return 1. " +

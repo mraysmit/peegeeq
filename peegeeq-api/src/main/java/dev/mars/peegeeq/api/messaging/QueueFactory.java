@@ -16,7 +16,7 @@ package dev.mars.peegeeq.api.messaging;
  * limitations under the License.
  */
 
-// No imports needed - all classes are in the same package now
+import io.vertx.core.Future;
 
 /**
  * Unified factory interface for creating message producers and consumers.
@@ -87,9 +87,9 @@ public interface QueueFactory extends AutoCloseable {
      *
      * @param topic The topic/queue to browse
      * @param payloadType The type of message payload
-     * @return A queue browser instance
+     * @return A Future completing with a queue browser instance
      */
-    <T> QueueBrowser<T> createBrowser(String topic, Class<T> payloadType);
+    <T> Future<QueueBrowser<T>> createBrowser(String topic, Class<T> payloadType);
 
     /**
      * Gets the implementation type of this factory.
@@ -97,51 +97,24 @@ public interface QueueFactory extends AutoCloseable {
      * @return The implementation type (e.g., "native", "outbox")
      */
     String getImplementationType();
-    
-    /**
-     * Gets statistics for a specific queue/topic.
-     *
-     * @param topic The topic/queue name to get statistics for
-     * @return Queue statistics including message counts and processing metrics
-     */
-    default QueueStats getStats(String topic) {
-        // Default implementation returns basic stats with zeros
-        // Implementations should override this to provide real statistics
-        return QueueStats.basic(topic, 0, 0, 0);
-    }
 
     /**
      * Checks if the factory is healthy and ready to create queues.
      *
-     * @return true if the factory is healthy, false otherwise
+     * @return a Future that completes with {@code true} if healthy, {@code false} otherwise
      */
-    boolean isHealthy();
+    io.vertx.core.Future<Boolean> isHealthy();
 
     /**
-     * Asynchronously checks if the factory is healthy and ready to create queues.
-     * This is the preferred method in reactive/async contexts to avoid blocking.
-     *
-     * @return a Future that completes with true if healthy, false otherwise
-     * @since 1.1.0
-     */
-    default io.vertx.core.Future<Boolean> isHealthyAsync() {
-        // Default implementation wraps the blocking call
-        // Implementations should override this to provide a truly async version
-        return io.vertx.core.Future.succeededFuture(isHealthy());
-    }
-
-    /**
-     * Asynchronously gets statistics for a specific queue/topic.
-     * This is the preferred method in reactive/async contexts to avoid blocking.
+     * Gets statistics for a specific queue/topic.
      *
      * @param topic The topic/queue name to get statistics for
-     * @return a Future that completes with queue statistics
-     * @since 1.1.0
+     * @return a Future that completes with queue statistics including message counts and processing metrics
      */
-    default io.vertx.core.Future<QueueStats> getStatsAsync(String topic) {
-        // Default implementation wraps the blocking call
-        // Implementations should override this to provide a truly async version
-        return io.vertx.core.Future.succeededFuture(getStats(topic));
+    default io.vertx.core.Future<QueueStats> getStats(String topic) {
+        // Default implementation returns basic stats with zeros
+        // Implementations should override this to provide real statistics
+        return io.vertx.core.Future.succeededFuture(QueueStats.basic(topic, 0, 0, 0));
     }
 
     /**
@@ -149,9 +122,8 @@ public interface QueueFactory extends AutoCloseable {
      *
      * @param topic The topic/queue name
      * @return a Future that completes with the current message count
-     * @since 1.1.0
      */
-    default io.vertx.core.Future<Long> countMessagesAsync(String topic) {
+    default io.vertx.core.Future<Long> countMessages(String topic) {
         return io.vertx.core.Future.failedFuture(
                 new UnsupportedOperationException("Message counting not supported by this queue implementation"));
     }
@@ -161,9 +133,8 @@ public interface QueueFactory extends AutoCloseable {
      *
      * @param topic The topic/queue name
      * @return a Future that completes with the number of deleted messages
-     * @since 1.1.0
      */
-    default io.vertx.core.Future<Integer> purgeMessagesAsync(String topic) {
+    default io.vertx.core.Future<Integer> purgeMessages(String topic) {
         return io.vertx.core.Future.failedFuture(
                 new UnsupportedOperationException("Message purge not supported by this queue implementation"));
     }
