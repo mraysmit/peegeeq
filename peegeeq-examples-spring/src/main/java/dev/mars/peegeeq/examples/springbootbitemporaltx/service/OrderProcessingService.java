@@ -35,8 +35,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import java.util.concurrent.CompletionStage;
-
 /**
  * Order Processing Service for Multi-Event Store Transaction Coordination.
  * 
@@ -149,7 +147,7 @@ public class OrderProcessingService {
                 transactionId, orderRequest.getOrderId(), correlationId, validTime);
             
             Future<BiTemporalEvent<AuditEvent>> auditFuture =
-                toCompletableFuture(auditEventStore.appendBuilder()
+                auditEventStore.appendBuilder()
                     .eventType("TransactionStarted")
                     .payload(transactionStartEvent)
                     .validTime(validTime)
@@ -157,14 +155,14 @@ public class OrderProcessingService {
                     .correlationId(correlationId)
                     .aggregateId(transactionId)
                     .inTransaction(connection)
-                    .execute());
+                    .execute();
             
             // Step 2: Create order event
             OrderEvent orderEvent = createOrderEvent(orderRequest, validTime);
             
             Future<BiTemporalEvent<OrderEvent>> orderFuture = auditFuture.compose(auditResult -> {
                 logger.debug("Recording order creation for order: {} with correlation ID: {}", orderRequest.getOrderId(), correlationId);
-                return toCompletableFuture(orderEventStore.appendBuilder()
+                return orderEventStore.appendBuilder()
                     .eventType("OrderCreated")
                     .payload(orderEvent)
                     .validTime(validTime)
@@ -172,7 +170,7 @@ public class OrderProcessingService {
                     .correlationId(correlationId)
                     .aggregateId(orderRequest.getOrderId())
                     .inTransaction(connection)
-                    .execute());
+                    .execute();
             });
             
             // Step 3: Reserve inventory for each order item
@@ -186,7 +184,7 @@ public class OrderProcessingService {
                                 InventoryEvent inventoryEvent = createInventoryReservationEvent(
                                     item, orderRequest.getOrderId(), correlationId, transactionId, validTime);
                                 
-                                return toCompletableFuture(inventoryEventStore.appendBuilder()
+                                return inventoryEventStore.appendBuilder()
                                     .eventType("InventoryReserved")
                                     .payload(inventoryEvent)
                                     .validTime(validTime)
@@ -194,7 +192,7 @@ public class OrderProcessingService {
                                     .correlationId(correlationId)
                                     .aggregateId(orderRequest.getOrderId())
                                     .inTransaction(connection)
-                                    .execute());
+                                    .execute();
                             })
                             .toList();
                     
@@ -211,7 +209,7 @@ public class OrderProcessingService {
                     
                     PaymentEvent paymentEvent = createPaymentAuthorizationEvent(orderRequest, validTime);
                     
-                    return toCompletableFuture(paymentEventStore.appendBuilder()
+                    return paymentEventStore.appendBuilder()
                         .eventType("PaymentAuthorized")
                         .payload(paymentEvent)
                         .validTime(validTime)
@@ -219,7 +217,7 @@ public class OrderProcessingService {
                         .correlationId(correlationId)
                         .aggregateId(orderRequest.getOrderId())
                         .inTransaction(connection)
-                        .execute());
+                        .execute();
                 });
             
             // Step 5: Record final audit event for transaction completion
@@ -230,7 +228,7 @@ public class OrderProcessingService {
                     AuditEvent transactionCompleteEvent = createTransactionCompleteAuditEvent(
                         transactionId, orderRequest.getOrderId(), correlationId, validTime);
                     
-                    return toCompletableFuture(auditEventStore.appendBuilder()
+                    return auditEventStore.appendBuilder()
                         .eventType("TransactionCompleted")
                         .payload(transactionCompleteEvent)
                         .validTime(validTime)
@@ -238,7 +236,7 @@ public class OrderProcessingService {
                         .correlationId(correlationId)
                         .aggregateId(transactionId)
                         .inTransaction(connection)
-                        .execute());
+                        .execute();
                 });
             
             // Return the complete processing result
@@ -268,14 +266,6 @@ public class OrderProcessingService {
         });
     }
 
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
-    }
-    
     /**
      * Creates an order event from the processing request.
      */

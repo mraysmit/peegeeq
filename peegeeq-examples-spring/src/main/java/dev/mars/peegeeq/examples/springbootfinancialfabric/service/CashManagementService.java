@@ -31,8 +31,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 
-import java.util.concurrent.CompletionStage;
-
 /**
  * Service for managing cash movement events.
  * 
@@ -88,7 +86,7 @@ public class CashManagementService {
                 validTime
             );
 
-            return toCompletableFuture(cashEventStore.appendBuilder()
+            return cashEventStore.appendBuilder()
                     .eventType("cash.movement.completed")
                     .payload(cashMovementEvent)
                     .validTime(validTime)
@@ -101,7 +99,7 @@ public class CashManagementService {
                     .correlationId(correlationId)
                     .aggregateId(cashMovementEvent.getMovementId())
                     .inTransaction(connection)
-                    .execute())
+                    .execute()
                 .map(biTemporalEvent -> {
                     log.info("Cash movement recorded successfully: movementId={}, eventId={}, cloudEventId={}",
                         cashMovementEvent.getMovementId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -111,14 +109,6 @@ public class CashManagementService {
             log.error("Failed to serialize cash movement: movementId={}", cashMovementEvent.getMovementId(), e);
             return Future.failedFuture(new RuntimeException("Failed to serialize cash movement", e));
         }
-    }
-
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
     }
 }
 

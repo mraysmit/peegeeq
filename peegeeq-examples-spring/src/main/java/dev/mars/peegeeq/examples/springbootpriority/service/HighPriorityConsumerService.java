@@ -270,46 +270,45 @@ public class HighPriorityConsumerService {
     
     /**
      * Update consumer status in database.
+     *
+     * <p>Lifecycle-time observability write. Spring's {@code @PostConstruct}/
+     * {@code @PreDestroy} hooks are synchronous, so we cannot return a {@code Future}
+     * from them; instead we fire-and-forget the async write and log any failure.
      */
     private void updateConsumerStatus(String status) {
-        try {
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            databaseService.getConnectionProvider()
-                .withTransaction(CLIENT_ID, connection -> {
-                    String sql = "INSERT INTO priority_consumer_metrics " +
-                                "(consumer_id, consumer_type, priority_filter, messages_processed, " +
-                                "critical_processed, high_processed, normal_processed, messages_filtered, " +
-                                "started_at, updated_at, status) " +
-                                "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) " +
-                                "ON CONFLICT (consumer_id) DO UPDATE SET " +
-                                "messages_processed = EXCLUDED.messages_processed, " +
-                                "critical_processed = EXCLUDED.critical_processed, " +
-                                "high_processed = EXCLUDED.high_processed, " +
-                                "messages_filtered = EXCLUDED.messages_filtered, " +
-                                "updated_at = EXCLUDED.updated_at, " +
-                                "status = EXCLUDED.status";
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        databaseService.getConnectionProvider()
+            .withTransaction(CLIENT_ID, connection -> {
+                String sql = "INSERT INTO priority_consumer_metrics " +
+                            "(consumer_id, consumer_type, priority_filter, messages_processed, " +
+                            "critical_processed, high_processed, normal_processed, messages_filtered, " +
+                            "started_at, updated_at, status) " +
+                            "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) " +
+                            "ON CONFLICT (consumer_id) DO UPDATE SET " +
+                            "messages_processed = EXCLUDED.messages_processed, " +
+                            "critical_processed = EXCLUDED.critical_processed, " +
+                            "high_processed = EXCLUDED.high_processed, " +
+                            "messages_filtered = EXCLUDED.messages_filtered, " +
+                            "updated_at = EXCLUDED.updated_at, " +
+                            "status = EXCLUDED.status";
 
-                    return connection.preparedQuery(sql)
-                        .execute(Tuple.of(
-                            consumerInstanceId,
-                            "HIGH_PRIORITY",
-                            "HIGH,CRITICAL",
-                            messagesProcessed.get(),
-                            criticalProcessed.get(),
-                            highProcessed.get(),
-                            0L,  // No normal processed
-                            messagesFiltered.get(),
-                            now,
-                            now,
-                            status
-                        ))
-                        .map(result -> null);
-                })
-                
-                .toCompletionStage().toCompletableFuture().join();
-        } catch (Exception e) {
-            log.warn("Failed to update consumer status", e);
-        }
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(
+                        consumerInstanceId,
+                        "HIGH_PRIORITY",
+                        "HIGH,CRITICAL",
+                        messagesProcessed.get(),
+                        criticalProcessed.get(),
+                        highProcessed.get(),
+                        0L,  // No normal processed
+                        messagesFiltered.get(),
+                        now,
+                        now,
+                        status
+                    ))
+                    .map(result -> null);
+            })
+            .onFailure(err -> log.warn("Failed to update consumer status", err));
     }
     
     /**

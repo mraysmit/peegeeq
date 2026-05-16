@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import java.util.concurrent.CompletionStage;
 import io.vertx.core.Future;
 
 /**
@@ -156,22 +155,22 @@ public class OrderController {
         
         // Normalize async query results to CompletableFuture for consistent composition.
         Future<List<BiTemporalEvent<OrderEvent>>> orderEvents = 
-            toCompletableFuture(orderEventStore.query(EventQuery.forAggregate(orderId)));
+            orderEventStore.query(EventQuery.forAggregate(orderId));
         
         Future<List<BiTemporalEvent<InventoryEvent>>> inventoryEvents =
-            toCompletableFuture(inventoryEventStore.query(EventQuery.builder()
+            inventoryEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("orderId", orderId))
-                .build()));
+                .build());
 
         Future<List<BiTemporalEvent<PaymentEvent>>> paymentEvents =
-            toCompletableFuture(paymentEventStore.query(EventQuery.builder()
+            paymentEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("orderId", orderId))
-                .build()));
+                .build());
 
         Future<List<BiTemporalEvent<AuditEvent>>> auditEvents =
-            toCompletableFuture(auditEventStore.query(EventQuery.builder()
+            auditEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("entityId", orderId))
-                .build()));
+                .build());
         
         return Future.all(orderEvents, inventoryEvents, paymentEvents, auditEvents)
             .map(v -> {
@@ -197,10 +196,6 @@ public class OrderController {
             });
     }
 
-    private static <T> Future<T> toCompletableFuture(io.vertx.core.Future<T> future) {
-        return future;
-    }
-    
     /**
      * Creates a sample order for demonstration purposes.
      * 
@@ -254,10 +249,10 @@ public class OrderController {
     public Future<ResponseEntity<Map<String, Object>>> getStats() {
         logger.info("Getting statistics across all event stores");
         
-        Future<EventStore.EventStoreStats> orderStats = toCompletableFuture(orderEventStore.getStats());
-        Future<EventStore.EventStoreStats> inventoryStats = toCompletableFuture(inventoryEventStore.getStats());
-        Future<EventStore.EventStoreStats> paymentStats = toCompletableFuture(paymentEventStore.getStats());
-        Future<EventStore.EventStoreStats> auditStats = toCompletableFuture(auditEventStore.getStats());
+        Future<EventStore.EventStoreStats> orderStats = orderEventStore.getStats();
+        Future<EventStore.EventStoreStats> inventoryStats = inventoryEventStore.getStats();
+        Future<EventStore.EventStoreStats> paymentStats = paymentEventStore.getStats();
+        Future<EventStore.EventStoreStats> auditStats = auditEventStore.getStats();
         
         return Future.all(orderStats, inventoryStats, paymentStats, auditStats)
             .map(v -> {

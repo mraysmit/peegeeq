@@ -23,9 +23,9 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 class BiTemporalPoolFactoryTest {
 
-    private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
     private BiTemporalPoolFactory poolFactory;
+    private Vertx vertx;
 
     @BeforeEach
     void setUp(Vertx vertx) {

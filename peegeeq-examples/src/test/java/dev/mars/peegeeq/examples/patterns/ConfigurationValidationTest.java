@@ -84,7 +84,7 @@ public class ConfigurationValidationTest {
         logger.info("=== Testing System Properties Override Configuration Files ===");
         
         // Get baseline configuration from files
-        PeeGeeQConfiguration baseConfig = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration baseConfig = new PeeGeeQConfiguration("test", new Properties());
         int baseMaxRetries = baseConfig.getQueueConfig().getMaxRetries();
         int baseBatchSize = baseConfig.getQueueConfig().getBatchSize();
         Duration basePollingInterval = baseConfig.getQueueConfig().getPollingInterval();
@@ -165,12 +165,12 @@ public class ConfigurationValidationTest {
         logger.info("=== Testing Profile-Based Configuration ===");
         
         // Test explicit profile setting (production deployment scenario)
-        PeeGeeQConfiguration prodConfig = new PeeGeeQConfiguration("production");
+        PeeGeeQConfiguration prodConfig = new PeeGeeQConfiguration("production", new Properties());
         assertEquals("production", prodConfig.getProfile(),
             "Profile must be settable for environment-specific configuration");
         
         // Test default profile behavior (development scenario)
-        PeeGeeQConfiguration devConfig = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration devConfig = new PeeGeeQConfiguration("development", new Properties());
         String defaultProfile = devConfig.getProfile();
         assertTrue(defaultProfile.equals("development") || defaultProfile.equals("test"),
             "Default profile must be appropriate for development environment");

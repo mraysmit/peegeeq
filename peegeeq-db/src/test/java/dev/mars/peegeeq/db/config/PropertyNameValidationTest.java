@@ -87,7 +87,7 @@ public class PropertyNameValidationTest {
         logger.info("=== Testing Properties File Value ===");
 
         // Don't set any system properties - should use value from properties file
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
 
         // Should use value from peegeeq-test.properties (5)
         assertEquals(5, config.getQueueConfig().getMaxRetries(),

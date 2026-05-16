@@ -31,8 +31,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 
-import java.util.concurrent.CompletionStage;
-
 /**
  * Service for managing position update events.
  * 
@@ -88,7 +86,7 @@ public class PositionService {
                 validTime
             );
 
-            return toCompletableFuture(positionEventStore.appendBuilder()
+            return positionEventStore.appendBuilder()
                     .eventType("position.update.completed")
                     .payload(positionUpdateEvent)
                     .validTime(validTime)
@@ -101,7 +99,7 @@ public class PositionService {
                     .correlationId(correlationId)
                     .aggregateId(positionUpdateEvent.getUpdateId())
                     .inTransaction(connection)
-                    .execute())
+                    .execute()
                 .map(biTemporalEvent -> {
                     log.info("Position update recorded successfully: updateId={}, eventId={}, cloudEventId={}",
                         positionUpdateEvent.getUpdateId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -111,14 +109,6 @@ public class PositionService {
             log.error("Failed to serialize position update: updateId={}", positionUpdateEvent.getUpdateId(), e);
             return Future.failedFuture(new RuntimeException("Failed to serialize position update", e));
         }
-    }
-
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
     }
 }
 

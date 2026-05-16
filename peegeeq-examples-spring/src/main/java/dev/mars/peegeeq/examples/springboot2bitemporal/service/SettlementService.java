@@ -31,7 +31,6 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 
-import java.util.concurrent.CompletionStage;
 import io.vertx.core.Future;
 
 /**
@@ -94,7 +93,7 @@ public class SettlementService {
         
         // Use current CompletableFuture API
         Future<BiTemporalEvent<SettlementEvent>> future = 
-            toCompletableFuture(eventStore.append(eventType, event, event.getEventTime()));
+            eventStore.append(eventType, event, event.getEventTime());
         
         return adapter.toMono(future)
             .doOnSuccess(result -> logger.info("Settlement event recorded: {} for instruction: {}", 
@@ -114,7 +113,7 @@ public class SettlementService {
         
         // Use current CompletableFuture API
         Future<List<BiTemporalEvent<SettlementEvent>>> future = 
-            toCompletableFuture(eventStore.query(EventQuery.all()));
+            eventStore.query(EventQuery.all());
         
         return adapter.toFlux(future)
             .filter(event -> instructionId.equals(event.getPayload().getInstructionId()))
@@ -184,14 +183,6 @@ public class SettlementService {
                 instructionId, error));
     }
 
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(io.vertx.core.Future<T> future) {
-        return future;
-    }
-    
     // ========== APPROACH B: Using Native Vert.x Future API (Proposed - Commented Out) ==========
     
     /*

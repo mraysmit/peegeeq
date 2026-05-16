@@ -29,6 +29,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Trade Producer Controller.
@@ -59,7 +60,7 @@ public class TradeProducerController {
      * @return Response with event ID
      */
     @PostMapping("/settlement-fail")
-    public ResponseEntity<Map<String, String>> sendSettlementFail(@RequestBody TradeRequest request) {
+    public CompletableFuture<ResponseEntity<Map<String, String>>> sendSettlementFail(@RequestBody TradeRequest request) {
         log.info("Received settlement fail request: tradeId={}", request.tradeId);
         
         String eventId = UUID.randomUUID().toString();
@@ -76,15 +77,15 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        producerService.sendTradeEvent(event).toCompletionStage().toCompletableFuture().join();
-        
-        return ResponseEntity.ok(Map.of(
-            "eventId", eventId,
-            "tradeId", request.tradeId,
-            "priority", Priority.CRITICAL.getLevel(),
-            "status", "FAIL",
-            "message", "Settlement fail event sent successfully"
-        ));
+        return producerService.sendTradeEvent(event)
+            .map(v -> ResponseEntity.ok(Map.of(
+                "eventId", eventId,
+                "tradeId", request.tradeId,
+                "priority", Priority.CRITICAL.getLevel(),
+                "status", "FAIL",
+                "message", "Settlement fail event sent successfully"
+            )))
+            .toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -94,7 +95,7 @@ public class TradeProducerController {
      * @return Response with event ID
      */
     @PostMapping("/amendment")
-    public ResponseEntity<Map<String, String>> sendAmendment(@RequestBody TradeRequest request) {
+    public CompletableFuture<ResponseEntity<Map<String, String>>> sendAmendment(@RequestBody TradeRequest request) {
         log.info("Received amendment request: tradeId={}", request.tradeId);
         
         String eventId = UUID.randomUUID().toString();
@@ -111,15 +112,15 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        producerService.sendTradeEvent(event).toCompletionStage().toCompletableFuture().join();
-        
-        return ResponseEntity.ok(Map.of(
-            "eventId", eventId,
-            "tradeId", request.tradeId,
-            "priority", Priority.HIGH.getLevel(),
-            "status", "AMEND",
-            "message", "Amendment event sent successfully"
-        ));
+        return producerService.sendTradeEvent(event)
+            .map(v -> ResponseEntity.ok(Map.of(
+                "eventId", eventId,
+                "tradeId", request.tradeId,
+                "priority", Priority.HIGH.getLevel(),
+                "status", "AMEND",
+                "message", "Amendment event sent successfully"
+            )))
+            .toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -129,7 +130,7 @@ public class TradeProducerController {
      * @return Response with event ID
      */
     @PostMapping("/confirmation")
-    public ResponseEntity<Map<String, String>> sendConfirmation(@RequestBody TradeRequest request) {
+    public CompletableFuture<ResponseEntity<Map<String, String>>> sendConfirmation(@RequestBody TradeRequest request) {
         log.info("Received confirmation request: tradeId={}", request.tradeId);
         
         String eventId = UUID.randomUUID().toString();
@@ -146,15 +147,15 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        producerService.sendTradeEvent(event).toCompletionStage().toCompletableFuture().join();
-        
-        return ResponseEntity.ok(Map.of(
-            "eventId", eventId,
-            "tradeId", request.tradeId,
-            "priority", Priority.NORMAL.getLevel(),
-            "status", "NEW",
-            "message", "Confirmation event sent successfully"
-        ));
+        return producerService.sendTradeEvent(event)
+            .map(v -> ResponseEntity.ok(Map.of(
+                "eventId", eventId,
+                "tradeId", request.tradeId,
+                "priority", Priority.NORMAL.getLevel(),
+                "status", "NEW",
+                "message", "Confirmation event sent successfully"
+            )))
+            .toCompletionStage().toCompletableFuture();
     }
     
     /**

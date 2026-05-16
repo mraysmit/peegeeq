@@ -99,7 +99,8 @@ public class ConfigurationGuideExamplesTest {
         // peegeeq-default.properties provides: host=localhost, port=5432, name=peegeeq,
         // username=peegeeq, password=peegeeq, pool.min-size=8, pool.max-size=32, etc.
         // All pass validation without any extra overrides.
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
+            PeeGeeQConfiguration.getActiveProfile(), new Properties());
 
         assertEquals("default", config.getProfile());
     }
@@ -115,7 +116,7 @@ public class ConfigurationGuideExamplesTest {
      */
     @Test
     void constructor_profileOnly_loadsNamedProfile() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", new Properties());
 
         assertEquals("demo", config.getProfile());
         // The demo profile hardcodes localhost — no placeholders, no env var needed.
@@ -205,7 +206,7 @@ public class ConfigurationGuideExamplesTest {
     @Test
     void priorityChain_profileFileBeatsDefaultProperties() {
         // No overrides — rely on the profile file competing against defaults.
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", new Properties());
 
         // demo: PT1S overrides default: PT5S
         assertEquals(Duration.ofSeconds(1), config.getQueueConfig().getPollingInterval(),
@@ -509,7 +510,7 @@ public class ConfigurationGuideExamplesTest {
      */
     @Test
     void namedProfile_demo_isFullySelfContained() {
-        assertDoesNotThrow(() -> new PeeGeeQConfiguration("demo"),
+        assertDoesNotThrow(() -> new PeeGeeQConfiguration("demo", new Properties()),
             "The 'demo' profile must supply all required properties without any overrides");
     }
 

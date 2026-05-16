@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
@@ -136,7 +137,7 @@ public class MultiConfigurationManager {
      * @param profile The profile name to load configuration from
      */
     public void registerConfiguration(String name, String profile) {
-        registerConfiguration(name, new PeeGeeQConfiguration(profile));
+        registerConfiguration(name, new PeeGeeQConfiguration(profile, new Properties()));
     }
     
     /**

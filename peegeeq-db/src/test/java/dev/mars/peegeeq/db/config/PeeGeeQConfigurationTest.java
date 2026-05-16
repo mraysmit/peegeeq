@@ -72,27 +72,28 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
-    void testDefaultConstructor() {
-        // Set system property for testing
-        System.setProperty("peegeeq.profile", TEST_PROFILE);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+    void testConstructorLoadsProfile() {
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         assertEquals(TEST_PROFILE, config.getProfile());
         assertNotNull(config.getProperties());
     }
 
     @Test
-    void testProfileConstructor() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+    void testConstructorAppliesOverrides() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.host", "override-host");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
 
         assertEquals(TEST_PROFILE, config.getProfile());
         assertNotNull(config.getProperties());
+        assertEquals("override-host", config.getString("peegeeq.database.host"));
     }
 
     @Test
     void testGetString() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         // Test with existing property
         assertEquals("test-host", config.getString("peegeeq.database.host", "default-host"));
@@ -109,7 +110,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetInt() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         // Test with existing property
         assertEquals(5433, config.getInt("peegeeq.database.port", 5432));
@@ -123,7 +124,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetLong() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         // Test with existing property
         assertEquals(5000L, config.getLong("peegeeq.database.pool.connection-timeout-ms", 30000L));
@@ -137,7 +138,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetBoolean() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         // Test with existing property
         assertTrue(config.getBoolean("peegeeq.database.ssl.enabled", false));
@@ -151,7 +152,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetDuration() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         // Test with existing property
         assertEquals(Duration.ofSeconds(45), config.getDuration("peegeeq.queue.visibility-timeout", Duration.ofSeconds(30)));
@@ -167,7 +168,7 @@ public class PeeGeeQConfigurationTest {
     // Note: getDouble is private, so we test it indirectly through CircuitBreakerConfig
     @Test
     void testDoubleValueHandling() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
         // Test with existing property through CircuitBreakerConfig
         PeeGeeQConfiguration.CircuitBreakerConfig cbConfig = config.getCircuitBreakerConfig();
@@ -186,7 +187,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetDatabaseConfig() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         PgConnectionConfig dbConfig = config.getDatabaseConfig();
 
         assertNotNull(dbConfig);
@@ -201,7 +202,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetPoolConfig() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         PgPoolConfig poolConfig = config.getPoolConfig();
 
         assertNotNull(poolConfig);
@@ -212,7 +213,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetQueueConfig() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         PeeGeeQConfiguration.QueueConfig queueConfig = config.getQueueConfig();
 
         assertNotNull(queueConfig);
@@ -226,7 +227,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetMetricsConfig() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         PeeGeeQConfiguration.MetricsConfig metricsConfig = config.getMetricsConfig();
 
         assertNotNull(metricsConfig);
@@ -239,7 +240,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testGetCircuitBreakerConfig() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         PeeGeeQConfiguration.CircuitBreakerConfig cbConfig = config.getCircuitBreakerConfig();
 
         assertNotNull(cbConfig);
@@ -253,7 +254,7 @@ public class PeeGeeQConfigurationTest {
     @Test
     void testValidationSuccess() {
         // This should not throw an exception with valid test properties
-        assertDoesNotThrow(() -> new PeeGeeQConfiguration(TEST_PROFILE));
+        assertDoesNotThrow(() -> new PeeGeeQConfiguration(TEST_PROFILE, new Properties()));
     }
 
     @Test
@@ -303,7 +304,7 @@ public class PeeGeeQConfigurationTest {
         // Setting a peegeeq.* System property must NOT affect a newly constructed instance.
         System.setProperty("peegeeq.database.host", "system-override-host");
         try {
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
 
             // Must return the value from the test profile file, not the System property
             assertEquals("test-host", config.getString("peegeeq.database.host"),
@@ -322,7 +323,7 @@ public class PeeGeeQConfigurationTest {
         // For example, if PEEGEEQ_DATABASE_HOST were set, it would be transformed to peegeeq.database.host
 
         // We can only verify this indirectly by checking that the default property was loaded
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, new Properties());
         assertEquals("test-host", config.getString("peegeeq.database.host"));
     }
 

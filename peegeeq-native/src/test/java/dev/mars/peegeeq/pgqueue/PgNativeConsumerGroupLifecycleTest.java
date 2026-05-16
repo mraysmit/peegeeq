@@ -33,6 +33,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
@@ -609,7 +610,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("start with non-null PeeGeeQConfiguration creates configuration-aware consumer")
         void startWithConfiguration() {
             VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             group = new PgNativeConsumerGroup<>(
                     "cfg-group", "cfg-topic", String.class,
                     adapter, null, null, config, null);
@@ -623,7 +624,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("start/stop/restart with configuration works")
         void startStopRestartWithConfiguration() {
             VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             group = new PgNativeConsumerGroup<>(
                     "cfg-group", "cfg-topic", String.class,
                     adapter, null, null, config, null);
