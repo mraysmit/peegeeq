@@ -169,8 +169,8 @@ public class MultiTenantSchemaIsolationTest {
     }
 
     @Test
-    void testStatsIsolationBetweenTenants() throws Exception {
-        // Tenant A sends 5 messages await each Future to ensure persistence
+    void testStatsIsolationBetweenTenants(VertxTestContext testContext) {
+        // Tenant A sends 5 messages, sequencing sends via compose to ensure persistence ordering
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-topic", String.class);
         resources.add(producerA);
         Future<Void> chainA = Future.succeededFuture();
@@ -178,9 +178,8 @@ public class MultiTenantSchemaIsolationTest {
             final int idx = i;
             chainA = chainA.compose(v -> producerA.send("tenant-a-message-" + idx));
         }
-        chainA.await();
 
-        // Tenant B sends 3 messages await each Future to ensure persistence
+        // Tenant B sends 3 messages
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-topic", String.class);
         resources.add(producerB);
         Future<Void> chainB = Future.succeededFuture();
@@ -188,14 +187,19 @@ public class MultiTenantSchemaIsolationTest {
             final int idx = i;
             chainB = chainB.compose(v -> producerB.send("tenant-b-message-" + idx));
         }
-        chainB.await();
 
-        // Verify stats are isolated
-        var statsA = factoryTenantA.getStats("stats-topic");
-        var statsB = factoryTenantB.getStats("stats-topic");
-
-        assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
-        assertEquals(3, statsB.getPendingMessages(), "Tenant B should have 3 pending messages");
+        Future.all(chainA, chainB)
+                .compose(v -> Future.all(
+                        factoryTenantA.getStats("stats-topic"),
+                        factoryTenantB.getStats("stats-topic")))
+                .onSuccess(cf -> testContext.verify(() -> {
+                    var statsA = cf.<dev.mars.peegeeq.api.messaging.QueueStats>resultAt(0);
+                    var statsB = cf.<dev.mars.peegeeq.api.messaging.QueueStats>resultAt(1);
+                    assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
+                    assertEquals(3, statsB.getPendingMessages(), "Tenant B should have 3 pending messages");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test

@@ -36,7 +36,6 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 /**
@@ -175,7 +174,7 @@ public class OrderService {
     public Future<OrderResponse> getOrderHistory(String orderId) {
         logger.info("Retrieving order history: {}", orderId);
         
-        return toCompletableFuture(orderEventStore.query(EventQuery.all()))
+        return orderEventStore.query(EventQuery.all())
             .map(events -> {
                 List<BiTemporalEvent<OrderEvent>> orderEvents = events.stream()
                     .filter(event -> orderId.equals(event.getPayload().getOrderId()))
@@ -195,7 +194,7 @@ public class OrderService {
     public Future<List<BiTemporalEvent<OrderEvent>>> getCustomerOrders(String customerId) {
         logger.info("Retrieving orders for customer: {}", customerId);
         
-        return toCompletableFuture(orderEventStore.query(EventQuery.all()))
+        return orderEventStore.query(EventQuery.all())
             .map(events -> {
                 List<BiTemporalEvent<OrderEvent>> customerOrders = events.stream()
                     .filter(event -> customerId.equals(event.getPayload().getCustomerId()))
@@ -215,17 +214,10 @@ public class OrderService {
     public Future<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOfTime(Instant validTime) {
         logger.info("Querying orders as of time: {}", validTime);
         
-        return toCompletableFuture(orderEventStore.query(EventQuery.asOfValidTime(validTime)))
+        return orderEventStore.query(EventQuery.asOfValidTime(validTime))
             .onSuccess(events -> logger.info("Found {} orders as of time: {}", events.size(), validTime))
             .onFailure(error -> logger.error("Failed to query orders as of time: {}", validTime, error));
     }
 
-    private <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
-    }
 }
 

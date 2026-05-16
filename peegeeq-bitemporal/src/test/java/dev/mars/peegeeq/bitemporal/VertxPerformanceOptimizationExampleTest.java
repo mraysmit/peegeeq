@@ -74,7 +74,6 @@ public class VertxPerformanceOptimizationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationExampleTest.class);
     
     @Container
-    @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer sharedPostgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_vertx_perf_test")
             .withUsername("postgres")

@@ -16,7 +16,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 
-import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 /**
@@ -53,14 +52,14 @@ public class RegulatoryQueryService {
         Instant startOfDay = reportDate.truncatedTo(ChronoUnit.DAYS);
         Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .eventType("trading.equities.capture.completed")
                 .validTimeRange(new TemporalRange(startOfDay, endOfDay))
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        )).map(events -> {
+        ).map(events -> {
             MiFIDIIReport report = new MiFIDIIReport();
             report.reportDate = reportDate;
             report.generatedAt = Instant.now();
@@ -99,23 +98,23 @@ public class RegulatoryQueryService {
         
         // Query trading events
         Future<List<BiTemporalEvent<TradeEvent>>> tradingEvents = 
-            toCompletableFuture(tradingEventStore.query(
+            tradingEventStore.query(
                 EventQuery.builder()
                     .correlationId(correlationId)
                     .includeCorrections(true)
                     .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                     .build()
-            ));
+            );
         
         // Query regulatory events
         Future<List<BiTemporalEvent<RegulatoryReportEvent>>> regulatoryEvents = 
-            toCompletableFuture(regulatoryEventStore.query(
+            regulatoryEventStore.query(
                 EventQuery.builder()
                     .correlationId(correlationId)
                     .includeCorrections(true)
                     .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                     .build()
-            ));
+            );
         
         return Future.all(tradingEvents, regulatoryEvents)
             .map(v -> {
@@ -138,13 +137,13 @@ public class RegulatoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying regulatory reports between {} and {}", startTime, endTime);
         
-        return toCompletableFuture(regulatoryEventStore.query(
+        return regulatoryEventStore.query(
             EventQuery.builder()
                 .eventType("regulatory.mifid2.submitted")
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ));
+        );
     }
     
     /**
@@ -155,13 +154,13 @@ public class RegulatoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying trade corrections between {} and {}", startTime, endTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .transactionTimeRange(new TemporalRange(startTime, endTime))
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        )).map(events -> 
+        ).map(events -> 
             events.stream()
                 .filter(BiTemporalEvent::isCorrection)
                 .collect(Collectors.toList())
@@ -176,14 +175,14 @@ public class RegulatoryQueryService {
             String tradeId, Instant reportingTime) {
         log.info("Reconstructing trade {} as reported at {}", tradeId, reportingTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .aggregateId(tradeId)
                 .transactionTimeRange(TemporalRange.until(reportingTime))
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
                 .limit(1)
                 .build()
-        )).map(events -> {
+        ).map(events -> {
             if (events.isEmpty()) {
                 log.warn("No trade found for {} as reported at {}", tradeId, reportingTime);
                 return null;
@@ -200,13 +199,13 @@ public class RegulatoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying trades with corrections between {} and {}", startTime, endTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        )).map(events -> {
+        ).map(events -> {
             Set<String> tradesWithCorrections = new HashSet<>();
             
             for (BiTemporalEvent<TradeEvent> event : events) {
@@ -250,14 +249,6 @@ public class RegulatoryQueryService {
             });
     }
 
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
-    }
-    
     /**
      * MiFID II transaction report.
      */

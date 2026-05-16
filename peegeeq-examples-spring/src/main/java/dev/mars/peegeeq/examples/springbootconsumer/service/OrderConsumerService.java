@@ -227,34 +227,34 @@ public class OrderConsumerService {
     
     /**
      * Update consumer status in database.
+     *
+     * <p>Lifecycle-time observability write. Spring's {@code @PostConstruct}/
+     * {@code @PreDestroy} hooks are synchronous, so we cannot return a {@code Future}
+     * from them; instead we fire-and-forget the async write and log any failure.
+     * Missing a status row during a crash is acceptable for this example.
      */
     private void updateConsumerStatus(String status) {
-        try {
-            LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-            databaseService.getConnectionProvider()
-                .withTransaction(CLIENT_ID, connection -> {
-                    String sql = "INSERT INTO consumer_status (consumer_id, status, messages_processed, started_at, updated_at) " +
-                                "VALUES ($1, $2, $3, $4, $5) " +
-                                "ON CONFLICT (consumer_id) DO UPDATE SET " +
-                                "status = EXCLUDED.status, " +
-                                "messages_processed = EXCLUDED.messages_processed, " +
-                                "updated_at = EXCLUDED.updated_at";
+        LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
+        databaseService.getConnectionProvider()
+            .withTransaction(CLIENT_ID, connection -> {
+                String sql = "INSERT INTO consumer_status (consumer_id, status, messages_processed, started_at, updated_at) " +
+                            "VALUES ($1, $2, $3, $4, $5) " +
+                            "ON CONFLICT (consumer_id) DO UPDATE SET " +
+                            "status = EXCLUDED.status, " +
+                            "messages_processed = EXCLUDED.messages_processed, " +
+                            "updated_at = EXCLUDED.updated_at";
 
-                    return connection.preparedQuery(sql)
-                        .execute(Tuple.of(
-                            consumerInstanceId,
-                            status,
-                            messagesProcessed.get(),
-                            now,
-                            now
-                        ))
-                        .map(result -> null);
-                })
-                
-                .toCompletionStage().toCompletableFuture().join();
-        } catch (Exception e) {
-            log.warn("Failed to update consumer status", e);
-        }
+                return connection.preparedQuery(sql)
+                    .execute(Tuple.of(
+                        consumerInstanceId,
+                        status,
+                        messagesProcessed.get(),
+                        now,
+                        now
+                    ))
+                    .map(result -> null);
+            })
+            .onFailure(err -> log.warn("Failed to update consumer status", err));
     }
     
     /**
