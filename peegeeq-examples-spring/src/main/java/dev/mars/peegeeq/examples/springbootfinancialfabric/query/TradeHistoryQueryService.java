@@ -17,7 +17,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 
-import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 /**
@@ -48,13 +47,13 @@ public class TradeHistoryQueryService {
     public Future<TradeAuditTrail> getTradeAuditTrail(String tradeId) {
         log.info("Querying audit trail for trade: {}", tradeId);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .aggregateId(tradeId)
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        )).map(events -> {
+        ).map(events -> {
             log.debug("Found {} events for trade: {}", events.size(), tradeId);
             return new TradeAuditTrail(tradeId, events);
         });
@@ -68,14 +67,14 @@ public class TradeHistoryQueryService {
             String tradeId, Instant asOfTime) {
         log.info("Querying trade {} as of {}", tradeId, asOfTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .aggregateId(tradeId)
                 .transactionTimeRange(TemporalRange.until(asOfTime))
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
                 .limit(1)
                 .build()
-        )).map(events -> {
+        ).map(events -> {
             if (events.isEmpty()) {
                 log.warn("No trade found for {} as of {}", tradeId, asOfTime);
                 return null;
@@ -92,13 +91,13 @@ public class TradeHistoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying trades executed between {} and {}", startTime, endTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .eventType("trading.equities.capture.completed")
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ));
+        );
     }
     
     /**
@@ -108,13 +107,13 @@ public class TradeHistoryQueryService {
             String counterparty) {
         log.info("Querying trades for counterparty: {}", counterparty);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .eventType("trading.equities.capture.completed")
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_DESC)
                 .limit(1000)
                 .build()
-        )).map(events -> 
+        ).map(events -> 
             events.stream()
                 .filter(event -> counterparty.equals(event.getPayload().getCounterparty()))
                 .collect(Collectors.toList())
@@ -129,13 +128,13 @@ public class TradeHistoryQueryService {
             String tradeId) {
         log.info("Querying corrections for trade: {}", tradeId);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .aggregateId(tradeId)
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        )).map(events -> 
+        ).map(events -> 
             events.stream()
                 .filter(BiTemporalEvent::isCorrection)
                 .collect(Collectors.toList())
@@ -150,13 +149,13 @@ public class TradeHistoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying confirmed trades between {} and {}", startTime, endTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .eventType("trading.equities.confirmation.matched")
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ));
+        );
     }
     
     /**
@@ -167,13 +166,13 @@ public class TradeHistoryQueryService {
         log.info("Querying trades for instrument {} between {} and {}", 
                 instrument, startTime, endTime);
         
-        return toCompletableFuture(tradingEventStore.query(
+        return tradingEventStore.query(
             EventQuery.builder()
                 .eventType("trading.equities.capture.completed")
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        )).map(events -> 
+        ).map(events -> 
             events.stream()
                 .filter(event -> instrument.equals(event.getPayload().getInstrument()))
                 .collect(Collectors.toList())
@@ -279,12 +278,6 @@ public class TradeHistoryQueryService {
         }
     }
 
-    private <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
 
-    private <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
-    }
 }
 

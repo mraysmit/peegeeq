@@ -33,7 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 import io.vertx.core.Future;
 
@@ -87,13 +86,13 @@ public class TransactionService {
             transactionId, request.getAccountId(), request.getAmount(), request.getType());
 
         // Use the account ID as the aggregate ID for querying by account
-        return toCompletableFuture(eventStore.appendBuilder()
+        return eventStore.appendBuilder()
                 .eventType("TransactionRecorded")
                 .payload(event)
                 .validTime(validTime)
                 .headers(java.util.Collections.emptyMap())
                 .aggregateId(request.getAccountId())
-                .execute())
+                .execute()
             .onSuccess(result -> logger.info("Transaction recorded successfully: {}", transactionId))
             .onFailure(error -> logger.error("Failed to record transaction: {}", transactionId, error));
     }
@@ -123,7 +122,7 @@ public class TransactionService {
      * @return CompletableFuture with list of bi-temporal transaction events for the account
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccount(String accountId) {
-        return toCompletableFuture(eventStore.query(EventQuery.forAggregate(accountId)));
+        return eventStore.query(EventQuery.forAggregate(accountId));
     }
 
     /**
@@ -136,7 +135,7 @@ public class TransactionService {
      * @return CompletableFuture with list of bi-temporal transaction events matching both criteria
      */
     public Future<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccountAndType(String accountId, String eventType) {
-        return toCompletableFuture(eventStore.query(EventQuery.forAggregateAndType(accountId, eventType)));
+        return eventStore.query(EventQuery.forAggregateAndType(accountId, eventType));
     }
 
     /**
@@ -208,7 +207,7 @@ public class TransactionService {
             transactionId, request.getCorrectedAmount(), request.getReason());
         
         // Find the original transaction
-        return toCompletableFuture(eventStore.query(EventQuery.all()))
+        return eventStore.query(EventQuery.all())
             .compose(events -> {
                 BiTemporalEvent<TransactionEvent> original = events.stream()
                     .filter(event -> transactionId.equals(event.getPayload().getTransactionId()))
@@ -226,26 +225,18 @@ public class TransactionService {
                 );
 
                 // Append with original valid time (bi-temporal correction) and same aggregate ID
-                return toCompletableFuture(eventStore.appendBuilder()
+                return eventStore.appendBuilder()
                         .eventType("TransactionCorrected")
                         .payload(correctionEvent)
                         .validTime(original.getValidTime())
                         .headers(java.util.Collections.emptyMap())
                         .aggregateId(original.getAggregateId())
-                        .execute())
+                        .execute()
                     .onSuccess(result -> logger.info("Transaction corrected successfully: {}", transactionId))
                     .onFailure(error -> logger.error("Failed to correct transaction: {}", transactionId, error));
             });
     }
 
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(io.vertx.core.Future<T> future) {
-        return future;
-    }
-    
     /**
      * Retrieves all versions of a transaction (original + corrections).
      *
@@ -256,7 +247,7 @@ public class TransactionService {
         logger.info("Retrieving all versions of transaction: {}", transactionId);
 
         // First find the account ID from any version of the transaction
-        return toCompletableFuture(eventStore.query(EventQuery.all()))
+        return eventStore.query(EventQuery.all())
             .compose(events -> {
                 // Find the account ID
                 String accountId = events.stream()

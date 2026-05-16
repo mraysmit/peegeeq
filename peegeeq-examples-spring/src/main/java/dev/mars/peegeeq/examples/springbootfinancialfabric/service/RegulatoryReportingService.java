@@ -31,8 +31,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 
-import java.util.concurrent.CompletionStage;
-
 /**
  * Service for managing regulatory reporting events.
  * 
@@ -88,7 +86,7 @@ public class RegulatoryReportingService {
                 validTime
             );
 
-            return toCompletableFuture(regulatoryEventStore.appendBuilder()
+            return regulatoryEventStore.appendBuilder()
                     .eventType("regulatory.transaction.reported")
                     .payload(reportEvent)
                     .validTime(validTime)
@@ -102,7 +100,7 @@ public class RegulatoryReportingService {
                     .correlationId(correlationId)
                     .aggregateId(reportEvent.getReportId())
                     .inTransaction(connection)
-                    .execute())
+                    .execute()
                 .map(biTemporalEvent -> {
                     log.info("Regulatory report submitted successfully: reportId={}, eventId={}, cloudEventId={}",
                         reportEvent.getReportId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -112,14 +110,6 @@ public class RegulatoryReportingService {
             log.error("Failed to serialize regulatory report: reportId={}", reportEvent.getReportId(), e);
             return Future.failedFuture(new RuntimeException("Failed to serialize regulatory report", e));
         }
-    }
-
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
     }
 }
 

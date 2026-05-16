@@ -118,7 +118,7 @@ class MultiConfigurationManagerSimpleTest {
 
         try {
             // Test that we can create configuration objects
-            PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test");
+            PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test", new Properties());
             assertNotNull(config1);
 
             // Test configuration validation without attempting database connection
@@ -161,7 +161,7 @@ class MultiConfigurationManagerSimpleTest {
         // Test that configuration properties files exist and can be loaded
         assertDoesNotThrow(() -> {
             // Test that we can create configurations with different profiles
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             assertNotNull(config);
             
             // Test that the configuration has expected properties

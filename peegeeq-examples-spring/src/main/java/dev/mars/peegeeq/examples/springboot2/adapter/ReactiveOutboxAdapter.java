@@ -28,32 +28,48 @@ import io.vertx.core.Future;
 
 
 /**
- * Adapter for converting PeeGeeQ's CompletableFuture-based API to Project Reactor's Mono/Flux.
- * 
- * This adapter bridges the gap between PeeGeeQ's asynchronous operations (which return
- * CompletableFuture) and Spring WebFlux's reactive types (Mono and Flux).
- * 
- * Key Features:
- * - Converts CompletableFuture to Mono with proper error handling
- * - Converts Future<Void> to Mono<Void>
- * - Converts multiple CompletableFutures to Flux
- * - Provides consistent error logging and handling
- * - Maintains reactive stream semantics
- * 
- * Usage Example:
- * <pre>
- * {@code
- * // Convert single CompletableFuture to Mono
+ * Boundary adapter that bridges PeeGeeQ's Vert.x {@link io.vertx.core.Future} API to
+ * Project Reactor's {@link Mono} / {@link Flux} types used by Spring WebFlux.
+ *
+ * <p><b>Why this adapter exists.</b> PeeGeeQ is implemented with Vert.x 5 and exposes
+ * a reactive, composable API based on {@code io.vertx.core.Future<T>}. A Spring WebFlux
+ * application — which is the example client demonstrated in {@code springboot2} — composes
+ * its pipelines with Reactor {@code Mono}/{@code Flux}. Reactor is not aware of Vert.x
+ * {@code Future}, so a small, well-defined adapter is required at the boundary between
+ * the two reactive worlds. This class is that boundary.
+ *
+ * <p><b>How the bridge works.</b> Vert.x {@code Future} exposes
+ * {@link io.vertx.core.Future#toCompletionStage()}, which returns a standard
+ * {@link java.util.concurrent.CompletionStage}. Reactor's {@link Mono#fromCompletionStage}
+ * subscribes to that stage and emits the result (or error) into the reactive stream.
+ * No thread is parked and no value is ever blocked on with {@code .join()} or {@code .get()};
+ * the conversion is purely a non-blocking signal hand-off.
+ *
+ * <p><b>Legitimate use of {@code CompletableFuture}.</b> A few combinator methods on this
+ * class ({@link #allOf}, {@link #anyOf}) convert to {@code CompletableFuture} internally
+ * solely to leverage the JDK's built-in {@code allOf} / {@code anyOf} combinators, then
+ * immediately wrap the result back into a {@code Mono}. This is the only place the JDK
+ * {@code CompletableFuture} type appears, and it is never blocked on. Everywhere else in
+ * PeeGeeQ code the rule is reactive-only Vert.x {@code Future} composition.
+ *
+ * <p><b>Teaching intent.</b> The {@code springboot2} example is designed to show developers
+ * how a non-Vert.x consumer (in this case Spring WebFlux / Reactor) integrates with the
+ * Vert.x-based PeeGeeQ outbox without violating the reactive contract on either side.
+ * The pattern shown here — {@code Future → CompletionStage → Mono} at the boundary, and
+ * Reactor everywhere else inside the Spring layer — is the recommended approach.
+ *
+ * <p><b>Usage example.</b>
+ * <pre>{@code
+ * // Convert a single Vert.x Future to a Reactor Mono
  * Mono<String> result = adapter.toMono(outboxProducer.send(event));
- * 
- * // Convert void CompletableFuture to Mono<Void>
+ *
+ * // Convert a Future<Void> (e.g. a transactional send) to a Mono<Void>
  * Mono<Void> completion = adapter.toMonoVoid(outboxProducer.sendInOwnTransaction(event));
- * 
- * // Convert multiple CompletableFutures to Flux
+ *
+ * // Convert a list of Futures into a Flux of their results
  * Flux<String> results = adapter.toFlux(List.of(future1, future2, future3));
- * }
- * </pre>
- * 
+ * }</pre>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-01
  * @version 1.0
@@ -63,14 +79,15 @@ public class ReactiveOutboxAdapter {
     private static final Logger log = LoggerFactory.getLogger(ReactiveOutboxAdapter.class);
 
     /**
-     * Converts a CompletableFuture to a Mono with proper error handling.
-     * 
-     * This method wraps the CompletableFuture in a Mono, ensuring that any errors
-     * are properly propagated through the reactive stream.
-     * 
-     * @param future The CompletableFuture to convert
-     * @param <T> The type of the result
-     * @return A Mono that completes with the future's result
+     * Converts a Vert.x {@link Future} to a Reactor {@link Mono} without blocking.
+     *
+     * <p>The bridge goes through {@link Future#toCompletionStage()} and
+     * {@link Mono#fromCompletionStage}; no thread is ever parked. Errors propagate
+     * through the reactive stream as an {@code onError} signal.
+     *
+     * @param future the Vert.x Future to bridge into a Mono
+     * @param <T> the type of the result
+     * @return a Mono that emits the future's result or its failure
      */
     public <T> Mono<T> toMono(Future<T> future) {
         return Mono.fromCompletionStage(future.toCompletionStage())
@@ -79,13 +96,14 @@ public class ReactiveOutboxAdapter {
     }
 
     /**
-     * Converts a Future<Void> to a Mono<Void>.
-     * 
-     * This is a specialized version for void operations, commonly used with
-     * transactional operations that don't return a value.
-     * 
-     * @param future The Future<Void> to convert
-     * @return A Mono<Void> that completes when the future completes
+     * Converts a Vert.x {@code Future<Void>} to a Reactor {@code Mono<Void>}.
+     *
+     * <p>Specialised for fire-and-complete operations that carry no payload, such as
+     * transactional sends. As with {@link #toMono(Future)}, the conversion is purely
+     * a non-blocking signal hand-off.
+     *
+     * @param future the {@code Future<Void>} to bridge
+     * @return a {@code Mono<Void>} that completes when the future completes
      */
     public Mono<Void> toMonoVoid(Future<Void> future) {
         return Mono.fromCompletionStage(future.toCompletionStage())
@@ -95,31 +113,34 @@ public class ReactiveOutboxAdapter {
     }
 
     /**
-     * Converts a list of CompletableFutures to a Flux.
-     * 
-     * This method is useful when you need to process multiple asynchronous operations
-     * as a reactive stream. Each CompletableFuture is converted to a Mono and then
-     * combined into a Flux.
-     * 
-     * @param futures The list of CompletableFutures to convert
-     * @param <T> The type of the results
-     * @return A Flux that emits the results of all futures
+     * Converts a list of Vert.x {@link Future}s into a Reactor {@link Flux}.
+     *
+     * <p>Each Future is bridged via {@link #toMono(Future)} and the results are merged
+     * into a single reactive stream. Useful for fan-out scenarios such as batch sends.
+     *
+     * @param futures the list of Vert.x Futures to bridge
+     * @param <T> the type of the results
+     * @return a Flux that emits the result of each future as it completes
      */
     public <T> Flux<T> toFlux(List<Future<T>> futures) {
         return Flux.fromIterable(futures)
             .flatMap(this::toMono)
-            .doOnError(error -> log.error("Error in reactive adapter while converting CompletableFutures to Flux", error))
-            .doOnComplete(() -> log.trace("Successfully converted {} CompletableFutures to Flux", futures.size()));
+            .doOnError(error -> log.error("Error in reactive adapter while converting Futures to Flux", error))
+            .doOnComplete(() -> log.trace("Successfully converted {} Futures to Flux", futures.size()));
     }
 
     /**
-     * Converts multiple CompletableFutures to a Mono that completes when all futures complete.
-     * 
-     * This is useful for operations that need to wait for multiple asynchronous operations
-     * to complete before proceeding.
-     * 
-     * @param futures The CompletableFutures to wait for
-     * @return A Mono<Void> that completes when all futures complete
+     * Returns a {@code Mono<Void>} that completes when <em>all</em> of the supplied
+     * Vert.x {@link Future}s complete successfully, or errors as soon as any of them fail.
+     *
+     * <p>Implementation note: this method reuses the JDK's
+     * {@link CompletableFuture#allOf(CompletableFuture[])} combinator. Each Vert.x Future
+     * is converted to a {@link CompletableFuture} purely so the JDK combinator can be
+     * applied; the resulting future is then wrapped back into a Mono. No blocking call
+     * ({@code .join()} / {@code .get()}) is made on any future.
+     *
+     * @param futures the Vert.x Futures to await
+     * @return a {@code Mono<Void>} that completes when all futures complete
      */
     public Mono<Void> allOf(Future<?>... futures) {
         CompletableFuture<?>[] cfs = new CompletableFuture[futures.length];
@@ -133,14 +154,16 @@ public class ReactiveOutboxAdapter {
     }
 
     /**
-     * Converts multiple CompletableFutures to a Mono that completes when any future completes.
-     * 
-     * This is useful for race conditions or timeout scenarios where you want to proceed
-     * as soon as any operation completes.
-     * 
-     * @param futures The CompletableFutures to race
-     * @param <T> The type of the result
-     * @return A Mono that completes with the first future's result
+     * Returns a {@link Mono} that completes with the result of whichever supplied
+     * Vert.x {@link Future} completes first (success or failure).
+     *
+     * <p>Implementation note: as with {@link #allOf(Future...)}, this method reuses the
+     * JDK's {@link CompletableFuture#anyOf(CompletableFuture[])} combinator. The conversion
+     * to {@code CompletableFuture} is internal and non-blocking.
+     *
+     * @param futures the Vert.x Futures to race
+     * @param <T> the type of the result
+     * @return a Mono that emits the first completed future's value
      */
     @SafeVarargs
     public final <T> Mono<T> anyOf(Future<T>... futures) {
@@ -157,20 +180,22 @@ public class ReactiveOutboxAdapter {
     }
 
     /**
-     * Converts a CompletableFuture to a Mono with a custom error handler.
-     * 
-     * This allows for more sophisticated error handling strategies, such as
-     * fallback values or retry logic.
-     * 
-     * @param future The CompletableFuture to convert
-     * @param errorHandler Function to handle errors and provide fallback
-     * @param <T> The type of the result
-     * @return A Mono that completes with the future's result or fallback
+     * Converts a Vert.x {@link Future} to a Reactor {@link Mono}, applying a fallback
+     * function if the future fails.
+     *
+     * <p>Use this overload when the caller wants to recover from a failure with a
+     * default value rather than propagate the error downstream. If the fallback function
+     * itself throws, the original error is replaced by the fallback's error.
+     *
+     * @param future the Vert.x Future to bridge
+     * @param errorHandler function that produces a fallback value from the failure
+     * @param <T> the type of the result
+     * @return a Mono that emits either the future's result or the fallback value
      */
     public <T> Mono<T> toMonoWithFallback(Future<T> future, java.util.function.Function<Throwable, T> errorHandler) {
         return Mono.fromCompletionStage(future.toCompletionStage())
             .onErrorResume(error -> {
-                log.warn("Error in CompletableFuture, applying fallback handler", error);
+                log.warn("Error in Future, applying fallback handler", error);
                 try {
                     T fallback = errorHandler.apply(error);
                     return Mono.just(fallback);

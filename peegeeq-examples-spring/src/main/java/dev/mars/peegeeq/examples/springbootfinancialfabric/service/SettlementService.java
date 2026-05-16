@@ -31,8 +31,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 
-import java.util.concurrent.CompletionStage;
-
 /**
  * Service for managing settlement instruction lifecycle events.
  * 
@@ -87,7 +85,7 @@ public class SettlementService {
                 validTime
             );
 
-            return toCompletableFuture(settlementEventStore.appendBuilder()
+            return settlementEventStore.appendBuilder()
                     .eventType("instruction.settlement.submitted")
                     .payload(instructionEvent)
                     .validTime(validTime)
@@ -95,7 +93,7 @@ public class SettlementService {
                     .correlationId(correlationId)
                     .aggregateId(instructionEvent.getInstructionId())
                     .inTransaction(connection)
-                    .execute())
+                    .execute()
                 .map(biTemporalEvent -> {
                     log.info("Settlement instruction submitted successfully: instructionId={}, eventId={}, cloudEventId={}",
                         instructionEvent.getInstructionId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -146,7 +144,7 @@ public class SettlementService {
                 validTime
             );
 
-            return toCompletableFuture(settlementEventStore.appendBuilder()
+            return settlementEventStore.appendBuilder()
                     .eventType("instruction.settlement.confirmed")
                     .payload(confirmationEvent)
                     .validTime(validTime)
@@ -154,7 +152,7 @@ public class SettlementService {
                     .correlationId(correlationId)
                     .aggregateId(instructionId)
                     .inTransaction(connection)
-                    .execute())
+                    .execute()
                 .map(biTemporalEvent -> {
                     log.info("Settlement confirmed successfully: instructionId={}, eventId={}, cloudEventId={}",
                         instructionId, biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -164,14 +162,6 @@ public class SettlementService {
             log.error("Failed to serialize settlement confirmation: instructionId={}", instructionId, e);
             return Future.failedFuture(new RuntimeException("Failed to serialize settlement confirmation", e));
         }
-    }
-
-    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
-        return Future.fromCompletionStage(stage);
-    }
-
-    private static <T> Future<T> toCompletableFuture(Future<T> future) {
-        return future;
     }
 }
 

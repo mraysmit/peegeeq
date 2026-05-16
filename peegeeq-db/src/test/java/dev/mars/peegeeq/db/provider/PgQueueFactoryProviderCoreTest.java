@@ -18,6 +18,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,7 +50,7 @@ public class PgQueueFactoryProviderCoreTest extends BaseIntegrationTest {
 
     @Test
     void testPgQueueFactoryProviderCreationWithConfiguration() {
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
         PgQueueFactoryProvider providerWithConfig = new PgQueueFactoryProvider(config);
         assertNotNull(providerWithConfig);
     }
