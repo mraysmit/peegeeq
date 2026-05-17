@@ -19,7 +19,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -32,6 +31,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -115,17 +115,15 @@ class OutboxErrorHandlingSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         peeGeeQManagerRef = peeGeeQManager;
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -166,7 +164,7 @@ class OutboxErrorHandlingSpringBootTest {
         });
         
         // Send message
-        producer.send("Transient error test message").await();
+        producer.send("Transient error test message").onFailure(testContext::failNow);
         
         // Wait for eventual success
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
@@ -208,16 +206,14 @@ class OutboxErrorHandlingSpringBootTest {
         });
         
         // Send message
-        producer.send("Permanent error test message").await();
-        
+        producer.send("Permanent error test message").onFailure(testContext::failNow);
+
         // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "Should attempt processing multiple times");
-        
+
         // Verify max retries were attempted
-        Promise<Void> retryDelay = Promise.promise();
-        vertx.setTimer(2000, id -> retryDelay.complete());
-        retryDelay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         int finalAttempts = attemptCount.get();
         assertTrue(finalAttempts >= 4, 
             "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);
@@ -273,8 +269,8 @@ class OutboxErrorHandlingSpringBootTest {
         });
         
         // Send both types of messages
-        producer.send("transient error message").await();
-        producer.send("permanent error message").await();
+        producer.send("transient error message").onFailure(testContext::failNow);
+        producer.send("permanent error message").onFailure(testContext::failNow);
         
         // Wait for outcomes
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 

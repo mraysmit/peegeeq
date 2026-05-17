@@ -21,7 +21,7 @@ Use Vert.x composable futures everywhere.
 - Use `io.vertx.core.Future<T>` for asynchronous APIs and flows.
 - Use `.compose(...)` for sequencing.
 - Use `.map(...)` for transformation.
-- Use `.recover(...)` for fallback/recovery.
+- Use `.transform(...)` to handle both success and failure (replaces `.recover()` / `.otherwise()`).
 - Use `.onSuccess(...)` and `.onFailure(...)` for terminal handlers.
 - Use `Promise<Void>` for async coordination in tests.
 - Use `VertxTestContext` and `Checkpoint` for asynchronous test completion.
@@ -73,9 +73,12 @@ Reference examples:
 - Order is mandatory: production sync wrappers removed → tests rewritten to async APIs. Never the reverse.
 
 ### Maven Profile Rules
-- `mvn test` runs core tests only by default.
-- Use `-Pintegration-tests` for integration tests.
-- `Tests run: 0` means the test likely did not execute under the active profile.
+- After ANY code change, the ONLY valid test command is:
+  `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- `-Pall-tests` runs every test in every module regardless of `@Tag`. Partial profiles miss tests and have caused production bugs.
+- `clean` is required with `-Pall-tests` to prevent stale class artifacts.
+- `Tests run: 0` means the test did not execute — check tagging and profile.
+- Partial profiles (`no -P`, `-Pintegration-tests`, `-Pcore-tests`) only acceptable when re-running a specific already-identified failure.
 - Install dependent modules locally first when needed.
 
 ## Change Process Rules

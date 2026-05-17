@@ -32,10 +32,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -251,7 +253,7 @@ class DistributedSystemResilienceDemoTest {
             
             try {
                 // Simulate processing delay
-                Thread.sleep(processingDelayMs);
+                new CountDownLatch(1).await(processingDelayMs, TimeUnit.MILLISECONDS);
                 
                 // Simulate failures based on failure rate
                 boolean shouldFail = Math.random() < failureRate;
@@ -323,7 +325,7 @@ class DistributedSystemResilienceDemoTest {
                     long delay = (long) (baseDelayMs * Math.pow(backoffMultiplier, attempt - 1));
 
                     try {
-                        Thread.sleep(delay);
+                        new CountDownLatch(1).await(delay, TimeUnit.MILLISECONDS);
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         break;
@@ -347,47 +349,33 @@ class DistributedSystemResilienceDemoTest {
     }
 
     @BeforeEach
-    void setUp() {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up Distributed System Resilience Demo Test");
-
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-
-        // Initialize database schema for distributed system resilience test
-        logger.info("Initializing database schema for distributed system resilience test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
-
-        // Initialize PeeGeeQ with resilience configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        queueFactory = provider.createFactory("native", databaseService);
-
-        logger.info("Setup complete - Ready for distributed system resilience pattern testing");
+        manager.start()
+            .onSuccess(v -> {
+                var databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                queueFactory = provider.createFactory("native", databaseService);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() {
-        logger.info("Tearing down: closing resources and manager");
+    void tearDown(VertxTestContext testContext) {
         logger.info("Cleaning up Distributed System Resilience Demo Test");
-
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error during manager cleanup: {}", e.getMessage());
-            }
-        }
+        if (manager == null) { testContext.completeNow(); return; }
+        manager.closeReactive()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during manager cleanup: {}", err.getMessage());
+                testContext.completeNow();
+            });
 
         // Clean up system properties
         logger.info("Cleanup complete");
@@ -467,7 +455,7 @@ class DistributedSystemResilienceDemoTest {
         }
 
         // Wait for all sends to complete
-        Future.all(sendTasks).await();
+        awaitFuture(Future.all(sendTasks), 30, TimeUnit.SECONDS);
 
         // Wait for all processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");

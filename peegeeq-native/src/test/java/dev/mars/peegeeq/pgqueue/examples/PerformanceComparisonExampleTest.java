@@ -39,6 +39,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -55,10 +56,12 @@ import java.time.Duration;
 import java.time.Instant;
 
 import java.util.Properties;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -102,7 +105,7 @@ class PerformanceComparisonExampleTest {
     private QueueFactory nativeFactory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Performance Comparison Test ===");
 
@@ -129,25 +132,27 @@ class PerformanceComparisonExampleTest {
                 new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
+        manager.start().onSuccess(v -> {
+            logger.info("PeeGeeQ Manager started successfully");
 
-        // Create database service and factory provider
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        // Provide live PeeGeeQConfiguration so consumers can read threads/batch/polling settings
-        QueueFactoryProvider provider = new PgQueueFactoryProvider(manager.getConfiguration());
+            // Create database service and factory provider
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            // Provide live PeeGeeQConfiguration so consumers can read threads/batch/polling settings
+            QueueFactoryProvider provider = new PgQueueFactoryProvider(manager.getConfiguration());
 
-        // Register native queue factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            // Register native queue factory implementation
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        // Create native queue factory
-        nativeFactory = provider.createFactory("native", databaseService);
+            // Create native queue factory
+            nativeFactory = provider.createFactory("native", databaseService);
 
-        logger.info("Performance Comparison Test setup completed");
+            logger.info("Performance Comparison Test setup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Performance Comparison Test");
 
@@ -156,8 +161,13 @@ class PerformanceComparisonExampleTest {
         }
 
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
         logger.info("Performance Comparison Test cleanup completed");
     }
@@ -256,19 +266,19 @@ class PerformanceComparisonExampleTest {
         // Test all configurations and compare performance
         PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
-        vertx.timer(2000).await();
+        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
 
         PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
 
-        vertx.timer(2000).await();
+        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
 
         PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
 
-        vertx.timer(2000).await();
+        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
 
         PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
 
-        vertx.timer(2000).await();
+        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
 
         PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
@@ -369,7 +379,7 @@ class PerformanceComparisonExampleTest {
             boolean completed;
             try {
                 vertx.timer(30000).onSuccess(id -> allProcessed.tryFail("Timeout waiting for all messages"));
-                allProcessed.future().await();
+                awaitFuture(allProcessed.future(), 10, TimeUnit.SECONDS);
                 completed = true;
             } catch (Exception e) {
                 completed = false;

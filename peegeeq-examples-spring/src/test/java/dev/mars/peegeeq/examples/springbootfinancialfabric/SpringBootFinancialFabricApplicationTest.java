@@ -25,6 +25,8 @@ import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -136,10 +138,10 @@ public class SpringBootFinancialFabricApplicationTest {
     }
 
     @AfterAll
-    static void tearDown() {
+    static void tearDown() throws Exception {
         log.info("🧹 Cleaning up Financial Fabric Test resources");
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
         log.info("Financial Fabric Test cleanup complete");
     }

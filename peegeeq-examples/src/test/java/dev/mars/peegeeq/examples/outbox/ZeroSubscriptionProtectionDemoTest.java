@@ -32,16 +32,23 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,6 +84,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Testcontainers
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 class ZeroSubscriptionProtectionDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(ZeroSubscriptionProtectionDemoTest.class);
     
@@ -93,59 +101,61 @@ class ZeroSubscriptionProtectionDemoTest {
     private ZeroSubscriptionValidator zeroSubscriptionValidator;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        // Initialize database schema
         logger.info("Initializing database schema for zero-subscription protection demo");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully");
 
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create connection manager and pool
-        connectionManager = new PgConnectionManager(manager.getVertx(), null);
-        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-            .host(postgres.getHost())
-            .port(postgres.getFirstMappedPort())
-            .database(postgres.getDatabaseName())
-            .username(postgres.getUsername())
-            .password(postgres.getPassword())
-            .schema("public")
-            .build();
+        manager.start()
+            .onSuccess(v -> {
+                connectionManager = new PgConnectionManager(manager.getVertx(), null);
+                PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                    .host(postgres.getHost())
+                    .port(postgres.getFirstMappedPort())
+                    .database(postgres.getDatabaseName())
+                    .username(postgres.getUsername())
+                    .password(postgres.getPassword())
+                    .schema("public")
+                    .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
-            .build();
+                PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                    .maxSize(10)
+                    .build();
 
-        connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+                connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
 
-        // Create service instances
-        topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
-        zeroSubscriptionValidator = new ZeroSubscriptionValidator(connectionManager, "peegeeq-main");
+                topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
+                zeroSubscriptionValidator = new ZeroSubscriptionValidator(connectionManager, "peegeeq-main");
 
-        logger.info("Zero-subscription protection demo test setup complete");
+                logger.info("Zero-subscription protection demo test setup complete");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(Vertx vertx, VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
-        if (connectionManager != null) {
-            try {
-                connectionManager.close();
-            } catch (Exception e) {
-                logger.warn("Error closing connection manager: {}", e.getMessage());
+        if (manager == null) {
+            if (connectionManager != null) {
+                connectionManager.close().onFailure(err -> logger.warn("connectionManager close failed", err));
             }
+            logger.info("Test teardown completed");
+            ctx.completeNow();
+            return;
         }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-
-        logger.info("Test teardown completed");
+        Future<Void> cmClose = connectionManager != null
+            ? connectionManager.close()
+            : Future.succeededFuture();
+        cmClose
+            .transform(ar -> manager.closeReactive())
+            .onSuccess(v -> { logger.info("PeeGeeQ manager closed"); logger.info("Test teardown completed"); ctx.completeNow(); })
+            .onFailure(err -> { logger.error("Error closing manager", err); ctx.completeNow(); });
     }
 
     /**
@@ -158,7 +168,7 @@ class ZeroSubscriptionProtectionDemoTest {
      * available workers. If no workers are available, messages wait in the queue.</p>
      */
     @Test
-    void testQueueTopicAlwaysAllowsWrites() throws Exception {
+    void testQueueTopicAlwaysAllowsWrites(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== DEMO 1: QUEUE Topics Always Allow Writes ===\n");
 
         String topic = "work.queue";
@@ -171,33 +181,34 @@ class ZeroSubscriptionProtectionDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .await();
-        logger.info("✓ QUEUE topic created successfully");
+            .compose(v -> {
+                logger.info("\u2713 QUEUE topic created successfully");
+                logger.info("\nStep 2: Verifying topic has zero subscriptions");
+                return hasActiveSubscriptions(topic);
+            })
+            .compose(hasSubscriptions -> {
+                testContext.verify(() -> assertFalse(hasSubscriptions, "Topic should have zero subscriptions"));
+                logger.info("\u2713 Confirmed: Topic has zero subscriptions");
+                logger.info("\nStep 3: Inserting message into QUEUE topic with zero subscriptions");
+                return insertMessage(topic, new JsonObject()
+                    .put("taskId", "TASK-001")
+                    .put("action", "process-order"));
+            })
+            .onSuccess(messageId -> {
+                testContext.verify(() -> assertNotNull(messageId, "Message should be inserted successfully"));
+                logger.info("\u2713 Message inserted successfully: ID = {}", messageId);
+                logger.info("\nStep 4: Verifying QUEUE topic behavior");
+                logger.info("\u2713 QUEUE topics ALWAYS allow writes, regardless of subscription count");
+                logger.info("  - Reason: Messages are distributed to workers when they become available");
+                logger.info("  - Zero-subscription protection does NOT apply to QUEUE topics");
+                logger.info("\n=== DEMO 1 COMPLETE: QUEUE Topics ===\n");
+                logger.info("Key Takeaway: QUEUE topics always accept messages, even with zero subscriptions.");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        // Step 2: Verify topic has zero subscriptions
-        logger.info("\nStep 2: Verifying topic has zero subscriptions");
-        boolean hasSubscriptions = hasActiveSubscriptions(topic);
-        assertFalse(hasSubscriptions, "Topic should have zero subscriptions");
-        logger.info("✓ Confirmed: Topic has zero subscriptions");
-
-        // Step 3: Attempt to insert message (should succeed for QUEUE topics)
-        logger.info("\nStep 3: Inserting message into QUEUE topic with zero subscriptions");
-        Long messageId = insertMessage(topic, new JsonObject()
-            .put("taskId", "TASK-001")
-            .put("action", "process-order"))
-            .await();
-
-        assertNotNull(messageId, "Message should be inserted successfully");
-        logger.info("✓ Message inserted successfully: ID = {}", messageId);
-
-        // Step 4: Verify write was allowed
-        logger.info("\nStep 4: Verifying QUEUE topic behavior");
-        logger.info("✓ QUEUE topics ALWAYS allow writes, regardless of subscription count");
-        logger.info("  - Reason: Messages are distributed to workers when they become available");
-        logger.info("  - Zero-subscription protection does NOT apply to QUEUE topics");
-
-        logger.info("\n=== DEMO 1 COMPLETE: QUEUE Topics ===\n");
-        logger.info("Key Takeaway: QUEUE topics always accept messages, even with zero subscriptions.");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+            "Test should complete within 30 seconds");
     }
 
     /**
@@ -210,7 +221,7 @@ class ZeroSubscriptionProtectionDemoTest {
      * backfill historical events using FROM_BEGINNING.</p>
      */
     @Test
-    void testPubSubAllowsWritesWithoutSubscriptions() throws Exception {
+    void testPubSubAllowsWritesWithoutSubscriptions(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== DEMO 2: PUB_SUB with blockWritesOnZeroSubscriptions=false ===\n");
 
         String topic = "events.stream";
@@ -225,35 +236,36 @@ class ZeroSubscriptionProtectionDemoTest {
             .blockWritesOnZeroSubscriptions(false)  // Allow writes
             .build();
         topicConfigService.createTopic(topicConfig)
-            .await();
-        logger.info("✓ PUB_SUB topic created successfully");
-        logger.info("  - blockWritesOnZeroSubscriptions: false");
-        logger.info("  - zeroSubscriptionRetentionHours: 12");
+            .compose(v -> {
+                logger.info("\u2713 PUB_SUB topic created successfully");
+                logger.info("  - blockWritesOnZeroSubscriptions: false");
+                logger.info("  - zeroSubscriptionRetentionHours: 12");
+                logger.info("\nStep 2: Verifying topic has zero subscriptions");
+                return hasActiveSubscriptions(topic);
+            })
+            .compose(hasSubscriptions -> {
+                testContext.verify(() -> assertFalse(hasSubscriptions, "Topic should have zero subscriptions"));
+                logger.info("\u2713 Confirmed: Topic has zero subscriptions");
+                logger.info("\nStep 3: Inserting message into PUB_SUB topic with zero subscriptions");
+                return insertMessage(topic, new JsonObject()
+                    .put("eventId", "EVENT-001")
+                    .put("eventType", "order.created"));
+            })
+            .onSuccess(messageId -> {
+                testContext.verify(() -> assertNotNull(messageId, "Message should be inserted successfully"));
+                logger.info("\u2713 Message inserted successfully: ID = {}", messageId);
+                logger.info("\nStep 4: Verifying PUB_SUB behavior with blockWritesOnZeroSubscriptions=false");
+                logger.info("\u2713 Write was ALLOWED even with zero subscriptions");
+                logger.info("  - Message will be retained for 12 hours (zeroSubscriptionRetentionHours)");
+                logger.info("  - Late-joining consumers can backfill using FROM_BEGINNING");
+                logger.info("\n=== DEMO 2 COMPLETE: PUB_SUB Allows Writes ===\n");
+                logger.info("Key Takeaway: PUB_SUB topics with blockWritesOnZeroSubscriptions=false allow writes and retain messages for late-joining consumers.");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        // Step 2: Verify topic has zero subscriptions
-        logger.info("\nStep 2: Verifying topic has zero subscriptions");
-        boolean hasSubscriptions = hasActiveSubscriptions(topic);
-        assertFalse(hasSubscriptions, "Topic should have zero subscriptions");
-        logger.info("✓ Confirmed: Topic has zero subscriptions");
-
-        // Step 3: Insert message (should succeed)
-        logger.info("\nStep 3: Inserting message into PUB_SUB topic with zero subscriptions");
-        Long messageId = insertMessage(topic, new JsonObject()
-            .put("eventId", "EVENT-001")
-            .put("eventType", "order.created"))
-            .await();
-
-        assertNotNull(messageId, "Message should be inserted successfully");
-        logger.info("✓ Message inserted successfully: ID = {}", messageId);
-
-        // Step 4: Verify write was allowed
-        logger.info("\nStep 4: Verifying PUB_SUB behavior with blockWritesOnZeroSubscriptions=false");
-        logger.info("✓ Write was ALLOWED even with zero subscriptions");
-        logger.info("  - Message will be retained for 12 hours (zeroSubscriptionRetentionHours)");
-        logger.info("  - Late-joining consumers can backfill using FROM_BEGINNING");
-
-        logger.info("\n=== DEMO 2 COMPLETE: PUB_SUB Allows Writes ===\n");
-        logger.info("Key Takeaway: PUB_SUB topics with blockWritesOnZeroSubscriptions=false allow writes and retain messages for late-joining consumers.");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+            "Test should complete within 30 seconds");
     }
 
     /**
@@ -266,7 +278,7 @@ class ZeroSubscriptionProtectionDemoTest {
      * only be published when there are active consumers listening.</p>
      */
     @Test
-    void testPubSubBlocksWritesWithoutSubscriptions() throws Exception {
+    void testPubSubBlocksWritesWithoutSubscriptions(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== DEMO 3: PUB_SUB with blockWritesOnZeroSubscriptions=true ===\n");
 
         String topic = "critical.events";
@@ -281,36 +293,37 @@ class ZeroSubscriptionProtectionDemoTest {
             .blockWritesOnZeroSubscriptions(true)  // Block writes
             .build();
         topicConfigService.createTopic(topicConfig)
-            .await();
-        logger.info("✓ PUB_SUB topic created successfully");
-        logger.info("  - blockWritesOnZeroSubscriptions: true");
-        logger.info("  - zeroSubscriptionRetentionHours: 24");
+            .compose(v -> {
+                logger.info("\u2713 PUB_SUB topic created successfully");
+                logger.info("  - blockWritesOnZeroSubscriptions: true");
+                logger.info("  - zeroSubscriptionRetentionHours: 24");
+                logger.info("\nStep 2: Verifying topic has zero subscriptions");
+                return hasActiveSubscriptions(topic);
+            })
+            .compose(hasSubscriptions -> {
+                testContext.verify(() -> assertFalse(hasSubscriptions, "Topic should have zero subscriptions"));
+                logger.info("\u2713 Confirmed: Topic has zero subscriptions");
+                logger.info("\nStep 3: Checking if write is allowed for PUB_SUB topic with zero subscriptions");
+                logger.info("  (This should be blocked due to write blocking)");
+                return zeroSubscriptionValidator.isWriteAllowed(topic);
+            })
+            .onSuccess(writeAllowed -> {
+                testContext.verify(() -> assertFalse(writeAllowed,
+                    "Write should be blocked when zero subscriptions and blockWritesOnZeroSubscriptions=true"));
+                logger.info("\u2713 Write was BLOCKED as expected");
+                logger.info("  - isWriteAllowed() returned: false");
+                logger.info("\nStep 4: Verifying PUB_SUB behavior with blockWritesOnZeroSubscriptions=true");
+                logger.info("\u2713 Write blocking is working correctly");
+                logger.info("  - Prevents accidental data loss when no consumers are listening");
+                logger.info("  - Ensures critical events are only published to active subscribers");
+                logger.info("\n=== DEMO 3 COMPLETE: PUB_SUB Blocks Writes ===\n");
+                logger.info("Key Takeaway: PUB_SUB topics with blockWritesOnZeroSubscriptions=true prevent writes when no active subscriptions exist.");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        // Step 2: Verify topic has zero subscriptions
-        logger.info("\nStep 2: Verifying topic has zero subscriptions");
-        boolean hasSubscriptions = hasActiveSubscriptions(topic);
-        assertFalse(hasSubscriptions, "Topic should have zero subscriptions");
-        logger.info("✓ Confirmed: Topic has zero subscriptions");
-
-        // Step 3: Check if write is allowed (should be blocked)
-        logger.info("\nStep 3: Checking if write is allowed for PUB_SUB topic with zero subscriptions");
-        logger.info("  (This should be blocked due to write blocking)");
-
-        Boolean writeAllowed = zeroSubscriptionValidator.isWriteAllowed(topic)
-            .await();
-
-        assertFalse(writeAllowed, "Write should be blocked when zero subscriptions and blockWritesOnZeroSubscriptions=true");
-        logger.info("✓ Write was BLOCKED as expected");
-        logger.info("  - isWriteAllowed() returned: false");
-
-        // Step 4: Verify write blocking behavior
-        logger.info("\nStep 4: Verifying PUB_SUB behavior with blockWritesOnZeroSubscriptions=true");
-        logger.info("✓ Write blocking is working correctly");
-        logger.info("  - Prevents accidental data loss when no consumers are listening");
-        logger.info("  - Ensures critical events are only published to active subscribers");
-
-        logger.info("\n=== DEMO 3 COMPLETE: PUB_SUB Blocks Writes ===\n");
-        logger.info("Key Takeaway: PUB_SUB topics with blockWritesOnZeroSubscriptions=true prevent writes when no active subscriptions exist.");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+            "Test should complete within 30 seconds");
     }
 
     // Helper Methods
@@ -318,7 +331,7 @@ class ZeroSubscriptionProtectionDemoTest {
     /**
      * Checks if a topic has any active subscriptions.
      */
-    private boolean hasActiveSubscriptions(String topic) throws Exception {
+    private Future<Boolean> hasActiveSubscriptions(String topic) {
         String sql = """
             SELECT COUNT(*) AS sub_count
             FROM outbox_topic_subscriptions
@@ -335,7 +348,7 @@ class ZeroSubscriptionProtectionDemoTest {
                     }
                     return false;
                 })
-        ).await();
+        );
     }
 
     /**

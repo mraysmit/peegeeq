@@ -55,7 +55,7 @@ class PgNativeQueueConsumerListenIT {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -65,28 +65,32 @@ class PgNativeQueueConsumerListenIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create adapter using DatabaseService interfaces
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            adapter = new VertxPoolAdapter(
+                databaseService.getVertx(),
+                databaseService.getPool(),
+                databaseService
+            );
 
-        // Create adapter using DatabaseService interfaces
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-            databaseService.getVertx(),
-            databaseService.getPool(),
-            databaseService
-        );
-
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
+            mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception ignore) {}
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

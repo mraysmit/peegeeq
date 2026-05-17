@@ -22,7 +22,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -36,6 +35,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -87,7 +87,7 @@ public class OutboxMessageOrderingSpringBootTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("🧹 Cleaning up Message Ordering Spring Boot Test");
         
         // Close all active consumers first
@@ -114,18 +114,16 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         peeGeeQManagerRef = peeGeeQManager;
         logger.info("Cleanup complete");
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -166,10 +164,8 @@ public class OutboxMessageOrderingSpringBootTest {
         logger.info("📤 Sending 10 messages in sequence");
         for (int i = 1; i <= 10; i++) {
             OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
-            producer.send(message).await();
-            Promise<Void> sendDelay = Promise.promise();
-            vertx.setTimer(10, id -> sendDelay.complete(null));
-            sendDelay.future().await(); // Small delay to ensure different timestamps
+            producer.send(message).onFailure(testContext::failNow);
+            awaitFuture(vertx.timer(10), 2, TimeUnit.SECONDS); // Small delay to ensure different timestamps
         }
         
         // Wait for all messages to be processed
@@ -237,12 +233,10 @@ public class OutboxMessageOrderingSpringBootTest {
                 OrderMessage message = new OrderMessage("order-" + sequence, sequence, "Item " + sequence);
                 message.setCustomerId(customer);
                 // Send with message_group parameter
-                producer.send(message, null, null, customer).await();
+                producer.send(message, null, null, customer).onFailure(testContext::failNow);
                 logger.info("   Sent sequence {} for {}", sequence, customer);
                 sequence++;
-                Promise<Void> sendDelay = Promise.promise();
-                vertx.setTimer(10, id -> sendDelay.complete(null));
-                sendDelay.future().await(); // Small delay to ensure different timestamps
+                awaitFuture(vertx.timer(10), 2, TimeUnit.SECONDS); // Small delay to ensure different timestamps
             }
         }
         
@@ -313,7 +307,7 @@ public class OutboxMessageOrderingSpringBootTest {
             String group = groups[i % groups.length];
             OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
             message.setCustomerId(group);
-            producer.send(message, null, null, group).await();
+            producer.send(message, null, null, group).onFailure(testContext::failNow);
         }
         
         // Wait for all messages to be processed

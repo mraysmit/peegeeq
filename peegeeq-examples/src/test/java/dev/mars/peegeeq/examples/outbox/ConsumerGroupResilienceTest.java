@@ -29,6 +29,8 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,7 +47,6 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import java.util.Map;
 import java.util.Set;
 
@@ -66,7 +67,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test class has been refactored to eliminate poorly structured test design patterns:
  * <ul>
  *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
- *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual ExecutorService</li>
+ *   <li><strong>Thread Management</strong>: Uses chained {@link io.vertx.core.Future} composition with {@link java.util.concurrent.CountDownLatch} instead of manual ExecutorService</li>
  *   <li><strong>Test Independence</strong>: Each test uses unique queue and consumer group names</li>
  *   <li><strong>Clean Structure</strong>: Simplified setup/teardown with essential logging only</li>
  * </ul>
@@ -107,43 +108,57 @@ class ConsumerGroupResilienceTest {
     }
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+
+        // Ensure database schema exists (independent of test execution order)
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
         // Generate unique queue name for test independence
         testQueueName = getUniqueQueueName("order-events");
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create queue factory and producer
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        manager.start()
+            .onSuccess(v -> {
+                // Create queue factory and producer
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Register queue factory implementations
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                // Register queue factory implementations
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        queueFactory = provider.createFactory("outbox", databaseService);
-        producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
+                queueFactory = provider.createFactory("outbox", databaseService);
+                producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
 
-        logger.info("Resilience test setup completed successfully with queue: {}", testQueueName);
+                logger.info("Resilience test setup completed successfully with queue: {}", testQueueName);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
-
-        logger.info("Resilience test teardown completed");
+        manager.closeReactive()
+            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
+            .onFailure(err -> logger.error("Error closing manager", err))
+            .eventually(() -> {
+                logger.info("Resilience test teardown completed");
+                testContext.completeNow();
+                return Future.<Void>succeededFuture();
+            });
     }
     
     /**
@@ -188,7 +203,7 @@ class ConsumerGroupResilienceTest {
 
         // Send test messages that will trigger failures
         logger.info("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
-        sendFailureTestMessages();
+        sendFailureTestMessages(testContext);
 
         // Wait for processing and recovery using Vert.x periodic polling
         vertx.setPeriodic(100, timerId -> {
@@ -204,7 +219,7 @@ class ConsumerGroupResilienceTest {
                     assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
                     assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
 
-                    orderGroup.close();
+                    orderGroup.close().onFailure(testContext::failNow);
                     testContext.completeNow();
                 } catch (Throwable t) {
                     testContext.failNow(t);
@@ -242,10 +257,10 @@ class ConsumerGroupResilienceTest {
         testGroup.start();
         
         // Send test messages
-        sendFilterTestMessages();
+        sendFilterTestMessages(testContext);
 
         // Wait for processing
-        vertx.setTimer(5000, timerId -> {
+        vertx.timer(5000).onSuccess(t -> {
             try {
                 logger.info("Filter handling results:");
                 logger.info("  Messages processed: {}", processedCount.get());
@@ -253,12 +268,12 @@ class ConsumerGroupResilienceTest {
 
                 assertTrue(processedCount.get() > 0, "Some messages should be processed");
 
-                testGroup.close();
+                testGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
-            } catch (Throwable t) {
-                testContext.failNow(t);
+            } catch (Throwable th) {
+                testContext.failNow(th);
             }
-        });
+        }).onFailure(testContext::failNow);
 
         testContext.awaitCompletion(10, TimeUnit.SECONDS);
         logger.info("Invalid message filter handling test completed successfully");
@@ -287,7 +302,7 @@ class ConsumerGroupResilienceTest {
         monitoringGroup.start();
         
         // Send test messages
-        sendMonitoringTestMessages();
+        sendMonitoringTestMessages(testContext);
 
         // Wait for processing using Vert.x periodic polling
         vertx.setPeriodic(100, timerId -> {
@@ -305,7 +320,7 @@ class ConsumerGroupResilienceTest {
                     logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
                     logger.info("  Total processed: {}", processedCount.get());
 
-                    monitoringGroup.close();
+                    monitoringGroup.close().onFailure(testContext::failNow);
                     testContext.completeNow();
                 } catch (Throwable t) {
                     testContext.failNow(t);
@@ -356,9 +371,7 @@ class ConsumerGroupResilienceTest {
             successCount.incrementAndGet();
 
             // Simulate processing delay using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(100, id -> future.complete());
-            return future.future();
+            return vertx.timer(100).mapEmpty();
         };
     }
 
@@ -370,9 +383,7 @@ class ConsumerGroupResilienceTest {
             recoveredCount.incrementAndGet();
 
             // Simulate recovery processing delay using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(50, id -> future.complete());
-            return future.future();
+            return vertx.timer(50).mapEmpty();
         };
     }
 
@@ -384,9 +395,7 @@ class ConsumerGroupResilienceTest {
             processedCount.incrementAndGet();
 
             // Simulate filter processing delay using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(25, id -> future.complete());
-            return future.future();
+            return vertx.timer(25).mapEmpty();
         };
     }
 
@@ -403,9 +412,7 @@ class ConsumerGroupResilienceTest {
             processedCount.incrementAndGet();
 
             // Simulate monitoring processing delay using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(delay, id -> future.complete());
-            return future.future();
+            return vertx.timer(delay).mapEmpty();
         };
     }
 
@@ -436,63 +443,71 @@ class ConsumerGroupResilienceTest {
 
     /**
      * Sends messages that will trigger failures in the failing handler.
+     * Sends are issued as a chained {@link Future} sequence; any failure is reported
+     * to {@link VertxTestContext} via {@code failNow}.
      */
-    private void sendFailureTestMessages() throws Exception {
+    private void sendFailureTestMessages(VertxTestContext testContext) {
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 20; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = Map.of(
-                "region", "US",
-                "priority", "NORMAL",
-                "type", "STANDARD",
-                "source", "failure-test"
-            );
-
-            producer.send(event, headers, "failure-test-" + i, "US").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = Map.of(
+                    "region", "US",
+                    "priority", "NORMAL",
+                    "type", "STANDARD",
+                    "source", "failure-test"
+                );
+                return producer.send(event, headers, "failure-test-" + idx, "US").mapEmpty();
+            });
         }
-
-        logger.info("Sent 20 failure test messages");
+        chain.onSuccess(v -> logger.info("Sent 20 failure test messages"))
+             .onFailure(testContext::failNow);
     }
 
     /**
      * Sends messages for filter testing.
      */
-    private void sendFilterTestMessages() throws Exception {
+    private void sendFilterTestMessages(VertxTestContext testContext) {
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 10; i++) {
-            OrderEvent event = createOrderEvent(i);
-
-            // Some messages with invalid region to trigger filter exceptions
-            String region = (i % 4 == 0) ? "INVALID" : "US";
-
-            Map<String, String> headers = Map.of(
-                "region", region,
-                "priority", "NORMAL",
-                "type", "STANDARD",
-                "source", "filter-test"
-            );
-
-            producer.send(event, headers, "filter-test-" + i, region).await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                String region = (idx % 4 == 0) ? "INVALID" : "US";
+                Map<String, String> headers = Map.of(
+                    "region", region,
+                    "priority", "NORMAL",
+                    "type", "STANDARD",
+                    "source", "filter-test"
+                );
+                return producer.send(event, headers, "filter-test-" + idx, region).mapEmpty();
+            });
         }
-
-        logger.info("Sent 10 filter test messages");
+        chain.onSuccess(v -> logger.info("Sent 10 filter test messages"))
+             .onFailure(testContext::failNow);
     }
 
     /**
      * Sends messages for monitoring tests.
      */
-    private void sendMonitoringTestMessages() throws Exception {
+    private void sendMonitoringTestMessages(VertxTestContext testContext) {
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 15; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = Map.of(
-                "region", "US",
-                "priority", "NORMAL",
-                "type", "STANDARD",
-                "source", "monitoring-test"
-            );
-
-            producer.send(event, headers, "monitoring-test-" + i, "US").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = Map.of(
+                    "region", "US",
+                    "priority", "NORMAL",
+                    "type", "STANDARD",
+                    "source", "monitoring-test"
+                );
+                return producer.send(event, headers, "monitoring-test-" + idx, "US").mapEmpty();
+            });
         }
-
-        logger.info("Sent 15 monitoring test messages");
+        chain.onSuccess(v -> logger.info("Sent 15 monitoring test messages"))
+             .onFailure(testContext::failNow);
     }
 
     /**

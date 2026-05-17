@@ -66,7 +66,6 @@ class OutboxConsumerGroupClientIdPropagationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupClientIdPropagationTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
@@ -74,13 +73,15 @@ class OutboxConsumerGroupClientIdPropagationTest {
     private PeeGeeQConfiguration config;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        this.manager.start().await();
-        this.databaseService = new PgDatabaseService(manager);
+        this.manager.start().onSuccess(v -> {
+            this.databaseService = new PgDatabaseService(manager);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

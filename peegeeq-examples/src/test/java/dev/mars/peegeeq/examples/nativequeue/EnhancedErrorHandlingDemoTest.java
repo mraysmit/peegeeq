@@ -31,8 +31,12 @@ import java.math.BigDecimal;
 import java.util.*;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.vertx.junit5.VertxTestContext;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -85,7 +89,7 @@ class EnhancedErrorHandlingDemoTest {
     private final List<ErrorEvent> errorEvents = Collections.synchronizedList(new ArrayList<>());
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("🔧 Setting up EnhancedErrorHandlingDemoTest");
 
@@ -117,28 +121,30 @@ class EnhancedErrorHandlingDemoTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create native factory
+            var databaseService = new PgDatabaseService(manager);
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            // Register native factory implementation
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            queueFactory = provider.createFactory("native", databaseService);
 
-        queueFactory = provider.createFactory("native", databaseService);
-        
-        logger.info("EnhancedErrorHandlingDemoTest setup complete");
+            logger.info("EnhancedErrorHandlingDemoTest setup complete");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up EnhancedErrorHandlingDemoTest");
-        
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        (manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -250,12 +256,10 @@ class EnhancedErrorHandlingDemoTest {
         }
         
         // Wait for all producers to complete
-        Future.all(producerTasks).await();
+        awaitFuture(Future.all(producerTasks), 30, TimeUnit.SECONDS);
 
         // Wait for processing to complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(5000, id -> delay.complete());
-        delay.future().await();
+        new CountDownLatch(1).await(5, TimeUnit.SECONDS);
         
         // Stop consumers
         consumer.close();

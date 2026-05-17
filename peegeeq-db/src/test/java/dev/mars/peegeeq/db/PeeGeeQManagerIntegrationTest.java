@@ -320,7 +320,6 @@ public class PeeGeeQManagerIntegrationTest {
             .compose(v -> manager.getSystemStatus())
             .compose(statusBeforeClose -> {
                 assertTrue(statusBeforeClose.isStarted());
-                manager.close();
                 return manager.stop();
             })
             .onSuccess(v -> testContext.completeNow())

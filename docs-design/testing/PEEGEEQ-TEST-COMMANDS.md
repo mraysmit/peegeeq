@@ -79,36 +79,29 @@ Get-Content logs\<name>.txt -Tail 30
 
 ---
 
-## 1 Daily Development (run this constantly)
+> **RULE: After ANY code change, the only acceptable validation command is section 5 (`-Pall-tests`).**
+> The tiered workflow below (daily → commit → push) was the primary cause of months of missed tests and production bugs.
+> Partial profiles are only acceptable when re-running a **specific already-identified failure** from a prior `-Pall-tests` run.
 
-```powershell
-mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260514.txt
-```
+---
 
-Single module (fastest feedback):
+## 1 Targeted Core Debug (only after a `-Pall-tests` failure is already identified)
+
+Single module (fast feedback while fixing a known core-tagged failure):
 ```powershell
 mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260514.txt
 ```
 
 ---
 
-## 2 Before Commit
-
-```powershell
-mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260514.txt
-mvn test                2>&1 | Tee-Object -FilePath logs\core-tests-20260514.txt
-```
-
----
-
-## 3 Before Push / Integration Validation
+## 2 Targeted Integration Debug (only after a `-Pall-tests` failure is already identified)
 
 Single module:
 ```powershell
 mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260514.txt
 ```
 
-All modules (no `-pl` list required — the profile applies repo-wide):
+All modules (rarely needed — prefer `-Pall-tests`):
 ```powershell
 mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260514.txt
 ```

@@ -591,7 +591,7 @@ recovered. The correct approach is:
 | Convert error to domain status (e.g. unhealthy) | `.transform()` or caller handles failure | `.recover(e -> succeededFuture(unhealthy(e)))` |
 | Handle expected error (e.g. duplicate key) | SQL-level (`ON CONFLICT`, `IF NOT EXISTS`) | `.recover(e -> { if (duplicate) return succeededFuture(); })` |
 | Retry or failover | Retry middleware / circuit breaker | `.recover(e -> { if (retryable) return retry(); })` |
-| Run cleanup regardless of outcome | `.eventually(() -> resource.close())` | `.recover(e -> { cleanup(); return succeededFuture(); })` |
+| Run cleanup regardless of outcome | `.eventually(() -> resource.close())` (only if `close()` is event-loop-safe — see caveat below) | `.recover(e -> { cleanup(); return succeededFuture(); })` |
 | Erase errors so the chain continues | **Do not do this.** Let `.compose()` short-circuit — propagate the error. | `.recover(e -> { log(e); return succeededFuture(); })` |
 | Return fabricated data on failure | **Do not do this.** Propagate the error. | `.recover(e -> succeededFuture(0L))` |
 
@@ -1231,6 +1231,16 @@ return doWork()
 Use `eventually(...)` for cleanup, timing, and "always run this" work. The mapper's outcome does **not** change the original success/failure nature of the returned future. This is the closest reactive equivalent to Java `finally`.
 
 Good uses: stop timer, release non-critical resource, emit metrics, audit completion. Not for hiding the original error or replacing actual failure handling.
+
+> **Caveat — thread-affinity-guarded `close()`:** `.eventually(...)` callbacks run on
+> the event-loop that completed the upstream future. Resources whose `close()` refuses
+> to run on an event-loop thread (notably every `QueueFactory` implementation in this
+> project — `OutboxFactory`, `PgNativeQueueFactory`) must **not** be closed inside
+> `.eventually(...)`. Doing so logs `Error closing queue factory: Do not call blocking
+> close() on event-loop thread` and leaves the resource open. Close such resources
+> from `@AfterEach` (JUnit worker thread) instead. Full antipattern entry:
+> `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` →
+> *"`.eventually(factory::close)` for `QueueFactory` Logs Cleanup Errors and Skips Cleanup"*.
 
 ---
 

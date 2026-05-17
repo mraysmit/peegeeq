@@ -35,7 +35,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -50,6 +49,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -148,18 +148,16 @@ class OutboxRetrySpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         peeGeeQManagerRef = peeGeeQManager;
         logger.info("Cleanup complete");
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
     
@@ -213,7 +211,7 @@ class OutboxRetrySpringBootTest {
         
         // Send message
         logger.info("📤 Sending message that will fail twice before succeeding");
-        producer.send("test-message").await();
+        producer.send("test-message").onFailure(testContext::failNow);
         
         // Wait for successful processing
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
@@ -272,16 +270,14 @@ class OutboxRetrySpringBootTest {
         
         // Send message
         logger.info("📤 Sending message that will always fail");
-        producer.send("failing-message").await();
-        
+        producer.send("failing-message").onFailure(testContext::failNow);
+
         // Wait for all retry attempts
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Should attempt initial + 3 retries");
-        
+
         // Give a bit more time to ensure no additional retries
-        Promise<Void> retryDelay = Promise.promise();
-        vertx.setTimer(2000, id -> retryDelay.complete());
-        retryDelay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify results
         logger.info("📊 Max Retry Results:");

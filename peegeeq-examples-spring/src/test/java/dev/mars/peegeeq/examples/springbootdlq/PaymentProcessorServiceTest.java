@@ -25,7 +25,6 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
@@ -53,6 +52,7 @@ import java.util.Map;
 
 import java.util.concurrent.TimeUnit;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -112,14 +112,14 @@ public class PaymentProcessorServiceTest {
             """;
 
         // Execute application-specific schema creation
-        databaseService.getConnectionProvider()
+        awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createPaymentsTable).execute()
                     .map(v -> {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).await();
+            }), 30, TimeUnit.SECONDS);
 
         log.info("=== Application-specific schema setup complete ===");
     }
@@ -147,15 +147,13 @@ public class PaymentProcessorServiceTest {
         PaymentEvent event = new PaymentEvent(
             "PAY-001", "ORDER-001", new BigDecimal("100.00"), "USD", "CREDIT_CARD", false
         );
-        producer.send(event).await();
-        
+        awaitFuture(producer.send(event), 30, TimeUnit.SECONDS);
+
         // Wait for processing
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify payment was stored in database
-        boolean paymentExists = databaseService.getConnectionProvider()
+        boolean paymentExists = awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.preparedQuery("SELECT COUNT(*) FROM payments WHERE id = $1")
                     .execute(io.vertx.sqlclient.Tuple.of("PAY-001"))
@@ -163,8 +161,7 @@ public class PaymentProcessorServiceTest {
                         Row row = rows.iterator().next();
                         return row.getLong(0) > 0;
                     });
-            })
-            .await();
+            }), 30, TimeUnit.SECONDS);
         
         assertTrue(paymentExists, "Payment should be stored in database");
         assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");

@@ -78,7 +78,6 @@ public class OutboxConsumerLifecycleBugReproducerTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerLifecycleBugReproducerTest.class);
 
     @Container
-    @SuppressWarnings("resource")
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
@@ -87,7 +86,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
     private ListAppender<ILoggingEvent> logAppender;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -96,25 +95,26 @@ public class OutboxConsumerLifecycleBugReproducerTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, config);
 
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
+            String topic = "lifecycle-bug-" + UUID.randomUUID().toString().substring(0, 8);
+            consumer = outboxFactory.createConsumer(topic, String.class);
 
-        String topic = "lifecycle-bug-" + UUID.randomUUID().toString().substring(0, 8);
-        consumer = outboxFactory.createConsumer(topic, String.class);
+            // Attach a Logback ListAppender to capture log output from OutboxConsumer
+            // and PgConnectionProvider the two classes that emit the error messages
+            logAppender = new ListAppender<>();
+            logAppender.start();
 
-        // Attach a Logback ListAppender to capture log output from OutboxConsumer
-        // and PgConnectionProvider the two classes that emit the error messages
-        logAppender = new ListAppender<>();
-        logAppender.start();
+            ch.qos.logback.classic.Logger consumerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(OutboxConsumer.class);
+            consumerLogger.addAppender(logAppender);
 
-        ch.qos.logback.classic.Logger consumerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(OutboxConsumer.class);
-        consumerLogger.addAppender(logAppender);
-
-        ch.qos.logback.classic.Logger providerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(
-                "dev.mars.peegeeq.db.provider.PgConnectionProvider");
-        providerLogger.addAppender(logAppender);
+            ch.qos.logback.classic.Logger providerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(
+                    "dev.mars.peegeeq.db.provider.PgConnectionProvider");
+            providerLogger.addAppender(logAppender);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
@@ -145,14 +145,13 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         // Subscribe the consumer this starts polling
         consumer.subscribe(message -> io.vertx.core.Future.succeededFuture());
 
-        // Give the consumer a moment to start polling and establish the pool
-        vertx.timer(500).await();
-
-        // Close the manager WITHOUT explicitly closing the consumer/factory first.
+        // Give the consumer a moment to start polling and establish the pool,
+        // then close the manager WITHOUT explicitly closing the consumer/factory first.
         // If the OutboxFactory close hook properly calls consumer.close(), the consumer
         // will be cleanly stopped before pools are destroyed the bug is fixed.
         // If the hook is a no-op, the consumer keeps polling and hits "Client not found".
-        manager.closeReactive()
+        vertx.timer(500)
+                .compose(v -> manager.closeReactive())
                 .compose(v -> vertx.timer(2000))
                 .onSuccess(v -> {
                     // Check captured logs for the bug's signature errors

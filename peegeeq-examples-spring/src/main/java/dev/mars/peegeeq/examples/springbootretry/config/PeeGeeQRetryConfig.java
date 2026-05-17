@@ -87,8 +87,14 @@ public class PeeGeeQRetryConfig {
         
         // Create and start PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration(profile, props), meterRegistry);
-        manager.start().await();
-        
+        java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> startError = new java.util.concurrent.atomic.AtomicReference<>();
+        manager.start()
+                .onSuccess(v -> startLatch.countDown())
+                .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        try { startLatch.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException("PeeGeeQManager start interrupted", e); }
+        if (startError.get() != null) { throw new RuntimeException("PeeGeeQManager failed to start", startError.get()); }
+
         log.info("PeeGeeQ Manager started successfully with max retries: {}", properties.getMaxRetries());
         
         return manager;
@@ -146,7 +152,8 @@ public class PeeGeeQRetryConfig {
     public void shutdown() {
         log.info("Shutting down PeeGeeQ Manager");
         if (manager != null) {
-            manager.close();
+            manager.closeReactive()
+                    .onFailure(e -> log.error("Error closing PeeGeeQManager on shutdown", e));
         }
     }
 }

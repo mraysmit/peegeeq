@@ -39,7 +39,7 @@ class VertxPoolAdapterHappyPathIT {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -49,15 +49,19 @@ class VertxPoolAdapterHappyPathIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (manager != null) {
-            try { manager.closeReactive().await(); } catch (Exception ignore) {}
-        }
+        (manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

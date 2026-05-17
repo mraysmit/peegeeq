@@ -96,48 +96,63 @@ class ConsumerGroupSubscriptionIntegrationTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            databaseService = new PgDatabaseService(manager);
+            adapter = new VertxPoolAdapter(
+                    databaseService.getVertx(),
+                    databaseService.getPool(),
+                    databaseService
+            );
 
-        databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-                databaseService.getVertx(),
-                databaseService.getPool(),
-                databaseService
-        );
+            mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
 
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-
-        connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
-        PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
-                .database(postgres.getDatabaseName())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
-                .schema("public")
-                .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
-        connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
+            PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                    .host(postgres.getHost())
+                    .port(postgres.getFirstMappedPort())
+                    .database(postgres.getDatabaseName())
+                    .username(postgres.getUsername())
+                    .password(postgres.getPassword())
+                    .schema("public")
+                    .build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
-            cleanupTestData().transform(ar -> Future.<Void>succeededFuture()).await();
-            connectionManager.close();
+            cleanupTestData().transform(ar -> Future.<Void>succeededFuture())
+                    .onComplete(ar -> {
+                        connectionManager.close().onFailure(testContext::failNow);
+                        if (manager != null) {
+                            manager.closeReactive()
+                                    .onSuccess(v -> testContext.completeNow())
+                                    .onFailure(testContext::failNow);
+                        } else {
+                            testContext.completeNow();
+                        }
+                    });
+        } else if (manager != null) {
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -167,7 +182,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
                                 return (Void) null;
                             })
-                            .eventually(() -> { group.close(); return Future.succeededFuture(); });
+                            .eventually(() -> group.closeAsync());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -207,7 +222,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Group should be NEW after stop");
                                 return (Void) null;
                             })
-                            .eventually(() -> { group.close(); return Future.succeededFuture(); });
+                            .eventually(() -> group.closeAsync());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -241,7 +256,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                             "Group should be ACTIVE via reference counting fallback");
                     return (Void) null;
                 })
-                .eventually(() -> { group.close(); return Future.succeededFuture(); })
+                .eventually(() -> group.closeAsync())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -276,7 +291,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Group should be ACTIVE in reference counting mode for PUB_SUB topic");
                                 return (Void) null;
                             })
-                            .eventually(() -> { group.close(); return Future.succeededFuture(); });
+                            .eventually(() -> group.closeAsync());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -313,7 +328,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                     }
                     return Future.<Void>succeededFuture();
                 })
-                .eventually(() -> { group.close(); return Future.succeededFuture(); })
+                .eventually(() -> group.closeAsync())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 

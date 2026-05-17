@@ -26,7 +26,6 @@ import dev.mars.peegeeq.examples.springbootpriority.service.TradeProducerService
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterAll;
@@ -56,8 +55,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
-
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -190,10 +190,10 @@ public class SpringBootPriorityApplicationTest {
     }
 
     @AfterAll
-    static void tearDown() {
+    static void tearDown() throws Exception {
         log.info("🧹 Cleaning up Spring Boot Priority Test resources");
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
         log.info("Spring Boot Priority Test cleanup complete");
     }
@@ -226,9 +226,7 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("FAIL", response.getBody().get("status"));
         
         // Wait for processing
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify producer metrics
         assertTrue(producerService.getCriticalSent() > 0, "Critical messages should be sent");
@@ -256,9 +254,7 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("AMEND", response.getBody().get("status"));
         
         // Wait for processing
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify producer metrics
         assertTrue(producerService.getHighSent() > 0, "High priority messages should be sent");
@@ -286,9 +282,7 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("NEW", response.getBody().get("status"));
         
         // Wait for processing
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify producer metrics
         assertTrue(producerService.getNormalSent() > 0, "Normal priority messages should be sent");
@@ -344,9 +338,7 @@ public class SpringBootPriorityApplicationTest {
         sendTestTrade("TRADE-TEST-003", "confirmation");
 
         // Wait for processing
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(3000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(3000), 4, TimeUnit.SECONDS);
 
         // Verify total messages processed across all consumers
         // Note: In outbox pattern with competing consumers, each message is processed by ONE consumer

@@ -55,7 +55,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -82,54 +82,61 @@ public class OutboxPerformanceTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test to avoid interference
         testTopic = "perf-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
-        // Set up database connection
+
+        // Set up database connection. Explicitly disable background jobs that the
+        // antipatterns doc flags as cross-test polluters when PeeGeeQManager is
+        // constructed directly (not via BaseIntegrationTest).
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .property("peegeeq.consumer.threads", "8")
                 .property("peegeeq.queue.batch-size", "50")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .property("peegeeq.connection.pool.size", "20")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.consumer-group-retry.enabled", "false")
                 .build();
 
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and components
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void tearDown(VertxTestContext testContext) {
         if (consumer != null) {
-            consumer.close();
+            try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer: {}", e.getMessage()); }
         }
         if (producer != null) {
-            producer.close();
+            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
         }
         if (outboxFactory != null) {
-            outboxFactory.close();
+            try { outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing factory: {}", e.getMessage()); }
         }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
+        if (manager == null) {
             testContext.completeNow();
+            return;
         }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(err -> {
+                    logger.warn("Error during manager cleanup: {}", err.getMessage());
+                    testContext.completeNow();
+                });
     }
 
     @Test
@@ -139,40 +146,43 @@ public class OutboxPerformanceTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalProcessingTime = new AtomicLong(0);
 
-        // Set up consumer with timing
+        // Subscribe first; chain the send burst off the subscribe Future so we never race
+        // the consumer start-up. The per-message allProcessed checkpoint plus the
+        // sendsCompleted checkpoint together drive testContext.awaitCompletion.
+        Checkpoint sendsCompleted = testContext.checkpoint(1);
+        final AtomicReference<Instant> sendCompleteTimeRef = new AtomicReference<>();
+        final AtomicReference<Instant> startTimeRef = new AtomicReference<>();
+
         consumer.subscribe(message -> {
-        logger.info("Test: throughput performance");
-            long startTime = System.nanoTime();
-            
+            long startNs = System.nanoTime();
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
                 logger.info("Processed {} messages...", count);
             }
-            
-            long endTime = System.nanoTime();
-            totalProcessingTime.addAndGet(endTime - startTime);
-            
+            totalProcessingTime.addAndGet(System.nanoTime() - startNs);
             allProcessed.flag();
             return Future.succeededFuture();
-        });
+        }).onComplete(testContext.succeeding(subscribed -> {
+            logger.info("Starting throughput test with {} messages...", messageCount);
+            startTimeRef.set(Instant.now());
 
-        logger.info("Starting throughput test with {} messages...", messageCount);
-        Instant startTime = Instant.now();
+            List<Future<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
+            for (int i = 0; i < messageCount; i++) {
+                sendFutures.add(producer.send("Performance test message " + i));
+            }
+            Future.all(sendFutures)
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                    sendCompleteTimeRef.set(Instant.now());
+                    sendsCompleted.flag();
+                })));
+        }));
 
-        // Send all messages as fast as possible
-        List<Future<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
-        for (int i = 0; i < messageCount; i++) {
-            sendFutures.add(producer.send("Performance test message " + i));
-        }
-
-        // Wait for all sends to complete
-        Future.all(sendFutures).await();
-        Instant sendCompleteTime = Instant.now();
-
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS), 
+        // Wait for all messages to be processed (and for sends to have completed)
+        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS),
             "All messages should be processed within timeout");
         Instant processCompleteTime = Instant.now();
+        Instant sendCompleteTime = sendCompleteTimeRef.get();
+        Instant startTime = startTimeRef.get();
 
         // Calculate performance metrics
         Duration sendDuration = Duration.between(startTime, sendCompleteTime);
@@ -208,38 +218,25 @@ public class OutboxPerformanceTest {
         AtomicLong minLatency = new AtomicLong(Long.MAX_VALUE);
         AtomicLong maxLatency = new AtomicLong(0);
 
-        // Set up consumer with latency measurement
+        // Subscribe first; only start sending after subscribe completes so we don't race
+        // the consumer start-up. Sends are paced 10 ms apart via vertx.timer() — no
+        // blocking, no .await(), no LockSupport.parkNanos.
         consumer.subscribe(message -> {
-        logger.info("Test: latency performance");
             long receiveTime = System.nanoTime();
             long sendTime = Long.parseLong(message.getHeaders().get("sendTime"));
             long latency = receiveTime - sendTime;
-            
             totalLatency.addAndGet(latency);
             minLatency.updateAndGet(current -> Math.min(current, latency));
             maxLatency.updateAndGet(current -> Math.max(current, latency));
-            
             allProcessed.flag();
             return Future.succeededFuture();
-        });
-
-        logger.info("Starting latency test with {} messages...", messageCount);
-
-        // Send messages with timestamps (with small delays between sends)
-        vertx.executeBlocking(() -> {
-            for (int i = 0; i < messageCount; i++) {
-                long sendTime = System.nanoTime();
-                producer.send("Latency test message " + i, 
-                    Map.of("sendTime", String.valueOf(sendTime))).await();
-                
-                // Small delay between sends to measure individual latencies
-                LockSupport.parkNanos(10_000_000L);
-            }
-            return null;
-        }).await();
+        }).onComplete(testContext.succeeding(subscribed -> {
+            logger.info("Starting latency test with {} messages...", messageCount);
+            sendPacedLatency(vertx, 0, messageCount).onFailure(testContext::failNow);
+        }));
 
         // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
             "All messages should be processed within timeout");
 
         // Calculate latency metrics
@@ -263,55 +260,56 @@ public class OutboxPerformanceTest {
         int producerCount = 5;
         int messagesPerProducer = 200;
         int totalMessages = producerCount * messagesPerProducer;
-        
+
         Checkpoint allProcessed = testContext.checkpoint(totalMessages);
         AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint sendsCompleted = testContext.checkpoint(1);
+        final AtomicReference<Instant> sendCompleteTimeRef = new AtomicReference<>();
+        final AtomicReference<Instant> startTimeRef = new AtomicReference<>();
 
-        // Set up consumer
+        // Subscribe first; only kick off the producer chains after subscribe completes.
         consumer.subscribe(message -> {
-        logger.info("Test: concurrent producer performance");
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
                 logger.info("Processed {} concurrent messages...", count);
             }
             allProcessed.flag();
             return Future.succeededFuture();
-        });
+        }).onComplete(testContext.succeeding(subscribed -> {
+            logger.info("Starting concurrent producer test: {} producers, {} messages each...",
+                producerCount, messagesPerProducer);
+            startTimeRef.set(Instant.now());
 
-        logger.info("Starting concurrent producer test: {} producers, {} messages each...", producerCount, messagesPerProducer);
-        
-        Instant startTime = Instant.now();
+            // Drive concurrency through Vert.x reactive chains instead of an ExecutorService.
+            // Each producer chain sends its messages serially via composed futures; the chains
+            // themselves run in parallel and are aggregated with Future.all.
+            List<Future<Void>> producerFutures = new java.util.ArrayList<>(producerCount);
+            for (int p = 0; p < producerCount; p++) {
+                final int producerId = p;
+                final MessageProducer<String> concurrentProducer =
+                    outboxFactory.createProducer(testTopic, String.class);
+                Future<Void> producerFuture = sendConcurrent(concurrentProducer, producerId, 0, messagesPerProducer)
+                    .eventually(() -> {
+                        try { concurrentProducer.close(); }
+                        catch (Exception e) { logger.warn("Producer {} close failed: {}", producerId, e.getMessage()); }
+                        return Future.<Void>succeededFuture();
+                    });
+                producerFutures.add(producerFuture);
+            }
 
-        // Create and run concurrent producers
-        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(producerCount);
-        
-        for (int p = 0; p < producerCount; p++) {
-            final int producerId = p;
-            executor.submit(() -> {
-                try {
-                    MessageProducer<String> concurrentProducer = 
-                        outboxFactory.createProducer(testTopic, String.class);
-                    
-                    for (int m = 0; m < messagesPerProducer; m++) {
-                        concurrentProducer.send("Concurrent-P" + producerId + "-M" + m).await();
-                    }
-                    
-                    concurrentProducer.close();
-                } catch (Exception e) {
-                    logger.warn("Producer {} failed: {}", producerId, e.getMessage());
-                }
-            });
-        }
+            Future.all(producerFutures)
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                    sendCompleteTimeRef.set(Instant.now());
+                    sendsCompleted.flag();
+                })));
+        }));
 
-        // Wait for all producers to complete
-        executor.shutdown();
-        assertTrue(executor.awaitTermination(120, TimeUnit.SECONDS), "All producers should complete");
-        Instant sendCompleteTime = Instant.now();
-
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS), 
+        // Wait for all messages to be processed (and for all producer chains to finish)
+        assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS),
             "All concurrent messages should be processed within timeout");
         Instant processCompleteTime = Instant.now();
+        Instant sendCompleteTime = sendCompleteTimeRef.get();
+        Instant startTime = startTimeRef.get();
 
         // Calculate performance metrics
         Duration sendDuration = Duration.between(startTime, sendCompleteTime);
@@ -335,6 +333,35 @@ public class OutboxPerformanceTest {
         // Performance assertions
         assertTrue(sendThroughput > 50, "Concurrent send throughput should be > 50 msg/sec, was: " + sendThroughput);
         assertTrue(totalThroughput > 25, "Concurrent total throughput should be > 25 msg/sec, was: " + totalThroughput);
+    }
+
+    /**
+     * Recursively sends {@code total} latency-tagged messages, each separated by a 10 ms
+     * Vert.x timer. Replaces a blocking loop that used {@code LockSupport.parkNanos} and
+     * {@code producer.send(...).await()}.
+     */
+    private Future<Void> sendPacedLatency(Vertx vertx, int i, int total) {
+        if (i >= total) {
+            return Future.succeededFuture();
+        }
+        long sendTime = System.nanoTime();
+        return producer.send("Latency test message " + i,
+                Map.of("sendTime", String.valueOf(sendTime)))
+            .compose(v -> vertx.timer(10).mapEmpty())
+            .compose(v -> sendPacedLatency(vertx, i + 1, total));
+    }
+
+    /**
+     * Serially sends {@code total} messages from a single producer via composed futures.
+     * Replaces a blocking per-producer loop that used {@code producer.send(...).await()}
+     * inside an {@code ExecutorService.submit}.
+     */
+    private Future<Void> sendConcurrent(MessageProducer<String> p, int producerId, int i, int total) {
+        if (i >= total) {
+            return Future.succeededFuture();
+        }
+        return p.send("Concurrent-P" + producerId + "-M" + i)
+            .compose(v -> sendConcurrent(p, producerId, i + 1, total));
     }
 }
 

@@ -65,7 +65,13 @@ public class BitemporalConfig {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile(), configureSystemProperties(properties));
         manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start().await();
+        java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> startError = new java.util.concurrent.atomic.AtomicReference<>();
+        manager.start()
+                .onSuccess(v -> startLatch.countDown())
+                .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        try { startLatch.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException("PeeGeeQManager start interrupted", e); }
+        if (startError.get() != null) { throw new RuntimeException("PeeGeeQManager failed to start", startError.get()); }
 
         logger.info("PeeGeeQManager started successfully");
         return manager;
@@ -104,22 +110,16 @@ public class BitemporalConfig {
     public void cleanup() {
         logger.info("Shutting down bi-temporal event store resources");
         
-        try {
-            if (eventStore != null) {
-                eventStore.close();
-                logger.info("Event store closed successfully");
-            }
-        } catch (Exception e) {
-            logger.error("Error closing event store", e);
+        if (eventStore != null) {
+            eventStore.close()
+                    .onSuccess(v -> logger.info("Event store closed successfully"))
+                    .onFailure(e -> logger.error("Error closing event store", e));
         }
         
-        try {
-            if (manager != null) {
-                manager.close();
-                logger.info("PeeGeeQManager closed successfully");
-            }
-        } catch (Exception e) {
-            logger.error("Error closing PeeGeeQManager", e);
+        if (manager != null) {
+            manager.closeReactive()
+                    .onSuccess(v -> logger.info("PeeGeeQManager closed successfully"))
+                    .onFailure(e -> logger.error("Error closing PeeGeeQManager", e));
         }
     }
 

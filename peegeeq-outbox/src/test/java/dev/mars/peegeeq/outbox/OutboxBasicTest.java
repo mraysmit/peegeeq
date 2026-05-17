@@ -75,7 +75,7 @@ class OutboxBasicTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -86,16 +86,19 @@ class OutboxBasicTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+            .onSuccess(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, config);
+                producer = outboxFactory.createProducer(testTopic, String.class);
+                consumer = outboxFactory.createConsumer(testTopic, String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
@@ -107,8 +110,13 @@ class OutboxBasicTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -127,7 +135,7 @@ class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedCount.get(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive the correct message");
@@ -153,7 +161,7 @@ class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        producer.send(testMessage, headers).await();
+        producer.send(testMessage, headers).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
@@ -182,7 +190,7 @@ class OutboxBasicTest {
 
         for (int i = 0; i < messageCount; i++) {
             String message = "Basic Test Message " + i;
-            producer.send(message).await();
+            producer.send(message).onFailure(testContext::failNow);
         }
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be received within timeout");
@@ -205,7 +213,7 @@ class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        producer.send(testMessage, Map.of(), correlationId).await();
+        producer.send(testMessage, Map.of(), correlationId).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
@@ -234,7 +242,7 @@ class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        producer.send(testMessage, Map.of(), null, messageGroup).await();
+        producer.send(testMessage, Map.of(), null, messageGroup).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");

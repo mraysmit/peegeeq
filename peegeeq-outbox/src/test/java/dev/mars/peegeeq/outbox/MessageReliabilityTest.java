@@ -15,9 +15,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -370,6 +371,7 @@ public class MessageReliabilityTest {
 
         AtomicInteger processedCount = new AtomicInteger(0);
         StringBuilder processingOrder = new StringBuilder();
+        CountDownLatch completionLatch = new CountDownLatch(5);
 
         // Filter that rejects even-numbered messages
         Predicate<Message<TestMessage>> selectiveFilter = message -> {
@@ -396,6 +398,7 @@ public class MessageReliabilityTest {
             }
 
             logger.debug("Processed message {} (count: {})", messageId, count);
+            completionLatch.countDown();
             return Future.succeededFuture();
         };
 
@@ -419,11 +422,7 @@ public class MessageReliabilityTest {
             }
         }
 
-        // Wait for processing to complete
-        long deadline = System.currentTimeMillis() + 5_000;
-        while (processedCount.get() < 5 && System.currentTimeMillis() < deadline) {
-            LockSupport.parkNanos(50_000_000L);
-        }
+        assertTrue(completionLatch.await(5, TimeUnit.SECONDS), "Processing should complete within 5 seconds");
         assertEquals(5, processedCount.get(), "Should have processed 5 messages");
 
         String finalOrder = processingOrder.toString();

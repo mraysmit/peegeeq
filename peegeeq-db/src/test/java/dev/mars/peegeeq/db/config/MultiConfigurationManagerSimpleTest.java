@@ -54,7 +54,7 @@ class MultiConfigurationManagerSimpleTest {
             assertTrue(configManager.getConfigurationNames().isEmpty());
             assertFalse(configManager.hasConfiguration("test"));
         } finally {
-            configManager.close();
+            configManager.close().onFailure(e -> fail("close failed: " + e.getMessage()));
         }
     }
     
@@ -100,7 +100,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Basic configuration management tests passed");
             
         } finally {
-            configManager.close();
+            configManager.close().onFailure(e -> fail("close failed: " + e.getMessage()));
         }
     }
 
@@ -135,7 +135,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Configuration registration logic tests passed");
 
         } finally {
-            configManager.close();
+            configManager.close().onFailure(e -> fail("close failed: " + e.getMessage()));
         }
     }
     
@@ -218,7 +218,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Configuration names management tests passed");
             
         } finally {
-            configManager.close();
+            configManager.close().onFailure(e -> fail("close failed: " + e.getMessage()));
         }
     }
 
@@ -271,45 +271,41 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Error handling tests passed");
             
         } finally {
-            configManager.close();
+            configManager.close().onFailure(e -> fail("close failed: " + e.getMessage()));
         }
     }
     
     @Test
-    void testResourceManagement() {
+    void testResourceManagement(VertxTestContext testContext) {
         // Test resource management
         MultiConfigurationManager configManager = new MultiConfigurationManager();
-        
-        // Should be able to close without issues
-        assertDoesNotThrow(() -> {
-            configManager.close();
-        });
-        
-        // Should be able to close multiple times
-        assertDoesNotThrow(() -> {
-            configManager.close();
-        });
-        
-        // After close, should be in clean state
-        assertFalse(configManager.isStarted());
-        assertTrue(configManager.getConfigurationNames().isEmpty());
-        
-        logger.info("Resource management tests passed");
+
+        // close twice, then assert clean state
+        configManager.close()
+            .compose(v -> configManager.close())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertFalse(configManager.isStarted());
+                assertTrue(configManager.getConfigurationNames().isEmpty());
+                logger.info("Resource management tests passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testInjectedMeterRegistryIsNotClosedByManager() {
+    void testInjectedMeterRegistryIsNotClosedByManager(VertxTestContext testContext) {
         TrackingSimpleMeterRegistry registry = new TrackingSimpleMeterRegistry();
         MultiConfigurationManager configManager = new MultiConfigurationManager(registry);
 
-        configManager.close();
-
-        assertFalse(registry.isClosedByManager(),
-            "Injected meter registry should not be closed by manager");
-
-        // Test cleanup responsibility remains with caller.
-        registry.close();
-        assertTrue(registry.isClosedByManager());
+        configManager.close()
+            .onSuccess(v -> testContext.verify(() -> {
+                assertFalse(registry.isClosedByManager(),
+                    "Injected meter registry should not be closed by manager");
+                registry.close();
+                assertTrue(registry.isClosedByManager());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
@@ -344,7 +340,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Thread safety tests passed");
 
         } finally {
-            configManager.close();
+            configManager.close().onFailure(e -> fail("close failed: " + e.getMessage()));
         }
     }
 

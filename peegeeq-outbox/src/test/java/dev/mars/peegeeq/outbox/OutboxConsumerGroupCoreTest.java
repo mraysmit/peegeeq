@@ -72,7 +72,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class OutboxConsumerGroupCoreTest {
 
     @Container
-    @SuppressWarnings("resource")
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private OutboxConsumerGroup<String> group;
@@ -82,14 +81,16 @@ class OutboxConsumerGroupCoreTest {
     private PeeGeeQConfiguration config;
 
     @BeforeEach
-    void setUp(Vertx vertx) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        this.manager.start().await();
-        this.databaseService = new PgDatabaseService(manager);
+        this.manager.start().onSuccess(v -> {
+            this.databaseService = new PgDatabaseService(manager);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
@@ -144,11 +145,15 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("start() throws when group is CLOSED")
+        @DisplayName("start() returns failed future when group is CLOSED")
         void startThrowsWhenClosed() {
             group = createGroup("lifecycle-group", "test-topic");
             group.close();
-            assertThrows(IllegalStateException.class, () -> group.start());
+            Future<Void> result = group.start();
+            assertTrue(result.failed(), "start() must return a failed future when CLOSED");
+            assertInstanceOf(IllegalStateException.class, result.cause());
+            assertTrue(result.cause().getMessage().toLowerCase().contains("closed"),
+                    "Cause message should mention 'closed', got: " + result.cause().getMessage());
         }
 
         @Test
@@ -257,19 +262,18 @@ class OutboxConsumerGroupCoreTest {
         @Test
         @DisplayName("start() rolls back to NEW on internal failure")
         void startRollbackOnFailure() {
-            // Use the private constructor path via builder to get both null
-            // The constructor won't enforce, but start() will hit the null check
+            // Bypass the builder to construct a group with both clientFactory and
+            // databaseService null. start() must surface this as a failed future
+            // (not a synchronous throw) and roll state back to NEW.
             group = new OutboxConsumerGroup<>(
                     "rollback-group", "test-topic", String.class,
                     (dev.mars.peegeeq.db.client.PgClientFactory) null,
                     null, null, null, null);
 
-            try {
-                group.start();
-                fail("Expected IllegalStateException because both clientFactory and databaseService are null");
-            } catch (IllegalStateException e) {
-                // Expected
-            }
+            Future<Void> result = group.start();
+            assertTrue(result.failed(),
+                    "start() must return a failed future when both clientFactory and databaseService are null");
+            assertInstanceOf(IllegalStateException.class, result.cause());
             assertEquals(OutboxConsumerGroup.State.NEW, group.getState(),
                     "State should roll back to NEW after failed start()");
         }

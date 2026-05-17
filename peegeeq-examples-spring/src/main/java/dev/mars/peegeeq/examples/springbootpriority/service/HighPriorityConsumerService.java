@@ -174,14 +174,10 @@ public class HighPriorityConsumerService {
                 }
                 return (Void) null;
             })
-            .otherwise(ex -> {
+            .onFailure(ex -> {
                 log.error("❌ [HIGH+] Failed to process message: tradeId={}, priority={}",
                     event.getTradeId(), priority, ex);
                 messagesFailed.incrementAndGet();
-                if (ex instanceof RuntimeException) {
-                    throw (RuntimeException) ex;
-                }
-                throw new RuntimeException("Message processing failed", ex);
             });
     }
 

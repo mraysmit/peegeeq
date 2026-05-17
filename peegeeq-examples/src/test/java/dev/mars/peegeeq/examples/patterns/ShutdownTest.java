@@ -19,9 +19,7 @@ package dev.mars.peegeeq.examples.patterns;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.core.Promise;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -59,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@Tag("demonstration")
 @ExtendWith(VertxExtension.class)
 public class ShutdownTest {
     private static final Logger logger = LoggerFactory.getLogger(ShutdownTest.class);
@@ -141,7 +140,7 @@ public class ShutdownTest {
 
     @Test
     @Timeout(10) // Test should complete within 10 seconds
-    void testManualContainerManagement(Vertx vertx) {
+    void testManualContainerManagement() {
         logger.info("Testing manual container management");
 
         PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -153,12 +152,8 @@ public class ShutdownTest {
         try {
             postgres.start();
             logger.info("Container started: {}", postgres.getJdbcUrl());
-
-            // Simulate some work
-            Promise<Void> delay = Promise.promise();
-            vertx.setTimer(1000, id -> delay.complete());
-            delay.future().await();
-
+            // No artificial delay needed; the test asserts only that manual
+            // start/stop completes without error.
         } catch (Exception e) {
             logger.error("Error in test", e);
         } finally {

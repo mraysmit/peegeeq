@@ -74,24 +74,27 @@ public class OutboxErrorHandlingTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test to avoid interference
         testTopic = "error-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         // Set up database connection
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and components
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+            .onSuccess(v -> {
+                // Create factory and components
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, config);
+                producer = outboxFactory.createProducer(testTopic, String.class);
+                consumer = outboxFactory.createConsumer(testTopic, String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach

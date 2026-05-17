@@ -22,7 +22,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -38,6 +37,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -90,7 +90,7 @@ public class OutboxPerformanceSpringBootTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) throws InterruptedException {
+    void tearDown(Vertx vertx) throws Exception {
         logger.info("🧹 Cleaning up Performance Spring Boot Test");
         
         // Close all active consumers first
@@ -117,18 +117,16 @@ public class OutboxPerformanceSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         peeGeeQManagerRef = peeGeeQManager;
         logger.info("Cleanup complete");
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -182,7 +180,7 @@ public class OutboxPerformanceSpringBootTest {
                 "High volume test message " + i,
                 System.currentTimeMillis()
             );
-            producer.send(message).await();
+            producer.send(message).onFailure(testContext::failNow);
             
             if (i % 100 == 0) {
                 logger.info("   Sent {} messages", i);
@@ -277,7 +275,7 @@ public class OutboxPerformanceSpringBootTest {
                 "Concurrent test message " + i,
                 System.currentTimeMillis()
             );
-            producer.send(message).await();
+            producer.send(message).onFailure(testContext::failNow);
         }
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
@@ -370,13 +368,11 @@ public class OutboxPerformanceSpringBootTest {
                 "Batch test message " + i,
                 System.currentTimeMillis()
             );
-            producer.send(message).await();
+            producer.send(message).onFailure(testContext::failNow);
             
             // Small burst pattern
             if (i % 50 == 0) {
-                Promise<Void> burstDelay = Promise.promise();
-                vertx.setTimer(100, tid -> burstDelay.complete());
-                burstDelay.future().await(); // Pause between bursts
+                awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS); // Pause between bursts
                 logger.info("   Sent {} messages", i);
             }
         }

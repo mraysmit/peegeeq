@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.LockSupport;
 
 /**
  * Utility class for integration testing.
@@ -82,44 +81,6 @@ public class IntegrationTestUtils {
             orderTime.toString(),
             region
         );
-    }
-    
-    /**
-     * Waits for a condition to be met with timeout.
-     */
-    public static boolean waitForCondition(java.util.function.BooleanSupplier condition, long timeoutSeconds) {
-        long endTime = System.currentTimeMillis() + (timeoutSeconds * 1000);
-        while (System.currentTimeMillis() < endTime) {
-            if (condition.getAsBoolean()) {
-                return true;
-            }
-            LockSupport.parkNanos(TimeUnit.MILLISECONDS.toNanos(100));
-            if (Thread.currentThread().isInterrupted()) {
-                Thread.currentThread().interrupt();
-                return false;
-            }
-        }
-        return false;
-    }
-    
-    /**
-     * Waits for a latch with timeout and logs progress.
-     */
-    public static boolean waitForLatch(CountDownLatch latch, long timeoutSeconds, String description) {
-        logger.info("Waiting for {} (timeout: {}s)", description, timeoutSeconds);
-        try {
-            boolean result = latch.await(timeoutSeconds, TimeUnit.SECONDS);
-            if (result) {
-                logger.info("Successfully completed: {}", description);
-            } else {
-                logger.warn("Timeout waiting for: {}", description);
-            }
-            return result;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.error("Interrupted while waiting for: {}", description);
-            return false;
-        }
     }
     
     /**
@@ -205,8 +166,8 @@ public class IntegrationTestUtils {
             return count.get();
         }
         
-        public boolean await(long timeout, TimeUnit unit) throws InterruptedException {
-            return latch.await(timeout, unit);
+        public boolean waitFor(long timeout, TimeUnit unit) throws InterruptedException {
+            return latch.await(unit.toMillis(timeout), TimeUnit.MILLISECONDS);
         }
         
         public long getRemaining() {

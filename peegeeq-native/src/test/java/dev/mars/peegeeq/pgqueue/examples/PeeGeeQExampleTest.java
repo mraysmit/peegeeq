@@ -97,10 +97,10 @@ class PeeGeeQExampleTest {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up PeeGeeQ Example Test ===");
-        
+
         // Display PeeGeeQ logo
         logger.info("");
         logger.info("    ____            ______            ____");
@@ -136,19 +136,25 @@ class PeeGeeQExampleTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        
-        logger.info("PeeGeeQ Example Test setup completed");
+        manager.start().onSuccess(v -> {
+            logger.info("PeeGeeQ Example Test setup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up PeeGeeQ Example Test");
-        
+
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
         logger.info("PeeGeeQ Example Test cleanup completed");
     }

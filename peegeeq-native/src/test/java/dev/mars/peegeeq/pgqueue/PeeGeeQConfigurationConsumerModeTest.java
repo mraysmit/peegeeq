@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -70,7 +71,7 @@ class PeeGeeQConfigurationConsumerModeTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up PeeGeeQConfiguration consumer mode integration test");
 
@@ -90,30 +91,34 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create factory using the proper pattern
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            // Register native factory implementation
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            factory = provider.createFactory("native", databaseService);
 
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for PeeGeeQConfiguration consumer mode integration testing");
+            logger.info("Test setup completed for PeeGeeQConfiguration consumer mode integration testing");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down PeeGeeQConfiguration consumer mode integration test");
 
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-
-        logger.info("Test teardown completed");
+        (manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .onSuccess(v -> {
+                    logger.info("Test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -258,8 +263,8 @@ class PeeGeeQConfigurationConsumerModeTest {
         });
 
         // Send messages to test visibility timeout behavior
-        producer.send("Visibility timeout message 1").await();
-        producer.send("Visibility timeout message 2").await();
+        awaitFuture(producer.send("Visibility timeout message 1"), 10, TimeUnit.SECONDS);
+        awaitFuture(producer.send("Visibility timeout message 2"), 10, TimeUnit.SECONDS);
 
         // Wait for messages to be processed
         boolean allProcessed = allDone.await(10, TimeUnit.SECONDS);

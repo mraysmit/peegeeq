@@ -66,21 +66,22 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @BeforeEach
-    void setup() throws Exception {
+    void setup(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-        
+
         testTopic = "err-test-" + UUID.randomUUID().toString().substring(0, 8);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, TestMessage.class);
-        consumer = outboxFactory.createConsumer(testTopic, TestMessage.class);
+        manager.start().onSuccess(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, config);
+            producer = outboxFactory.createProducer(testTopic, TestMessage.class);
+            consumer = outboxFactory.createConsumer(testTopic, TestMessage.class);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

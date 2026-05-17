@@ -75,36 +75,36 @@ public class IntegrationPatternsExampleTest {
     private QueueFactory outboxFactory;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Integration Patterns Example Test");
-        
+
         // Configure system properties for TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-        
+
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        
-        // Register queue factory implementations
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider factoryProvider = new PgQueueFactoryProvider();
-
-        // Register outbox factory
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) factoryProvider);
-
-        // Create outbox factory for testing
-        outboxFactory = factoryProvider.createFactory("outbox", databaseService, new HashMap<>());
-        
-        logger.info("✓ Integration Patterns Example Test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                // Register queue factory implementations
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider factoryProvider = new PgQueueFactoryProvider();
+                // Register outbox factory
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) factoryProvider);
+                // Create outbox factory for testing
+                outboxFactory = factoryProvider.createFactory("outbox", databaseService, new HashMap<>());
+                logger.info("✓ Integration Patterns Example Test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
-    
+
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Integration Patterns Example Test");
 
@@ -117,14 +117,19 @@ public class IntegrationPatternsExampleTest {
         }
 
         if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    logger.info("✓ Integration Patterns Example Test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.warn("Error closing manager: {}", err.getMessage());
+                    testContext.completeNow();
+                });
+        } else {
+            logger.info("✓ Integration Patterns Example Test teardown completed");
+            testContext.completeNow();
         }
-
-        logger.info("✓ Integration Patterns Example Test teardown completed");
     }
 
     /**

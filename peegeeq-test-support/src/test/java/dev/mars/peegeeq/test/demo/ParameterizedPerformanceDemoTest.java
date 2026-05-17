@@ -21,6 +21,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -150,7 +152,7 @@ public class ParameterizedPerformanceDemoTest extends PeeGeeQTestBase {
             Instant startTime = Instant.now();
 
             // Perform some database work (simulated)
-            Thread.sleep(50 + (int)(Math.random() * 100)); // Simulate variable work
+            new CountDownLatch(1).await(50 + (int)(Math.random() * 100), TimeUnit.MILLISECONDS);
 
             Instant endTime = Instant.now();
             Duration duration = Duration.between(startTime, endTime);

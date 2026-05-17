@@ -464,23 +464,23 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                 })
                 .compose(ids -> {
                     // Start job with short interval (200ms)
-                    WatermarkJob job = new WatermarkJob(manager.getVertx(), calculator, topic, 200L);
-                    job.start();
-                    assertTrue(job.isRunning(), "Job should be running");
+                    WatermarkJob wm = new WatermarkJob(manager.getVertx(), calculator, topic, 200L);
+                    wm.start();
+                    assertTrue(wm.isRunning(), "Job should be running");
 
                     // Wait for at least 2 runs (initial + 1 periodic)
                     io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
                     manager.getVertx().setTimer(600L, timerId -> {
                         try {
-                            assertTrue(job.getTotalRunCount() >= 2,
-                                    "Job should have run at least 2 times, ran: " + job.getTotalRunCount());
-                            assertEquals(10L, job.getTotalSwept(),
+                            assertTrue(wm.getTotalRunCount() >= 2,
+                                    "Job should have run at least 2 times, ran: " + wm.getTotalRunCount());
+                            assertEquals(10L, wm.getTotalSwept(),
                                     "Should have swept 10 messages total");
-                            job.stop();
-                            assertFalse(job.isRunning(), "Job should be stopped");
+                            wm.stop();
+                            assertFalse(wm.isRunning(), "Job should be stopped");
                             promise.complete();
                         } catch (Throwable t) {
-                            job.stop();
+                            wm.stop();
                             promise.fail(t);
                         }
                     });
@@ -503,24 +503,24 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
         createTopic(topic)
                 .compose(v -> {
-                    WatermarkJob job = new WatermarkJob(manager.getVertx(), calculator, topic, 5000L);
-                    job.start();
-                    assertTrue(job.isRunning());
+                    WatermarkJob wm = new WatermarkJob(manager.getVertx(), calculator, topic, 5000L);
+                    wm.start();
+                    assertTrue(wm.isRunning());
 
                     // Wait for initial run to complete (interval is 5s so no periodic fires yet), then stop
                     io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
                     manager.getVertx().setTimer(300L, id1 -> {
                         try {
-                            job.stop();
-                            assertFalse(job.isRunning(), "Job should be stopped");
-                            long runsAtStop = job.getTotalRunCount();
+                            wm.stop();
+                            assertFalse(wm.isRunning(), "Job should be stopped");
+                            long runsAtStop = wm.getTotalRunCount();
                             assertTrue(runsAtStop >= 1,
                                     "Should have completed at least the initial run, got: " + runsAtStop);
 
                             // Wait and verify no more runs happened
                             manager.getVertx().setTimer(400L, id2 -> {
                                 try {
-                                    assertEquals(runsAtStop, job.getTotalRunCount(),
+                                    assertEquals(runsAtStop, wm.getTotalRunCount(),
                                             "No additional runs should occur after stop");
                                     promise.complete();
                                 } catch (Throwable t) {

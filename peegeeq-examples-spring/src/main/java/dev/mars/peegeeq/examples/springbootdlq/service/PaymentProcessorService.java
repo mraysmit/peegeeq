@@ -176,15 +176,9 @@ public class PaymentProcessorService {
                     });
             })
             .map(v -> (Void) null)
-            .otherwise(ex -> {
+            .onFailure(ex -> {
                 log.error("❌ Failed to process payment: paymentId={}", event.getPaymentId(), ex);
                 paymentsFailed.incrementAndGet();
-                
-                // Re-throw to trigger retry
-                if (ex instanceof RuntimeException) {
-                    throw (RuntimeException) ex;
-                }
-                throw new RuntimeException("Payment processing failed", ex);
             });
     }
     

@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Validates state transitions, recovery success rates, and proper behavior under various failure patterns.
  */
 @Tag(TestCategories.CORE)
+@Tag("demonstration")
 public class CircuitBreakerRecoveryTest {
     private static final Logger logger = LoggerFactory.getLogger(CircuitBreakerRecoveryTest.class);
     

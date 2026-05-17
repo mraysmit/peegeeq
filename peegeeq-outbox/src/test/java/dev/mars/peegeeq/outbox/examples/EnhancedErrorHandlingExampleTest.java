@@ -134,7 +134,7 @@ class EnhancedErrorHandlingExampleTest {
     private QueueFactory factory;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -149,22 +149,22 @@ class EnhancedErrorHandlingExampleTest {
                 .property("peegeeq.consumer.threads", "2")
                 .property("peegeeq.queue.batch-size", "5")
                 .build();
-        
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
-        
-        // Create outbox factory - following established pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        
-        // Register outbox factory implementation
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        
-        factory = provider.createFactory("outbox", databaseService);
-        
-        logger.info("Enhanced Error Handling Example Test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started successfully");
+                // Create outbox factory - following established pattern
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                // Register outbox factory implementation
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                factory = provider.createFactory("outbox", databaseService);
+                logger.info("Enhanced Error Handling Example Test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
