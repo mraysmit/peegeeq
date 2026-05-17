@@ -46,7 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import io.vertx.core.Promise;
+import io.vertx.core.Future;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -68,7 +68,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test class has been refactored to eliminate poorly structured test design patterns:
  * <ul>
  *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
- *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual ExecutorService</li>
+ *   <li><strong>Thread Management</strong>: Uses chained {@link io.vertx.core.Future} composition with {@link java.util.concurrent.CountDownLatch} instead of manual ExecutorService</li>
  *   <li><strong>Test Independence</strong>: Each test uses unique queue and consumer group names</li>
  *   <li><strong>Clean Structure</strong>: Simplified setup/teardown with essential logging only</li>
  * </ul>
@@ -109,7 +109,7 @@ class HighFrequencyProducerConsumerTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
@@ -126,24 +126,28 @@ class HighFrequencyProducerConsumerTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create queue factory and producer
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        manager.start()
+            .onSuccess(v -> {
+                // Create queue factory and producer
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Register queue factory implementations
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                // Register queue factory implementations
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        queueFactory = provider.createFactory("outbox", databaseService);
-        producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
+                queueFactory = provider.createFactory("outbox", databaseService);
+                producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
 
-        logger.info("Performance test setup completed successfully with queue: {}", testQueueName);
+                logger.info("Performance test setup completed successfully with queue: {}", testQueueName);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
@@ -155,22 +159,18 @@ class HighFrequencyProducerConsumerTest {
                 logger.warn("Error closing queue factory: {}", e.getMessage());
             }
         }
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
-
-        // CRITICAL: Wait for connection pools to be fully released
-        // This prevents connection pool exhaustion between tests
-        try {
-            Promise<Void> delay = Promise.promise();
-            vertx.setTimer(2000, id -> delay.complete());
-            delay.future().await();
-            logger.debug("Connection pool cleanup wait completed");
-        } catch (Exception e) {
-            // ignore
-        }
-
-        logger.info("Performance test teardown completed");
+        manager.closeReactive()
+            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
+            .onFailure(err -> logger.error("Error closing manager", err))
+            .eventually(() -> {
+                logger.info("Performance test teardown completed");
+                testContext.completeNow();
+                return Future.<Void>succeededFuture();
+            });
     }
 
     /**
@@ -258,18 +258,23 @@ class HighFrequencyProducerConsumerTest {
         orderGroup.start();
         paymentGroup.start();
 
-        // Send high volume of messages
+        // Send high volume of messages (chained sends, fail-fast via testContext)
         final int messageCount = 500;
         Instant startTime = Instant.now();
 
+        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 1; i <= messageCount; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = createRoutingHeaders(i);
-            producer.send(event, headers, "load-" + i, getMessageGroup(headers)).await();
+            final int idx = i;
+            sendChain = sendChain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = createRoutingHeaders(idx);
+                return producer.send(event, headers, "load-" + idx, getMessageGroup(headers)).mapEmpty();
+            });
         }
+        sendChain.onFailure(testContext::failNow);
 
         // Wait for processing to complete using Vert.x timer
-        vertx.setTimer(30000, timerId -> {
+        vertx.timer(30000).onSuccess(tick -> {
             try {
                 Duration duration = Duration.between(startTime, Instant.now());
                 int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get();
@@ -292,8 +297,8 @@ class HighFrequencyProducerConsumerTest {
                 assertTrue(avgProcessingTime < 2000,
                     "Average processing time should be under 2 seconds");
 
-                orderGroup.close();
-                paymentGroup.close();
+                orderGroup.close().onFailure(testContext::failNow);
+                paymentGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             } catch (Throwable t) {
                 testContext.failNow(t);
@@ -359,10 +364,10 @@ class HighFrequencyProducerConsumerTest {
         final int messageCount = 300;
         Instant startTime = Instant.now();
 
-        sendRoutingPerformanceMessages(messageCount);
+        sendRoutingPerformanceMessages(messageCount, testContext);
 
         // Wait for processing using Vert.x timer
-        vertx.setTimer(20000, timerId -> {
+        vertx.timer(20000).onSuccess(tick -> {
             try {
                 Duration duration = Duration.between(startTime, Instant.now());
                 int totalRouted = usCount.get() + euCount.get() + asiaCount.get() +
@@ -395,7 +400,7 @@ class HighFrequencyProducerConsumerTest {
                 assertTrue(categoriesWithMessages >= 3,
                     "At least 3 different filter categories should process messages");
 
-                routingGroup.close();
+                routingGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             } catch (Throwable t) {
                 testContext.failNow(t);
@@ -463,13 +468,9 @@ class HighFrequencyProducerConsumerTest {
             counter.incrementAndGet();
 
             // Simulate processing time using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(50, id -> {
-                long processingTime = System.currentTimeMillis() - startTime;
-                totalProcessingTime.addAndGet(processingTime);
-                future.complete();
-            });
-            return future.future();
+            return vertx.timer(50)
+                .onSuccess(v -> totalProcessingTime.addAndGet(System.currentTimeMillis() - startTime))
+                .mapEmpty();
         };
     }
 
@@ -481,24 +482,25 @@ class HighFrequencyProducerConsumerTest {
             counter.incrementAndGet();
 
             // Minimal processing time for routing tests using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(10, id -> future.complete());
-            return future.future();
+            return vertx.timer(10).mapEmpty();
         };
     }
 
     /**
-     * Sends messages for routing performance testing.
+     * Sends messages for routing performance testing using a chained {@link Future} sequence.
      */
-    private void sendRoutingPerformanceMessages(int messageCount) throws Exception {
+    private void sendRoutingPerformanceMessages(int messageCount, VertxTestContext testContext) {
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= messageCount; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = createRoutingHeaders(i);
-
-            producer.send(event, headers, "routing-perf-" + i, getMessageGroup(headers)).await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = createRoutingHeaders(idx);
+                return producer.send(event, headers, "routing-perf-" + idx, getMessageGroup(headers)).mapEmpty();
+            });
         }
-
-        logger.info("Sent {} messages for routing performance test", messageCount);
+        chain.onSuccess(v -> logger.info("Sent {} messages for routing performance test", messageCount))
+             .onFailure(testContext::failNow);
     }
 
     /**

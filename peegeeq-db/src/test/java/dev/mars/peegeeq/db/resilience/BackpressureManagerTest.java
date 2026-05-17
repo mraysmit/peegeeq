@@ -127,7 +127,7 @@ class BackpressureManagerTest {
         for (int i = 0; i < threadCount; i++) {
             new Thread(() -> {
                 try {
-                    startLatch.await();
+                    startLatch.await(10, TimeUnit.SECONDS);
                     String result = backpressureManager.execute("concurrent-test", () -> {
                         CountDownLatch workLatch = new CountDownLatch(1);
                         vertx.setTimer(500, id -> workLatch.countDown());
@@ -289,7 +289,7 @@ class BackpressureManagerTest {
                 try {
                     backpressureManager.execute("utilization-test", () -> {
                         operationsStarted.countDown();
-                        operationsCanComplete.await();
+                        operationsCanComplete.await(30, TimeUnit.SECONDS);
                         return "success";
                     });
                 } catch (Exception e) {
@@ -324,7 +324,7 @@ class BackpressureManagerTest {
                 try {
                     quickTimeoutManager.execute("blocking-operation", () -> {
                         operationsStarted.countDown();
-                        operationsCanComplete.await();
+                        operationsCanComplete.await(30, TimeUnit.SECONDS);
                         return "success";
                     });
                 } catch (Exception e) {

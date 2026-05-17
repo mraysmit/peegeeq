@@ -36,7 +36,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -51,6 +50,7 @@ import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -149,18 +149,16 @@ class OutboxDeadLetterQueueSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         managerRef = manager;
         logger.info("Cleanup complete");
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (managerRef != null) {
-            managerRef.closeReactive().await();
+            awaitFuture(managerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -205,20 +203,18 @@ class OutboxDeadLetterQueueSpringBootTest {
         // Send poison message
         logger.info("📤 Sending poison message that will always fail");
         String poisonMessage = "poison-message-" + UUID.randomUUID();
-        producer.send(poisonMessage).await();
+        producer.send(poisonMessage).onFailure(testContext::failNow);
 
         // Wait for all retry attempts
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Should attempt initial + 3 retries");
 
         // Give time for DLQ movement
-        Promise<Void> dlqDelay = Promise.promise();
-        vertx.setTimer(2000, id -> dlqDelay.complete());
-        dlqDelay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         // Verify message moved to DLQ
-            List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-                .getDeadLetterMessages(topicName, 10, 0).await();
+            List<DeadLetterMessageInfo> dlqMessages = awaitFuture(manager.getDeadLetterQueueManager()
+                .getDeadLetterMessages(topicName, 10, 0), 30, TimeUnit.SECONDS);
 
         logger.info("📊 DLQ Results:");
         logger.info("  Total attempts: {}", attemptCount.get());
@@ -280,7 +276,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         // Send multiple poison messages
         logger.info("📤 Sending {} poison messages", messageCount);
         for (int i = 1; i <= messageCount; i++) {
-            producer.send("poison-" + i).await();
+            producer.send("poison-" + i).onFailure(testContext::failNow);
         }
 
         // Wait for all processing attempts
@@ -288,13 +284,11 @@ class OutboxDeadLetterQueueSpringBootTest {
         assertTrue(completed, "All messages should be processed and moved to DLQ");
         
         // Give time for DLQ movement
-        Promise<Void> dlqDelay = Promise.promise();
-        vertx.setTimer(2000, id -> dlqDelay.complete());
-        dlqDelay.future().await();
-        
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
+
         // Retrieve and inspect DLQ messages
-            List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-                .getDeadLetterMessages(topicName, 10, 0).await();
+            List<DeadLetterMessageInfo> dlqMessages = awaitFuture(manager.getDeadLetterQueueManager()
+                .getDeadLetterMessages(topicName, 10, 0), 30, TimeUnit.SECONDS);
 
         logger.info("📊 DLQ Inspection Results:");
         logger.info("  Total processing attempts: {}", processedCount.get());

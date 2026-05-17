@@ -100,10 +100,9 @@ public class TradeProducerService {
                 log.info("Trade event sent: tradeId={}, priority={}, status={}",
                     event.getTradeId(), event.getPriority(), event.getStatus());
             })
-            .otherwise(ex -> {
+            .onFailure(ex -> {
                 log.error("❌ Failed to send trade event: tradeId={}, priority={}",
                     event.getTradeId(), event.getPriority(), ex);
-                throw new RuntimeException("Failed to send trade event", ex);
             });
     }
 

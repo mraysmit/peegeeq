@@ -30,7 +30,9 @@ import io.vertx.core.Future;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -95,8 +97,8 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        result.await();
-        
+        awaitFuture(result, 10, TimeUnit.SECONDS);
+
         // Verify metrics updated
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(1, metrics.getTotalMessages());
@@ -121,8 +123,8 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        IllegalStateException exception = assertThrows(IllegalStateException.class, 
-            () -> result.await());
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
+            () -> awaitFuture(result, 10, TimeUnit.SECONDS));
         assertTrue(exception.getMessage().contains("disabled"));
         
         disabledManager.close();
@@ -135,16 +137,16 @@ public class DeadLetterQueueManagerCoverageTest {
             Message<String> message = createTestMessage("msg-" + i, "payload-" + i);
             Exception testException = new RuntimeException("Error " + i);
             
-            manager.sendToDeadLetter(
+            awaitFuture(manager.sendToDeadLetter(
                 message,
                 "filter-" + i,
                 "Failure " + i,
                 i,
                 FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
                 testException
-            ).await();
+            ), 10, TimeUnit.SECONDS);
         }
-        
+
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(5, metrics.getTotalMessages());
         assertEquals(5, metrics.getTotalSent());
@@ -167,7 +169,7 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> result.await());
+        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -192,9 +194,9 @@ public class DeadLetterQueueManagerCoverageTest {
                 testException
             );
             
-            assertDoesNotThrow(() -> result.await());
+            assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
         }
-        
+
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(3, metrics.getTotalMessages());
     }
@@ -231,17 +233,17 @@ public class DeadLetterQueueManagerCoverageTest {
     void testGetMetrics() throws Exception {
         // Send a message to populate metrics
         Message<String> message = createTestMessage("msg-1", "payload");
-        manager.sendToDeadLetter(
+        awaitFuture(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ).await();
-        
+        ), 10, TimeUnit.SECONDS);
+
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
-        
+
         assertNotNull(metrics);
         assertEquals(1, metrics.getQueueCount());
         assertEquals(1, metrics.getTotalMessages());
@@ -254,15 +256,15 @@ public class DeadLetterQueueManagerCoverageTest {
     @DisplayName("should calculate success rate correctly")
     void testMetricsSuccessRate() throws Exception {
         Message<String> message = createTestMessage("msg-1", "payload");
-        manager.sendToDeadLetter(
+        awaitFuture(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ).await();
-        
+        ), 10, TimeUnit.SECONDS);
+
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(1.0, metrics.getSuccessRate(), 0.01);
     }
@@ -289,22 +291,22 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> result.await());
+        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("should format manager metrics toString correctly")
     void testManagerMetricsToString() throws Exception {
         Message<String> message = createTestMessage("msg-1", "payload");
-        manager.sendToDeadLetter(
+        awaitFuture(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ).await();
-        
+        ), 10, TimeUnit.SECONDS);
+
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         String metricsString = metrics.toString();
         
@@ -319,15 +321,15 @@ public class DeadLetterQueueManagerCoverageTest {
     void testClose() throws Exception {
         // Send a message to ensure queue is active
         Message<String> message = createTestMessage("msg-1", "payload");
-        manager.sendToDeadLetter(
+        awaitFuture(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ).await();
-        
+        ), 10, TimeUnit.SECONDS);
+
         assertDoesNotThrow(() -> manager.close());
     }
 
@@ -348,7 +350,7 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> result.await());
+        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -371,7 +373,7 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> result.await());
+        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -383,22 +385,22 @@ public class DeadLetterQueueManagerCoverageTest {
         
         // Send first message
         Message<String> message1 = createTestMessage("msg-1", "payload1");
-        manager.sendToDeadLetter(
+        awaitFuture(manager.sendToDeadLetter(
             message1, "filter-1", "test1", 1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test1")
-        ).await();
-        
+        ), 10, TimeUnit.SECONDS);
+
         DeadLetterQueueManager.DeadLetterManagerMetrics afterFirst = manager.getMetrics();
         assertEquals(1, afterFirst.getTotalMessages());
-        
+
         // Send second message
         Message<String> message2 = createTestMessage("msg-2", "payload2");
-        manager.sendToDeadLetter(
+        awaitFuture(manager.sendToDeadLetter(
             message2, "filter-2", "test2", 2,
             FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
             new RuntimeException("test2")
-        ).await();
+        ), 10, TimeUnit.SECONDS);
         
         DeadLetterQueueManager.DeadLetterManagerMetrics afterSecond = manager.getMetrics();
         assertEquals(2, afterSecond.getTotalMessages());

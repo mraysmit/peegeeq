@@ -70,16 +70,11 @@ public class SSEFilteringExample {
             vertx = Vertx.vertx();
             httpClient = vertx.createHttpClient();
             
-            // Demonstrate different filtering patterns
+            // Demonstrate different filtering patterns. Each demo blocks on its own
+            // CountDownLatch, so no inter-demo delay is needed.
             demonstrateMessageTypeFilter(vertx, httpClient);
-            Thread.sleep(2000); // Brief pause between demos
-            
             demonstrateHeaderFilter(vertx, httpClient);
-            Thread.sleep(2000);
-            
             demonstrateBatching(vertx, httpClient);
-            Thread.sleep(2000);
-            
             demonstrateConsumerGroups(vertx, httpClient);
             
             logger.info("SSE Filtering Example completed successfully");

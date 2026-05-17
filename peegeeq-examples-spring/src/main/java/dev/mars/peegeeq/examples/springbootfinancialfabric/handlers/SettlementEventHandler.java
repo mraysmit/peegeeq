@@ -50,13 +50,8 @@ public class SettlementEventHandler {
             public Future<Void> handle(Message<BiTemporalEvent<SettlementInstructionEvent>> message) {
                 return handleSettlementEvent(message.getPayload());
             }
-        }).onComplete(ar -> {
-            if (ar.failed()) {
-                log.error("Failed to subscribe to settlement events", ar.cause());
-            } else {
-                log.info("Successfully subscribed to settlement events");
-            }
-        });
+        }).onSuccess(v -> log.info("Successfully subscribed to settlement events"))
+          .onFailure(e -> log.error("Failed to subscribe to settlement events", e));
     }
     
     @PreDestroy
@@ -64,13 +59,9 @@ public class SettlementEventHandler {
         log.info("Shutting down SettlementEventHandler - processed {} total events ({} submitted, {} confirmed)",
                 eventsProcessed.get(), submittedEventsProcessed.get(), confirmedEventsProcessed.get());
         
-        settlementEventStore.unsubscribe().onComplete(ar -> {
-            if (ar.failed()) {
-                log.error("Error unsubscribing from settlement events", ar.cause());
-            } else {
-                log.info("Successfully unsubscribed from settlement events");
-            }
-        });
+        settlementEventStore.unsubscribe()
+                .onSuccess(v -> log.info("Successfully unsubscribed from settlement events"))
+                .onFailure(e -> log.error("Error unsubscribing from settlement events", e));
     }
     
     /**

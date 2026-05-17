@@ -37,7 +37,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -76,7 +78,13 @@ public class AutomaticTransactionManagementExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        CountDownLatch startLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> startError = new AtomicReference<>();
+        manager.start()
+            .onSuccess(v -> startLatch.countDown())
+            .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        assertTrue(startLatch.await(30, TimeUnit.SECONDS), "Manager should start within 30 seconds");
+        if (startError.get() != null) throw new RuntimeException("Manager failed to start", startError.get());
     }
     
     @AfterEach
@@ -84,9 +92,14 @@ public class AutomaticTransactionManagementExampleTest {
         logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ Manager", e);
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive()
+                    .onSuccess(v -> closeLatch.countDown())
+                    .onFailure(e -> { logger.warn("Error closing PeeGeeQ Manager", e); closeLatch.countDown(); });
+                closeLatch.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while closing PeeGeeQ Manager", e);
             }
         }
     }
@@ -344,7 +357,6 @@ public class AutomaticTransactionManagementExampleTest {
             );
             logger.debug("Processing performance test order: {}", order.getOrderId());
             performanceTests++;
-            LockSupport.parkNanos(1_000_000L); // Simulate processing time
         }
         
         long processingTime = System.currentTimeMillis() - startTime;

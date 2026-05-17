@@ -144,28 +144,34 @@ public class MultiTenantSchemaIsolationTest {
             return Future.succeededFuture();
         });
 
-        // Wait a bit to ensure no messages are received
-        vertx.timer(3000).await();
-        assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages");
-
-        // Tenant A creates a consumer - should receive its own message
-        MessageConsumer<String> consumerA = factoryTenantA.createConsumer("test-topic", String.class);
-        resources.add(consumerA);
-        Checkpoint messageReceivedA = testContext.checkpoint();
         List<String> receivedMessagesA = new CopyOnWriteArrayList<>();
+        Checkpoint messageReceivedA = testContext.checkpoint();
 
-        consumerA.subscribe(message -> {
-            receivedMessagesA.add(message.getPayload());
-            if (receivedMessagesA.size() == 1) {
-                messageReceivedA.flag();
-            }
-            return Future.succeededFuture();
-        });
+        // Wait 3 seconds to ensure Tenant B has not received Tenant A's message,
+        // then create Tenant A's consumer
+        vertx.timer(3000)
+            .compose(timerId -> {
+                testContext.verify(() -> assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages"));
+
+                MessageConsumer<String> consumerA = factoryTenantA.createConsumer("test-topic", String.class);
+                resources.add(consumerA);
+
+                return consumerA.subscribe(message -> {
+                    receivedMessagesA.add(message.getPayload());
+                    if (receivedMessagesA.size() == 1) {
+                        testContext.verify(() -> {
+                            assertEquals("tenant-a-message", receivedMessagesA.get(0), "Tenant A should receive correct message");
+                            messageReceivedA.flag();
+                        });
+                    }
+                    return Future.succeededFuture();
+                });
+            })
+            .onFailure(testContext::failNow);
 
         // Tenant A should receive its own message
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Tenant A should receive its own message");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Tenant A should receive its own message");
         assertEquals(1, receivedMessagesA.size(), "Tenant A should have exactly 1 message");
-        assertEquals("tenant-a-message", receivedMessagesA.get(0), "Tenant A should receive correct message");
     }
 
     @Test

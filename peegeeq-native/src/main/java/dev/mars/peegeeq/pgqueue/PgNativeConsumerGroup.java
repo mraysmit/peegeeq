@@ -203,21 +203,20 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     @Override
-    public void start() {
+    public Future<Void> start() {
         if (!state.compareAndSet(State.NEW, State.STARTING)) {
             State current = state.get();
             if (current == State.CLOSED) {
-                throw new IllegalStateException("Consumer group is closed");
+                return Future.failedFuture(new IllegalStateException("Consumer group is closed"));
             }
             if (current == State.ACTIVE || current == State.STARTING) {
-                // Already started or starting idempotent
-                return;
+                // Already started or starting - idempotent
+                return Future.succeededFuture();
             }
-            throw new IllegalStateException("Cannot start consumer group in state: " + current);
+            return Future.failedFuture(new IllegalStateException("Cannot start consumer group in state: " + current));
         }
 
-        // Fire-and-forget; interface is void so caller cannot observe the future
-        startInternal()
+        return startInternal()
                 .onFailure(err -> {
                     String msg = err.getMessage();
                     if (msg != null && msg.contains("Consumer group closed during startup")) {

@@ -83,9 +83,10 @@ public class OrderController {
                 logger.info("REST: Order created successfully: {}", orderId);
                 return ResponseEntity.ok(orderId);
             })
-            .otherwise(error -> {
-                logger.error("REST: Failed to create order", error);
-                return ResponseEntity.internalServerError().body("Failed to create order: " + error.getMessage());
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to create order", ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().body("Failed to create order: " + ar.cause().getMessage()));
             });
     }
     
@@ -104,9 +105,10 @@ public class OrderController {
                 logger.info("REST: Order history retrieved: {} events", response.getHistory().size());
                 return ResponseEntity.ok(response);
             })
-            .otherwise(error -> {
-                logger.error("REST: Failed to retrieve order history: {}", orderId, error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to retrieve order history: {}", orderId, ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     
@@ -126,9 +128,10 @@ public class OrderController {
                 logger.info("REST: Found {} orders for customer: {}", orders.size(), customerId);
                 return ResponseEntity.ok(orders);
             })
-            .otherwise(error -> {
-                logger.error("REST: Failed to retrieve customer orders: {}", customerId, error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to retrieve customer orders: {}", customerId, ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     
@@ -151,17 +154,19 @@ public class OrderController {
                     logger.info("REST: Found {} orders as of time: {}", orders.size(), validTime);
                     return ResponseEntity.ok(orders);
                 })
-                .otherwise(error -> {
-                    logger.error("REST: Failed to query orders as of time: {}", validTime, error);
-                    return ResponseEntity.internalServerError().build();
+                .transform(ar -> {
+                    if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                    logger.error("REST: Failed to query orders as of time: {}", validTime, ar.cause());
+                    return Future.succeededFuture(ResponseEntity.internalServerError().build());
                 });
         } else {
             logger.info("REST: Querying all orders");
             return orderService.getOrdersAsOfTime(Instant.now())
                 .map(ResponseEntity::ok)
-                .otherwise(error -> {
-                    logger.error("REST: Failed to query all orders", error);
-                    return ResponseEntity.internalServerError().build();
+                .transform(ar -> {
+                    if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                    logger.error("REST: Failed to query all orders", ar.cause());
+                    return Future.succeededFuture(ResponseEntity.internalServerError().build());
                 });
         }
     }

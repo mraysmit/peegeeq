@@ -38,6 +38,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -65,7 +66,7 @@ class OutboxFactoryIntegrationTest {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for OutboxFactory integration tests");
@@ -80,26 +81,29 @@ class OutboxFactoryIntegrationTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create DatabaseService from manager
-        databaseService = new PgDatabaseService(manager);
-        objectMapper = new ObjectMapper();
-
-        logger.info("OutboxFactory integration test setup completed");
+        manager.start().onSuccess(v -> {
+            // Create DatabaseService from manager
+            databaseService = new PgDatabaseService(manager);
+            objectMapper = new ObjectMapper();
+            logger.info("OutboxFactory integration test setup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error stopping manager: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                    .onSuccess(v -> {
+                        logger.info("OutboxFactory integration test teardown completed");
+                        testContext.completeNow();
+                    })
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        logger.info("OutboxFactory integration test teardown completed");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ============================================================

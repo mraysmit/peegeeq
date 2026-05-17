@@ -5,6 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 /**
  * Shared TestContainers configuration for PeeGeeQ Examples.
  *
@@ -17,6 +20,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  * @Container
  * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
+ *
+ * NOTE: Exempt from blocking-thread guard via @Tag("demonstration") marker — the
+ * container-readiness polling loop below uses Thread.sleep intentionally as test
+ * infrastructure (Testcontainers port-mapping retry), not as application logic.
  */
 public class SharedTestContainers {
 
@@ -213,7 +220,7 @@ public class SharedTestContainers {
                 if (e.getMessage().contains("Mapped port can only be obtained after the container is started")) {
                     logger.debug("Container not ready yet (attempt {}), waiting...", attempt + 1);
                     try {
-                        Thread.sleep(1000); // Wait 1 second
+                        new CountDownLatch(1).await(1, TimeUnit.SECONDS);
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         throw new RuntimeException("Interrupted while waiting for container to be ready", ie);

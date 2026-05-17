@@ -27,9 +27,10 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.core.Promise;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -100,7 +101,7 @@ class PeeGeeQExampleTest {
     // ConfigurationValidationTest.java for better maintainability and business focus
 
     @Test
-    void testPeeGeeQExampleWithTestContainers() {
+    void testPeeGeeQExampleWithTestContainers(VertxTestContext testContext) throws Exception {
         logger.info("Testing PeeGeeQExample with TestContainers database");
 
         // Start PostgreSQL container
@@ -115,27 +116,25 @@ class PeeGeeQExampleTest {
             // Configure database connection properties
             Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-            // Run the example functionality directly (since main class doesn't exist)
-            try {
-                logger.info("Starting PeeGeeQ Example functionality test");
+            logger.info("Starting PeeGeeQ Example functionality test");
 
-                // Initialize database schema before starting manager
-                PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+            // Initialize database schema before starting manager
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
-                // Test basic PeeGeeQ functionality instead of calling non-existent main
-                runAllDemonstrations(testProps);
+            runAllDemonstrations(testProps)
+                .onSuccess(v -> {
+                    logger.info("PeeGeeQExample test completed successfully");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
 
-                logger.info("PeeGeeQExample test completed successfully");
-
-            } catch (Exception e) {
-                logger.error("PeeGeeQExample failed", e);
-                fail("PeeGeeQExample should run without exceptions: " + e.getMessage());
-            }
+            assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS),
+                "PeeGeeQExample demonstrations did not complete within timeout");
         }
     }
 
     @Test
-    void runComprehensivePeeGeeQDemo() {
+    void runComprehensivePeeGeeQDemo(VertxTestContext testContext) throws Exception {
         logger.info("** Starting Comprehensive PeeGeeQ Demo Test **");
         logger.info("This test demonstrates all PeeGeeQ features with proper TestContainers lifecycle management");
 
@@ -169,43 +168,39 @@ class PeeGeeQExampleTest {
             PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
             // Run comprehensive demonstrations
-            runAllDemonstrations(testProps);
+            runAllDemonstrations(testProps)
+                .onSuccess(v -> {
+                    logger.info("Comprehensive PeeGeeQ Demo Test completed successfully!");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
 
-        } catch (Exception e) {
-            logger.error("XX Failed to run comprehensive PeeGeeQ demo", e);
-            fail("Comprehensive demo should complete successfully: " + e.getMessage());
+            assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS),
+                "Comprehensive demo did not complete within timeout");
         }
-
-        logger.info("Comprehensive PeeGeeQ Demo Test completed successfully!");
     }
 
     /**
-     * Runs all PeeGeeQ feature demonstrations.
+     * Runs all PeeGeeQ feature demonstrations as a chained {@link Future} sequence.
+     * The manager is closed in {@code .eventually(...)} so it is released even on failure.
      */
-    private void runAllDemonstrations(Properties testProps) {
+    private Future<Void> runAllDemonstrations(Properties testProps) {
         logger.info("...Starting PeeGeeQ feature demonstrations...");
 
-        try (PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry())) {
+        final PeeGeeQManager manager = new PeeGeeQManager(
+            new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
-            // Start the manager
-            manager.start().await();
-            logger.info("PeeGeeQ Manager started successfully");
-
-            // Run all demonstrations
-            demonstrateConfiguration(manager);
-            demonstrateHealthChecks(manager);
-            demonstrateMetrics(manager);
-            demonstrateCircuitBreaker(manager);
-            demonstrateBackpressure(manager);
-            demonstrateDeadLetterQueue(manager);
-
-            // Monitor system briefly (shorter for test)
-            monitorSystemBriefly(manager);
-
-        } catch (Exception e) {
-            logger.error("XX Error running demonstrations", e);
-            throw new RuntimeException("Demonstrations failed", e);
-        }
+        return manager.start()
+            .onSuccess(v -> logger.info("PeeGeeQ Manager started successfully"))
+            .compose(v -> { demonstrateConfiguration(manager); return Future.<Void>succeededFuture(); })
+            .compose(v -> demonstrateHealthChecks(manager))
+            .compose(v -> { demonstrateMetrics(manager); return Future.<Void>succeededFuture(); })
+            .compose(v -> { demonstrateCircuitBreaker(manager); return Future.<Void>succeededFuture(); })
+            .compose(v -> demonstrateBackpressure(manager))
+            .compose(v -> demonstrateDeadLetterQueue(manager))
+            .compose(v -> monitorSystemBriefly(manager))
+            .eventually(() -> manager.closeReactive()
+                    .onFailure(e -> logger.warn("Error closing manager", e)));
     }
 
     private void demonstrateConfiguration(PeeGeeQManager manager) {
@@ -228,19 +223,21 @@ class PeeGeeQExampleTest {
         logger.info("Migration Auto-enabled: {}", config.getBoolean("peegeeq.migration.auto-migrate", true));
     }
 
-    private void demonstrateHealthChecks(PeeGeeQManager manager) {
+    private Future<Void> demonstrateHealthChecks(PeeGeeQManager manager) {
         logger.info("=== Health Checks Demo ===");
 
         boolean isHealthy = manager.isHealthy();
         logger.info(">> Overall Health: {}", isHealthy ? "UP" : "DOWN");
 
         // Get system status which includes health information
-        PeeGeeQManager.SystemStatus status = manager.getSystemStatus().await();
-        logger.info("System Status: {}", status);
-
-        // Note: Individual health component details are not exposed in the current API
-        // This is a simplified demonstration
-        logger.info("Health check demonstration completed");
+        return manager.getSystemStatus()
+            .onSuccess(status -> {
+                logger.info("System Status: {}", status);
+                // Note: Individual health component details are not exposed in the current API
+                // This is a simplified demonstration
+                logger.info("Health check demonstration completed");
+            })
+            .mapEmpty();
     }
 
     private void demonstrateMetrics(PeeGeeQManager manager) {
@@ -304,79 +301,78 @@ class PeeGeeQExampleTest {
         logger.info("Circuit breaker demonstration completed");
     }
 
-    private void demonstrateBackpressure(PeeGeeQManager manager) {
+    private Future<Void> demonstrateBackpressure(PeeGeeQManager manager) {
         logger.info("=== Backpressure Demo ===");
         logger.info("Simulating concurrent operations...");
 
         BackpressureManager backpressureManager = manager.getBackpressureManager();
         ScheduledExecutorService executor = Executors.newScheduledThreadPool(5);
 
-        try {
-            for (int i = 0; i < 10; i++) { // Reduced for test
-                final int operationId = i;
-                executor.submit(() -> {
-                    try {
-                        String result = backpressureManager.execute("demo-backpressure", () -> {
-                            Thread.sleep(50); // Shorter for test
-                            return "Operation " + operationId + " completed";
-                        });
-                        logger.debug("Backpressure result: {}", result);
-                    } catch (BackpressureManager.BackpressureException e) {
-                        logger.warn("Backpressure rejected operation {}: {}", operationId, e.getMessage());
-                    } catch (Exception e) {
-                        logger.error("Operation {} failed", operationId, e);
-                    }
-                });
-            }
-
-            // Wait briefly for operations to complete
-            Promise<Void> delay = Promise.promise();
-            vertx.setTimer(1000, id -> delay.complete());
-            delay.future().await();
-
-            BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
-            logger.info(">> Total Requests: {}", metrics.getTotalRequests());
-            logger.info(" > Successful Operations: {}", metrics.getSuccessfulOperations());
-            logger.info(" > Rejected Requests: {}", metrics.getRejectedRequests());
-            logger.info(" > Current Utilization: {}%", metrics.getUtilization() * 100);
-            logger.info(" > Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
-
-        } finally {
-            shutdownExecutorGracefully(executor, "backpressure-demo");
+        for (int i = 0; i < 10; i++) { // Reduced for test
+            final int operationId = i;
+            executor.submit(() -> {
+                try {
+                    String result = backpressureManager.execute("demo-backpressure", () ->
+                        "Operation " + operationId + " completed"
+                    );
+                    logger.debug("Backpressure result: {}", result);
+                } catch (BackpressureManager.BackpressureException e) {
+                    logger.warn("Backpressure rejected operation {}: {}", operationId, e.getMessage());
+                } catch (Exception e) {
+                    logger.error("Operation {} failed", operationId, e);
+                }
+            });
         }
+
+        // Wait briefly for operations to complete using Vert.x timer
+        return vertx.timer(1000)
+            .onSuccess(v -> {
+                BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
+                logger.info(">> Total Requests: {}", metrics.getTotalRequests());
+                logger.info(" > Successful Operations: {}", metrics.getSuccessfulOperations());
+                logger.info(" > Rejected Requests: {}", metrics.getRejectedRequests());
+                logger.info(" > Current Utilization: {}%", metrics.getUtilization() * 100);
+                logger.info(" > Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
+            })
+            .eventually(() -> {
+                shutdownExecutorGracefully(executor, "backpressure-demo");
+                return Future.<Void>succeededFuture();
+            })
+            .mapEmpty();
     }
 
-    private void demonstrateDeadLetterQueue(PeeGeeQManager manager) {
+    private Future<Void> demonstrateDeadLetterQueue(PeeGeeQManager manager) {
         logger.info("=== Dead Letter Queue Demo ===");
 
         var deadLetterManager = manager.getDeadLetterQueueManager();
 
         // Display dead letter queue statistics (initially empty)
-        var stats = deadLetterManager.getStatistics().await();
-        logger.info(">> Dead Letter Queue Stats:");
-        logger.info("  > Total Messages: {}", stats.totalMessages());
-        logger.info("  > Is Empty: {}", stats.isEmpty());
+        return deadLetterManager.getStatistics()
+            .onSuccess(stats -> {
+                logger.info(">> Dead Letter Queue Stats:");
+                logger.info("  > Total Messages: {}", stats.totalMessages());
+                logger.info("  > Is Empty: {}", stats.isEmpty());
 
-        // Note: The moveToDeadLetter method signature is different than expected
-        // This is a simplified demonstration showing the DLQ manager is available
-        logger.info("Dead letter queue manager is available and functional");
+                // Note: The moveToDeadLetter method signature is different than expected
+                // This is a simplified demonstration showing the DLQ manager is available
+                logger.info("Dead letter queue manager is available and functional");
 
-        // In a real scenario, messages would be moved to DLQ automatically
-        // when they fail processing after max retries
+                // In a real scenario, messages would be moved to DLQ automatically
+                // when they fail processing after max retries
+            })
+            .mapEmpty();
     }
 
-    private void monitorSystemBriefly(PeeGeeQManager manager) {
+    private Future<Void> monitorSystemBriefly(PeeGeeQManager manager) {
         logger.info("=== System Monitoring ===");
         logger.info("Monitoring system briefly for test...");
 
         ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor();
 
-        try {
-            monitor.scheduleAtFixedRate(() -> {
-                try {
-                    PeeGeeQManager.SystemStatus status = manager.getSystemStatus().await();
+        monitor.scheduleAtFixedRate(() -> {
+            manager.getSystemStatus()
+                .onSuccess(status -> {
                     logger.info("System Status: {}", status);
-
                     if (!status.getHealthStatus().isHealthy()) {
                         logger.warn("System health degraded!");
                         status.getHealthStatus().getComponents().forEach((name, health) -> {
@@ -385,21 +381,18 @@ class PeeGeeQExampleTest {
                             }
                         });
                     }
+                })
+                .onFailure(err -> logger.error("Error monitoring system", err));
+        }, 0, 2, TimeUnit.SECONDS); // Faster for test
 
-                } catch (Exception e) {
-                    logger.error("Error monitoring system", e);
-                }
-            }, 0, 2, TimeUnit.SECONDS); // Faster for test
-
-            // Run monitoring for 5 seconds (shorter for test)
-            Promise<Void> delay = Promise.promise();
-            vertx.setTimer(5000, id -> delay.complete());
-            delay.future().await();
-
-        } finally {
-            shutdownExecutorGracefully(monitor, "system-monitor");
-            logger.info("Monitoring completed");
-        }
+        // Run monitoring for 5 seconds (shorter for test)
+        return vertx.timer(5000)
+            .eventually(() -> {
+                shutdownExecutorGracefully(monitor, "system-monitor");
+                logger.info("Monitoring completed");
+                return Future.<Void>succeededFuture();
+            })
+            .mapEmpty();
     }
 
     /**

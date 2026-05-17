@@ -30,12 +30,17 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -48,7 +53,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.Properties;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -72,6 +76,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class TransactionalOutboxAnalysisTest {
 
     private static final Logger logger = LoggerFactory.getLogger(TransactionalOutboxAnalysisTest.class);
@@ -93,49 +98,56 @@ public class TransactionalOutboxAnalysisTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up TransactionalOutboxAnalysisTest ===");
 
-        // Initialize schema with queue components
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
-        // Use unique topic for each test to avoid interference
         testTopic = "outbox-tx-test-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Configure database connection
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create factory
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        pool = databaseService.getPool();
-
-        // Create a test table for business data
-        createTestBusinessTable().await();
-
-        logger.info("✓ TransactionalOutboxAnalysisTest setup completed");
+        manager.start()
+            .compose(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, config);
+                pool = databaseService.getPool();
+                return createTestBusinessTable();
+            })
+            .onSuccess(v -> {
+                logger.info("\u2713 TransactionalOutboxAnalysisTest setup completed");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(Vertx vertx, VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down TransactionalOutboxAnalysisTest ===");
 
         if (outboxFactory != null) {
-            outboxFactory.close();
+            try {
+                outboxFactory.close();
+            } catch (Exception e) {
+                logger.warn("Error closing outbox factory: {}", e.getMessage());
+            }
         }
 
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            logger.info("\u2713 Teardown completed");
+            ctx.completeNow();
+            return;
         }
-
-        logger.info("✓ Teardown completed");
+        Future<Void> closeChain = manager.closeReactive()
+            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
+            .onFailure(err -> logger.warn("Error closing manager: {}", err.getMessage()));
+        closeChain.onSuccess(v -> { logger.info("\u2713 Teardown completed"); ctx.completeNow(); });
+        closeChain.onFailure(err -> ctx.completeNow());
     }
 
     /**
@@ -161,55 +173,57 @@ public class TransactionalOutboxAnalysisTest {
      * This is the fundamental guarantee of the transactional outbox pattern.
      */
     @Test
-    void testOutboxTransactionParticipation() throws Exception {
+    void testOutboxTransactionParticipation(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Transaction Participation ===");
 
         MessageProducer<String> producer = outboxFactory.createProducer(testTopic, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        try {
-            String orderId = "order-" + UUID.randomUUID().toString().substring(0, 8);
-            String messagePayload = "{\"orderId\":\"" + orderId + "\",\"event\":\"OrderCreated\"}";
+        String orderId = "order-" + UUID.randomUUID().toString().substring(0, 8);
+        String messagePayload = "{\"orderId\":\"" + orderId + "\",\"event\":\"OrderCreated\"}";
 
-            // Use reactive transaction for business data
-            pool.withTransaction(conn ->
-                conn.preparedQuery("INSERT INTO test_orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)")
-                        .execute(Tuple.of(orderId, "customer-123", new java.math.BigDecimal("99.99"), "CREATED"))
-                        .mapEmpty()
-            ).await();
-            logger.info("✓ Business data inserted and committed: {}", orderId);
+        List<Message<String>> messages = new ArrayList<>();
+        Promise<Void> messageReceived = Promise.promise();
 
-            // Now send a message through the outbox (after transaction)
-            producer.send(messagePayload).await();
-            logger.info("✓ Outbox message sent");
-
-            // Verify business data exists
-            long count = pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id = $1")
-                    .execute(Tuple.of(orderId))
-                    .await()
-                    .iterator().next().getLong(0);
-            assertEquals(1, count, "Business data should exist after commit");
-
-            // Verify message can be consumed
-            List<Message<String>> messages = new ArrayList<>();
-            CountDownLatch msgLatch = new CountDownLatch(1);
-
-            consumer.subscribe(msg -> {
+        pool.withTransaction(conn ->
+            conn.preparedQuery("INSERT INTO test_orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)")
+                    .execute(Tuple.of(orderId, "customer-123", new java.math.BigDecimal("99.99"), "CREATED"))
+                    .mapEmpty()
+        )
+        .compose(v -> {
+            logger.info("\u2713 Business data inserted and committed: {}", orderId);
+            return producer.send(messagePayload);
+        })
+        .compose(v -> {
+            logger.info("\u2713 Outbox message sent");
+            return pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id = $1")
+                    .execute(Tuple.of(orderId));
+        })
+        .map(rs -> rs.iterator().next().getLong(0))
+        .compose(count -> {
+            testContext.verify(() -> assertEquals(1L, count, "Business data should exist after commit"));
+            return consumer.subscribe(msg -> {
                 messages.add(msg);
-                logger.info("✓ Received message: {}", msg.getPayload());
-                msgLatch.countDown();
+                logger.info("\u2713 Received message: {}", msg.getPayload());
+                messageReceived.tryComplete();
                 return Future.succeededFuture();
             });
-
-            assertTrue(msgLatch.await(10, TimeUnit.SECONDS), "Should receive message within timeout");
+        })
+        .compose(v -> messageReceived.future())
+        .onSuccess(v -> testContext.verify(() -> {
             assertEquals(1, messages.size(), "Should receive exactly one message");
             assertTrue(messages.get(0).getPayload().contains(orderId), "Message should contain order ID");
+            logger.info("\u2713 Outbox transaction participation validated");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow)
+        .eventually(() -> {
+            try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer: {}", e.getMessage()); }
+            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
+            return Future.<Void>succeededFuture();
+        });
 
-            logger.info("✓ Outbox transaction participation validated");
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }
 
     /**
@@ -219,38 +233,38 @@ public class TransactionalOutboxAnalysisTest {
      * This ensures no orphaned data exists for failed business operations.
      */
     @Test
-    void testTransactionRollbackBehavior() throws Exception {
+    void testTransactionRollbackBehavior(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Transaction Rollback Behavior ===");
 
         String orderId = "rollback-order-" + UUID.randomUUID().toString().substring(0, 8);
-        boolean transactionRolledBack = false;
 
-        // Attempt a transaction that will fail — withTransaction rolls back on failedFuture
-        try {
-            pool.withTransaction(conn ->
-                conn.preparedQuery("INSERT INTO test_orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)")
-                        .execute(Tuple.of(orderId, "customer-456", new java.math.BigDecimal("150.00"), "PENDING"))
-                        .compose(v -> {
-                            logger.info("Business data inserted (will be rolled back): {}", orderId);
-                            // Force rollback by returning a failed future
-                            return Future.failedFuture(new RuntimeException("Simulated business rule violation - triggering rollback"));
-                        })
-            ).await();
-        } catch (Exception e) {
-            logger.info("✓ Rolling back transaction: {}", e.getMessage());
-            transactionRolledBack = true;
-        }
+        pool.<Void>withTransaction(conn ->
+            conn.preparedQuery("INSERT INTO test_orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)")
+                    .execute(Tuple.of(orderId, "customer-456", new java.math.BigDecimal("150.00"), "PENDING"))
+                    .compose(v -> {
+                        logger.info("Business data inserted (will be rolled back): {}", orderId);
+                        // Force rollback by returning a failed future
+                        return Future.<Void>failedFuture(new RuntimeException("Simulated business rule violation - triggering rollback"));
+                    })
+        )
+        .transform(ar -> {
+            if (ar.succeeded()) {
+                return Future.<Void>failedFuture(new AssertionError("Transaction should have been rolled back"));
+            }
+            logger.info("\u2713 Rolling back transaction: {}", ar.cause().getMessage());
+            return Future.<Void>succeededFuture();
+        })
+        .compose(v -> pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id = $1")
+                .execute(Tuple.of(orderId)))
+        .map(rs -> rs.iterator().next().getLong(0))
+        .onSuccess(count -> testContext.verify(() -> {
+            assertEquals(0L, count, "Business data should NOT exist after rollback");
+            logger.info("\u2713 Transaction rollback behavior validated - no orphaned data");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
 
-        assertTrue(transactionRolledBack, "Transaction should have been rolled back");
-
-        // Verify business data does NOT exist (was rolled back)
-        long count = pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id = $1")
-                .execute(Tuple.of(orderId))
-                .await()
-                .iterator().next().getLong(0);
-        assertEquals(0, count, "Business data should NOT exist after rollback");
-
-        logger.info("✓ Transaction rollback behavior validated - no orphaned data");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }
 
     /**
@@ -260,7 +274,7 @@ public class TransactionalOutboxAnalysisTest {
      * ensuring no cross-contamination of data.
      */
     @Test
-    void testConcurrentTransactionHandling() throws Exception {
+    void testConcurrentTransactionHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Transaction Handling ===");
 
         int numConcurrentTransactions = 5;
@@ -285,30 +299,36 @@ public class TransactionalOutboxAnalysisTest {
             txFutures.add(txFuture);
         }
 
-        // Wait for all concurrent transactions to complete
-        Future.all(txFutures).await();
+        Future.all(txFutures)
+            .compose(cf -> {
+                logger.info("Concurrent transactions completed: {} succeeded", successCount.get());
+                return pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id LIKE 'concurrent-order-%'")
+                        .execute();
+            })
+            .map(rs -> rs.iterator().next().getLong(0))
+            .compose(totalCount -> {
+                testContext.verify(() -> assertEquals((long) successCount.get(), totalCount,
+                        "Number of orders should match successful transactions"));
+                List<Future<Long>> existsFutures = new ArrayList<>();
+                for (String orderId : createdOrderIds) {
+                    existsFutures.add(pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id = $1")
+                            .execute(Tuple.of(orderId))
+                            .map(rs -> rs.iterator().next().getLong(0)));
+                }
+                return Future.all(existsFutures);
+            })
+            .onSuccess(cf -> testContext.verify(() -> {
+                List<Long> results = cf.list();
+                for (Long exists : results) {
+                    assertEquals(1L, exists, "Order should exist");
+                }
+                logger.info("\u2713 Concurrent transaction handling validated - {} orders created with proper isolation",
+                        createdOrderIds.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        logger.info("Concurrent transactions completed: {} succeeded", successCount.get());
-
-        // Verify all successful transactions created their data
-        long totalCount = pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id LIKE 'concurrent-order-%'")
-                .execute()
-                .await()
-                .iterator().next().getLong(0);
-        assertEquals(successCount.get(), totalCount,
-                "Number of orders should match successful transactions");
-
-        // Verify each order has correct isolated data
-        for (String orderId : createdOrderIds) {
-            long exists = pool.preparedQuery("SELECT COUNT(*) FROM test_orders WHERE id = $1")
-                    .execute(Tuple.of(orderId))
-                    .await()
-                    .iterator().next().getLong(0);
-            assertEquals(1L, exists, "Order " + orderId + " should exist");
-        }
-
-        logger.info("✓ Concurrent transaction handling validated - {} orders created with proper isolation",
-                createdOrderIds.size());
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }
 }
 

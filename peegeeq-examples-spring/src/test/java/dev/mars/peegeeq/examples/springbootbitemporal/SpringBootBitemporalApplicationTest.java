@@ -49,6 +49,8 @@ import io.vertx.core.Future;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -97,9 +99,9 @@ class SpringBootBitemporalApplicationTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -122,14 +124,14 @@ class SpringBootBitemporalApplicationTest {
         request.setDescription("Test deposit");
         request.setReference("REF-001");
         
-        BiTemporalEvent<TransactionEvent> recorded = transactionService.recordTransaction(request).await();
+        BiTemporalEvent<TransactionEvent> recorded = awaitFuture(transactionService.recordTransaction(request), 30, TimeUnit.SECONDS);
         assertNotNull(recorded);
         assertEquals("TransactionRecorded", recorded.getEventType());
         
         logger.info("Transaction recorded: {}", recorded.getPayload().getTransactionId());
         
         // Query account history
-        AccountHistoryResponse history = transactionService.getAccountHistory("ACC-TEST-001").await();
+        AccountHistoryResponse history = awaitFuture(transactionService.getAccountHistory("ACC-TEST-001"), 30, TimeUnit.SECONDS);
         assertNotNull(history);
         assertTrue(history.getTotalCount() >= 1);
         
@@ -149,17 +151,17 @@ class SpringBootBitemporalApplicationTest {
         credit.setAmount(new BigDecimal("1000.00"));
         credit.setType(TransactionType.CREDIT);
         credit.setDescription("Deposit");
-        transactionService.recordTransaction(credit).await();
-        
+        awaitFuture(transactionService.recordTransaction(credit), 30, TimeUnit.SECONDS);
+
         TransactionRequest debit = new TransactionRequest();
         debit.setAccountId(accountId);
         debit.setAmount(new BigDecimal("300.00"));
         debit.setType(TransactionType.DEBIT);
         debit.setDescription("Withdrawal");
-        transactionService.recordTransaction(debit).await();
-        
+        awaitFuture(transactionService.recordTransaction(debit), 30, TimeUnit.SECONDS);
+
         // Calculate balance
-        BigDecimal balance = transactionService.getAccountBalance(accountId, Instant.now()).await();
+        BigDecimal balance = awaitFuture(transactionService.getAccountBalance(accountId, Instant.now()), 30, TimeUnit.SECONDS);
         assertEquals(0, new BigDecimal("700.00").compareTo(balance));
         
         logger.info("Balance for account {}: {}", accountId, balance);
@@ -177,7 +179,7 @@ class SpringBootBitemporalApplicationTest {
         request.setType(TransactionType.CREDIT);
         request.setDescription("Original amount");
         
-        BiTemporalEvent<TransactionEvent> original = transactionService.recordTransaction(request).await();
+        BiTemporalEvent<TransactionEvent> original = awaitFuture(transactionService.recordTransaction(request), 30, TimeUnit.SECONDS);
         String transactionId = original.getPayload().getTransactionId();
         
         logger.info("Original transaction: {} amount: {}", transactionId, original.getPayload().getAmount());
@@ -187,14 +189,14 @@ class SpringBootBitemporalApplicationTest {
         correction.setCorrectedAmount(new BigDecimal("1050.00"));
         correction.setReason("Amount correction");
         
-        BiTemporalEvent<TransactionEvent> corrected = transactionService.correctTransaction(transactionId, correction).await();
+        BiTemporalEvent<TransactionEvent> corrected = awaitFuture(transactionService.correctTransaction(transactionId, correction), 30, TimeUnit.SECONDS);
         assertNotNull(corrected);
         assertEquals("TransactionCorrected", corrected.getEventType());
         
         logger.info("Corrected transaction: {} new amount: {}", transactionId, corrected.getPayload().getAmount());
         
         // Verify both versions exist
-        List<BiTemporalEvent<TransactionEvent>> versions = transactionService.getTransactionVersions(transactionId).await();
+        List<BiTemporalEvent<TransactionEvent>> versions = awaitFuture(transactionService.getTransactionVersions(transactionId), 30, TimeUnit.SECONDS);
         assertEquals(2, versions.size());
         
         // Verify same valid time, different transaction time
@@ -217,53 +219,53 @@ class SpringBootBitemporalApplicationTest {
         request1.setAmount(new BigDecimal("500.00"));
         request1.setType(TransactionType.CREDIT);
         request1.setDescription("First deposit");
-        BiTemporalEvent<TransactionEvent> txn1 = transactionService.recordTransaction(request1).await();
+        BiTemporalEvent<TransactionEvent> txn1 = awaitFuture(transactionService.recordTransaction(request1), 30, TimeUnit.SECONDS);
 
         TransactionRequest request2 = new TransactionRequest();
         request2.setAccountId(accountId);
         request2.setAmount(new BigDecimal("200.00"));
         request2.setType(TransactionType.DEBIT);
         request2.setDescription("Withdrawal");
-        transactionService.recordTransaction(request2).await();
+        awaitFuture(transactionService.recordTransaction(request2), 30, TimeUnit.SECONDS);
 
         TransactionRequest request3 = new TransactionRequest();
         request3.setAccountId(accountId);
         request3.setAmount(new BigDecimal("300.00"));
         request3.setType(TransactionType.CREDIT);
         request3.setDescription("Second deposit");
-        transactionService.recordTransaction(request3).await();
+        awaitFuture(transactionService.recordTransaction(request3), 30, TimeUnit.SECONDS);
 
         // Correct the first transaction
         TransactionCorrectionRequest correction = new TransactionCorrectionRequest();
         correction.setCorrectedAmount(new BigDecimal("550.00"));
         correction.setReason("Amount adjustment");
-        transactionService.correctTransaction(txn1.getPayload().getTransactionId(), correction).await();
+        awaitFuture(transactionService.correctTransaction(txn1.getPayload().getTransactionId(), correction), 30, TimeUnit.SECONDS);
 
         logger.info("Created 3 recorded transactions and 1 correction for account: {}", accountId);
 
         // Test 1: Query all transactions by account (using EventQuery.forAggregate)
         List<BiTemporalEvent<TransactionEvent>> allTransactions =
-            transactionService.queryTransactionsByAccount(accountId).await();
+            awaitFuture(transactionService.queryTransactionsByAccount(accountId), 30, TimeUnit.SECONDS);
         assertEquals(4, allTransactions.size(), "Should have 3 recorded + 1 corrected = 4 total");
         logger.info("✓ queryTransactionsByAccount: Found {} transactions", allTransactions.size());
 
         // Test 2: Query only recorded transactions (using EventQuery.forAggregateAndType)
         List<BiTemporalEvent<TransactionEvent>> recordedOnly =
-            transactionService.queryRecordedTransactions(accountId).await();
+            awaitFuture(transactionService.queryRecordedTransactions(accountId), 30, TimeUnit.SECONDS);
         assertEquals(3, recordedOnly.size(), "Should have 3 recorded transactions");
         assertTrue(recordedOnly.stream().allMatch(e -> "TransactionRecorded".equals(e.getEventType())));
         logger.info("✓ queryRecordedTransactions: Found {} recorded transactions", recordedOnly.size());
 
         // Test 3: Query only corrected transactions (using EventQuery.forAggregateAndType)
         List<BiTemporalEvent<TransactionEvent>> correctedOnly =
-            transactionService.queryCorrectedTransactions(accountId).await();
+            awaitFuture(transactionService.queryCorrectedTransactions(accountId), 30, TimeUnit.SECONDS);
         assertEquals(1, correctedOnly.size(), "Should have 1 corrected transaction");
         assertTrue(correctedOnly.stream().allMatch(e -> "TransactionCorrected".equals(e.getEventType())));
         logger.info("✓ queryCorrectedTransactions: Found {} corrected transactions", correctedOnly.size());
 
         // Test 4: Query by account and type directly
         List<BiTemporalEvent<TransactionEvent>> recordedDirect =
-            transactionService.queryTransactionsByAccountAndType(accountId, "TransactionRecorded").await();
+            awaitFuture(transactionService.queryTransactionsByAccountAndType(accountId, "TransactionRecorded"), 30, TimeUnit.SECONDS);
         assertEquals(3, recordedDirect.size(), "Direct query should match convenience method");
         logger.info("✓ queryTransactionsByAccountAndType: Found {} transactions", recordedDirect.size());
 

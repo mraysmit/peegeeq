@@ -43,7 +43,6 @@ import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 
 import java.util.concurrent.TimeUnit;
 import java.util.Properties;
@@ -75,37 +74,33 @@ public class SimpleNativeQueueTest {
     private QueueFactory nativeFactory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up SimpleNativeQueueTest ===");
 
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        // Initialize database schema for simple native queue test
         logger.info("🔧 Initializing database schema for simple native queue test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
-        
-        // Create manager
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        
-        nativeFactory = provider.createFactory("native", databaseService);
-        
-        logger.info("Simple native queue test setup completed successfully");
+
+        manager.start()
+            .onSuccess(v -> {
+                var databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                nativeFactory = provider.createFactory("native", databaseService);
+                logger.info("Simple native queue test setup completed successfully");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(Vertx vertx, VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down SimpleNativeQueueTest ===");
 
@@ -118,28 +113,21 @@ public class SimpleNativeQueueTest {
             }
         }
 
-        if (manager != null) {
-            try {
-                logger.info("Closing PeeGeeQ manager...");
-                manager.closeReactive().await();
-                logger.info("PeeGeeQ manager closed successfully");
-
-                // CRITICAL: Wait for all resources to be fully released
-                // This prevents connection pool exhaustion in subsequent tests
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(2000, id -> delay.complete());
-                delay.future().await();
-                logger.info("Resource cleanup wait completed");
-            } catch (Exception e) {
-                logger.error("Error during manager cleanup", e);
-            }
+        if (manager == null) {
+            logger.info("Simple native queue test teardown completed");
+            ctx.completeNow();
+            return;
         }
-
-        logger.info("Simple native queue test teardown completed");
+        logger.info("Closing PeeGeeQ manager...");
+        Future<Void> closeChain = manager.closeReactive()
+            .onSuccess(v -> logger.info("PeeGeeQ manager closed successfully"))
+            .onFailure(err -> logger.error("Error during manager cleanup", err));
+        closeChain.onSuccess(v -> { logger.info("Simple native queue test teardown completed"); ctx.completeNow(); });
+        closeChain.onFailure(err -> ctx.completeNow());
     }
 
     @Test
-    void testSingleMessageSendAndReceive(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testSingleMessageSendAndReceive(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Single Message Send and Receive ===");
 
         // Create producer and consumer
@@ -152,28 +140,22 @@ public class SimpleNativeQueueTest {
         String testMessage = "Hello Simple Test";
 
         logger.info("Setting up consumer subscription...");
+        // Chain send off the subscribe Future — the subscribe Future resolves once
+        // the consumer is registered and ready to receive notifications.
         consumer.subscribe(message -> {
             logger.info("RECEIVED MESSAGE: {}", message.getPayload());
             processedCount.incrementAndGet();
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-        logger.info("Consumer subscribed, waiting 2 seconds for setup...");
-
-        vertx.setTimer(2000, id -> {
-            try {
-                // Send message
-                logger.info("Sending message: {}", testMessage);
-                producer.send(testMessage);
-                logger.info("Message sent successfully");
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+        }).onSuccess(ready -> {
+            logger.info("Sending message: {}", testMessage);
+            producer.send(testMessage).onFailure(testContext::failNow);
+        }).onFailure(testContext::failNow);
 
         // Wait for message to be processed
         logger.info("Waiting for message to be received...");
-        testContext.awaitCompletion(15, TimeUnit.SECONDS);
+        Assertions.assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Message was not received within timeout");
 
         // Verify results
         logger.info("Processed count: {}", processedCount.get());
@@ -192,7 +174,7 @@ public class SimpleNativeQueueTest {
     }
 
     @Test
-    void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConcurrentMessageProcessing(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Message Processing ===");
 
         // Create producer and consumer
@@ -205,46 +187,31 @@ public class SimpleNativeQueueTest {
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
         logger.info("Setting up consumer subscription for {} messages...", messageCount);
+        // Chain sends off subscribe — once the subscribe Future resolves the consumer
+        // is registered and ready to receive notifications.
         consumer.subscribe(message -> {
             logger.info("RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-        logger.info("Consumer subscribed, waiting 2 seconds for setup...");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
-
-        // Send messages concurrently like the original failing test
-        logger.info("Sending {} messages concurrently...", messageCount);
-        List<Future<Void>> futures = new ArrayList<>();
-
-        for (int i = 0; i < messageCount; i++) {
-            final int messageId = i;
-            String message = "Concurrent message " + messageId;
-            logger.info("Sending message {}: {}", messageId, message);
-            futures.add(producer.send(message));
-        }
-
-        // Wait for all sends to complete
-        logger.info("Waiting for all sends to complete...");
-        Future.all(futures).await();
-        logger.info("All sends completed");
+        }).onSuccess(ready -> {
+            logger.info("Sending {} messages concurrently...", messageCount);
+            List<Future<Void>> futures = new ArrayList<>();
+            for (int i = 0; i < messageCount; i++) {
+                final int messageId = i;
+                String message = "Concurrent message " + messageId;
+                logger.info("Sending message {}: {}", messageId, message);
+                futures.add(producer.send(message));
+            }
+            Future.all(futures)
+                .onSuccess(v -> logger.info("All sends completed"))
+                .onFailure(testContext::failNow);
+        }).onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         logger.info("Waiting for all {} messages to be received...", messageCount);
         boolean allReceived = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-
-        // Debug: Check database state if not all messages received
-        if (!allReceived) {
-            logger.warn("Not all messages received - checking database state...");
-            // Add a small delay to let any pending operations complete
-            Promise<Void> delay2 = Promise.promise();
-            vertx.setTimer(1000, id -> delay2.complete());
-            delay2.future().await();
-        }
 
         // Verify results
         logger.info("All received: {}, Processed count: {}, Expected: {}", allReceived, processedCount.get(), messageCount);

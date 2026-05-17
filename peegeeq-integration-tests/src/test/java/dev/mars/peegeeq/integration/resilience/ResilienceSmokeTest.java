@@ -138,7 +138,9 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                         break;
                     }
                     CountDownLatch timerLatch = new CountDownLatch(1);
-                    vertx.timer(1000).onComplete(ar -> timerLatch.countDown());
+                    vertx.timer(1000)
+                            .onSuccess(v -> timerLatch.countDown())
+                            .onFailure(err -> timerLatch.countDown());
                     timerLatch.await(5, TimeUnit.SECONDS);
                 }
                 assertTrue(serviceUnavailable, "Service should return 503 when DB is paused");
@@ -171,14 +173,18 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                     break;
                 }
                 CountDownLatch timerLatch = new CountDownLatch(1);
-                vertx.timer(1000).onComplete(ar -> timerLatch.countDown());
+                vertx.timer(1000)
+                        .onSuccess(v -> timerLatch.countDown())
+                        .onFailure(err -> timerLatch.countDown());
                 timerLatch.await(5, TimeUnit.SECONDS);
             }
             assertTrue(recovered, "Service should recover (200 OK) after DB is unpaused");
 
             // Cleanup
             CountDownLatch destroyLatch = new CountDownLatch(1);
-            setupService.destroySetup(setupId).onComplete(ar -> destroyLatch.countDown());
+            setupService.destroySetup(setupId)
+                    .onSuccess(v -> destroyLatch.countDown())
+                    .onFailure(err -> { log.warn("destroySetup failed for {}", setupId, err); destroyLatch.countDown(); });
             destroyLatch.await(10, TimeUnit.SECONDS);
     }
 
@@ -235,7 +241,9 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                     
                     // Wait for health check cache to expire (interval is 1s)
                     CountDownLatch timerLatch = new CountDownLatch(1);
-                    vertx.timer(1100).onComplete(ar -> timerLatch.countDown());
+                    vertx.timer(1100)
+                            .onSuccess(v -> timerLatch.countDown())
+                            .onFailure(err -> timerLatch.countDown());
                     timerLatch.await(5, TimeUnit.SECONDS);
                 }
 
@@ -263,7 +271,9 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             
             // Cleanup
             CountDownLatch destroyLatch = new CountDownLatch(1);
-            setupService.destroySetup(setupId).onComplete(ar -> destroyLatch.countDown());
+            setupService.destroySetup(setupId)
+                    .onSuccess(v -> destroyLatch.countDown())
+                    .onFailure(err -> { log.warn("destroySetup failed for {}", setupId, err); destroyLatch.countDown(); });
             destroyLatch.await(10, TimeUnit.SECONDS);
     }
 }

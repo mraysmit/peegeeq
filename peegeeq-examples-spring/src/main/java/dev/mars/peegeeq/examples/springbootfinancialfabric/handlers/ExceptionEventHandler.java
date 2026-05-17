@@ -85,11 +85,16 @@ public class ExceptionEventHandler {
         log.info("Exceptions by domain: {}", exceptionsByDomain);
         
         // Unsubscribe from all event stores
-        tradingEventStore.unsubscribe();
-        settlementEventStore.unsubscribe();
-        cashEventStore.unsubscribe();
-        positionEventStore.unsubscribe();
-        regulatoryEventStore.unsubscribe();
+        tradingEventStore.unsubscribe()
+                .onFailure(e -> log.error("Error unsubscribing from trading events", e));
+        settlementEventStore.unsubscribe()
+                .onFailure(e -> log.error("Error unsubscribing from settlement events", e));
+        cashEventStore.unsubscribe()
+                .onFailure(e -> log.error("Error unsubscribing from cash events", e));
+        positionEventStore.unsubscribe()
+                .onFailure(e -> log.error("Error unsubscribing from position events", e));
+        regulatoryEventStore.unsubscribe()
+                .onFailure(e -> log.error("Error unsubscribing from regulatory events", e));
     }
     
     /**

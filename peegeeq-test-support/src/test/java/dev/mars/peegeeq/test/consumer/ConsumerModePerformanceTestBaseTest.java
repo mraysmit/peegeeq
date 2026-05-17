@@ -12,6 +12,8 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -209,7 +211,7 @@ class ConsumerModePerformanceTestBaseTest extends ConsumerModePerformanceTestBas
                 break;
         }
         
-        Thread.sleep(workTime);
+        new CountDownLatch(1).await(workTime, TimeUnit.MILLISECONDS);
     }
     
     /**

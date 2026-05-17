@@ -72,32 +72,32 @@ public class ConsumerGroupExampleTest {
     private QueueFactory factory;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Consumer Group Example Test");
-        
+
         // Set database properties from TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-        
+
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        
-        // Register factory providers
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register outbox factory
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        // Create queue factory
-        factory = provider.createFactory("outbox", databaseService);
-        
-        logger.info("✓ Consumer Group Example Test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                // Register factory providers
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                // Register outbox factory
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                // Create queue factory
+                factory = provider.createFactory("outbox", databaseService);
+                logger.info("✓ Consumer Group Example Test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach

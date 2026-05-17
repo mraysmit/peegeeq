@@ -69,7 +69,7 @@ public class OutboxEdgeCasesTest {
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -80,25 +80,32 @@ public class OutboxEdgeCasesTest {
                 .build();
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-edge-cases", String.class);
-        consumer = factory.createConsumer("test-edge-cases", String.class);
+        manager.start()
+            .onSuccess(v -> {
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith(provider);
+                QueueFactory factory = provider.createFactory("outbox", databaseService);
+                producer = factory.createProducer("test-edge-cases", String.class);
+                consumer = factory.createConsumer("test-edge-cases", String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -109,7 +116,7 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint errorCheckpoint = testContext.checkpoint();
 
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that returns null Future
         consumer.subscribe(message -> {
@@ -135,7 +142,7 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that throws exception when accessing message propertiesfg
         consumer.subscribe(message -> {
@@ -167,7 +174,7 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -194,7 +201,7 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint errorCheckpoint = testContext.checkpoint();
 
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that simulates OOM
         consumer.subscribe(message -> {

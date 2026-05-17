@@ -35,7 +35,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Properties;
-import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -74,7 +76,13 @@ public class JdbcIntegrationHybridExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        CountDownLatch startLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> startError = new AtomicReference<>();
+        manager.start()
+            .onSuccess(v -> startLatch.countDown())
+            .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        assertTrue(startLatch.await(30, TimeUnit.SECONDS), "Manager should start within 30 seconds");
+        if (startError.get() != null) throw new RuntimeException("Manager failed to start", startError.get());
     }
     
     @AfterEach
@@ -82,9 +90,14 @@ public class JdbcIntegrationHybridExampleTest {
         logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ Manager", e);
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive()
+                    .onSuccess(v -> closeLatch.countDown())
+                    .onFailure(e -> { logger.warn("Error closing PeeGeeQ Manager", e); closeLatch.countDown(); });
+                closeLatch.await(30, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                logger.warn("Interrupted while closing PeeGeeQ Manager", e);
             }
         }
     }
@@ -281,7 +294,7 @@ public class JdbcIntegrationHybridExampleTest {
         logger.info("📊 Testing JDBC performance...");
         int jdbcOperations = 5;
         for (int i = 0; i < jdbcOperations; i++) {
-            LockSupport.parkNanos(1_000_000L); // Simulate JDBC processing time
+            // count iterations (no artificial delay)
         }
         long jdbcTime = System.currentTimeMillis() - startTime;
         double jdbcPerformance = (double) jdbcOperations / (jdbcTime / 1000.0);
@@ -291,7 +304,7 @@ public class JdbcIntegrationHybridExampleTest {
         logger.info("⚡ Testing reactive performance...");
         int reactiveOperations = 5;
         for (int i = 0; i < reactiveOperations; i++) {
-            LockSupport.parkNanos(1_000_000L); // Simulate reactive processing time
+            // count iterations (no artificial delay)
         }
         long reactiveTime = System.currentTimeMillis() - startTime;
         double reactivePerformance = (double) reactiveOperations / (reactiveTime / 1000.0);

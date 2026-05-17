@@ -71,7 +71,7 @@ public class RetryDebugTest {
     private OutboxFactory outboxFactory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -82,19 +82,20 @@ public class RetryDebugTest {
                 .build();
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create factory and components (following the pattern of working tests)
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
-        // Create factory and components (following the pattern of working tests)
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
+            logger.info("Creating producer and consumer...");
+            producer = outboxFactory.createProducer("debug-retry", String.class);
+            logger.info("Producer created: {}", producer.getClass().getSimpleName());
 
-        logger.info("🔧 Creating producer and consumer...");
-        producer = outboxFactory.createProducer("debug-retry", String.class);
-        logger.info("Producer created: {}", producer.getClass().getSimpleName());
-
-        consumer = outboxFactory.createConsumer("debug-retry", String.class);
-        logger.info("Consumer created: {}", consumer.getClass().getName());
-        logger.info("Consumer created: {}", consumer.getClass().getSimpleName());
+            consumer = outboxFactory.createConsumer("debug-retry", String.class);
+            logger.info("Consumer created: {}", consumer.getClass().getName());
+            logger.info("Consumer created: {}", consumer.getClass().getSimpleName());
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

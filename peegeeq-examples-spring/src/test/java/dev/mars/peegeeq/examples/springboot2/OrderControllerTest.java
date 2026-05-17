@@ -46,6 +46,8 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -99,9 +101,9 @@ class OrderControllerTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -152,7 +154,7 @@ class OrderControllerTest {
             """;
 
         // Execute application-specific schema creation
-        databaseService.getConnectionProvider()
+        awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -160,7 +162,7 @@ class OrderControllerTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).await();
+            }), 30, TimeUnit.SECONDS);
 
         logger.info("=== Application-specific schema setup complete ===");
     }

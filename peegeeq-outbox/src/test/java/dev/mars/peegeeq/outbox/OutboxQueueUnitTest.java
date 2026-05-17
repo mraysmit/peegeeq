@@ -37,6 +37,8 @@ import org.slf4j.LoggerFactory;
 
 
 
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -78,22 +80,30 @@ class OutboxQueueUnitTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (queue != null) {
             try {
-                queue.close().await();
+                queue.close()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(err -> {
+                        logger.warn("Queue close failed in teardown, continuing", err);
+                        testContext.completeNow();
+                    });
             } catch (Exception e) {
                 logger.warn("Queue close failed in teardown, continuing", e);
+                testContext.completeNow();
             }
+        } else if (vertx != null) {
+            vertx.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(err -> {
+                    logger.warn("Vertx close failed in teardown, continuing", err);
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
         }
-        
-        if (vertx != null) {
-            try {
-                vertx.close().await();
-            } catch (Exception e) {
-                logger.warn("Vertx close failed in teardown, continuing", e);
-            }
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========== Constructor Tests ==========

@@ -59,7 +59,7 @@ class OutboxIdempotencyKeyTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -69,14 +69,13 @@ class OutboxIdempotencyKeyTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-
-        producer = outboxFactory.createProducer(testTopic, String.class);
-
-        logger.info("=== Test setup complete for topic: {} ===", testTopic);
+        manager.start().onSuccess(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, config);
+            producer = outboxFactory.createProducer(testTopic, String.class);
+            logger.info("=== Test setup complete for topic: {} ===", testTopic);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

@@ -95,36 +95,31 @@ class NativeQueueFeatureTest {
     private QueueFactory outboxFactory;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Initialize database schema for native queue test
         logger.info("Initializing database schema for native queue test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        
-        // Create both native and outbox factories for comparison
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register queue factory implementations
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        nativeFactory = provider.createFactory("native", databaseService);
-        outboxFactory = provider.createFactory("outbox", databaseService);
-        
-        logger.info("Native queue feature test setup completed successfully");
+        manager.start()
+            .onSuccess(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                nativeFactory = provider.createFactory("native", databaseService);
+                outboxFactory = provider.createFactory("outbox", databaseService);
+                logger.info("Native queue feature test setup completed successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (nativeFactory != null) {
             try {
@@ -140,10 +135,19 @@ class NativeQueueFeatureTest {
                 logger.error("Error closing outbox factory", e);
             }
         }
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
-        logger.info("Native queue feature test teardown completed");
+        manager.closeReactive()
+            .onSuccess(v -> {
+                logger.info("Native queue feature test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Error during manager cleanup: {}", err.getMessage());
+                testContext.completeNow();
+            });
     }
     
     @Test
@@ -242,13 +246,17 @@ class NativeQueueFeatureTest {
             }
         });
 
-        // Start the consumer group
-        consumerGroup.start();
-
-        // Send multiple messages
-        for (int i = 0; i < 5; i++) {
-            producer.send("Group message " + i).await();
-        }
+        // Start the consumer group and wait for LISTEN registration before sending
+        consumerGroup.start()
+            .onFailure(testContext::failNow)
+            .onSuccess(v -> {
+                // Send multiple messages only AFTER LISTEN is registered
+                List<Future<Void>> groupSends = new ArrayList<>();
+                for (int i = 0; i < 5; i++) {
+                    groupSends.add(producer.send("Group message " + i));
+                }
+                Future.all(groupSends).onFailure(testContext::failNow);
+            });
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed");
@@ -260,7 +268,7 @@ class NativeQueueFeatureTest {
         assertEquals(2, stats.getActiveConsumerCount());
         assertTrue(stats.getTotalMessagesProcessed() >= 5);
 
-        consumerGroup.stop();
+        consumerGroup.stop().onFailure(e -> logger.warn("consumerGroup stop failed", e));
         producer.close();
 
         logger.info("Native consumer groups test passed");
@@ -297,8 +305,8 @@ class NativeQueueFeatureTest {
             futures.add(producer.send("Concurrent message " + i));
         }
 
-        // Wait for all sends to complete
-        Future.all(futures).await();
+        // Wait for all sends to complete (fail the context if any send fails)
+        Future.all(futures).onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "All messages should be processed");

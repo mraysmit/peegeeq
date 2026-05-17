@@ -31,8 +31,10 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.LockSupport;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -210,70 +212,74 @@ public class SystemPropertiesConfigurationExampleTest {
      */
     private void runScenario(String scenarioName, String description) throws Exception {
         logger.info("📋 Scenario: {} - {}", scenarioName, description);
-        
-        // Initialize PeeGeeQ with current system properties
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", buildConfigProperties());
-        try (PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry())) {
-            manager.start().await();
-            
-            // Log the current configuration
+        PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+
+        CountDownLatch startLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> startError = new AtomicReference<>();
+        manager.start()
+            .onSuccess(v -> startLatch.countDown())
+            .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        assertTrue(startLatch.await(30, TimeUnit.SECONDS), "Manager should start within 30 seconds");
+        if (startError.get() != null) throw new RuntimeException("Manager failed to start", startError.get());
+
+        try {
             logCurrentConfiguration(config);
-            
-            // Register outbox factory
+
             PgDatabaseService databaseService = new PgDatabaseService(manager);
             PgQueueFactoryProvider factoryProvider = new PgQueueFactoryProvider();
             OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) factoryProvider);
-            
-            // Create queue factory
+
             QueueFactory queueFactory = factoryProvider.createFactory("outbox", databaseService, new HashMap<>());
-            
             String topic = "system-properties-demo-" + scenarioName;
-            
-            // Create producer and consumer
+
             MessageProducer<TestMessage> producer = queueFactory.createProducer(topic, TestMessage.class);
             MessageConsumer<TestMessage> consumer = queueFactory.createConsumer(topic, TestMessage.class);
-            
-            // Set up message processing
+
             AtomicInteger processedCount = new AtomicInteger(0);
-            
+            CountDownLatch completionLatch = new CountDownLatch(5);
+
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
-                logger.info("📨 [{}] Processed message {} in thread: {} - Content: {}", 
+                logger.info("📨 [{}] Processed message {} in thread: {} - Content: {}",
                     scenarioName, count, Thread.currentThread().getName(), message.getPayload().content);
+                completionLatch.countDown();
                 return Future.succeededFuture();
             });
-            
-            // Send test messages
+
             logger.info("📤 Sending 5 test messages for scenario: {}", scenarioName);
             for (int i = 1; i <= 5; i++) {
+                final int idx = i;
                 TestMessage message = new TestMessage(
                     "Message " + i + " for " + scenarioName,
                     Instant.now().toString(),
                     "scenario-" + scenarioName
                 );
-                
+
                 Map<String, String> headers = new HashMap<>();
                 headers.put("scenario", scenarioName);
                 headers.put("messageNumber", String.valueOf(i));
-                
-                producer.send(message, headers);
+
+                producer.send(message, headers)
+                    .onFailure(e -> logger.warn("Failed to send message {} for scenario {}", idx, scenarioName, e));
                 logger.debug("📤 Sent message {}", i);
             }
-            
-            // Wait for processing
-            long deadline = System.currentTimeMillis() + 30_000;
-            while (processedCount.get() < 5 && System.currentTimeMillis() < deadline) {
-                LockSupport.parkNanos(50_000_000L);
-            }
-            boolean completed = processedCount.get() >= 5;
-            assertTrue(completed, "All messages should be processed within timeout");
+
+            assertTrue(completionLatch.await(30, TimeUnit.SECONDS),
+                "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
-            
+
             logger.info("📊 Scenario Results: {} - Processed {} messages", scenarioName, processedCount.get());
-            
-            // Cleanup
+
             consumer.close();
             producer.close();
+        } finally {
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive()
+                .onSuccess(v -> closeLatch.countDown())
+                .onFailure(e -> { logger.warn("Error closing manager for scenario {}", scenarioName, e); closeLatch.countDown(); });
+            closeLatch.await(30, TimeUnit.SECONDS);
         }
     }
 

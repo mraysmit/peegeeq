@@ -38,7 +38,6 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,7 +79,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(io.vertx.junit5.VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -88,45 +87,54 @@ class PartitionedNativeConsumerIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            databaseService = new PgDatabaseService(manager);
+            adapter = new VertxPoolAdapter(
+                    databaseService.getVertx(),
+                    databaseService.getPool(),
+                    databaseService
+            );
 
-        databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-                databaseService.getVertx(),
-                databaseService.getPool(),
-                databaseService
-        );
+            mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
 
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-
-        // Create a PgConnectionManager for direct DB assertions and partitioned services
-        connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
-        PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
-                .database(postgres.getDatabaseName())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
-                .schema("public")
-                .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
-        connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            // Create a PgConnectionManager for direct DB assertions and partitioned services
+            connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
+            PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                    .host(postgres.getHost())
+                    .port(postgres.getFirstMappedPort())
+                    .database(postgres.getDatabaseName())
+                    .username(postgres.getUsername())
+                    .password(postgres.getPassword())
+                    .schema("public")
+                    .build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(io.vertx.junit5.VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        // Clean up test data
         if (connectionManager != null) {
-            try {
-                cleanupTestData().await();
-            } catch (Exception ignore) {}
-            connectionManager.close();
+            cleanupTestData()
+                .transform(ar -> connectionManager.close())
+                .transform(ar -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(err -> {
+                    logger.warn("tearDown failed: {}", err.getMessage());
+                    testContext.completeNow();
+                });
+        } else if (manager != null) {
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -180,10 +188,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                             "Should have at least 3 partition assignments (one per message_group), got: " + count);
                                     logger.info("TEST 6.1 PASSED: {} partition assignments created", count);
                                     return (Void) null;
-                                }).eventually(() -> {
-                                    group.close();
-                                    return Future.succeededFuture();
-                                });
+                                }).eventually(() -> group.close());
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -236,7 +241,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                             logger.info("TEST 6.2: {} assignments before close", countBefore);
 
                                             // Close the group should call leaveGroup
-                                            group.close();
+                                            group.close().onFailure(testContext::failNow);
 
                                             // Wait for leave to complete
                                             return databaseService.getVertx().timer(2000).mapEmpty()
@@ -303,7 +308,7 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Wait long enough for fetch loop to process the messages
                     return databaseService.getVertx().timer(4000).mapEmpty()
                             .map(delayed -> {
-                                group.close();
+                                group.close().onFailure(testContext::failNow);
 
                                 // Verify messages were received
                                 assertFalse(receivedIds.isEmpty(),
@@ -365,7 +370,7 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Wait for processing and auto-commit
                     return databaseService.getVertx().timer(4000).mapEmpty()
                             .compose(delayed -> {
-                                group.close();
+                                group.close().onFailure(testContext::failNow);
                                 // Verify offset was committed in the database
                                 return connectionManager.withConnection(SERVICE_ID, conn ->
                                         conn.preparedQuery(
@@ -459,10 +464,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     });
                                         });
                             })
-                            .eventually(() -> {
-                                group1.close();
-                                return Future.succeededFuture();
-                            });
+                            .eventually(() -> group1.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {
@@ -585,7 +587,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
                     return databaseService.getVertx().timer(4000).mapEmpty()
                             .map(delayed -> {
-                                group.close();
+                                group.close().onFailure(testContext::failNow);
 
                                 // Verify: no partition assignments exist (REFERENCE_COUNTING doesn't use them)
                                 logger.info("TEST 6.7: received {} messages via REFERENCE_COUNTING", receivedIds.size());
@@ -663,10 +665,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                     return (Void) null;
                                 });
                             })
-                            .eventually(() -> {
-                                group.close();
-                                return Future.succeededFuture();
-                            });
+                            .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {
@@ -978,20 +977,9 @@ class PartitionedNativeConsumerIntegrationTest {
                                                                 })
                                                         );
                                                     })
-                                                    .eventually(() -> {
-                                                        group3.close();
-                                                        return Future.succeededFuture();
-                                                    });
-                                        })
-                                        .eventually(() -> {
-                                            group2.close();
-                                            return Future.succeededFuture();
-                                        });
-                            })
-                            .eventually(() -> {
-                                group1.close();
-                                return Future.succeededFuture();
-                            });
+                                                    .eventually(() -> group3.close())
+                                        .eventually(() -> group2.close())
+                            .eventually(() -> group1.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {

@@ -26,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * under realistic production scenarios.
  */
 @Tag(TestCategories.CORE)
+@Tag("demonstration")
 public class FilterErrorHandlingIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(FilterErrorHandlingIntegrationTest.class);
     

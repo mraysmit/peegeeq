@@ -71,7 +71,7 @@ public class OutboxQueueBrowserIntegrationTest {
     private static final String TEST_TOPIC = "browser-test-topic";
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize trace context for logging
         String traceId = UUID.randomUUID().toString().replace("-", "");
@@ -97,19 +97,20 @@ public class OutboxQueueBrowserIntegrationTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Get client factory from manager
+            clientFactory = manager.getClientFactory();
+            objectMapper = new ObjectMapper();
 
-        // Get client factory from manager
-        clientFactory = manager.getClientFactory();
-        objectMapper = new ObjectMapper();
+            // Create browser using manager's pool with "public" schema (matching the test schema setup)
+            browser = new OutboxQueueBrowser<>(TEST_TOPIC, String.class, manager.getPool(), objectMapper, "public");
 
-        // Create browser using manager's pool with "public" schema (matching the test schema setup)
-        browser = new OutboxQueueBrowser<>(TEST_TOPIC, String.class, manager.getPool(), objectMapper, "public");
+            // Create producer for test setup
+            producer = new OutboxProducer<>(clientFactory, objectMapper, TEST_TOPIC, String.class, null);
 
-        // Create producer for test setup
-        producer = new OutboxProducer<>(clientFactory, objectMapper, TEST_TOPIC, String.class, null);
-
-        logger.info("OutboxQueueBrowser integration test setup completed");
+            logger.info("OutboxQueueBrowser integration test setup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

@@ -98,7 +98,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(io.vertx.junit5.VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -106,43 +106,53 @@ class PartitionedConsumerSafetyIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            databaseService = new PgDatabaseService(manager);
+            adapter = new VertxPoolAdapter(
+                    databaseService.getVertx(),
+                    databaseService.getPool(),
+                    databaseService
+            );
 
-        databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-                databaseService.getVertx(),
-                databaseService.getPool(),
-                databaseService
-        );
+            mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
 
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-
-        connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
-        PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
-                .database(postgres.getDatabaseName())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
-                .schema("public")
-                .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
-        connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
+            PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                    .host(postgres.getHost())
+                    .port(postgres.getFirstMappedPort())
+                    .database(postgres.getDatabaseName())
+                    .username(postgres.getUsername())
+                    .password(postgres.getPassword())
+                    .schema("public")
+                    .build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(io.vertx.junit5.VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
-            try {
-                cleanupTestData().await();
-            } catch (Exception ignore) {}
-            connectionManager.close();
+            cleanupTestData()
+                .transform(ar -> connectionManager.close())
+                .transform(ar -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(err -> {
+                    logger.warn("tearDown failed: {}", err.getMessage());
+                    testContext.completeNow();
+                });
+        } else if (manager != null) {
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -178,7 +188,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     group.start();
 
                     // Immediately close should set state to CLOSED before async callback
-                    group.close();
+                    group.close().onFailure(testContext::failNow);
 
                     // State must be CLOSED immediately after close()
                     assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
@@ -250,10 +260,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                 logger.info("SAFETY 2 PASSED: stopGracefully() completed, state=NEW");
                                 return (Void) null;
                             })
-                            .eventually(() -> {
-                                group.close();
-                                return Future.succeededFuture();
-                            });
+                            .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -324,7 +331,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     //  guard should skip the 2nd, 3rd fetch at ~2000ms picks up from committed offset)
                     return vtx.timer(15000).mapEmpty()
                             .map(delayed -> {
-                                group.close();
+                                group.close().onFailure(testContext::failNow);
 
                                 int total = totalInvocations.get();
                                 logger.info("SAFETY 3: {} handler invocations, {} unique IDs, duplicate={}",
@@ -401,10 +408,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                             "No partition assignments should exist when topic has no messages; got: " + count);
                                     logger.info("SAFETY 4 PASSED: ACTIVE state reached, 0 partition assignments");
                                     return (Void) null;
-                                }).eventually(() -> {
-                                    group.close();
-                                    return Future.succeededFuture();
-                                });
+                                }).eventually(() -> group.close());
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -455,7 +459,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     // message because the offset was never committed.
                     return databaseService.getVertx().timer(9000).mapEmpty()
                             .compose(delayed -> {
-                                group.close();
+                                group.close().onFailure(testContext::failNow);
 
                                 int invocations = handlerInvocations.get();
                                 logger.info("SAFETY 5: handler invoked {} times (all failures)", invocations);

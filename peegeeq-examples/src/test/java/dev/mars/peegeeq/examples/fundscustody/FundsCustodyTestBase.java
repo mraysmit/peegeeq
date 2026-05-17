@@ -2,10 +2,9 @@ package dev.mars.peegeeq.examples.fundscustody;
 
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
+import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
-import java.util.Properties;
 import dev.mars.peegeeq.examples.fundscustody.events.NAVEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeCancelledEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
@@ -15,58 +14,53 @@ import dev.mars.peegeeq.examples.fundscustody.service.RegulatoryReportingService
 import dev.mars.peegeeq.examples.fundscustody.service.TradeAuditService;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
-import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Testcontainers;
-
-
-import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.util.Properties;
 
 /**
  * Base test class for funds & custody examples.
  *
  * <p>Provides:
  * <ul>
- *   <li>PostgreSQL test container</li>
+ *   <li>PostgreSQL test container (shared)</li>
  *   <li>PeeGeeQ manager and event stores</li>
  *   <li>Service instances (TradeService, PositionService, NAVService, etc.)</li>
  *   <li>Database cleanup between tests</li>
  * </ul>
  *
- * <p>No Spring dependencies - plain JUnit 5 with TestContainers.
- *
- * <p><strong>IMPORTANT:</strong> This test base uses system properties for configuration,
- * which are not thread-safe. Tests extending this class must run sequentially to avoid
- * system property conflicts during parallel execution.
+ * <p>Plain JUnit 5 + Vert.x JUnit 5. All async setup/teardown is coordinated through
+ * {@link VertxTestContext} — no blocking bridges, no {@code System.setProperty} side-effects.
  */
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@Execution(ExecutionMode.SAME_THREAD)
 public abstract class FundsCustodyTestBase {
 
     private static final Logger logger = LoggerFactory.getLogger(FundsCustodyTestBase.class);
 
     protected Vertx vertx;
 
-    // Get fresh container reference in setUp() instead of static initialization
-    // to avoid stale port numbers when container is restarted between test classes
+    // Fresh reference acquired in setUp() to avoid stale port numbers when the
+    // shared container is restarted between test classes.
     protected PostgreSQLContainer postgres;
-    
+
     protected PeeGeeQManager manager;
     protected BiTemporalEventStoreFactory factory;
     protected EventStore<TradeEvent> tradeEventStore;
@@ -77,171 +71,121 @@ public abstract class FundsCustodyTestBase {
     protected NAVService navService;
     protected TradeAuditService auditService;
     protected RegulatoryReportingService regulatoryService;
-    
+
     /**
-     * Clean up the database before and after tests.
-     * Ensures proper test isolation by removing all events.
+     * Delete all bi-temporal events. Returns a Future that completes once the
+     * cleanup pool has been closed. A "table does not exist" failure on first run
+     * is logged and treated as success.
      */
-    protected void cleanupDatabase() {
-        try {
-            PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(postgres.getHost())
-                .setPort(postgres.getFirstMappedPort())
-                .setDatabase(postgres.getDatabaseName())
-                .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword());
+    protected Future<Void> cleanupDatabase() {
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(postgres.getHost())
+            .setPort(postgres.getFirstMappedPort())
+            .setDatabase(postgres.getDatabaseName())
+            .setUser(postgres.getUsername())
+            .setPassword(postgres.getPassword());
 
-            Pool cleanupPool = PgBuilder.pool()
-                .connectingTo(connectOptions)
-                .build();
+        Pool cleanupPool = PgBuilder.pool()
+            .connectingTo(connectOptions)
+            .build();
 
-            // Delete all events
-            cleanupPool.withConnection(conn -> 
+        return cleanupPool.withConnection(conn ->
                 conn.query("DELETE FROM bitemporal_event_log").execute()
-                    .compose(deleteResult -> 
-                        conn.query("SELECT COUNT(*) as count FROM bitemporal_event_log").execute()
-                    )
+                    .compose(deleteResult ->
+                        conn.query("SELECT COUNT(*) AS count FROM bitemporal_event_log").execute())
                     .map(countResult -> {
-                        int remainingRows = countResult.iterator().next().getInteger("count");
-                        if (remainingRows > 0) {
-                            logger.warn("Database cleanup incomplete - {} rows remaining", remainingRows);
+                        int remaining = countResult.iterator().next().getInteger("count");
+                        if (remaining > 0) {
+                            logger.warn("Database cleanup incomplete - {} rows remaining", remaining);
                         }
-                        return null;
-                    })
-                    .onFailure(throwable -> {
-                        // Table might not exist yet, which is fine
-                        if (!throwable.getMessage().contains("does not exist")) {
-                            logger.warn("Cleanup operation warning: {}", throwable.getMessage());
-                        }
-                    })
-            ).await();
-
-            cleanupPool.close().await();
-            
-            // Wait for async operations to complete
-            if (vertx != null) {
-                io.vertx.core.Promise<Void> delay = io.vertx.core.Promise.promise();
-                vertx.setTimer(200, id -> delay.complete());
-                delay.future().await();
-            }
-
-        } catch (Exception e) {
-            // Cleanup failures are often expected (table doesn't exist yet)
-            String message = e.getMessage();
-            if (message == null || !message.contains("does not exist")) {
-                logger.info("Database cleanup info: {} - {}", e.getClass().getSimpleName(),
-                    (message != null ? message : "No message available"));
-            }
-        }
+                        return (Void) null;
+                    }))
+            .transform(ar -> {
+                if (ar.failed()) {
+                    String msg = ar.cause().getMessage();
+                    if (msg == null || !msg.contains("does not exist")) {
+                        logger.info("Database cleanup info: {} - {}",
+                            ar.cause().getClass().getSimpleName(),
+                            msg != null ? msg : "no message");
+                    }
+                }
+                // Always attempt to close the pool; surface a close failure if one occurs.
+                return cleanupPool.close();
+            });
     }
-    
+
     @BeforeEach
-    void setUp(Vertx vertx) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext ctx) {
         this.vertx = vertx;
-        // CRITICAL: Clear any system properties set by previous tests to avoid stale configuration
-        clearSystemProperties();
 
-        // CRITICAL: Clear cached connection pools from previous tests to avoid stale port connections
-        dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore.clearCachedPools();
+        // Clear cached connection pools from previous test classes to avoid stale ports.
+        PgBiTemporalEventStore.clearCachedPools();
 
-        // Get fresh container reference to avoid stale port numbers
+        // Fresh container reference each test (in case of restart between classes).
         postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
-        // Clean database before each test
-        cleanupDatabase();
-
-        // Initialize database schema FIRST (before setting properties)
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
-
-
-
-        // Configure system properties for TestContainers PostgreSQL connection
-        // (Following the exact pattern from BiTemporalEventStoreExampleTest)
-        System.setProperty("db.host", postgres.getHost());
-        System.setProperty("db.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("db.database", postgres.getDatabaseName());
-        System.setProperty("db.username", postgres.getUsername());
-        System.setProperty("db.password", postgres.getPassword());
-
-        // Configure PeeGeeQ to use the TestContainer
+        // Build config from the container — no System.setProperty side-effects.
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .property("peegeeq.health-check.queue-checks-enabled", "false")
-                .build();
+            .property("peegeeq.health-check.queue-checks-enabled", "false")
+            .build();
 
-        // Initialize PeeGeeQ manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
-        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        // Initialise schema, clean DB, then start manager, then build event stores + services.
+        Future.<Void>succeededFuture()
+            .compose(v -> {
+                PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+                return Future.<Void>succeededFuture();
+            })
+            .compose(v -> cleanupDatabase())
+            .compose(v -> {
+                PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+                manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+                return manager.start();
+            })
+            .map(v -> {
+                factory = new BiTemporalEventStoreFactory(vertx, manager);
+                tradeEventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
+                cancellationEventStore = factory.createEventStore(TradeCancelledEvent.class, "bitemporal_event_log");
+                navEventStore = factory.createEventStore(NAVEvent.class, "bitemporal_event_log");
 
-        // Create event stores
-        factory = new BiTemporalEventStoreFactory(vertx, manager);
-        tradeEventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
-        cancellationEventStore = factory.createEventStore(TradeCancelledEvent.class, "bitemporal_event_log");
-        navEventStore = factory.createEventStore(NAVEvent.class, "bitemporal_event_log");
-
-        // Create services (no Spring - plain constructor injection)
-        tradeService = new TradeService(tradeEventStore, cancellationEventStore);
-        positionService = new PositionService(tradeEventStore);
-        navService = new NAVService(navEventStore);
-        auditService = new TradeAuditService(tradeEventStore, cancellationEventStore);
-        regulatoryService = new RegulatoryReportingService(
-            tradeEventStore, navEventStore, positionService, navService);
+                tradeService = new TradeService(tradeEventStore, cancellationEventStore);
+                positionService = new PositionService(tradeEventStore);
+                navService = new NAVService(navEventStore);
+                auditService = new TradeAuditService(tradeEventStore, cancellationEventStore);
+                regulatoryService = new RegulatoryReportingService(
+                    tradeEventStore, navEventStore, positionService, navService);
+                return (Void) null;
+            })
+            .onComplete(ctx.succeedingThenComplete());
     }
-    
+
     @AfterEach
-    void tearDown() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Close event stores
-        if (tradeEventStore != null) {
-            try {
-                tradeEventStore.close();
-            } catch (Exception e) {
-                logger.warn("Error closing trade event store: {}", e.getMessage());
-            }
-        }
+    void tearDown(VertxTestContext ctx) {
+        logger.info("Tearing down funds-custody test: closing event stores, manager, and DB");
 
-        if (cancellationEventStore != null) {
-            try {
-                cancellationEventStore.close();
-            } catch (Exception e) {
-                logger.warn("Error closing cancellation event store: {}", e.getMessage());
-            }
-        }
+        Future<Void> closeStores = closeStoreQuietly("trade event store", tradeEventStore)
+            .compose(v -> closeStoreQuietly("cancellation event store", cancellationEventStore))
+            .compose(v -> closeStoreQuietly("NAV event store", navEventStore));
 
-        if (navEventStore != null) {
-            try {
-                navEventStore.close();
-            } catch (Exception e) {
-                logger.warn("Error closing NAV event store: {}", e.getMessage());
-            }
-        }
+        Future<Void> chain = closeStores.compose(v -> (manager != null)
+            ? manager.closeReactive().transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("Error closing PeeGeeQ manager: {}", ar.cause().getMessage());
+                }
+                return cleanupDatabase();
+            })
+            : cleanupDatabase());
 
-        // Close PeeGeeQ manager to ensure all pools are properly closed
-        // This is critical to prevent shared pool reuse across test classes
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ manager: {}", e.getMessage());
-            }
-        }
-
-        // Clear system properties (following BiTemporalEventStoreExampleTest pattern)
-        clearSystemProperties();
-
-        // Clean database after test
-        cleanupDatabase();
+        chain.onComplete(ctx.succeedingThenComplete());
     }
 
-    /**
-     * Clear system properties after test completion
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("db.host");
-        System.clearProperty("db.port");
-        System.clearProperty("db.database");
-        System.clearProperty("db.username");
-        System.clearProperty("db.password");
+    private Future<Void> closeStoreQuietly(String label, dev.mars.peegeeq.api.EventStore<?> store) {
+        if (store == null) return Future.succeededFuture();
+        return store.close().transform(ar -> {
+            if (ar.failed()) {
+                logger.warn("Error closing {}: {}", label, ar.cause().getMessage());
+            }
+            return Future.succeededFuture();
+        });
     }
 }
 

@@ -25,6 +25,7 @@ import org.slf4j.MDC;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 
 
 /**
@@ -54,8 +55,23 @@ public class FullDistributedTracingExample {
         // Initialize PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", new java.util.Properties());
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
 
+        // Latch that keeps main() alive until SIGINT.
+        CountDownLatch shutdownLatch = new CountDownLatch(1);
+        Runtime.getRuntime().addShutdownHook(new Thread(shutdownLatch::countDown, "tracing-example-shutdown"));
+
+        manager.start()
+            .onSuccess(v -> startApplication(manager))
+            .onFailure(err -> {
+                logger.error("Failed to start PeeGeeQ manager", err);
+                shutdownLatch.countDown();
+            });
+
+        // Keep running until shutdown is requested.
+        shutdownLatch.await();
+    }
+
+    private static void startApplication(PeeGeeQManager manager) {
         // Create outbox factory
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -81,17 +97,17 @@ public class FullDistributedTracingExample {
             String spanId = MDC.get("spanId");
             String correlationId = MDC.get("correlationId");
 
-            logger.info("📨 Consumer received order: {}", message.getPayload());
-            logger.info("🔍 Trace context: traceId={}, spanId={}, correlationId={}", traceId, spanId, correlationId);
+            logger.info(" Consumer received order: {}", message.getPayload());
+            logger.info(" Trace context: traceId={}, spanId={}, correlationId={}", traceId, spanId, correlationId);
 
             // Simulate business logic
-            logger.info("💼 Processing order...");
+            logger.info(" Processing order...");
 
             // Call external service with trace context propagation
             String newSpanId = generateSpanId();
             String traceparent = String.format("00-%s-%s-01", traceId, newSpanId);
 
-            logger.info("🌐 Calling external service with traceparent: {}", traceparent);
+            logger.info(" Calling external service with traceparent: {}", traceparent);
 
             Promise<Void> promise = Promise.promise();
 
@@ -126,9 +142,6 @@ public class FullDistributedTracingExample {
         logger.info("");
         logger.info("🔍 Watch the logs - all services will show the same traceId!");
         logger.info("================================================================================");
-
-        // Keep running
-        Thread.currentThread().join();
     }
 
     private static void startRestApi(Vertx vertx, MessageProducer<JsonObject> producer) {
@@ -151,11 +164,11 @@ public class FullDistributedTracingExample {
             String traceId = MDC.get("traceId");
             String spanId = MDC.get("spanId");
 
-            logger.info("📥 REST API received order request");
-            logger.info("🔍 Trace context: traceId={}, spanId={}, correlationId={}", traceId, spanId, correlationId);
+            logger.info(" REST API received order request");
+            logger.info(" Trace context: traceId={}, spanId={}, correlationId={}", traceId, spanId, correlationId);
 
             JsonObject order = ctx.body().asJsonObject();
-            logger.info("📦 Order details: {}", order);
+            logger.info(" Order details: {}", order);
 
             // Generate new span ID for queue message
             String newSpanId = generateSpanId();
@@ -168,7 +181,7 @@ public class FullDistributedTracingExample {
                 headers.put("correlationId", correlationId);
             }
 
-            logger.info("📤 Sending to queue with traceparent: {}", newTraceparent);
+            logger.info(" Sending to queue with traceparent: {}", newTraceparent);
 
             producer.send(order, headers, correlationId)
                     .onSuccess(v -> {
@@ -189,7 +202,7 @@ public class FullDistributedTracingExample {
                         MDC.clear();
                     })
                     .onFailure(err -> {
-                        logger.error("❌ Failed to send message", err);
+                        logger.error(" Failed to send message", err);
                         ctx.response().setStatusCode(500).end();
                         MDC.clear();
                     });
@@ -218,11 +231,11 @@ public class FullDistributedTracingExample {
             String traceId = MDC.get("traceId");
             String spanId = MDC.get("spanId");
 
-            logger.info("🌐 External service received request");
-            logger.info("🔍 Trace context: traceId={}, spanId={}, correlationId={}", traceId, spanId, correlationId);
+            logger.info("External service received request");
+            logger.info("Trace context: traceId={}, spanId={}, correlationId={}", traceId, spanId, correlationId);
 
             JsonObject payload = ctx.body().asJsonObject();
-            logger.info("📦 Processing: {}", payload);
+            logger.info(" Processing: {}", payload);
 
             // Simulate processing
             logger.info("⚙️ External service processing...");
@@ -240,7 +253,7 @@ public class FullDistributedTracingExample {
 
         HttpServer server = vertx.createHttpServer();
         server.requestHandler(router).listen(9090);
-        logger.info("🌐 External service started on port 9090");
+        logger.info(" External service started on port 9090");
     }
 
     private static String generateSpanId() {

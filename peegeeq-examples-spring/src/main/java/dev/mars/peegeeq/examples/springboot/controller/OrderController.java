@@ -25,6 +25,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.context.request.async.DeferredResult;
+import io.vertx.core.Future;
 
 
 
@@ -84,10 +85,12 @@ public class OrderController {
                 log.info("Order created successfully: {}", orderId);
                 return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(new CreateOrderResponse(orderId));
             })
-            .otherwise(error -> {
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable error = ar.cause();
                 log.error("Order creation failed for customer {}: {}", request.getCustomerId(), error.getMessage(), error);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                        .<CreateOrderResponse>body(new CreateOrderResponse(null, "Order creation failed: " + error.getMessage()));
+                return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .<CreateOrderResponse>body(new CreateOrderResponse(null, "Order creation failed: " + error.getMessage())));
             })
             .onSuccess(result::setResult)
             .onFailure(result::setErrorResult);
@@ -142,7 +145,9 @@ public class OrderController {
                 return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(
                         new CreateOrderResponse(orderId, "Order created successfully with business validation"));
             })
-            .otherwise(error -> {
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable error = ar.cause();
                 String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
                 if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
                     log.info("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
@@ -151,9 +156,9 @@ public class OrderController {
                     log.error("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
                         request.getCustomerId(), errorMessage, error);
                 }
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .<CreateOrderResponse>body(new CreateOrderResponse(null,
-                                "Order creation failed and was rolled back: " + errorMessage));
+                                "Order creation failed and was rolled back: " + errorMessage)));
             })
             .onSuccess(result::setResult)
             .onFailure(result::setErrorResult);
@@ -184,12 +189,14 @@ public class OrderController {
                 return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(
                         new CreateOrderResponse(orderId, "Order created successfully with database constraints"));
             })
-            .otherwise(error -> {
-                log.error("\u274C TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable error = ar.cause();
+                log.error("❌ TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .<CreateOrderResponse>body(new CreateOrderResponse(null,
-                                "Database operation failed and was rolled back: " + error.getMessage()));
+                                "Database operation failed and was rolled back: " + error.getMessage())));
             })
             .onSuccess(result::setResult)
             .onFailure(result::setErrorResult);
@@ -223,12 +230,14 @@ public class OrderController {
                 return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(
                         new CreateOrderResponse(orderId, "Order created successfully with multiple events"));
             })
-            .otherwise(error -> {
-                log.error("\u274C TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable error = ar.cause();
+                log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .<CreateOrderResponse>body(new CreateOrderResponse(null,
-                                "Order creation with multiple events failed and was rolled back: " + error.getMessage()));
+                                "Order creation with multiple events failed and was rolled back: " + error.getMessage())));
             })
             .onSuccess(result::setResult)
             .onFailure(result::setErrorResult);

@@ -66,7 +66,7 @@ public class ListenReconnectFaultInjectionIT {
     private static final String TOPIC = "reconnect-fault-test";
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         // Configure DB for this test run
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -78,27 +78,34 @@ public class ListenReconnectFaultInjectionIT {
         // Start manager using a dedicated profile
         PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("listen-reconnect-test", testProps);
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Use DatabaseService pattern for factory creation
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        factory = new PgNativeQueueFactory(databaseService);
-        producer = factory.createProducer(TOPIC, String.class);
-        consumer = factory.createConsumer(TOPIC, String.class, new ConsumerConfig.Builder()
-            .mode(ConsumerMode.HYBRID)
-            .pollingInterval(Duration.ofMillis(1000))
-            .consumerThreads(1)
-            .build());
+        manager.start().onSuccess(v -> {
+            // Use DatabaseService pattern for factory creation
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            factory = new PgNativeQueueFactory(databaseService);
+            producer = factory.createProducer(TOPIC, String.class);
+            consumer = factory.createConsumer(TOPIC, String.class, new ConsumerConfig.Builder()
+                .mode(ConsumerMode.HYBRID)
+                .pollingInterval(Duration.ofMillis(1000))
+                .consumerThreads(1)
+                .build());
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) consumer.unsubscribe();
         if (factory != null) factory.close();
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

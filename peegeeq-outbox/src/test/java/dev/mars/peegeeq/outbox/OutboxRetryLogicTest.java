@@ -71,7 +71,7 @@ public class OutboxRetryLogicTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -82,13 +82,14 @@ public class OutboxRetryLogicTest {
                 .build();
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            OutboxFactoryRegistrar.registerWith(provider);
 
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-
-        factory = provider.createFactory("outbox", databaseService);
+            factory = provider.createFactory("outbox", databaseService);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

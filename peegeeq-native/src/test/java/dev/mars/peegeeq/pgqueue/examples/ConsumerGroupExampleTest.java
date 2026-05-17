@@ -91,7 +91,7 @@ class ConsumerGroupExampleTest {
     private MessageProducer<OrderEvent> producer;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Consumer Group Example Test ===");
 
@@ -113,34 +113,41 @@ class ConsumerGroupExampleTest {
                 new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
-        
-        // Create database service and factory provider
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        manager.start().onSuccess(v -> {
+            logger.info("PeeGeeQ Manager started successfully");
 
-        // Register native queue factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            // Create database service and factory provider
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create native queue factory
-        nativeFactory = provider.createFactory("native", databaseService);
-        
-        // Create producer for sending test messages
-        producer = nativeFactory.createProducer("order-events", OrderEvent.class);
-        
-        logger.info("Consumer Group Example Test setup completed");
+            // Register native queue factory implementation
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+
+            // Create native queue factory
+            nativeFactory = provider.createFactory("native", databaseService);
+
+            // Create producer for sending test messages
+            producer = nativeFactory.createProducer("order-events", OrderEvent.class);
+
+            logger.info("Consumer Group Example Test setup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Consumer Group Example Test");
-        
+
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+
         logger.info("Consumer Group Example Test cleanup completed");
     }
     
@@ -179,9 +186,9 @@ class ConsumerGroupExampleTest {
                     logger.info("Analytics: {} messages", analyticsCount.get());
                     
                     // Stop consumer groups
-                    orderGroup.stop();
-                    paymentGroup.stop();
-                    analyticsGroup.stop();
+                    orderGroup.stop().onFailure(testContext::failNow);
+                    paymentGroup.stop().onFailure(testContext::failNow);
+                    analyticsGroup.stop().onFailure(testContext::failNow);
                     
                     logger.info("Consumer Groups with Message Filtering test completed successfully!");
                 });

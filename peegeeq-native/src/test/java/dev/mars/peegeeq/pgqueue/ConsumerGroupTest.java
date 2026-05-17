@@ -88,7 +88,7 @@ class ConsumerGroupTest {
     private MessageProducer<String> producer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Ensure required schema exists for native queue tests - use QUEUE_ALL for PeeGeeQManager health checks
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -99,21 +99,23 @@ class ConsumerGroupTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create factory and producer
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create factory and producer
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            // Register the native factory
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        // Register the native factory
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
-        producer = factory.createProducer("test-topic", String.class);
+            factory = provider.createFactory("native", databaseService);
+            producer = factory.createProducer("test-topic", String.class);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
@@ -122,8 +124,13 @@ class ConsumerGroupTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -166,9 +173,9 @@ class ConsumerGroupTest {
         assertEquals(2, consumerGroup.getActiveConsumerCount());
 
         // Send test messages without headers to avoid encoding issues
-        producer.send("Message 1").await();
-        producer.send("Message 2").await();
-        producer.send("Message 3").await();
+        producer.send("Message 1").onFailure(testContext::failNow);
+        producer.send("Message 2").onFailure(testContext::failNow);
+        producer.send("Message 3").onFailure(testContext::failNow);
 
         // Wait for processing - increase time for async operations
         vertx.setPeriodic(200, id -> {
@@ -189,7 +196,7 @@ class ConsumerGroupTest {
                 });
 
                 // Clean up
-                consumerGroup.close();
+                consumerGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -236,9 +243,9 @@ class ConsumerGroupTest {
 
         // Send messages without headers first to test basic functionality
         // Note: Header-based routing requires fixing the producer parameter encoding issue
-        producer.send("US Message").await();
-        producer.send("EU Message").await();
-        producer.send("ASIA Message").await();
+        producer.send("US Message").onFailure(testContext::failNow);
+        producer.send("EU Message").onFailure(testContext::failNow);
+        producer.send("ASIA Message").onFailure(testContext::failNow);
 
         // Wait for processing
         vertx.setPeriodic(200, id -> {
@@ -246,7 +253,7 @@ class ConsumerGroupTest {
                 vertx.cancelTimer(id);
                 testContext.verify(() ->
                     assertTrue(allCount.get() >= 3, "All consumer should process at least 3 messages, got: " + allCount.get()));
-                consumerGroup.close();
+                consumerGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -278,9 +285,9 @@ class ConsumerGroupTest {
         consumerGroup.start();
 
         // Send messages without headers
-        producer.send("Test Message 1").await();
-        producer.send("Test Message 2").await();
-        producer.send("Test Message 3").await();
+        producer.send("Test Message 1").onFailure(testContext::failNow);
+        producer.send("Test Message 2").onFailure(testContext::failNow);
+        producer.send("Test Message 3").onFailure(testContext::failNow);
 
         // Wait for processing with longer timeout to avoid flaky test failures
         vertx.setPeriodic(200, id -> {
@@ -288,7 +295,7 @@ class ConsumerGroupTest {
                 vertx.cancelTimer(id);
                 testContext.verify(() ->
                     assertTrue(processedCount.get() >= 3, "At least 3 messages should be processed, got: " + processedCount.get()));
-                consumerGroup.close();
+                consumerGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -317,7 +324,7 @@ class ConsumerGroupTest {
 
         // Send messages
         for (int i = 0; i < 5; i++) {
-            producer.send("Message " + i).await();
+            producer.send("Message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for processing
@@ -350,7 +357,7 @@ class ConsumerGroupTest {
                 });
 
                 // Clean up
-                consumerGroup.close();
+                consumerGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -359,7 +366,7 @@ class ConsumerGroupTest {
     }
 
     @Test
-    void testRemoveConsumerFromGroup() throws Exception {
+    void testRemoveConsumerFromGroup() {
         logger.info("Test: remove consumer from group");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
@@ -384,7 +391,7 @@ class ConsumerGroupTest {
         assertFalse(notRemoved);
 
         // Clean up
-        consumerGroup.close();
+        consumerGroup.close().onFailure(e -> logger.warn("close failed in testRemoveConsumerFromGroup", e));
     }
 }
 

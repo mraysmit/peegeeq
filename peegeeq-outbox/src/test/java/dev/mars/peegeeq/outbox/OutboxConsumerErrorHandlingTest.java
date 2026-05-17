@@ -79,7 +79,8 @@ public class OutboxConsumerErrorHandlingTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "error-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -89,29 +90,39 @@ public class OutboxConsumerErrorHandlingTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+            .onSuccess(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, config);
+                producer = outboxFactory.createProducer(testTopic, String.class);
+                consumer = outboxFactory.createConsumer(testTopic, String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void tearDown(VertxTestContext testContext) {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
-            consumer.close();
+            try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
         }
         if (producer != null) {
-            producer.close();
+            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
         }
         if (outboxFactory != null) {
-            outboxFactory.close();
+            try { outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
         }
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
+        manager.closeReactive()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during manager cleanup: {}", err.getMessage());
+                testContext.completeNow();
+            });
     }
 
     @Test
@@ -131,7 +142,7 @@ public class OutboxConsumerErrorHandlingTest {
             return Future.succeededFuture();
         });
 
-        producer.send("test-message").await();
+        producer.send("test-message").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Should process message with retries");
@@ -151,7 +162,7 @@ public class OutboxConsumerErrorHandlingTest {
             return Future.failedFuture(new RuntimeException("Always fails"));
         });
 
-        producer.send("failing-message").await();
+        producer.send("failing-message").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process at least once");
         assertTrue(attemptCount.get() > 0);
@@ -166,15 +177,13 @@ public class OutboxConsumerErrorHandlingTest {
         logger.info("Test: unsubscribe during processing");
             processingStarted.flag();
             // Simulate processing via non-blocking delay
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(100, id -> {
+            return vertx.timer(100).<Void>map(t -> {
                 processingCompleted.flag();
-                promise.complete();
+                return null;
             });
-            return promise.future();
         });
 
-        producer.send("test-message").await();
+        producer.send("test-message").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Processing should start and complete");
@@ -182,8 +191,8 @@ public class OutboxConsumerErrorHandlingTest {
         // Unsubscribe after processing
         consumer.unsubscribe();
 
-        // Send another message - should not be processed
-        producer.send("ignored-message").await();
+        // Send another message - should not be processed (fire-and-forget; logged on failure)
+        producer.send("ignored-message").onFailure(err -> logger.warn("ignored-message send failed: {}", err.getMessage()));
     }
 
     @Test
@@ -193,12 +202,10 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
         logger.info("Test: close during processing");
             processingStarted.flag();
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(100, id -> promise.complete());
-            return promise.future();
+            return vertx.timer(100).<Void>mapEmpty();
         });
 
-        producer.send("test-message").await();
+        producer.send("test-message").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
             "Processing should start");
@@ -249,8 +256,8 @@ public class OutboxConsumerErrorHandlingTest {
             checkpoint.flag();
             return Future.succeededFuture();
         });
-        producer.send("test-message");
-        
+        producer.send("test-message").onFailure(testContext::failNow);
+
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
             "Message should be received");
 
@@ -302,7 +309,7 @@ public class OutboxConsumerErrorHandlingTest {
             return Future.failedFuture(new RuntimeException("Interrupted"));
         });
 
-        producer.send("interrupt-test").await();
+        producer.send("interrupt-test").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Consumer should handle interrupted exception");
     }
@@ -317,17 +324,15 @@ public class OutboxConsumerErrorHandlingTest {
         logger.info("Test: concurrent message processing");
             processedCount.incrementAndGet();
             // Simulate processing via non-blocking delay
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(50, id -> {
+            return vertx.timer(50).<Void>map(t -> {
                 checkpoint.flag();
-                promise.complete();
+                return null;
             });
-            return promise.future();
         });
 
         // Send multiple messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("concurrent-message-" + i).await();
+            producer.send("concurrent-message-" + i).onFailure(testContext::failNow);
         }
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 

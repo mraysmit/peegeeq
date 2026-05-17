@@ -50,7 +50,8 @@ import io.vertx.core.Promise;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
-
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -153,9 +154,9 @@ class MultiEventStoreTransactionTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -225,8 +226,8 @@ class MultiEventStoreTransactionTest {
         
         // TRANSACTION COORDINATION: Process order across all event stores
         logger.info("Processing order with coordinated transactions: {}", orderId);
-        OrderProcessingResult result = 
-            orderProcessingService.processCompleteOrder(request).await();
+        OrderProcessingResult result =
+            awaitFuture(orderProcessingService.processCompleteOrder(request), 30, TimeUnit.SECONDS);
         
         // VALIDATION: Processing should be successful
         assertNotNull(result, "Processing result should not be null");
@@ -242,10 +243,10 @@ class MultiEventStoreTransactionTest {
         
         // 1. Verify Order Events - Query specifically for OrderCreated events
         List<BiTemporalEvent<OrderEvent>> orderEvents =
-            orderEventStore.query(EventQuery.builder()
+            awaitFuture(orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         // DEBUG: Log all found events to understand the issue
         logger.info("Found {} OrderCreated events for orderId: {}", orderEvents.size(), orderId);
@@ -267,11 +268,11 @@ class MultiEventStoreTransactionTest {
         
         // 2. Verify Inventory Events - Query specifically for this order's inventory events
         List<BiTemporalEvent<InventoryEvent>> inventoryEvents =
-            inventoryEventStore.query(EventQuery.builder()
+            awaitFuture(inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
                 .correlationId(result.getCorrelationId())
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         // DEBUG: Log inventory events
         logger.info("Found {} InventoryReserved events for orderId: {}", inventoryEvents.size(), orderId);
@@ -294,11 +295,11 @@ class MultiEventStoreTransactionTest {
         
         // 3. Verify Payment Events - Query specifically for this order's payment events
         List<BiTemporalEvent<PaymentEvent>> paymentEvents =
-            paymentEventStore.query(EventQuery.builder()
+            awaitFuture(paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
                 .correlationId(result.getCorrelationId())
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         // DEBUG: Log payment events
         logger.info("Found {} PaymentAuthorized events for orderId: {}", paymentEvents.size(), orderId);
@@ -314,9 +315,9 @@ class MultiEventStoreTransactionTest {
 
         // 4. Verify Audit Events - Query specifically for this transaction's audit events
         List<BiTemporalEvent<AuditEvent>> auditEvents =
-            auditEventStore.query(EventQuery.builder()
+            awaitFuture(auditEventStore.query(EventQuery.builder()
                 .correlationId(result.getCorrelationId())
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         // DEBUG: Log audit events
         logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
@@ -405,7 +406,7 @@ class MultiEventStoreTransactionTest {
         );
         
         // Process order and get correlation ID
-        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).await();
+        OrderProcessingResult result = awaitFuture(orderProcessingService.processCompleteOrder(request), 30, TimeUnit.SECONDS);
         assertTrue(result.isSuccess(), "Order processing should be successful");
         
         String correlationId = result.getCorrelationId();
@@ -416,25 +417,25 @@ class MultiEventStoreTransactionTest {
         // CROSS-STORE CORRELATION VALIDATION: Query all stores for correlated events
         
         // Query each store for events with the correlation ID
-        List<BiTemporalEvent<OrderEvent>> correlatedOrderEvents = 
-            orderEventStore.query(EventQuery.builder()
+        List<BiTemporalEvent<OrderEvent>> correlatedOrderEvents =
+            awaitFuture(orderEventStore.query(EventQuery.builder()
                 .correlationId(correlationId)
-                .build()).await();
-        
-        List<BiTemporalEvent<InventoryEvent>> correlatedInventoryEvents = 
-            inventoryEventStore.query(EventQuery.builder()
+                .build()), 30, TimeUnit.SECONDS);
+
+        List<BiTemporalEvent<InventoryEvent>> correlatedInventoryEvents =
+            awaitFuture(inventoryEventStore.query(EventQuery.builder()
                 .correlationId(correlationId)
-                .build()).await();
-        
-        List<BiTemporalEvent<PaymentEvent>> correlatedPaymentEvents = 
-            paymentEventStore.query(EventQuery.builder()
+                .build()), 30, TimeUnit.SECONDS);
+
+        List<BiTemporalEvent<PaymentEvent>> correlatedPaymentEvents =
+            awaitFuture(paymentEventStore.query(EventQuery.builder()
                 .correlationId(correlationId)
-                .build()).await();
-        
-        List<BiTemporalEvent<AuditEvent>> correlatedAuditEvents = 
-            auditEventStore.query(EventQuery.builder()
+                .build()), 30, TimeUnit.SECONDS);
+
+        List<BiTemporalEvent<AuditEvent>> correlatedAuditEvents =
+            awaitFuture(auditEventStore.query(EventQuery.builder()
                 .correlationId(correlationId)
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
         
         // VALIDATION: All stores should have events with the correlation ID
         assertFalse(correlatedOrderEvents.isEmpty(), "Should find correlated order events");

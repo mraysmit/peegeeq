@@ -224,7 +224,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
 
         manager.getVertx().timer(1200)
                 .onComplete(ctx.succeeding(v -> ctx.verify(() -> {
-                    job.stop();
+                    job.stop().onFailure(ctx::failNow);
                     assertFalse(job.isRunning(), "Job should not be running after stop");
                     logger.info("Job start/stop lifecycle verified");
                     ctx.completeNow();
@@ -243,9 +243,12 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
             job.start();
             ctx.failNow("Starting an already-running job should throw IllegalStateException");
         } catch (IllegalStateException e) {
-            job.stop();
-            logger.info("Double-start prevention verified");
-            ctx.completeNow();
+            job.stop()
+                .onSuccess(v -> {
+                    logger.info("Double-start prevention verified");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
         }
     }
 
@@ -293,7 +296,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         manager.getVertx().timer(250)
                 .onComplete(ctx.succeeding(v -> ctx.verify(() -> {
                     long beforeStopRuns = job.getTotalRunCount();
-                    job.stop();
+                    job.stop().onFailure(ctx::failNow);
                     assertFalse(job.isRunning(), "Job should report stopped");
 
                     manager.getVertx().timer(250)
@@ -424,7 +427,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     return manager.getVertx().timer(2000);
                 })
                 .onComplete(ctx.succeeding(v -> ctx.verify(() -> {
-                    job.stop();
+                    job.stop().onFailure(ctx::failNow);
                     long runCount = job.getTotalRunCount();
                     long failures = job.getTotalFailures();
                     long expectedTicks = 400;

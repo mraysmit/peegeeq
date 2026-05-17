@@ -45,6 +45,8 @@ import io.vertx.core.Future;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -96,9 +98,9 @@ class TransactionalConsistencyTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -148,7 +150,7 @@ class TransactionalConsistencyTest {
             """;
 
         // Execute application-specific schema creation
-        databaseService.getConnectionProvider()
+        awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -156,7 +158,7 @@ class TransactionalConsistencyTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).await();
+            }), 30, TimeUnit.SECONDS);
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -172,8 +174,8 @@ class TransactionalConsistencyTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = orderService.createOrderWithMultipleEvents(request).await();
-        
+        String orderId = awaitFuture(orderService.createOrderWithMultipleEvents(request), 30, TimeUnit.SECONDS);
+
         assertNotNull(orderId, "Order ID should not be null for successful transaction");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty for successful transaction");
         
@@ -201,9 +203,9 @@ class TransactionalConsistencyTest {
         );
         
         Exception exception = assertThrows(Exception.class, () -> {
-            orderService.createOrderWithBusinessValidation(request).await();
+            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
         });
-        
+
         assertTrue(exception.getMessage().contains("Order amount exceeds maximum limit") ||
                   exception.getCause().getMessage().contains("Order amount exceeds maximum limit"),
                   "Exception should mention amount limit violation");
@@ -233,9 +235,9 @@ class TransactionalConsistencyTest {
         );
         
         Exception exception = assertThrows(Exception.class, () -> {
-            orderService.createOrderWithBusinessValidation(request).await();
+            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
         });
-        
+
         assertTrue(exception.getMessage().contains("Invalid customer ID") ||
                   exception.getCause().getMessage().contains("Invalid customer ID"),
                   "Exception should mention invalid customer ID");
@@ -265,9 +267,9 @@ class TransactionalConsistencyTest {
         );
         
         Exception exception = assertThrows(Exception.class, () -> {
-            orderService.createOrderWithDatabaseConstraints(request).await();
+            awaitFuture(orderService.createOrderWithDatabaseConstraints(request), 30, TimeUnit.SECONDS);
         });
-        
+
         assertTrue(exception.getMessage().contains("Database constraint violation") ||
                   exception.getCause().getMessage().contains("Database constraint violation"),
                   "Exception should mention database constraint violation");
@@ -288,8 +290,8 @@ class TransactionalConsistencyTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = orderService.createOrderWithMultipleEvents(request).await();
-        
+        String orderId = awaitFuture(orderService.createOrderWithMultipleEvents(request), 30, TimeUnit.SECONDS);
+
         assertNotNull(orderId, "Order ID should not be null when multiple events succeed");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty when multiple events succeed");
         
@@ -312,7 +314,7 @@ class TransactionalConsistencyTest {
         // Test 1: Successful scenario
         logger.info(">> Test 1: Successful transaction scenario");
         CreateOrderRequest successRequest = createValidOrderRequest();
-        String successOrderId = orderService.createOrder(successRequest).await();
+        String successOrderId = awaitFuture(orderService.createOrder(successRequest), 30, TimeUnit.SECONDS);
         assertNotNull(successOrderId);
         logger.info("Success scenario: Database and outbox committed together");
         
@@ -325,7 +327,7 @@ class TransactionalConsistencyTest {
                 new OrderItem("item-1", "Very Expensive Item", 1, new BigDecimal("20000"))
             )
         );
-        assertThrows(Exception.class, () -> orderService.createOrderWithBusinessValidation(businessFailRequest).await());
+        assertThrows(Exception.class, () -> awaitFuture(orderService.createOrderWithBusinessValidation(businessFailRequest), 30, TimeUnit.SECONDS));
         logger.info("Business failure scenario: Database and outbox rolled back together");
         
         // Test 3: Database constraint failure scenario
@@ -338,7 +340,7 @@ class TransactionalConsistencyTest {
                 new OrderItem("item-2", "Test Item 2", 1, new BigDecimal("39.99"))
             )
         );
-        assertThrows(Exception.class, () -> orderService.createOrderWithDatabaseConstraints(constraintFailRequest).await());
+        assertThrows(Exception.class, () -> awaitFuture(orderService.createOrderWithDatabaseConstraints(constraintFailRequest), 30, TimeUnit.SECONDS));
         logger.info("Constraint failure scenario: Database and outbox rolled back together");
         
         logger.info("🎉 COMPREHENSIVE TRANSACTIONAL CONSISTENCY VERIFIED!");

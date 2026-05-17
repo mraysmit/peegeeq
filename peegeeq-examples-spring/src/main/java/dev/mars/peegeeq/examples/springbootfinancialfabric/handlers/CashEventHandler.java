@@ -49,13 +49,8 @@ public class CashEventHandler {
             public Future<Void> handle(Message<BiTemporalEvent<CashMovementEvent>> message) {
                 return handleCashEvent(message.getPayload());
             }
-        }).onComplete(ar -> {
-            if (ar.failed()) {
-                log.error("Failed to subscribe to cash events", ar.cause());
-            } else {
-                log.info("Successfully subscribed to cash events");
-            }
-        });
+        }).onSuccess(v -> log.info("Successfully subscribed to cash events"))
+          .onFailure(e -> log.error("Failed to subscribe to cash events", e));
     }
     
     @PreDestroy
@@ -63,13 +58,9 @@ public class CashEventHandler {
         log.info("Shutting down CashEventHandler - processed {} total events ({} movements)",
                 eventsProcessed.get(), movementEventsProcessed.get());
         
-        cashEventStore.unsubscribe().onComplete(ar -> {
-            if (ar.failed()) {
-                log.error("Error unsubscribing from cash events", ar.cause());
-            } else {
-                log.info("Successfully unsubscribed from cash events");
-            }
-        });
+        cashEventStore.unsubscribe()
+                .onSuccess(v -> log.info("Successfully unsubscribed from cash events"))
+                .onFailure(e -> log.error("Error unsubscribing from cash events", e));
     }
     
     /**

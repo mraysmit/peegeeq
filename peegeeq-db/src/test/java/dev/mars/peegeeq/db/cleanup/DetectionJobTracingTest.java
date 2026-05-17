@@ -50,10 +50,10 @@ public class DetectionJobTracingTest {
     void tearDown() {
         TraceContextUtil.clearTraceMDC();
         if (stubConnectionManager != null) {
-            stubConnectionManager.close();
+            stubConnectionManager.close().onFailure(e -> fail("tearDown close failed: " + e.getMessage()));
         }
         if (vertx != null) {
-            vertx.close();
+            vertx.close().onFailure(e -> {});
         }
     }
 
@@ -134,7 +134,7 @@ public class DetectionJobTracingTest {
     }
 
     @Test
-    void start_stop_lifecycle_cleansUpTrace() {
+    void start_stop_lifecycle_cleansUpTrace(VertxTestContext testContext) {
         DeadConsumerDetector stubDetector = new StubDetector(
                 new DetectionResult(List.of(), 0, 0, 0),
                 new SubscriptionSummary(0, 0, 0, 0, 0, 0));
@@ -146,10 +146,13 @@ public class DetectionJobTracingTest {
         job.start();
         assertTrue(job.isRunning());
 
-        job.stop();
-        assertFalse(job.isRunning());
-
-        assertNull(MDC.get("traceId"));
+        job.stop()
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertFalse(job.isRunning());
+                    assertNull(MDC.get("traceId"));
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ---- Stubs ----

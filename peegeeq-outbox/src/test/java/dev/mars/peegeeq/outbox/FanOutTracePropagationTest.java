@@ -60,7 +60,7 @@ class FanOutTracePropagationTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -69,25 +69,32 @@ class FanOutTracePropagationTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+            .onSuccess(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, config);
+                producer = outboxFactory.createProducer(testTopic, String.class);
+                consumer = outboxFactory.createConsumer(testTopic, String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
         MDC.clear();
+        if (manager != null) {
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -116,7 +123,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        producer.send("child-span-test", headers, null).await();
+        producer.send("child-span-test", headers, null).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
@@ -149,7 +156,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        producer.send("group-mdc-test", headers, null).await();
+        producer.send("group-mdc-test", headers, null).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -182,7 +189,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        producer.send("no-group-test", headers, null).await();
+        producer.send("no-group-test", headers, null).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -214,7 +221,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        producer.send("no-traceparent-test").await();
+        producer.send("no-traceparent-test").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 

@@ -45,7 +45,6 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.core.Promise;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -54,8 +53,12 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
+import io.vertx.junit5.VertxTestContext;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -108,7 +111,7 @@ class LateJoiningConsumerDemoTest {
     private ConsumerGroupFetcher fetcher;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
@@ -120,48 +123,43 @@ class LateJoiningConsumerDemoTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create connection manager and pool
+            connectionManager = new PgConnectionManager(manager.getVertx(), null);
+            PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema("public")
+                .build();
 
-        // Create connection manager and pool
-        connectionManager = new PgConnectionManager(manager.getVertx(), null);
-        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-            .host(postgres.getHost())
-            .port(postgres.getFirstMappedPort())
-            .database(postgres.getDatabaseName())
-            .username(postgres.getUsername())
-            .password(postgres.getPassword())
-            .schema("public")
-            .build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+                .maxSize(10)
+                .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
-            .build();
+            connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
 
-        connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+            // Create service instances
+            topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
+            subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
+            fetcher = new ConsumerGroupFetcher(connectionManager, "peegeeq-main");
 
-        // Create service instances
-        topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
-        subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
-        fetcher = new ConsumerGroupFetcher(connectionManager, "peegeeq-main");
-
-        logger.info("Late-joining consumer demo test setup complete");
+            logger.info("Late-joining consumer demo test setup complete");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (connectionManager != null) {
-            try {
-                connectionManager.close();
-            } catch (Exception e) {
-                logger.warn("Error closing connection manager: {}", e.getMessage());
-            }
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-
-        logger.info("Test teardown completed");
+        (connectionManager != null ? connectionManager.close() : io.vertx.core.Future.<Void>succeededFuture())
+            .transform(ar -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+            .onSuccess(v -> { logger.info("Test teardown completed"); testContext.completeNow(); })
+            .onFailure(err -> { logger.warn("Teardown failed: {}", err.getMessage()); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
@@ -187,19 +185,17 @@ class LateJoiningConsumerDemoTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        topicConfigService.createTopic(topicConfig)
-            .await();
+        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
         logger.info("✓ Topic created successfully");
 
         // Step 2: Publish 10 historical messages BEFORE subscription
         logger.info("\nStep 2: Publishing 10 historical messages (before subscription)");
         List<Long> historicalMessageIds = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
-            Long messageId = insertMessage(topic, new JsonObject()
+            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
-                .put("status", "CREATED"))
-                .await();
+                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
             historicalMessageIds.add(messageId);
         }
         logger.info("✓ Published {} historical messages", historicalMessageIds.size());
@@ -207,27 +203,24 @@ class LateJoiningConsumerDemoTest {
         // Step 3: Subscribe email service using FROM_NOW (default)
         logger.info("\nStep 3: Subscribing '{}' using FROM_NOW (default)", emailGroup);
         SubscriptionOptions fromNowOptions = SubscriptionOptions.defaults(); // FROM_NOW is default
-        subscriptionManager.subscribe(topic, emailGroup, fromNowOptions)
-            .await();
+        awaitFuture(subscriptionManager.subscribe(topic, emailGroup, fromNowOptions), 30, TimeUnit.SECONDS);
         logger.info("✓ Subscription created with FROM_NOW");
 
         // Step 4: Publish 5 new messages AFTER subscription
         logger.info("\nStep 4: Publishing 5 new messages (after subscription)");
         List<Long> newMessageIds = new ArrayList<>();
         for (int i = 11; i <= 15; i++) {
-            Long messageId = insertMessage(topic, new JsonObject()
+            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
-                .put("status", "CREATED"))
-                .await();
+                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
             newMessageIds.add(messageId);
         }
         logger.info("✓ Published {} new messages", newMessageIds.size());
 
         // Step 5: Fetch messages for email service
         logger.info("\nStep 5: Fetching messages for '{}'", emailGroup);
-        var messages = fetcher.fetchMessages(topic, emailGroup, 20)
-            .await();
+        var messages = awaitFuture(fetcher.fetchMessages(topic, emailGroup, 20), 30, TimeUnit.SECONDS);
 
         logger.info("✓ Fetched {} messages", messages.size());
 
@@ -273,25 +266,22 @@ class LateJoiningConsumerDemoTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        topicConfigService.createTopic(topicConfig)
-            .await();
+        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
         logger.info("✓ Topic created successfully");
 
         // Step 2: Subscribe email service using FROM_NOW
         logger.info("\nStep 2: Subscribing '{}' using FROM_NOW", emailGroup);
-        subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults())
-            .await();
+        awaitFuture(subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults()), 30, TimeUnit.SECONDS);
         logger.info("✓ Email service subscribed");
 
         // Step 3: Publish 20 messages (email service will receive all of these)
         logger.info("\nStep 3: Publishing 20 messages");
         List<Long> allMessageIds = new ArrayList<>();
         for (int i = 1; i <= 20; i++) {
-            Long messageId = insertMessage(topic, new JsonObject()
+            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
-                .put("status", "CREATED"))
-                .await();
+                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
             allMessageIds.add(messageId);
         }
         logger.info("✓ Published {} messages", allMessageIds.size());
@@ -301,14 +291,12 @@ class LateJoiningConsumerDemoTest {
         SubscriptionOptions fromBeginningOptions = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
-        subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions)
-            .await();
+        awaitFuture(subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions), 30, TimeUnit.SECONDS);
         logger.info("✓ Analytics service subscribed with FROM_BEGINNING");
 
         // Step 5: Fetch messages for analytics service
         logger.info("\nStep 5: Fetching messages for '{}'", analyticsGroup);
-        var analyticsMessages = fetcher.fetchMessages(topic, analyticsGroup, 25)
-            .await();
+        var analyticsMessages = awaitFuture(fetcher.fetchMessages(topic, analyticsGroup, 25), 30, TimeUnit.SECONDS);
 
         logger.info("✓ Fetched {} messages for analytics", analyticsMessages.size());
 
@@ -353,19 +341,17 @@ class LateJoiningConsumerDemoTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        topicConfigService.createTopic(topicConfig)
-            .await();
+        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
         logger.info("✓ Topic created successfully");
 
         // Step 2: Publish 10 messages in the past
         logger.info("\nStep 2: Publishing 10 messages (simulating past events)");
         List<Long> pastMessageIds = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
-            Long messageId = insertMessage(topic, new JsonObject()
+            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
-                .put("status", "CREATED"))
-                .await();
+                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
             pastMessageIds.add(messageId);
         }
         logger.info("✓ Published {} past messages", pastMessageIds.size());
@@ -376,16 +362,13 @@ class LateJoiningConsumerDemoTest {
 
         // Step 4: Publish 10 more messages after replay timestamp
         logger.info("\nStep 4: Publishing 10 messages after replay timestamp");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        new CountDownLatch(1).await(100, TimeUnit.MILLISECONDS);
         List<Long> recentMessageIds = new ArrayList<>();;
         for (int i = 11; i <= 20; i++) {
-            Long messageId = insertMessage(topic, new JsonObject()
+            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
-                .put("status", "CREATED"))
-                .await();
+                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
             recentMessageIds.add(messageId);
         }
         logger.info("✓ Published {} recent messages", recentMessageIds.size());
@@ -395,14 +378,12 @@ class LateJoiningConsumerDemoTest {
         SubscriptionOptions fromTimestampOptions = SubscriptionOptions.builder()
             .startFromTimestamp(replayTimestamp)
             .build();
-        subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions)
-            .await();
+        awaitFuture(subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions), 30, TimeUnit.SECONDS);
         logger.info("✓ Disaster recovery service subscribed with FROM_TIMESTAMP: {}", replayTimestamp);
 
         // Step 6: Fetch messages for replay service
         logger.info("\nStep 6: Fetching messages for '{}'", replayGroup);
-        var replayMessages = fetcher.fetchMessages(topic, replayGroup, 25)
-            .await();
+        var replayMessages = awaitFuture(fetcher.fetchMessages(topic, replayGroup, 25), 30, TimeUnit.SECONDS);
 
         logger.info("✓ Fetched {} messages for replay", replayMessages.size());
 

@@ -190,15 +190,9 @@ public class TransactionProcessorService {
                     });
             })
             .map(v -> (Void) null)
-            .otherwise(ex -> {
+            .onFailure(ex -> {
                 log.error("❌ Failed to process transaction: transactionId={}", event.getTransactionId(), ex);
                 transactionsFailed.incrementAndGet();
-                
-                // Re-throw to trigger retry
-                if (ex instanceof RuntimeException) {
-                    throw (RuntimeException) ex;
-                }
-                throw new RuntimeException("Transaction processing failed", ex);
             });
     }
     

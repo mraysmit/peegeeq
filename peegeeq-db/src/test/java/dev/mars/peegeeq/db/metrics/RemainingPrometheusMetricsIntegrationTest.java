@@ -245,7 +245,7 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
                     assertTrue(runCountGauge.value() >= 1,
                             "Detection run count should be >= 1, actual: " + runCountGauge.value());
 
-                    job.stop();
+                    job.stop().onFailure(testContext::failNow);
                     logger.info("Detection run duration gauge test passed: duration={}s, runs={}",
                             durationGauge.value(), runCountGauge.value());
                     

@@ -128,9 +128,11 @@ public class OrderController {
                     return ResponseEntity.badRequest().body(result);
                 }
             })
-            .otherwise(throwable -> {
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable throwable = ar.cause();
                 logger.error("Order processing exception: {}", throwable.getMessage(), throwable);
-                return ResponseEntity.internalServerError().body(
+                return Future.succeededFuture(ResponseEntity.internalServerError().body(
                     new OrderProcessingResult(
                         request.getOrderId(),
                         "FAILED",
@@ -139,7 +141,7 @@ public class OrderController {
                         null,
                         null
                     )
-                );
+                ));
             });
     }
     
@@ -188,11 +190,13 @@ public class OrderController {
                 
                 return ResponseEntity.ok(history);
             })
-            .otherwise(throwable -> {
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable throwable = ar.cause();
                 logger.error("Failed to get order history for: {} - {}", orderId, throwable.getMessage(), throwable);
-                return ResponseEntity.internalServerError().body(
+                return Future.succeededFuture(ResponseEntity.internalServerError().body(
                     Map.of("error", "Failed to retrieve order history: " + throwable.getMessage())
-                );
+                ));
             });
     }
 
@@ -282,11 +286,13 @@ public class OrderController {
                 logger.info("Retrieved statistics across all event stores");
                 return ResponseEntity.ok(stats);
             })
-            .otherwise(throwable -> {
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                Throwable throwable = ar.cause();
                 logger.error("Failed to get statistics: {}", throwable.getMessage(), throwable);
-                return ResponseEntity.internalServerError().body(
+                return Future.succeededFuture(ResponseEntity.internalServerError().body(
                     Map.of("error", "Failed to retrieve statistics: " + throwable.getMessage())
-                );
+                ));
             });
     }
 }

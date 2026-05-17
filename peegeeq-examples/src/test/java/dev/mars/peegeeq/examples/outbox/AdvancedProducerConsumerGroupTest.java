@@ -54,6 +54,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.extension.ExtendWith;
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,7 +69,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test class has been refactored to eliminate poorly structured test design patterns:
  * <ul>
  *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
- *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual Thread.sleep()</li>
+ *   <li><strong>Thread Management</strong>: Uses Vert.x reactive Future composition for async coordination</li>
  *   <li><strong>Test Independence</strong>: Each test uses unique queue and consumer group names</li>
  *   <li><strong>Clean Structure</strong>: Simplified handler methods with essential functionality only</li>
  * </ul>
@@ -109,7 +110,7 @@ class AdvancedProducerConsumerGroupTest {
     }
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
@@ -124,24 +125,28 @@ class AdvancedProducerConsumerGroupTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create queue factory and producer
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        manager.start()
+            .onSuccess(v -> {
+                // Create queue factory and producer
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Register queue factory implementations
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                // Register queue factory implementations
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        queueFactory = provider.createFactory("outbox", databaseService);
-        producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
+                queueFactory = provider.createFactory("outbox", databaseService);
+                producer = queueFactory.createProducer(testQueueName, OrderEvent.class);
 
-        logger.info("Test setup completed successfully with queue: {}", testQueueName);
+                logger.info("Test setup completed successfully with queue: {}", testQueueName);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
@@ -153,11 +158,18 @@ class AdvancedProducerConsumerGroupTest {
                 logger.warn("Error closing queue factory: {}", e.getMessage());
             }
         }
-        if (manager != null) {
-            manager.closeReactive().await();
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
-
-        logger.info("Test teardown completed");
+        manager.closeReactive()
+            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
+            .onFailure(err -> logger.error("Error closing manager", err))
+            .eventually(() -> {
+                logger.info("Test teardown completed");
+                testContext.completeNow();
+                return Future.<Void>succeededFuture();
+            });
     }
     
     /**
@@ -231,34 +243,36 @@ class AdvancedProducerConsumerGroupTest {
 
         // Send test messages with region headers
         final int messagesPerRegion = 10;
-        sendRegionalMessages(messagesPerRegion);
+        sendRegionalMessages(messagesPerRegion)
+            .onFailure(testContext::failNow)
+            .onSuccess(sent -> {
+                // Wait for processing using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (usCount.get() + euCount.get() + asiaCount.get() >= messagesPerRegion * 3 * 0.6) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            int totalProcessed = usCount.get() + euCount.get() + asiaCount.get();
+                            logger.info("Region-based processing results:");
+                            logger.info("  US consumer processed: {}", usCount.get());
+                            logger.info("  EU consumer processed: {}", euCount.get());
+                            logger.info("  ASIA consumer processed: {}", asiaCount.get());
+                            logger.info("  Total processed: {} (expected: {})", totalProcessed, messagesPerRegion * 3);
 
-        // Wait for processing using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (usCount.get() + euCount.get() + asiaCount.get() >= messagesPerRegion * 3 * 0.6) {
-                vertx.cancelTimer(timerId);
-                try {
-                    int totalProcessed = usCount.get() + euCount.get() + asiaCount.get();
-                    logger.info("Region-based processing results:");
-                    logger.info("  US consumer processed: {}", usCount.get());
-                    logger.info("  EU consumer processed: {}", euCount.get());
-                    logger.info("  ASIA consumer processed: {}", asiaCount.get());
-                    logger.info("  Total processed: {} (expected: {})", totalProcessed, messagesPerRegion * 3);
+                            assertTrue(totalProcessed >= (messagesPerRegion * 3) * 0.6,
+                                "At least 60% of messages should be processed");
 
-                    assertTrue(totalProcessed >= (messagesPerRegion * 3) * 0.6,
-                        "At least 60% of messages should be processed");
+                            int activeConsumers = (usCount.get() > 0 ? 1 : 0) + (euCount.get() > 0 ? 1 : 0) + (asiaCount.get() > 0 ? 1 : 0);
+                            assertTrue(activeConsumers >= 2, "At least 2 consumers should process some messages");
+                            assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-                    int activeConsumers = (usCount.get() > 0 ? 1 : 0) + (euCount.get() > 0 ? 1 : 0) + (asiaCount.get() > 0 ? 1 : 0);
-                    assertTrue(activeConsumers >= 2, "At least 2 consumers should process some messages");
-                    assertTrue(totalProcessed > 0, "Some messages should be processed");
-
-                    orderGroup.close();
-                    testContext.completeNow();
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                }
-            }
-        });
+                            orderGroup.close().onFailure(testContext::failNow);
+                            testContext.completeNow();
+                        } catch (Throwable t) {
+                            testContext.failNow(t);
+                        }
+                    }
+                });
+            });
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Region-based consumer groups test completed successfully");
@@ -297,33 +311,35 @@ class AdvancedProducerConsumerGroupTest {
         // Send test messages with priority headers
         final int highPriorityMessages = 5;
         final int normalPriorityMessages = 15;
-        sendPriorityMessages(highPriorityMessages, normalPriorityMessages);
+        sendPriorityMessages(highPriorityMessages, normalPriorityMessages)
+            .onFailure(testContext::failNow)
+            .onSuccess(sent -> {
+                // Wait for processing using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (highPriorityCount.get() + normalPriorityCount.get() >= (highPriorityMessages + normalPriorityMessages) * 0.6) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            int totalProcessed = highPriorityCount.get() + normalPriorityCount.get();
+                            logger.info("Priority-based processing results:");
+                            logger.info("  High priority consumer processed: {}", highPriorityCount.get());
+                            logger.info("  Normal priority consumer processed: {}", normalPriorityCount.get());
+                            logger.info("  Total processed: {} (expected: {})", totalProcessed, highPriorityMessages + normalPriorityMessages);
 
-        // Wait for processing using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (highPriorityCount.get() + normalPriorityCount.get() >= (highPriorityMessages + normalPriorityMessages) * 0.6) {
-                vertx.cancelTimer(timerId);
-                try {
-                    int totalProcessed = highPriorityCount.get() + normalPriorityCount.get();
-                    logger.info("Priority-based processing results:");
-                    logger.info("  High priority consumer processed: {}", highPriorityCount.get());
-                    logger.info("  Normal priority consumer processed: {}", normalPriorityCount.get());
-                    logger.info("  Total processed: {} (expected: {})", totalProcessed, highPriorityMessages + normalPriorityMessages);
+                            assertTrue(totalProcessed >= (highPriorityMessages + normalPriorityMessages) * 0.6,
+                                "At least 60% of messages should be processed");
 
-                    assertTrue(totalProcessed >= (highPriorityMessages + normalPriorityMessages) * 0.6,
-                        "At least 60% of messages should be processed");
+                            int activeConsumers = (highPriorityCount.get() > 0 ? 1 : 0) + (normalPriorityCount.get() > 0 ? 1 : 0);
+                            assertTrue(activeConsumers >= 1, "At least 1 consumer should process some messages");
+                            assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-                    int activeConsumers = (highPriorityCount.get() > 0 ? 1 : 0) + (normalPriorityCount.get() > 0 ? 1 : 0);
-                    assertTrue(activeConsumers >= 1, "At least 1 consumer should process some messages");
-                    assertTrue(totalProcessed > 0, "Some messages should be processed");
-
-                    paymentGroup.close();
-                    testContext.completeNow();
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                }
-            }
-        });
+                            paymentGroup.close().onFailure(testContext::failNow);
+                            testContext.completeNow();
+                        } catch (Throwable t) {
+                            testContext.failNow(t);
+                        }
+                    }
+                });
+            });
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Priority-based consumer groups test completed successfully");
@@ -370,29 +386,31 @@ class AdvancedProducerConsumerGroupTest {
             "All analytics consumers should be active");
 
         // Send test messages with various combinations
-        sendComplexFilteringMessages();
+        sendComplexFilteringMessages()
+            .onFailure(testContext::failNow)
+            .onSuccess(sent -> {
+                // Wait for processing using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (premiumUsCount.get() + highPriorityCount.get() + auditCount.get() > 0) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            int totalProcessed = premiumUsCount.get() + highPriorityCount.get() + auditCount.get();
+                            assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-        // Wait for processing using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (premiumUsCount.get() + highPriorityCount.get() + auditCount.get() > 0) {
-                vertx.cancelTimer(timerId);
-                try {
-                    int totalProcessed = premiumUsCount.get() + highPriorityCount.get() + auditCount.get();
-                    assertTrue(totalProcessed > 0, "Some messages should be processed");
+                            logger.info("Multi-header filtering results:");
+                            logger.info("  US Premium consumer processed: {}", premiumUsCount.get());
+                            logger.info("  High priority consumer processed: {}", highPriorityCount.get());
+                            logger.info("  Audit consumer processed: {}", auditCount.get());
+                            logger.info("  Total processed: {}", totalProcessed);
 
-                    logger.info("Multi-header filtering results:");
-                    logger.info("  US Premium consumer processed: {}", premiumUsCount.get());
-                    logger.info("  High priority consumer processed: {}", highPriorityCount.get());
-                    logger.info("  Audit consumer processed: {}", auditCount.get());
-                    logger.info("  Total processed: {}", totalProcessed);
-
-                    analyticsGroup.close();
-                    testContext.completeNow();
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                }
-            }
-        });
+                            analyticsGroup.close().onFailure(testContext::failNow);
+                            testContext.completeNow();
+                        } catch (Throwable t) {
+                            testContext.failNow(t);
+                        }
+                    }
+                });
+            });
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Multi-header filtering test completed successfully");
@@ -441,29 +459,31 @@ class AdvancedProducerConsumerGroupTest {
 
         // Send test messages
         final int messageCount = 20;
-        sendSimpleMessages(messageCount);
+        sendSimpleMessages(messageCount)
+            .onFailure(testContext::failNow)
+            .onSuccess(sent -> {
+                // Wait for processing using Vert.x periodic polling
+                vertx.setPeriodic(100, timerId -> {
+                    if (orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get() >= messageCount) {
+                        vertx.cancelTimer(timerId);
+                        try {
+                            int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get();
+                            assertEquals(messageCount, totalProcessed, "Total messages processed should equal messages sent");
 
-        // Wait for processing using Vert.x periodic polling
-        vertx.setPeriodic(100, timerId -> {
-            if (orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get() >= messageCount) {
-                vertx.cancelTimer(timerId);
-                try {
-                    int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get();
-                    assertEquals(messageCount, totalProcessed, "Total messages processed should equal messages sent");
+                            assertTrue(orderProcessedCount.get() > 0, "Order group should process some messages");
+                            assertTrue(paymentProcessedCount.get() > 0, "Payment group should process some messages");
+                            assertTrue(analyticsProcessedCount.get() > 0, "Analytics group should process some messages");
 
-                    assertTrue(orderProcessedCount.get() > 0, "Order group should process some messages");
-                    assertTrue(paymentProcessedCount.get() > 0, "Payment group should process some messages");
-                    assertTrue(analyticsProcessedCount.get() > 0, "Analytics group should process some messages");
-
-                    orderGroup.close();
-                    paymentGroup.close();
-                    analyticsGroup.close();
-                    testContext.completeNow();
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                }
-            }
-        });
+                            orderGroup.close().onFailure(testContext::failNow);
+                            paymentGroup.close().onFailure(testContext::failNow);
+                            analyticsGroup.close().onFailure(testContext::failNow);
+                            testContext.completeNow();
+                        } catch (Throwable t) {
+                            testContext.failNow(t);
+                        }
+                    }
+                });
+            });
 
         testContext.awaitCompletion(30, TimeUnit.SECONDS);
         logger.info("Concurrent consumer groups test completed successfully");
@@ -520,11 +540,8 @@ class AdvancedProducerConsumerGroupTest {
     private MessageHandler<OrderEvent> createRegionHandler(String region, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
-
             // Simulate minimal processing time using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(10, id -> future.complete());
-            return future.future();
+            return vertx.timer(10).<Void>mapEmpty();
         };
     }
 
@@ -534,11 +551,8 @@ class AdvancedProducerConsumerGroupTest {
     private MessageHandler<OrderEvent> createPriorityHandler(String priority, AtomicInteger counter, int processingTime, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
-
             // Simulate processing time based on priority using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(processingTime, id -> future.complete());
-            return future.future();
+            return vertx.timer(processingTime).<Void>mapEmpty();
         };
     }
 
@@ -548,11 +562,8 @@ class AdvancedProducerConsumerGroupTest {
     private MessageHandler<OrderEvent> createAnalyticsHandler(String type, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
-
             // Analytics processing is typically fast using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(5, id -> future.complete());
-            return future.future();
+            return vertx.timer(5).<Void>mapEmpty();
         };
     }
 
@@ -562,129 +573,147 @@ class AdvancedProducerConsumerGroupTest {
     private MessageHandler<OrderEvent> createCountingHandler(String handlerName, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
-
             // Simulate minimal processing time using Vert.x timer
-            Promise<Void> future = Promise.promise();
-            vertx.setTimer(10, id -> future.complete());
-            return future.future();
+            return vertx.timer(10).<Void>mapEmpty();
         };
     }
 
     /**
      * Sends messages with regional distribution.
      */
-    private void sendRegionalMessages(int messagesPerRegion) throws Exception {
+    private Future<Void> sendRegionalMessages(int messagesPerRegion) {
         String[] regions = {"US", "EU", "ASIA"};
 
+        Future<Void> chain = Future.succeededFuture();
         for (String region : regions) {
             for (int i = 1; i <= messagesPerRegion; i++) {
-                OrderEvent event = createOrderEvent(i);
-                Map<String, String> headers = Map.of(
-                    "region", region,
-                    "priority", "NORMAL",
-                    "type", "STANDARD",
-                    "source", "test-service"
-                );
-
-                producer.send(event, headers, "regional-" + region + "-" + i, region).await();
+                final int idx = i;
+                final String reg = region;
+                chain = chain.compose(v -> {
+                    OrderEvent event = createOrderEvent(idx);
+                    Map<String, String> headers = Map.of(
+                        "region", reg,
+                        "priority", "NORMAL",
+                        "type", "STANDARD",
+                        "source", "test-service"
+                    );
+                    return producer.send(event, headers, "regional-" + reg + "-" + idx, reg).mapEmpty();
+                });
             }
         }
 
-        logger.info("Sent {} messages per region", messagesPerRegion);
+        return chain.onSuccess(v -> logger.info("Sent {} messages per region", messagesPerRegion));
     }
 
     /**
      * Sends messages with priority distribution.
      */
-    private void sendPriorityMessages(int highPriorityCount, int normalPriorityCount) throws Exception {
+    private Future<Void> sendPriorityMessages(int highPriorityCount, int normalPriorityCount) {
+        Future<Void> chain = Future.succeededFuture();
+
         // Send high priority messages
         for (int i = 1; i <= highPriorityCount; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = Map.of(
-                "region", "US",
-                "priority", "HIGH",
-                "type", "PREMIUM",
-                "source", "test-service"
-            );
-
-            producer.send(event, headers, "high-priority-" + i, "HIGH").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = Map.of(
+                    "region", "US",
+                    "priority", "HIGH",
+                    "type", "PREMIUM",
+                    "source", "test-service"
+                );
+                return producer.send(event, headers, "high-priority-" + idx, "HIGH").mapEmpty();
+            });
         }
 
         // Send normal priority messages
         for (int i = 1; i <= normalPriorityCount; i++) {
-            OrderEvent event = createOrderEvent(i + highPriorityCount);
-            Map<String, String> headers = Map.of(
-                "region", "EU",
-                "priority", "NORMAL",
-                "type", "STANDARD",
-                "source", "test-service"
-            );
-
-            producer.send(event, headers, "normal-priority-" + i, "NORMAL").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx + highPriorityCount);
+                Map<String, String> headers = Map.of(
+                    "region", "EU",
+                    "priority", "NORMAL",
+                    "type", "STANDARD",
+                    "source", "test-service"
+                );
+                return producer.send(event, headers, "normal-priority-" + idx, "NORMAL").mapEmpty();
+            });
         }
 
-        logger.info("Sent {} high priority and {} normal priority messages",
-            highPriorityCount, normalPriorityCount);
+        return chain.onSuccess(v -> logger.info("Sent {} high priority and {} normal priority messages",
+            highPriorityCount, normalPriorityCount));
     }
 
     /**
      * Sends messages with complex filtering combinations.
      */
-    private void sendComplexFilteringMessages() throws Exception {
+    private Future<Void> sendComplexFilteringMessages() {
+        Future<Void> chain = Future.succeededFuture();
+
         // Send US Premium messages (should match US-Premium consumer)
         for (int i = 1; i <= 5; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = Map.of(
-                "region", "US",
-                "priority", "HIGH",
-                "type", "PREMIUM",
-                "source", "test-service"
-            );
-
-            producer.send(event, headers, "us-premium-" + i, "US-PREMIUM").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = Map.of(
+                    "region", "US",
+                    "priority", "HIGH",
+                    "type", "PREMIUM",
+                    "source", "test-service"
+                );
+                return producer.send(event, headers, "us-premium-" + idx, "US-PREMIUM").mapEmpty();
+            });
         }
 
         // Send EU High Priority messages (should match high-priority consumer)
         for (int i = 6; i <= 10; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = Map.of(
-                "region", "EU",
-                "priority", "HIGH",
-                "type", "STANDARD",
-                "source", "test-service"
-            );
-
-            producer.send(event, headers, "eu-high-" + i, "EU-HIGH").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = Map.of(
+                    "region", "EU",
+                    "priority", "HIGH",
+                    "type", "STANDARD",
+                    "source", "test-service"
+                );
+                return producer.send(event, headers, "eu-high-" + idx, "EU-HIGH").mapEmpty();
+            });
         }
 
         // Send various other messages (should only match audit consumer)
         for (int i = 11; i <= 30; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = createRoutingHeaders(i);
-
-            producer.send(event, headers, "mixed-" + i, getMessageGroup(headers)).await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = createRoutingHeaders(idx);
+                return producer.send(event, headers, "mixed-" + idx, getMessageGroup(headers)).mapEmpty();
+            });
         }
 
-        logger.info("Sent complex filtering test messages");
+        return chain.onSuccess(v -> logger.info("Sent complex filtering test messages"));
     }
 
     /**
      * Sends simple messages for concurrent processing tests.
      */
-    private void sendSimpleMessages(int messageCount) throws Exception {
+    private Future<Void> sendSimpleMessages(int messageCount) {
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= messageCount; i++) {
-            OrderEvent event = createOrderEvent(i);
-            Map<String, String> headers = Map.of(
-                "region", "US",
-                "priority", "NORMAL",
-                "type", "STANDARD",
-                "source", "test-service"
-            );
-
-            producer.send(event, headers, "simple-" + i, "SIMPLE").await();
+            final int idx = i;
+            chain = chain.compose(v -> {
+                OrderEvent event = createOrderEvent(idx);
+                Map<String, String> headers = Map.of(
+                    "region", "US",
+                    "priority", "NORMAL",
+                    "type", "STANDARD",
+                    "source", "test-service"
+                );
+                return producer.send(event, headers, "simple-" + idx, "SIMPLE").mapEmpty();
+            });
         }
 
-        logger.info("Sent {} simple messages", messageCount);
+        return chain.onSuccess(v -> logger.info("Sent {} simple messages", messageCount));
     }
 
     /**

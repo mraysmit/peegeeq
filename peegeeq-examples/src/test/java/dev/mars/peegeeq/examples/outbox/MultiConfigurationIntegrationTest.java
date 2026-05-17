@@ -7,17 +7,14 @@ import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import java.util.Properties;
-import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -30,10 +27,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -41,18 +37,13 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration test demonstrating multi-configuration capabilities in a realistic scenario.
  *
- * <h3>Refactored Test Design</h3>
- * This test class has been refactored to eliminate poorly structured test design patterns:
- * <ul>
- *   <li><strong>Property Management</strong>: Uses standardized TestContainers configuration</li>
- *   <li><strong>Thread Management</strong>: Uses CompletableFuture patterns instead of manual Thread.sleep()</li>
- *   <li><strong>Test Independence</strong>: Each test uses unique queue names per execution</li>
- *   <li><strong>Clean Structure</strong>: Streamlined handler methods with essential functionality only</li>
- * </ul>
+ * <p>Uses {@link SharedTestContainers} for the PostgreSQL container (reused across
+ * test classes) and chained {@link io.vertx.core.Future} composition end-to-end
+ * subscribe and send failures propagate to the test context instead of being silently
+ * swallowed into consumer-arrival timeouts.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-17
- * @version 2.0 (Refactored)
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
@@ -60,8 +51,19 @@ class MultiConfigurationIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationIntegrationTest.class);
 
+    static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+
     private MultiConfigurationManager configManager;
-    private PostgreSQLContainer postgres;
+    private final List<QueueFactory> openFactories = new ArrayList<>();
+
+    /**
+     * Track a factory so it gets closed in @AfterEach (on the JUnit worker thread,
+     * never on the event-loop where {@code QueueFactory.close()} would fail its guard).
+     */
+    private <F extends QueueFactory> F track(F factory) {
+        openFactories.add(factory);
+        return factory;
+    }
 
     /**
      * Generate unique queue name for test independence
@@ -71,19 +73,9 @@ class MultiConfigurationIntegrationTest {
     }
 
     @BeforeEach
-    void setUp() {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Start PostgreSQL container using standardized configuration
-        postgres = PostgreSQLTestConstants.createStandardContainer();
-        postgres.start();
-        logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
-
-        // Initialize database schema for multi-configuration outbox test
-        logger.info("Initializing database schema for multi-configuration outbox test");
+    void setUp(VertxTestContext testContext) {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .property("peegeeq.database.pool.min-size", "2")
                 .property("peegeeq.database.pool.max-size", "10")
@@ -97,244 +89,237 @@ class MultiConfigurationIntegrationTest {
 
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
 
-        // Register queue factory implementations
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) configManager.getFactoryProvider());
         OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) configManager.getFactoryProvider());
 
-        // Register different configurations for different use cases
         configManager.registerConfiguration("high-throughput", new PeeGeeQConfiguration("default", testProps));
         configManager.registerConfiguration("low-latency", new PeeGeeQConfiguration("default", testProps));
         configManager.registerConfiguration("reliable", new PeeGeeQConfiguration("default", testProps));
         configManager.registerConfiguration("test", new PeeGeeQConfiguration("default", testProps));
 
-        configManager.start().await();
+        configManager.start()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() {
-        logger.info("Tearing down: closing resources and manager");
-        if (configManager != null) {
-            configManager.close().await();
+    void tearDown(VertxTestContext testContext) {
+        for (QueueFactory f : openFactories) {
+            try {
+                f.close();
+            } catch (Exception e) {
+                logger.warn("Error closing queue factory: {}", e.getMessage());
+            }
         }
-        if (postgres != null) {
-            postgres.stop();
+        openFactories.clear();
+
+        if (configManager == null) {
+            testContext.completeNow();
+            return;
         }
+        configManager.close()
+            .onFailure(err -> logger.warn("Error during configManager cleanup: {}", err.getMessage()))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> testContext.completeNow());
     }
 
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
     @Test
-    void testMultipleQueueConfigurationsInSameApplication(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Testing multiple queue configurations in same application");
+    void testMultipleQueueConfigurationsInSameApplication(Vertx vertx, VertxTestContext testContext) {
+        QueueFactory batchProcessingQueue = track(configManager.createFactory("high-throughput", "outbox"));
+        QueueFactory realTimeQueue = track(configManager.createFactory("low-latency", "outbox"));
+        QueueFactory transactionalQueue = track(configManager.createFactory("reliable", "outbox"));
 
-        // Create different queue factories for different use cases (using outbox due to native compatibility issues)
-        QueueFactory batchProcessingQueue = configManager.createFactory("high-throughput", "outbox");
-        QueueFactory realTimeQueue = configManager.createFactory("low-latency", "outbox");
-        QueueFactory transactionalQueue = configManager.createFactory("reliable", "outbox");
-
-        // Verify all factories are healthy, then run the per-queue tests, then clean up
-        io.vertx.core.Future.all(
+        Future.all(
                         batchProcessingQueue.isHealthy(),
                         realTimeQueue.isHealthy(),
                         transactionalQueue.isHealthy())
-                .onSuccess(cf -> testContext.verify(() -> {
+                .compose(cf -> {
                     assertTrue((Boolean) cf.resultAt(0));
                     assertTrue((Boolean) cf.resultAt(1));
                     assertTrue((Boolean) cf.resultAt(2));
-
-                    try {
-                        testBatchProcessing(batchProcessingQueue);
-                        testRealTimeProcessing(realTimeQueue, vertx);
-                        testTransactionalProcessing(transactionalQueue);
-                    } finally {
-                        batchProcessingQueue.close();
-                        realTimeQueue.close();
-                        transactionalQueue.close();
-                    }
-                    testContext.completeNow();
-                }))
+                    return testBatchProcessing(batchProcessingQueue)
+                            .compose(v -> testRealTimeProcessing(realTimeQueue, vertx))
+                            .compose(v -> testTransactionalProcessing(transactionalQueue));
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    void testConfigurationBuilderIntegration(VertxTestContext testContext) throws Exception {
-        logger.info("Testing configuration builder integration");
+    void testConfigurationBuilderIntegration(VertxTestContext testContext) {
+        QueueFactory reliableQueue1 = track(configManager.createFactory("test", "outbox"));
+        QueueFactory reliableQueue2 = track(configManager.createFactory("test", "outbox"));
+        QueueFactory reliableQueue3 = track(configManager.createFactory("test", "outbox"));
 
-        // Create specialized queues using the registered factory provider
-        QueueFactory reliableQueue1 = configManager.createFactory("test", "outbox");
-        QueueFactory reliableQueue2 = configManager.createFactory("test", "outbox");
-        QueueFactory reliableQueue3 = configManager.createFactory("test", "outbox");
-
-        io.vertx.core.Future.all(
+        Future.all(
                         reliableQueue1.isHealthy(),
                         reliableQueue2.isHealthy(),
                         reliableQueue3.isHealthy())
-                .onSuccess(cf -> testContext.verify(() -> {
+                .compose(cf -> {
                     assertTrue((Boolean) cf.resultAt(0));
                     assertTrue((Boolean) cf.resultAt(1));
                     assertTrue((Boolean) cf.resultAt(2));
-
-                    // Test that they all use outbox implementation (since native is not available)
                     assertEquals("outbox", reliableQueue1.getImplementationType());
                     assertEquals("outbox", reliableQueue2.getImplementationType());
                     assertEquals("outbox", reliableQueue3.getImplementationType());
-
-                    // Clean up
-                    reliableQueue1.close();
-                    reliableQueue2.close();
-                    reliableQueue3.close();
-                    testContext.completeNow();
-                }))
+                    return Future.<Void>succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    void testConcurrentMultiConfigurationUsage(VertxTestContext testContext) throws Exception {
-        logger.info("Testing concurrent multi-configuration usage");
-        
-        // Create multiple queue factories concurrently (using outbox due to native compatibility issues)
+    void testConcurrentMultiConfigurationUsage(VertxTestContext testContext) {
         QueueFactory[] factories = new QueueFactory[4];
-        factories[0] = configManager.createFactory("high-throughput", "outbox");
-        factories[1] = configManager.createFactory("low-latency", "outbox");
-        factories[2] = configManager.createFactory("reliable", "outbox");
-        factories[3] = configManager.createFactory("test", "outbox");
-        
-        // Test concurrent message processing (reduced message count for reliability)
-        Checkpoint checkpoint = testContext.checkpoint(12); // 3 messages per factory
+        factories[0] = track(configManager.createFactory("high-throughput", "outbox"));
+        factories[1] = track(configManager.createFactory("low-latency", "outbox"));
+        factories[2] = track(configManager.createFactory("reliable", "outbox"));
+        factories[3] = track(configManager.createFactory("test", "outbox"));
+
+        int messagesPerFactory = 3;
         AtomicInteger totalProcessed = new AtomicInteger(0);
+        List<Future<Void>> perFactoryDone = new ArrayList<>();
 
         for (int i = 0; i < factories.length; i++) {
             final int factoryIndex = i;
             final QueueFactory factory = factories[i];
+            final String queueName = getUniqueQueueName("test-topic-" + i);
+            final MessageProducer<String> producer = factory.createProducer(queueName, String.class);
+            final MessageConsumer<String> consumer = factory.createConsumer(queueName, String.class);
 
-            // Create producer and consumer for each factory with unique queue names
-            String queueName = getUniqueQueueName("test-topic-" + i);
-            MessageProducer<String> producer = factory.createProducer(queueName, String.class);
-            MessageConsumer<String> consumer = factory.createConsumer(queueName, String.class);
+            AtomicInteger remaining = new AtomicInteger(messagesPerFactory);
+            Promise<Void> factoryDone = Promise.promise();
 
-            // Set up consumer
-            consumer.subscribe(message -> {
-                totalProcessed.incrementAndGet();
-                checkpoint.flag();
-                return Future.succeededFuture();
-            });
+            Future<Void> chain = consumer.subscribe(message -> {
+                        totalProcessed.incrementAndGet();
+                        if (remaining.decrementAndGet() == 0) factoryDone.tryComplete();
+                        return Future.succeededFuture();
+                    })
+                    .compose(v -> {
+                        List<Future<Void>> sends = new ArrayList<>();
+                        for (int j = 0; j < messagesPerFactory; j++) {
+                            sends.add(producer.send("Message " + j + " from factory " + factoryIndex,
+                                    Map.of("factory", String.valueOf(factoryIndex)),
+                                    "correlation-" + factoryIndex + "-" + j,
+                                    "routing-" + factoryIndex + "-" + j));
+                        }
+                        return Future.all(sends).<Void>mapEmpty();
+                    })
+                    .onFailure(factoryDone::tryFail)
+                    .compose(v -> factoryDone.future());
 
-            // Send messages (reduced count)
-            for (int j = 0; j < 3; j++) {
-                producer.send("Message " + j + " from factory " + factoryIndex,
-                    Map.of("factory", String.valueOf(factoryIndex)),
-                    "correlation-" + i + "-" + j,
-                    "routing-" + i + "-" + j);
-            }
+            perFactoryDone.add(chain);
         }
 
-        // Wait for all messages to be processed (increased timeout)
-        boolean completed = testContext.awaitCompletion(45, TimeUnit.SECONDS);
-        assertTrue(completed, "Not all messages were processed in time");
-        assertEquals(12, totalProcessed.get(), "Expected 12 messages to be processed");
-        
-        // Clean up
-        for (QueueFactory factory : factories) {
-            factory.close();
-        }
+        Future.all(perFactoryDone)
+                .<Void>mapEmpty()
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(factories.length * messagesPerFactory, totalProcessed.get());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
-    
-    private void testBatchProcessing(QueueFactory factory) throws Exception {
-        logger.info("Testing batch processing queue");
 
+    private Future<Void> testBatchProcessing(QueueFactory factory) {
         String queueName = getUniqueQueueName("batch-events");
         MessageProducer<BatchEvent> producer = factory.createProducer(queueName, BatchEvent.class);
         MessageConsumer<BatchEvent> consumer = factory.createConsumer(queueName, BatchEvent.class);
 
-        // Reduced number of messages for more reliable testing
-        CountDownLatch batchLatch = new CountDownLatch(10);
+        int count = 10;
+        AtomicInteger remaining = new AtomicInteger(count);
+        Promise<Void> done = Promise.promise();
 
-        consumer.subscribe(message -> {
-            batchLatch.countDown();
-            return Future.succeededFuture();
-        });
-
-        // Send batch of messages (reduced count)
-        for (int i = 1; i <= 10; i++) {
-            BatchEvent event = new BatchEvent("BATCH-" + i, "Processing batch " + i, i * 10);
-            producer.send(event, Map.of("batch-type", "high-throughput"), "correlation-" + i, "batch-" + i);
-        }
-
-        // Increased timeout for more reliable testing
-        boolean completed = batchLatch.await(30, TimeUnit.SECONDS);
-        assertTrue(completed, "Batch processing did not complete in time");
-
-        consumer.close();
-        producer.close();
+        return consumer.subscribe(message -> {
+                    if (remaining.decrementAndGet() == 0) done.tryComplete();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>();
+                    for (int i = 1; i <= count; i++) {
+                        BatchEvent event = new BatchEvent("BATCH-" + i, "Processing batch " + i, i * 10);
+                        sends.add(producer.send(event, Map.of("batch-type", "high-throughput"),
+                                "correlation-" + i, "batch-" + i));
+                    }
+                    return Future.all(sends).<Void>mapEmpty();
+                })
+                .onFailure(done::tryFail)
+                .compose(v -> done.future())
+                .eventually(() -> {
+                    consumer.close();
+                    producer.close();
+                    return Future.<Void>succeededFuture();
+                });
     }
-    
-    private void testRealTimeProcessing(QueueFactory factory, Vertx vertx) throws Exception {
-        logger.info("Testing real-time processing queue");
 
+    private Future<Void> testRealTimeProcessing(QueueFactory factory, Vertx vertx) {
         String queueName = getUniqueQueueName("realtime-events");
         MessageProducer<RealTimeEvent> producer = factory.createProducer(queueName, RealTimeEvent.class);
         MessageConsumer<RealTimeEvent> consumer = factory.createConsumer(queueName, RealTimeEvent.class);
 
-        // Reduced number of messages for more reliable testing
-        CountDownLatch realtimeLatch = new CountDownLatch(3);
+        int count = 3;
+        AtomicInteger remaining = new AtomicInteger(count);
+        Promise<Void> done = Promise.promise();
 
-        consumer.subscribe(message -> {
-            long latency = System.currentTimeMillis() - message.getPayload().getTimestamp();
-            logger.info("Real-time processed: {} (latency: {}ms)",
-                message.getPayload().getEventId(), latency);
-            realtimeLatch.countDown();
-            return Future.succeededFuture();
-        });
-
-        // Send real-time messages (reduced count)
-        for (int i = 1; i <= 3; i++) {
-            RealTimeEvent event = new RealTimeEvent("RT-" + i, System.currentTimeMillis(), "Real-time event " + i);
-            producer.send(event, Map.of("priority", "HIGH"), "correlation-" + i, "realtime-" + i);
-            Promise<Void> delay = Promise.promise();
-            vertx.setTimer(100, id -> delay.complete());
-            delay.future().await();
-        }
-
-        // Increased timeout for more reliable testing
-        boolean completed = realtimeLatch.await(20, TimeUnit.SECONDS);
-        assertTrue(completed, "Real-time processing did not complete in time");
-
-        consumer.close();
-        producer.close();
+        return consumer.subscribe(message -> {
+                    long latency = System.currentTimeMillis() - message.getPayload().getTimestamp();
+                    logger.debug("Real-time processed: {} (latency: {}ms)",
+                            message.getPayload().getEventId(), latency);
+                    if (remaining.decrementAndGet() == 0) done.tryComplete();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> {
+                    Future<Void> sendChain = Future.succeededFuture();
+                    for (int i = 1; i <= count; i++) {
+                        final int idx = i;
+                        sendChain = sendChain.compose(x -> {
+                            RealTimeEvent event = new RealTimeEvent("RT-" + idx, System.currentTimeMillis(), "Real-time event " + idx);
+                            return producer.send(event, Map.of("priority", "HIGH"), "correlation-" + idx, "realtime-" + idx)
+                                    .compose(sent -> vertx.timer(100).mapEmpty());
+                        });
+                    }
+                    return sendChain;
+                })
+                .onFailure(done::tryFail)
+                .compose(v -> done.future())
+                .eventually(() -> {
+                    consumer.close();
+                    producer.close();
+                    return Future.<Void>succeededFuture();
+                });
     }
-    
-    private void testTransactionalProcessing(QueueFactory factory) throws Exception {
-        logger.info("Testing transactional processing queue");
 
+    private Future<Void> testTransactionalProcessing(QueueFactory factory) {
         String queueName = getUniqueQueueName("critical-events");
         MessageProducer<CriticalEvent> producer = factory.createProducer(queueName, CriticalEvent.class);
         MessageConsumer<CriticalEvent> consumer = factory.createConsumer(queueName, CriticalEvent.class);
 
-        // Reduced number of messages for more reliable testing
-        CountDownLatch txLatch = new CountDownLatch(2);
+        int count = 2;
+        AtomicInteger remaining = new AtomicInteger(count);
+        Promise<Void> done = Promise.promise();
 
-        consumer.subscribe(message -> {
-            logger.info("Critical processed: {} (importance: {})",
-                message.getPayload().getEventId(), message.getPayload().getImportanceLevel());
-            txLatch.countDown();
-            return Future.succeededFuture();
-        });
-
-        // Send critical messages (reduced count)
-        for (int i = 1; i <= 2; i++) {
-            CriticalEvent event = new CriticalEvent("CRITICAL-" + i, "URGENT", "Critical system event " + i);
-            producer.send(event, Map.of("importance", "CRITICAL"), "correlation-" + i, "critical-" + i);
-        }
-
-        // Increased timeout for more reliable testing
-        boolean completed = txLatch.await(20, TimeUnit.SECONDS);
-        assertTrue(completed, "Transactional processing did not complete in time");
-
-        consumer.close();
-        producer.close();
+        return consumer.subscribe(message -> {
+                    logger.debug("Critical processed: {} (importance: {})",
+                            message.getPayload().getEventId(), message.getPayload().getImportanceLevel());
+                    if (remaining.decrementAndGet() == 0) done.tryComplete();
+                    return Future.succeededFuture();
+                })
+                .compose(v -> {
+                    List<Future<Void>> sends = new ArrayList<>();
+                    for (int i = 1; i <= count; i++) {
+                        CriticalEvent event = new CriticalEvent("CRITICAL-" + i, "URGENT", "Critical system event " + i);
+                        sends.add(producer.send(event, Map.of("importance", "CRITICAL"),
+                                "correlation-" + i, "critical-" + i));
+                    }
+                    return Future.all(sends).<Void>mapEmpty();
+                })
+                .onFailure(done::tryFail)
+                .compose(v -> done.future())
+                .eventually(() -> {
+                    consumer.close();
+                    producer.close();
+                    return Future.<Void>succeededFuture();
+                });
     }
-    
+
     // Event classes for testing
     public static class BatchEvent {
         private String batchId;

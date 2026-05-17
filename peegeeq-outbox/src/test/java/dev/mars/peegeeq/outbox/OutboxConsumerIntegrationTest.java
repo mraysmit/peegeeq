@@ -29,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -41,6 +42,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,7 +66,7 @@ class OutboxConsumerIntegrationTest {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for OutboxConsumer integration tests");
@@ -79,17 +81,17 @@ class OutboxConsumerIntegrationTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Get client factory from manager
-        clientFactory = manager.getClientFactory();
-        objectMapper = new ObjectMapper();
-
-        logger.info("OutboxConsumer integration test setup completed");
+        manager.start().onSuccess(v -> {
+            // Get client factory from manager
+            clientFactory = manager.getClientFactory();
+            objectMapper = new ObjectMapper();
+            logger.info("OutboxConsumer integration test setup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             try {
@@ -99,13 +101,19 @@ class OutboxConsumerIntegrationTest {
             }
         }
         if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error stopping manager: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    logger.info("OutboxConsumer integration test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(e -> {
+                    logger.warn("Error stopping manager: {}", e.getMessage());
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
         }
-        logger.info("OutboxConsumer integration test teardown completed");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

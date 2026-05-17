@@ -91,15 +91,19 @@ public class OutboxQueueTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         // Simplified cleanup - don't fail tests due to resource cleanup issues
-        try {
-            if (queue != null) {
-                queue.close().await();
-            }
-        } catch (Exception e) {
-            logger.warn("Queue cleanup failed, continuing", e);
+        if (queue != null) {
+            queue.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(err -> {
+                    logger.warn("Queue cleanup failed, continuing", err);
+                    testContext.completeNow();
+                });
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

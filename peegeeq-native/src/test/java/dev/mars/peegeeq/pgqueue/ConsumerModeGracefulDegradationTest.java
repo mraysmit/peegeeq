@@ -74,7 +74,7 @@ class ConsumerModeGracefulDegradationTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up graceful degradation test environment");
 
@@ -94,33 +94,40 @@ class ConsumerModeGracefulDegradationTest {
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create factory using the proper pattern
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            // Register native factory implementation
+            PgNativeFactoryRegistrar.registerWith(provider);
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith(provider);
+            factory = provider.createFactory("native", databaseService);
 
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for graceful degradation testing");
+            logger.info("Test setup completed for graceful degradation testing");
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up graceful degradation test environment");
-        
+
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        
+
         logger.info("Graceful degradation test cleanup completed");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**

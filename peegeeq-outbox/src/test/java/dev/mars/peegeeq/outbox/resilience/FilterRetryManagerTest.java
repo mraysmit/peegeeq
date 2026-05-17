@@ -3,28 +3,35 @@ package dev.mars.peegeeq.outbox.resilience;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
-import org.junit.jupiter.api.AfterEach;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("core")
+@ExtendWith(VertxExtension.class)
 class FilterRetryManagerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(FilterRetryManagerTest.class);
 
     private Vertx vertx;
     private FilterRetryManager retryManager;
@@ -34,8 +41,8 @@ class FilterRetryManagerTest {
     private DeadLetterQueueManager deadLetterQueueManager;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
 
         config = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
@@ -63,33 +70,32 @@ class FilterRetryManagerTest {
         retryManagerWithDlq = new FilterRetryManager("test-filter-dlq", config, vertx, deadLetterQueueManager);
     }
 
-    @AfterEach
-    void tearDown() {
-        vertx.close().await();
-    }
-
     @Test
-    void testSuccessfulFilterExecution() throws Exception {
+    void testSuccessfulFilterExecution(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-1", "payload");
         Predicate<Message<String>> filter = msg -> true;
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-
-        assertTrue(result.await());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertTrue(result);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testFilterRejectsMessage() throws Exception {
+    void testFilterRejectsMessage(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-2", "payload");
         Predicate<Message<String>> filter = msg -> false;
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-
-        assertFalse(result.await());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testRetryOnTransientError() throws Exception {
+    void testRetryOnTransientError(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-3", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
         
@@ -101,14 +107,16 @@ class FilterRetryManagerTest {
             return true;
         };
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-
-        assertTrue(result.await());
-        assertEquals(2, attempts.get());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertTrue(result);
+                assertEquals(2, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testRetryExhaustion() throws Exception {
+    void testRetryExhaustion(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-4", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
         
@@ -117,15 +125,17 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Persistent error");
         };
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Initial attempt + 3 retries = 4 total
-        assertEquals(4, attempts.get());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Initial attempt + 3 retries = 4 total
+                assertEquals(4, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testCircuitBreakerOpen() throws Exception {
+    void testCircuitBreakerOpen(VertxTestContext testContext) {
         // Open the circuit breaker by recording failures
         for (int i = 0; i < 10; i++) {
             circuitBreaker.recordFailure();
@@ -134,14 +144,16 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-5", "payload");
         Predicate<Message<String>> filter = msg -> true;
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-
-        // Should reject immediately due to open circuit breaker
-        assertFalse(result.await());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                // Should reject immediately due to open circuit breaker
+                assertFalse(result);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testExponentialBackoff() throws Exception {
+    void testExponentialBackoff(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-6", "payload");
         AtomicInteger attempts = new AtomicInteger(0);
         long startTime = System.currentTimeMillis();
@@ -151,19 +163,19 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring backoff");
         };
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-        result.await();
-        
-        long duration = System.currentTimeMillis() - startTime;
-        
-        // Should have 4 attempts with exponential backoff: 0ms, 10ms, 20ms, 40ms
-        // Total minimum delay: ~70ms
-        assertTrue(duration >= 60, "Expected delays from exponential backoff, got: " + duration + "ms");
-        assertEquals(4, attempts.get());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                // Should have 4 attempts with exponential backoff: 0ms, 10ms, 20ms, 40ms
+                // Total minimum delay: ~70ms
+                assertTrue(duration >= 60, "Expected delays from exponential backoff, got: " + duration + "ms");
+                assertEquals(4, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testRejectImmediatelyStrategy() throws Exception {
+    void testRejectImmediatelyStrategy(VertxTestContext testContext) {
         // Configure for immediate rejection of permanent errors
         FilterErrorHandlingConfig immediateRejectConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
@@ -182,30 +194,33 @@ class FilterRetryManagerTest {
             throw new IllegalArgumentException("Permanent error");
         };
 
-        Future<Boolean> result = immediateRejectManager.executeWithRetry(
-            message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Should only attempt once (no retries)
-        assertEquals(1, attempts.get());
+        immediateRejectManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Should only attempt once (no retries)
+                assertEquals(1, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testDeadLetterQueueEnabled() throws Exception {
+    void testDeadLetterQueueEnabled(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-8", "payload");
         
         Predicate<Message<String>> filter = msg -> {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring DLQ");
         };
 
-        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-
-        // Should reject after exhausting retries (DLQ is logged but returns false)
-        assertFalse(result.await());
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                // Should reject after exhausting retries (DLQ is logged but returns false)
+                assertFalse(result);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testDeadLetterQueueDisabled() throws Exception {
+    void testDeadLetterQueueDisabled(VertxTestContext testContext) {
         FilterErrorHandlingConfig noDlqConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(2)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -220,13 +235,15 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with DLQ disabled");
         };
 
-        Future<Boolean> result = noDlqManager.executeWithRetry(message, filter, circuitBreaker);
-
-        assertFalse(result.await());
+        noDlqManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testMaxRetryDelayCappping() throws Exception {
+    void testMaxRetryDelayCappping(VertxTestContext testContext) {
         FilterErrorHandlingConfig cappedConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(5)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -244,12 +261,13 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error testing delay cap");
         };
 
-        Future<Boolean> result = cappedManager.executeWithRetry(message, filter, circuitBreaker);
-        result.await();
-        
-        // Initial attempt + maxRetries (5) but one may fail to complete
-        assertTrue(attempts.get() >= 5 && attempts.get() <= 6, 
-            "Expected 5-6 attempts, got: " + attempts.get());
+        cappedManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                // Initial attempt + maxRetries (5) but one may fail to complete
+                assertTrue(attempts.get() >= 5 && attempts.get() <= 6,
+                    "Expected 5-6 attempts, got: " + attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -272,7 +290,7 @@ class FilterRetryManagerTest {
     }
 
     @Test
-    void testConcurrentRetries() throws Exception {
+    void testConcurrentRetries(VertxTestContext testContext) {
         Message<String> message1 = createTestMessage("msg-11", "payload1");
         Message<String> message2 = createTestMessage("msg-12", "payload2");
         
@@ -294,16 +312,18 @@ class FilterRetryManagerTest {
         Future<Boolean> result1 = retryManager.executeWithRetry(message1, filter1, circuitBreaker);
         Future<Boolean> result2 = retryManager.executeWithRetry(message2, filter2, circuitBreaker);
 
-        Future.all(result1, result2).await();
-
-        assertTrue(result1.result());
-        assertTrue(result2.result());
-        assertEquals(2, attempts1.get());
-        assertEquals(3, attempts2.get());
+        Future.all(result1, result2)
+            .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
+                assertTrue(result1.result());
+                assertTrue(result2.result());
+                assertEquals(2, attempts1.get());
+                assertEquals(3, attempts2.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testDeadLetterImmediatelyStrategy() throws Exception {
+    void testDeadLetterImmediatelyStrategy(VertxTestContext testContext) {
         FilterErrorHandlingConfig dlqImmediateConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -323,16 +343,17 @@ class FilterRetryManagerTest {
             throw new IllegalStateException("Critical error requiring immediate DLQ");
         };
 
-        Future<Boolean> result = dlqImmediateManager.executeWithRetry(
-            message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Should only attempt once (immediate DLQ)
-        assertEquals(1, attempts.get());
+        dlqImmediateManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Should only attempt once (immediate DLQ)
+                assertEquals(1, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testRetryThenDeadLetterStrategy() throws Exception {
+    void testRetryThenDeadLetterStrategy(VertxTestContext testContext) {
         FilterErrorHandlingConfig retryThenDlqConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(2)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -352,16 +373,17 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring retry then DLQ");
         };
 
-        Future<Boolean> result = retryThenDlqManager.executeWithRetry(
-            message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Initial attempt + 2 retries = 3 attempts before DLQ
-        assertEquals(3, attempts.get());
+        retryThenDlqManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Initial attempt + 2 retries = 3 attempts before DLQ
+                assertEquals(3, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testPermanentErrorPattern() throws Exception {
+    void testPermanentErrorPattern(VertxTestContext testContext) {
         FilterErrorHandlingConfig permanentErrorConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -380,16 +402,17 @@ class FilterRetryManagerTest {
             throw new IllegalArgumentException("Permanent error matching pattern");
         };
 
-        Future<Boolean> result = permanentErrorManager.executeWithRetry(
-            message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Pattern-matched permanent errors should get rejected after retries
-        assertTrue(attempts.get() >= 1);
+        permanentErrorManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Pattern-matched permanent errors should get rejected after retries
+                assertTrue(attempts.get() >= 1);
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testTransientErrorPattern() throws Exception {
+    void testTransientErrorPattern(VertxTestContext testContext) {
         FilterErrorHandlingConfig transientErrorConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(2)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -408,16 +431,17 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - TimeoutException occurred");
         };
 
-        Future<Boolean> result = transientErrorManager.executeWithRetry(
-            message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Initial attempt + 2 retries = 3 attempts
-        assertEquals(3, attempts.get());
+        transientErrorManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Initial attempt + 2 retries = 3 attempts
+                assertEquals(3, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testMultipleErrorPatterns() throws Exception {
+    void testMultipleErrorPatterns(VertxTestContext testContext) {
         FilterErrorHandlingConfig multiErrorConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(3)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -438,27 +462,30 @@ class FilterRetryManagerTest {
             throw new IllegalStateException("Permanent error");
         };
 
-        Future<Boolean> result1 = multiErrorManager.executeWithRetry(
-            message1, filter1, circuitBreaker);
-
-        assertFalse(result1.await());
-        assertTrue(attempts1.get() >= 1);
-        
         // Test transient error pattern
         Message<String> message2 = createTestMessage("msg-multi-2", "payload");
         AtomicInteger attempts2 = new AtomicInteger(0);
-        
+
         Predicate<Message<String>> filter2 = msg -> {
             attempts2.incrementAndGet();
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Connection error");
         };
 
-        Future<Boolean> result2 = multiErrorManager.executeWithRetry(
-            message2, filter2, circuitBreaker);
-
-        assertFalse(result2.await());
-        // Connection error should match transient pattern and retry
-        assertTrue(attempts2.get() >= 1, "Expected at least 1 attempt, got: " + attempts2.get());
+        // Run both patterns sequentially, asserting on each
+        multiErrorManager.executeWithRetry(message1, filter1, circuitBreaker)
+            .compose(result1 -> {
+                testContext.verify(() -> {
+                    assertFalse(result1);
+                    assertTrue(attempts1.get() >= 1);
+                });
+                return multiErrorManager.executeWithRetry(message2, filter2, circuitBreaker);
+            })
+            .onComplete(testContext.succeeding(result2 -> testContext.verify(() -> {
+                assertFalse(result2);
+                // Connection error should match transient pattern and retry
+                assertTrue(attempts2.get() >= 1, "Expected at least 1 attempt, got: " + attempts2.get());
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -469,43 +496,42 @@ class FilterRetryManagerTest {
     }
 
     @Test
-    void testNullFilterHandling() throws Exception {
+    void testNullFilterHandling(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-null-filter", "payload");
-        
-        // Null filter should either throw NPE or handle gracefully
-        Future<Boolean> result = retryManager.executeWithRetry(message, null, circuitBreaker);
-        
-        // Accept either outcome: exception or completion with false
-        try {
-            assertFalse(result.await());
-        } catch (RuntimeException e) {
-            // NPE or other RuntimeException is also acceptable
-        }
+
+        // Null filter should either throw NPE or handle gracefully.
+        // Both succeeded(false) and failed(NPE) are acceptable outcomes.
+        retryManager.executeWithRetry(message, null, circuitBreaker)
+            .onSuccess(result -> testContext.verify(() -> {
+                assertFalse(result);
+                testContext.completeNow();
+            }))
+            .onFailure(e -> testContext.completeNow()); // NPE is also acceptable
     }
 
     @Test
-    void testSchedulerShutdownGracefully() throws Exception {
+    void testSchedulerShutdownGracefully(VertxTestContext testContext) {
         Message<String> message = createTestMessage("msg-shutdown", "payload");
-        
+
         Predicate<Message<String>> filter = msg -> {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error during shutdown");
         };
 
-        // Start retries filter always throws so retries will be scheduled via Vertx timers
-        retryManager.executeWithRetry(message, filter, circuitBreaker);
-        
-        // Give it a moment to start, then close Vertx while retries are in progress.
-        // Closing Vertx cancels pending timers the key invariant is that this
-        // completes without throwing or hanging (graceful shutdown).
-        LockSupport.parkNanos(20_000_000L);
-        vertx.close().await();
-        
-        // Recreate Vertx for tearDown
-        vertx = Vertx.vertx();
+        // Start retries — filter always throws so retries will be scheduled on Vert.x timers.
+        // Closing Vertx cancels pending timers; the future may not complete — that is intentional.
+        // Error observed via .onFailure so the future is not fire-and-forget.
+        retryManager.executeWithRetry(message, filter, circuitBreaker)
+            .onFailure(e -> logger.debug("Retry abandoned after Vertx close (expected): {}", e.getMessage()));
+
+        // Wait 20 ms to allow retries to start, then close Vertx while retries are in-progress.
+        // The invariant under test: closing must complete without throwing or hanging.
+        vertx.timer(20)
+            .compose(v -> vertx.close())
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
-    void testErrorClassificationHandling() throws Exception {
+    void testErrorClassificationHandling(VertxTestContext testContext) {
         FilterErrorHandlingConfig classificationConfig = FilterErrorHandlingConfig.builder()
             .maxRetries(2)
             .initialRetryDelay(Duration.ofMillis(10))
@@ -523,12 +549,13 @@ class FilterRetryManagerTest {
             throw new IllegalArgumentException("Permanent error");
         };
 
-        Future<Boolean> result = classificationManager.executeWithRetry(
-            message, filter, circuitBreaker);
-
-        assertFalse(result.await());
-        // Should reject immediately without retries for permanent errors
-        assertEquals(1, attempts.get());
+        classificationManager.executeWithRetry(message, filter, circuitBreaker)
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertFalse(result);
+                // Should reject immediately without retries for permanent errors
+                assertEquals(1, attempts.get());
+                testContext.completeNow();
+            })));
     }
 
     private Message<String> createTestMessage(String id, String payload) {
@@ -557,7 +584,7 @@ class FilterRetryManagerTest {
 
         @Test
         @DisplayName("should send message to DLQ after retry exhaustion with RETRY_THEN_DEAD_LETTER strategy")
-        void testRetryThenDeadLetterWithDlqManager() throws Exception {
+        void testRetryThenDeadLetterWithDlqManager(VertxTestContext testContext) {
             FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(2)
                 .initialRetryDelay(Duration.ofMillis(10))
@@ -578,19 +605,20 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Simulated error for DLQ test");
             };
 
-            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
-
-            assertFalse(result.await());
-            assertEquals(3, attempts.get()); // Initial + 2 retries
-
-            // Verify DLQ metrics
-            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
-            assertEquals(1, metrics.getTotalMessages());
+            manager.executeWithRetry(message, filter, circuitBreaker)
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                    assertFalse(result);
+                    assertEquals(3, attempts.get()); // Initial + 2 retries
+                    // Verify DLQ metrics
+                    DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+                    assertEquals(1, metrics.getTotalMessages());
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should send message to DLQ immediately with DEAD_LETTER_IMMEDIATELY strategy")
-        void testDeadLetterImmediatelyWithDlqManager() throws Exception {
+        void testDeadLetterImmediatelyWithDlqManager(VertxTestContext testContext) {
             FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(3)
                 .initialRetryDelay(Duration.ofMillis(10))
@@ -611,19 +639,20 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Critical error");
             };
 
-            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
-
-            assertFalse(result.await());
-            assertEquals(1, attempts.get()); // Only one attempt, immediate DLQ
-
-            // Verify DLQ metrics
-            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
-            assertEquals(1, metrics.getTotalMessages());
+            manager.executeWithRetry(message, filter, circuitBreaker)
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                    assertFalse(result);
+                    assertEquals(1, attempts.get()); // Only one attempt, immediate DLQ
+                    // Verify DLQ metrics
+                    DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+                    assertEquals(1, metrics.getTotalMessages());
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should reject message when DLQ is disabled even with DLQ strategy")
-        void testDlqDisabledFallsBackToReject() throws Exception {
+        void testDlqDisabledFallsBackToReject(VertxTestContext testContext) {
             FilterErrorHandlingConfig noDlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(1)
                 .initialRetryDelay(Duration.ofMillis(10))
@@ -643,15 +672,17 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with DLQ disabled");
             };
 
-            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
-
-            assertFalse(result.await());
-            assertEquals(2, attempts.get()); // Initial + 1 retry, then reject (no DLQ)
+            manager.executeWithRetry(message, filter, circuitBreaker)
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                    assertFalse(result);
+                    assertEquals(2, attempts.get()); // Initial + 1 retry, then reject (no DLQ)
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should reject message when DLQ manager is null")
-        void testNullDlqManagerFallsBackToReject() throws Exception {
+        void testNullDlqManagerFallsBackToReject(VertxTestContext testContext) {
             FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(1)
                 .initialRetryDelay(Duration.ofMillis(10))
@@ -672,15 +703,17 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with null DLQ manager");
             };
 
-            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
-
-            assertFalse(result.await());
-            assertEquals(2, attempts.get());
+            manager.executeWithRetry(message, filter, circuitBreaker)
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                    assertFalse(result);
+                    assertEquals(2, attempts.get());
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should track multiple messages sent to DLQ")
-        void testMultipleMessagesToDlq() throws Exception {
+        void testMultipleMessagesToDlq(VertxTestContext testContext) {
             FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(0) // No retries, immediate DLQ
                 .initialRetryDelay(Duration.ofMillis(10))
@@ -698,20 +731,24 @@ class FilterRetryManagerTest {
             };
 
             // Send multiple messages
+            List<Future<Boolean>> futures = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 Message<String> message = createTestMessage("msg-multi-" + i, "payload-" + i);
-                Future<Boolean> result = manager.executeWithRetry(message, failingFilter, circuitBreaker);
-                assertFalse(result.await());
+                futures.add(manager.executeWithRetry(message, failingFilter, circuitBreaker));
             }
 
             // Verify all messages were sent to DLQ
-            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
-            assertEquals(5, metrics.getTotalMessages());
+            Future.all(futures)
+                .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
+                    DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+                    assertEquals(5, metrics.getTotalMessages());
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should include error classification in DLQ metadata")
-        void testDlqWithErrorClassification() throws Exception {
+        void testDlqWithErrorClassification(VertxTestContext testContext) {
             FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(0)
                 .initialRetryDelay(Duration.ofMillis(10))
@@ -733,7 +770,6 @@ class FilterRetryManagerTest {
             };
 
             Future<Boolean> result1 = manager.executeWithRetry(transientMsg, transientFilter, circuitBreaker);
-            assertFalse(result1.await());
 
             // Test with permanent error
             Message<String> permanentMsg = createTestMessage("msg-permanent", "payload");
@@ -742,16 +778,21 @@ class FilterRetryManagerTest {
             };
 
             Future<Boolean> result2 = manager.executeWithRetry(permanentMsg, permanentFilter, circuitBreaker);
-            assertFalse(result2.await());
 
             // Both should be in DLQ
-            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
-            assertEquals(2, metrics.getTotalMessages());
+            Future.all(result1, result2)
+                .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
+                    assertFalse(result1.result());
+                    assertFalse(result2.result());
+                    DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+                    assertEquals(2, metrics.getTotalMessages());
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should handle concurrent DLQ sends correctly")
-        void testConcurrentDlqSends() throws Exception {
+        void testConcurrentDlqSends(VertxTestContext testContext) {
             FilterErrorHandlingConfig dlqConfig = FilterErrorHandlingConfig.builder()
                 .maxRetries(0)
                 .initialRetryDelay(Duration.ofMillis(5))
@@ -778,47 +819,39 @@ class FilterRetryManagerTest {
             };
 
             int messageCount = 10;
-            AtomicInteger successCount = new AtomicInteger(0);
-            ExecutorService executor = Executors.newFixedThreadPool(4);
-            java.util.List<java.util.concurrent.Future<?>> tasks = new java.util.ArrayList<>();
+            List<Future<Boolean>> futures = new ArrayList<>();
 
             for (int i = 0; i < messageCount; i++) {
-                final int index = i;
-                tasks.add(executor.submit(() -> {
-                    try {
-                        Message<String> message = createTestMessage("msg-concurrent-" + index, "payload");
-                        Future<Boolean> result = manager.executeWithRetry(message, failingFilter, localCircuitBreaker);
-                        if (!result.await()) {
-                            successCount.incrementAndGet();
-                        }
-                    } catch (Exception e) {
-                        // Ignore
-                    }
-                }));
+                Message<String> message = createTestMessage("msg-concurrent-" + i, "payload");
+                futures.add(manager.executeWithRetry(message, failingFilter, localCircuitBreaker));
             }
 
-            for (var task : tasks) {
-                task.get(5, java.util.concurrent.TimeUnit.SECONDS);
-            }
-            executor.shutdown();
-            assertEquals(messageCount, successCount.get());
-
-            // All messages should be in DLQ
-            DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
-            assertEquals(messageCount, metrics.getTotalMessages());
+            Future.all(futures)
+                .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
+                    long rejectedCount = futures.stream()
+                        .filter(f -> Boolean.FALSE.equals(f.result()))
+                        .count();
+                    assertEquals(messageCount, (int) rejectedCount);
+                    // All messages should be in DLQ
+                    DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
+                    assertEquals(messageCount, metrics.getTotalMessages());
+                    testContext.completeNow();
+                })));
         }
 
         @Test
         @DisplayName("should work with two-arg constructor (without DLQ manager)")
-        void testTwoArgConstructorWithoutDlqManager() throws Exception {
+        void testTwoArgConstructorWithoutDlqManager(VertxTestContext testContext) {
             FilterRetryManager legacyManager = new FilterRetryManager("legacy-filter", config, vertx);
 
             Message<String> message = createTestMessage("msg-legacy", "payload");
             Predicate<Message<String>> successFilter = msg -> true;
 
-            Future<Boolean> result = legacyManager.executeWithRetry(message, successFilter, circuitBreaker);
-
-            assertTrue(result.await());
+            legacyManager.executeWithRetry(message, successFilter, circuitBreaker)
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                    assertTrue(result);
+                    testContext.completeNow();
+                })));
         }
     }
 }
