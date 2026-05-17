@@ -50,7 +50,7 @@ class OutboxProducerAdditionalCoverageTest {
     private String testTopic;
 
     @BeforeEach
-    void setup() throws Exception {
+    void setup(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -59,11 +59,12 @@ class OutboxProducerAdditionalCoverageTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
+        manager.start().onSuccess(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, config);
+            producer = outboxFactory.createProducer(testTopic, String.class);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

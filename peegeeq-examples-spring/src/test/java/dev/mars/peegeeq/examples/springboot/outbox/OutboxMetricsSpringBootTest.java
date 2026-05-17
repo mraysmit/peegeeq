@@ -28,7 +28,6 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -41,6 +40,7 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -99,7 +99,7 @@ class OutboxMetricsSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown(Vertx vertx) throws InterruptedException {
+    void tearDown(Vertx vertx) throws Exception {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
@@ -123,9 +123,7 @@ class OutboxMetricsSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
     }
 
@@ -163,7 +161,7 @@ class OutboxMetricsSpringBootTest {
         
         // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Metrics test message " + i).await();
+            producer.send("Metrics test message " + i).onFailure(testContext::failNow);
         }
         
         // Wait for processing
@@ -171,9 +169,7 @@ class OutboxMetricsSpringBootTest {
             "All messages should be processed within timeout");
         
         // Allow time for metrics to be updated
-        Promise<Void> metricsDelay = Promise.promise();
-        vertx.setTimer(2000, id -> metricsDelay.complete(null));
-        metricsDelay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -231,16 +227,14 @@ class OutboxMetricsSpringBootTest {
         
         // Send messages that will fail
         for (int i = 0; i < errorCount; i++) {
-            producer.send("Error test message " + i).await();
+            producer.send("Error test message " + i).onFailure(testContext::failNow);
         }
-        
+
         // Wait for first errorCount errors to occur
-        errorsComplete.future().await();
-        
+        awaitFuture(errorsComplete.future(), 30, TimeUnit.SECONDS);
+
         // Allow time for error metrics to be updated
-        Promise<Void> errorDelay = Promise.promise();
-        vertx.setTimer(3000, id -> errorDelay.complete(null));
-        errorDelay.future().await();
+        awaitFuture(vertx.timer(3000), 4, TimeUnit.SECONDS);
         
         // Verify error metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -286,7 +280,7 @@ class OutboxMetricsSpringBootTest {
         
         // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Timing test message " + i).await();
+            producer.send("Timing test message " + i).onFailure(testContext::failNow);
         }
         
         // Wait for processing
@@ -294,9 +288,7 @@ class OutboxMetricsSpringBootTest {
             "All messages should be processed within timeout");
         
         // Allow time for metrics to be updated
-        Promise<Void> timingDelay = Promise.promise();
-        vertx.setTimer(2000, id -> timingDelay.complete(null));
-        timingDelay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify metrics were collected (we can't easily verify exact timing in integration test)
         PeeGeeQMetrics.MetricsSummary metrics = manager.getMetrics().getSummary();

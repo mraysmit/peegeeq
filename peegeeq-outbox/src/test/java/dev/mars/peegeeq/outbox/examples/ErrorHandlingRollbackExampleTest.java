@@ -128,36 +128,35 @@ public class ErrorHandlingRollbackExampleTest {
     private BusinessService businessService;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Error Handling and Rollback test environment...");
-        
+
         // Configure system properties for TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-        
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("✓ PeeGeeQ Manager started");
-        
-        // Create outbox factory
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        
-        // Register outbox factory implementation
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        
-        outboxFactory = provider.createFactory("outbox", databaseService);
-        orderProducer = (OutboxProducer<OrderEvent>) outboxFactory.createProducer("orders", OrderEvent.class);
-        processingProducer = (OutboxProducer<ProcessingEvent>) outboxFactory.createProducer("processing", ProcessingEvent.class);
-        
-        // Initialize business service
-        businessService = new BusinessService();
-        
-        logger.info("✓ Setup completed successfully");
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("✓ PeeGeeQ Manager started");
+                // Create outbox factory
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                // Register outbox factory implementation
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                outboxFactory = provider.createFactory("outbox", databaseService);
+                orderProducer = (OutboxProducer<OrderEvent>) outboxFactory.createProducer("orders", OrderEvent.class);
+                processingProducer = (OutboxProducer<ProcessingEvent>) outboxFactory.createProducer("processing", ProcessingEvent.class);
+                // Initialize business service
+                businessService = new BusinessService();
+                logger.info("✓ Setup completed successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach

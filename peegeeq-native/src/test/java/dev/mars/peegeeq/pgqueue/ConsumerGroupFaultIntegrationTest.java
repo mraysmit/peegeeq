@@ -100,50 +100,63 @@ class ConsumerGroupFaultIntegrationTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            databaseService = new PgDatabaseService(manager);
+            adapter = new VertxPoolAdapter(
+                    databaseService.getVertx(),
+                    databaseService.getPool(),
+                    databaseService
+            );
 
-        databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-                databaseService.getVertx(),
-                databaseService.getPool(),
-                databaseService
-        );
+            mapper = new ObjectMapper();
+            mapper.registerModule(new JavaTimeModule());
 
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
-
-        connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
-        PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
-                .database(postgres.getDatabaseName())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
-                .schema("public")
-                .build();
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
-        connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            connectionManager = new PgConnectionManager(databaseService.getVertx(), null);
+            PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                    .host(postgres.getHost())
+                    .port(postgres.getFirstMappedPort())
+                    .database(postgres.getDatabaseName())
+                    .username(postgres.getUsername())
+                    .password(postgres.getPassword())
+                    .schema("public")
+                    .build();
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+            connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
-            try {
-                cleanupTestData().await();
-            } catch (Exception ignore) { }
-            connectionManager.close();
+            cleanupTestData().transform(ar -> io.vertx.core.Future.<Void>succeededFuture())
+                    .onComplete(ar -> {
+                        connectionManager.close().onFailure(testContext::failNow);
+                        if (manager != null) {
+                            manager.closeReactive()
+                                    .onSuccess(v -> testContext.completeNow())
+                                    .onFailure(testContext::failNow);
+                        } else {
+                            testContext.completeNow();
+                        }
+                    });
+        } else if (manager != null) {
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -207,7 +220,7 @@ class ConsumerGroupFaultIntegrationTest {
                     Vertx vtx = databaseService.getVertx();
                     return vtx.timer(12000).mapEmpty()
                             .map(delayed -> {
-                                group.close();
+                                group.closeAsync().onFailure(testContext::failNow);
 
                                 logger.info("FAULT 1: totalInvocations={}, processedIds={}, failCount={}",
                                         totalInvocations.get(), processedIds.size(), failCount.get());
@@ -296,7 +309,7 @@ class ConsumerGroupFaultIntegrationTest {
 
                                 logger.info("FAULT 4 PASSED: clean shutdown during active fetch, {} messages processed",
                                         handlerCalls.get());
-                                group.close();
+                                group.closeAsync().onFailure(testContext::failNow);
                                 return (Void) null;
                             });
                 })
@@ -390,7 +403,7 @@ class ConsumerGroupFaultIntegrationTest {
                                         "Engine should process messages after connection recovery; got " + totalCalls);
 
                                 logger.info("FAULT 2 PASSED: engine recovered after connection termination");
-                                group.close();
+                                group.closeAsync().onFailure(testContext::failNow);
                                 return (Void) null;
                             });
                 })
@@ -472,7 +485,7 @@ class ConsumerGroupFaultIntegrationTest {
                                         "Only 1 handler invocation expected partition is blocked by hung Future");
 
                                 logger.info("FAULT 3 PASSED: hung handler blocks partition (documented behavior)");
-                                group.close();
+                                group.closeAsync().onFailure(testContext::failNow);
                                 return (Void) null;
                             });
                 })
@@ -539,7 +552,7 @@ class ConsumerGroupFaultIntegrationTest {
                                 // close() calls engine.stop() which calls leaveGroup()
                                 // leaveGroup may fail due to terminated connections,
                                 // but the .transform() in engine.stop() swallows the error
-                                group.close();
+                                group.closeAsync().onFailure(testContext::failNow);
 
                                 assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
                                         "Group should be CLOSED even when leaveGroup fails");

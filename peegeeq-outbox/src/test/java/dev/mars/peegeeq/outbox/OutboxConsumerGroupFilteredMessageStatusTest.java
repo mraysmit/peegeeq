@@ -81,7 +81,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -90,16 +90,17 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumerGroup = outboxFactory.createConsumerGroup("filter-group", testTopic, String.class);
+        manager.start().onSuccess(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            outboxFactory = new OutboxFactory(databaseService, config);
+            producer = outboxFactory.createProducer(testTopic, String.class);
+            consumerGroup = outboxFactory.createConsumerGroup("filter-group", testTopic, String.class);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumerGroup != null) {
             consumerGroup.stop();
@@ -112,8 +113,13 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================

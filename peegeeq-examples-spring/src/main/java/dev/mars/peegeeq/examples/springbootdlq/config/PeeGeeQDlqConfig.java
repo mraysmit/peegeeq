@@ -81,7 +81,13 @@ public class PeeGeeQDlqConfig {
             new SimpleMeterRegistry()
         );
         
-        manager.start().await();
+        java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> startError = new java.util.concurrent.atomic.AtomicReference<>();
+        manager.start()
+                .onSuccess(v -> startLatch.countDown())
+                .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        try { startLatch.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException("PeeGeeQManager start interrupted", e); }
+        if (startError.get() != null) { throw new RuntimeException("PeeGeeQManager failed to start", startError.get()); }
         log.info("PeeGeeQ Manager started successfully with max retries: {}", properties.getMaxRetries());
         
         return manager;

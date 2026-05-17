@@ -79,7 +79,13 @@ public class PeeGeeQReactiveConfig {
         PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
 
         // Start the manager - this handles all Vert.x setup internally
-        manager.start().await();
+        java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> startError = new java.util.concurrent.atomic.AtomicReference<>();
+        manager.start()
+                .onSuccess(v -> startLatch.countDown())
+                .onFailure(e -> { startError.set(e); startLatch.countDown(); });
+        try { startLatch.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException("PeeGeeQManager start interrupted", e); }
+        if (startError.get() != null) { throw new RuntimeException("PeeGeeQManager failed to start", startError.get()); }
         log.info("PeeGeeQ Manager started successfully with profile: {}", properties.getProfile());
 
         return manager;

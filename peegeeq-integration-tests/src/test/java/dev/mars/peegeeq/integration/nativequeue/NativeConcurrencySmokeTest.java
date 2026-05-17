@@ -234,7 +234,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
             setupService.createCompleteSetup(createSetupRequest(setupId, queueName))
                     .onSuccess(r -> { resultRef.set(r); setupLatch.countDown(); })
                     .onFailure(e -> { errorRef.set(e); setupLatch.countDown(); });
-            assertTrue(setupLatch.await(60, SECONDS), "Setup creation timed out");
+            assertTrue(setupLatch.await(60, TimeUnit.SECONDS), "Setup creation timed out");
             if (errorRef.get() != null) throw new RuntimeException("Setup failed", errorRef.get());
             DatabaseSetupResult result = resultRef.get();
             QueueFactory factory = result.getQueueFactories().get(queueName);
@@ -257,7 +257,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     // ignore
                 }
             });
-            assertTrue(subscriberLatch.await(5, SECONDS), "Subscriber not ready in time");
+            assertTrue(subscriberLatch.await(5, TimeUnit.SECONDS), "Subscriber not ready in time");
             vertx.cancelTimer(subscriberTimer);
 
             assertNotNull(getFieldValue(consumer, "subscriber"), "Subscribed native consumer should have a LISTEN connection");
@@ -266,8 +266,9 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
             CountDownLatch destroyLatch = new CountDownLatch(1);
             setupService.destroySetup(setupId)
-                    .onComplete(ar -> destroyLatch.countDown());
-            assertTrue(destroyLatch.await(30, SECONDS), "Destroy timed out");
+                    .onSuccess(v -> destroyLatch.countDown())
+                    .onFailure(err -> { logger.warn("destroySetup failed for {}", setupId, err); destroyLatch.countDown(); });
+            assertTrue(destroyLatch.await(30, TimeUnit.SECONDS), "Destroy timed out");
             activeConsumers.remove(consumer);
 
             // Wait for consumer closed state using periodic check + CountDownLatch
@@ -281,7 +282,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     // ignore
                 }
             });
-            assertTrue(closedLatch.await(5, SECONDS), "Consumer not closed in time");
+            assertTrue(closedLatch.await(5, TimeUnit.SECONDS), "Consumer not closed in time");
             vertx.cancelTimer(closedTimer);
 
             assertNull(getFieldValue(consumer, "subscriber"), "Destroyed setup must clear native LISTEN connection");
@@ -301,10 +302,12 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                 setupService.getAllActiveSetupIds()
                         .onSuccess(ids -> { idsRef.set(ids); idsLatch.countDown(); })
                         .onFailure(e -> idsLatch.countDown());
-                if (idsLatch.await(5, SECONDS) && idsRef.get() != null && idsRef.get().contains(setupId)) {
+                if (idsLatch.await(5, TimeUnit.SECONDS) && idsRef.get() != null && idsRef.get().contains(setupId)) {
                     CountDownLatch cleanLatch = new CountDownLatch(1);
-                    setupService.destroySetup(setupId).onComplete(ar -> cleanLatch.countDown());
-                    cleanLatch.await(10, SECONDS);
+                    setupService.destroySetup(setupId)
+                            .onSuccess(v -> cleanLatch.countDown())
+                            .onFailure(err -> { logger.warn("Cleanup destroySetup failed for {}", setupId, err); cleanLatch.countDown(); });
+                    cleanLatch.await(10, TimeUnit.SECONDS);
                 }
             } catch (Exception ignore) {
                 logger.warn("Cleanup of setup {} failed (best-effort only)", setupId, ignore);

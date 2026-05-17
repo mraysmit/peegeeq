@@ -77,7 +77,7 @@ import java.util.concurrent.TimeUnit;
  * @since 2025-07-13
  * @version 1.1
  */
-public class PeeGeeQManager implements AutoCloseable {
+public class PeeGeeQManager {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManager.class);
 
     // Constants for configuration
@@ -515,7 +515,22 @@ public class PeeGeeQManager implements AutoCloseable {
         return result;
     }
 
-    @Override
+    /**
+     * Fires async shutdown and returns immediately. The manager is <strong>NOT</strong> closed
+     * when this method returns.
+     *
+     * <p>Do NOT use try-with-resources on {@code PeeGeeQManager} — the resource will not
+     * be closed when the block exits.
+     *
+     * <p>In reactive/Vert.x code, call {@link #closeReactive()} and chain
+     * {@code .onSuccess()}/.{@code onFailure()} on the returned {@code Future<Void>}.
+     *
+     * <p>Spring {@code @PreDestroy} hooks calling this method should be updated to call
+     * {@code closeReactive().onFailure(e -> log.error("PeeGeeQ manager close failed", e))} instead.
+     *
+     * @deprecated Use {@link #closeReactive()} and observe the returned {@code Future<Void>}.
+     */
+    @Deprecated
     public void close() {
         closeReactive()
             .onSuccess(v -> logger.info("PeeGeeQManager closed successfully"))

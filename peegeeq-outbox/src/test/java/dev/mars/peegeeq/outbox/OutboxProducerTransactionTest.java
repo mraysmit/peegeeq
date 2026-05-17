@@ -51,27 +51,28 @@ public class OutboxProducerTransactionTest {
     private OutboxProducer<String> producer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            PgDatabaseService dbs = new PgDatabaseService(manager);
+            databaseService = dbs;
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            OutboxFactoryRegistrar.registerWith(provider);
 
-        PgDatabaseService dbs = new PgDatabaseService(manager);
-        databaseService = dbs;
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
+            QueueFactory factory = provider.createFactory("outbox", databaseService);
+            MessageProducer<String> messageProducer = factory.createProducer("tx-test", String.class);
 
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        MessageProducer<String> messageProducer = factory.createProducer("tx-test", String.class);
-        
-        // Cast to OutboxProducer to access implementation-specific methods
-        producer = (OutboxProducer<String>) messageProducer;
-        
-        logger.info("OutboxProducerTransactionTest setup complete");
+            // Cast to OutboxProducer to access implementation-specific methods
+            producer = (OutboxProducer<String>) messageProducer;
+
+            logger.info("OutboxProducerTransactionTest setup complete");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

@@ -9,7 +9,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.json.JsonArray;
@@ -17,6 +16,12 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -76,17 +81,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     private static final int TEST_PORT = 18085;
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_persistence_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     // Server lifecycle management - we manage our own Vertx instance for restart tests
     private Vertx managedVertx;
@@ -94,6 +89,8 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     private String deploymentId;
     private HttpClient httpClient;
     private WebClient webClient;
+    // Reactive verification pool — used by tests 3 and 5 to query the database directly without JDBC.
+    private Pool verifyPool;
 
     // Test data - persisted across restart
     private String setupId;
@@ -113,16 +110,34 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         // Create our own managed Vertx instance that persists across test methods
         managedVertx = Vertx.vertx();
 
+        // Build a long-lived reactive pool for direct database verification (tests 3 and 5).
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(postgres.getHost())
+            .setPort(postgres.getFirstMappedPort())
+            .setDatabase(postgres.getDatabaseName())
+            .setUser(postgres.getUsername())
+            .setPassword(postgres.getPassword());
+        verifyPool = PgBuilder.pool()
+            .with(new PoolOptions().setMaxSize(2))
+            .connectingTo(connectOptions)
+            .using(managedVertx)
+            .build();
+
         logger.info("✓ Schema initialized successfully - ready for server lifecycle tests");
     }
 
     @AfterAll
-    void closeManagedVertx() {
-        if (managedVertx != null) {
-            logger.info("Closing managed Vertx instance...");
-            managedVertx.close().await();
-            logger.info("✓ Managed Vertx instance closed");
-        }
+    void closeManagedVertx(VertxTestContext testContext) {
+        // VertxExtension supplies the VertxTestContext to @AfterAll via its ParameterResolver
+        // (works because this class is @TestInstance(PER_CLASS) so @AfterAll is non-static).
+        Future<Void> closeChain = (verifyPool != null ? verifyPool.close() : Future.succeededFuture());
+        closeChain
+            .compose(v -> managedVertx != null ? managedVertx.close() : Future.<Void>succeededFuture())
+            .onSuccess(v -> {
+                logger.info("✓ Managed Vertx instance closed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @Test
@@ -290,62 +305,51 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("NOTE: This test verifies the database layer works correctly, even though REST API");
         logger.info("      cannot access it after restart due to setup cache being in-memory.");
 
-        // Wait a bit to ensure clean state
-        Promise<Void> delay = Promise.promise();
-        managedVertx.setTimer(1000, id -> delay.complete());
-        delay.future().await();
+        // The topic stored in database is a composite: setupId + "-" + queueName
+        String expectedTopic = setupId + "-" + QUEUE_NAME;
+        String sql = """
+            SELECT topic, group_name, subscription_status,
+                   start_from_message_id, heartbeat_interval_seconds, heartbeat_timeout_seconds
+            FROM peegeeq.outbox_topic_subscriptions
+            WHERE topic = $1 AND group_name = $2
+            """;
 
-        // Query the database directly to verify subscription was persisted
-        try (var connection = java.sql.DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-
-            // The topic stored in database is a composite: setupId + "-" + queueName
-            String expectedTopic = setupId + "-" + QUEUE_NAME;
-
-            String sql = """
-                SELECT topic, group_name, subscription_status,
-                       start_from_message_id, heartbeat_interval_seconds, heartbeat_timeout_seconds
-                FROM peegeeq.outbox_topic_subscriptions
-                WHERE topic = ? AND group_name = ?
-                """;
-
-            try (var stmt = connection.prepareStatement(sql)) {
-                stmt.setString(1, expectedTopic);
-                stmt.setString(2, GROUP_NAME);
-
-                try (var rs = stmt.executeQuery()) {
-                    if (rs.next()) {
-                        String topic = rs.getString("topic");
-                        String groupName = rs.getString("group_name");
-                        String status = rs.getString("subscription_status");
-                        int heartbeatInterval = rs.getInt("heartbeat_interval_seconds");
-                        int heartbeatTimeout = rs.getInt("heartbeat_timeout_seconds");
-
-                        logger.info("✓ Subscription found in database:");
-                        logger.info("  - Topic: {}", topic);
-                        logger.info("  - Group: {}", groupName);
-                        logger.info("  - Status: {}", status);
-                        logger.info("  - Heartbeat Interval: {}s", heartbeatInterval);
-                        logger.info("  - Heartbeat Timeout: {}s", heartbeatTimeout);
-
-                        // Verify the values match what we set
-                        assertEquals(expectedTopic, topic, "Topic should match");
-                        assertEquals(GROUP_NAME, groupName, "Group name should match");
-                        assertEquals("ACTIVE", status, "Status should be ACTIVE");
-                        assertEquals(60, heartbeatInterval, "Heartbeat interval should be 60");
-                        assertEquals(180, heartbeatTimeout, "Heartbeat timeout should be 180");
-
-                        logger.info("TEST 3 PASSED: Subscription data persisted correctly in database");
-                        testContext.completeNow();
-                    } else {
-                        testContext.failNow(new AssertionError("Subscription NOT FOUND in database!"));
-                    }
+        // Settling delay chained reactively so we never block the calling thread.
+        managedVertx.timer(1000)
+            .<Void>mapEmpty()
+            .compose(v -> verifyPool.withConnection(conn ->
+                conn.preparedQuery(sql).execute(Tuple.of(expectedTopic, GROUP_NAME))))
+            .onSuccess(rowSet -> {
+                if (rowSet.size() == 0) {
+                    testContext.failNow(new AssertionError("Subscription NOT FOUND in database!"));
+                    return;
                 }
-            }
-        } catch (Exception e) {
-            logger.error("Failed to query database", e);
-            testContext.failNow(e);
-        }
+                Row row = rowSet.iterator().next();
+                String topic = row.getString("topic");
+                String groupName = row.getString("group_name");
+                String status = row.getString("subscription_status");
+                int heartbeatInterval = row.getInteger("heartbeat_interval_seconds");
+                int heartbeatTimeout = row.getInteger("heartbeat_timeout_seconds");
+
+                logger.info("✓ Subscription found in database:");
+                logger.info("  - Topic: {}", topic);
+                logger.info("  - Group: {}", groupName);
+                logger.info("  - Status: {}", status);
+                logger.info("  - Heartbeat Interval: {}s", heartbeatInterval);
+                logger.info("  - Heartbeat Timeout: {}s", heartbeatTimeout);
+
+                testContext.verify(() -> {
+                    assertEquals(expectedTopic, topic, "Topic should match");
+                    assertEquals(GROUP_NAME, groupName, "Group name should match");
+                    assertEquals("ACTIVE", status, "Status should be ACTIVE");
+                    assertEquals(60, heartbeatInterval, "Heartbeat interval should be 60");
+                    assertEquals(180, heartbeatTimeout, "Heartbeat timeout should be 180");
+                });
+
+                logger.info("TEST 3 PASSED: Subscription data persisted correctly in database");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
@@ -357,13 +361,10 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("PURPOSE: Verify that REST API cannot access subscription after restart");
         logger.info("        due to in-memory setup cache being lost (KNOWN ARCHITECTURAL LIMITATION)");
 
-        // Wait a bit to ensure clean state
-        Promise<Void> delay = Promise.promise();
-        managedVertx.setTimer(1000, id -> delay.complete());
-        delay.future().await();
-
-        // Start new server instance (same database) using our managed Vertx
-        startServer(managedVertx)
+        // Chained settling delay → restart server, no blocking on the calling thread.
+        managedVertx.timer(1000)
+            .<Void>mapEmpty()
+            .compose(v -> startServer(managedVertx))
             .compose(v -> {
                 logger.info("✓ Server restarted successfully");
 
@@ -416,80 +417,65 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("PURPOSE: Ensure subscription data remains in database across multiple restart cycles");
         logger.info("NOTE: This verifies database layer persistence, not REST API access");
 
-        // Stop the server from test04
+        // Chain: stop server -> settling delay -> three sequential verifications via the reactive pool.
         stopServer(managedVertx)
-            .onComplete(ar -> {
-                logger.info("✓ Server stopped for restart cycle verification");
-            });
-
-        // Wait for server to stop
-        Promise<Void> delay = Promise.promise();
-        managedVertx.setTimer(1000, id -> delay.complete());
-        delay.future().await();
-
-        // Verify database persistence after multiple simulated restarts
-        // (We don't need to actually restart the server - just verify the data is still there)
-        try (var connection = java.sql.DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-
-            // Simulate "restart cycle 1" - verify data still exists
-            logger.info("Simulating restart cycle 1 - verifying database persistence...");
-            verifySubscriptionInDatabase(connection, 1);
-
-            // Simulate "restart cycle 2" - verify data still exists
-            logger.info("Simulating restart cycle 2 - verifying database persistence...");
-            verifySubscriptionInDatabase(connection, 2);
-
-            // Simulate "restart cycle 3" - verify data still exists
-            logger.info("Simulating restart cycle 3 - verifying database persistence...");
-            verifySubscriptionInDatabase(connection, 3);
-
-            logger.info("TEST 5 PASSED: Subscription data persists in database across all restart cycles");
-            testContext.completeNow();
-
-        } catch (Exception e) {
-            logger.error("Failed to verify database persistence", e);
-            testContext.failNow(e);
-        }
+            .onSuccess(v -> logger.info("✓ Server stopped for restart cycle verification"))
+            .compose(v -> managedVertx.timer(1000).<Void>mapEmpty())
+            .compose(v -> verifySubscriptionInDatabase(testContext, 1))
+            .compose(v -> {
+                logger.info("Simulating restart cycle 2 - verifying database persistence...");
+                return verifySubscriptionInDatabase(testContext, 2);
+            })
+            .compose(v -> {
+                logger.info("Simulating restart cycle 3 - verifying database persistence...");
+                return verifySubscriptionInDatabase(testContext, 3);
+            })
+            .onSuccess(v -> {
+                logger.info("TEST 5 PASSED: Subscription data persists in database across all restart cycles");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     /**
-     * Helper method to verify subscription exists in database.
+     * Helper method to verify subscription exists in database via the reactive verification pool.
+     * Returns a Future that completes successfully when the row is found and assertions pass.
      */
-    private void verifySubscriptionInDatabase(java.sql.Connection connection, int cycleNumber) throws Exception {
-        // The topic stored in database is a composite: setupId + "-" + queueName
-        String expectedTopic = setupId + "-" + QUEUE_NAME;
+    private Future<Void> verifySubscriptionInDatabase(VertxTestContext testContext, int cycleNumber) {
+        logger.info("Simulating restart cycle {} - verifying database persistence...", cycleNumber);
 
+        String expectedTopic = setupId + "-" + QUEUE_NAME;
         String sql = """
             SELECT topic, group_name, subscription_status,
                    heartbeat_interval_seconds, heartbeat_timeout_seconds
             FROM peegeeq.outbox_topic_subscriptions
-            WHERE topic = ? AND group_name = ?
+            WHERE topic = $1 AND group_name = $2
             """;
 
-        try (var stmt = connection.prepareStatement(sql)) {
-            stmt.setString(1, expectedTopic);
-            stmt.setString(2, GROUP_NAME);
+        return verifyPool.withConnection(conn ->
+                conn.preparedQuery(sql).execute(Tuple.of(expectedTopic, GROUP_NAME)))
+            .compose(rowSet -> {
+                if (rowSet.size() == 0) {
+                    return Future.failedFuture(new AssertionError(
+                        "Subscription NOT FOUND in database after restart cycle " + cycleNumber));
+                }
+                Row row = rowSet.iterator().next();
+                String status = row.getString("subscription_status");
+                int heartbeatInterval = row.getInteger("heartbeat_interval_seconds");
+                int heartbeatTimeout = row.getInteger("heartbeat_timeout_seconds");
 
-            try (var rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    String status = rs.getString("subscription_status");
-                    int heartbeatInterval = rs.getInt("heartbeat_interval_seconds");
-                    int heartbeatTimeout = rs.getInt("heartbeat_timeout_seconds");
-
+                testContext.verify(() -> {
                     assertEquals("ACTIVE", status, "Status should be ACTIVE after restart cycle " + cycleNumber);
                     assertEquals(60, heartbeatInterval, "Heartbeat interval should be 60 after restart cycle " + cycleNumber);
                     assertEquals(180, heartbeatTimeout, "Heartbeat timeout should be 180 after restart cycle " + cycleNumber);
+                });
 
-                    logger.info("✓ Restart cycle {}: Subscription verified in database (status={}, interval={}s, timeout={}s)",
-                        cycleNumber, status, heartbeatInterval, heartbeatTimeout);
-                } else {
-                    throw new AssertionError("Subscription NOT FOUND in database after restart cycle " + cycleNumber);
-                }
-            }
-        }
+                logger.info("✓ Restart cycle {}: Subscription verified in database (status={}, interval={}s, timeout={}s)",
+                    cycleNumber, status, heartbeatInterval, heartbeatTimeout);
+                return Future.<Void>succeededFuture();
+            });
     }
     
     // Note: cleanup is now handled by closeManagedVertx() in @AfterAll
@@ -510,18 +496,16 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         server = new PeeGeeQRestServer(testConfig, setupService);
 
         return vertx.deployVerticle(server)
-            .compose(id -> {
+            .map(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed with ID: {}", deploymentId);
 
-                // Create HTTP clients
+                // Create HTTP clients. The deployVerticle Future only resolves after
+                // PeeGeeQRestServer.start(Promise) completes, which itself only completes
+                // after httpServer.listen() succeeds — so the server is fully ready here.
                 httpClient = vertx.createHttpClient();
                 webClient = WebClient.create(vertx);
-
-                // Give server time to fully initialize
-                return Future.future(promise -> {
-                    vertx.setTimer(1500, timerId -> promise.complete());
-                });
+                return null;
             });
     }
 

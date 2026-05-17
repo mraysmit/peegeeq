@@ -87,9 +87,10 @@ public class TransactionController {
         
         return transactionService.recordTransaction(request)
             .map(ResponseEntity::ok)
-            .otherwise(error -> {
-                logger.error("REST: Failed to record transaction", error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to record transaction", ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     
@@ -112,9 +113,10 @@ public class TransactionController {
         
         return transactionService.getAccountHistory(accountId)
             .map(ResponseEntity::ok)
-            .otherwise(error -> {
-                logger.error("REST: Failed to retrieve account history", error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to retrieve account history", ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     
@@ -140,9 +142,10 @@ public class TransactionController {
         
         return transactionService.getAccountBalance(accountId, pointInTime)
             .map(ResponseEntity::ok)
-            .otherwise(error -> {
-                logger.error("REST: Failed to calculate balance", error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to calculate balance", ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     
@@ -171,9 +174,10 @@ public class TransactionController {
         
         return transactionService.correctTransaction(transactionId, request)
             .map(ResponseEntity::ok)
-            .otherwise(error -> {
-                logger.error("REST: Failed to correct transaction", error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to correct transaction", ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     
@@ -196,9 +200,10 @@ public class TransactionController {
         
         return transactionService.getTransactionVersions(transactionId)
             .map(ResponseEntity::ok)
-            .otherwise(error -> {
-                logger.error("REST: Failed to retrieve transaction versions", error);
-                return ResponseEntity.internalServerError().build();
+            .transform(ar -> {
+                if (ar.succeeded()) return Future.succeededFuture(ar.result());
+                logger.error("REST: Failed to retrieve transaction versions", ar.cause());
+                return Future.succeededFuture(ResponseEntity.internalServerError().build());
             });
     }
     

@@ -55,7 +55,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 
+import dev.mars.peegeeq.test.util.FutureTestHelper;
 import java.util.concurrent.TimeUnit;
+
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -93,44 +96,54 @@ public class MessagePriorityExampleTest {
     private QueueFactory factory;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Message Priority Example Test");
-        
+
         // Configure database connection
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .property("peegeeq.queue.priority.enabled", "true")
                 .property("peegeeq.queue.priority.index-optimization", "true")
                 .build();
-        
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        
-        // Create outbox factory (outbox pattern supports priorities better)
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        factory = provider.createFactory("outbox", databaseService);
-        
-        logger.info("✓ Message Priority Example Test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                // Create outbox factory (outbox pattern supports priorities better)
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith(provider);
+                factory = provider.createFactory("outbox", databaseService);
+                logger.info("✓ Message Priority Example Test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
-    
+
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Message Priority Example Test");
-        
+
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    logger.info("✓ Message Priority Example Test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.warn("Error closing manager: {}", err.getMessage());
+                    testContext.completeNow();
+                });
+        } else {
+            logger.info("✓ Message Priority Example Test teardown completed");
+            testContext.completeNow();
         }
-        
-        logger.info("✓ Message Priority Example Test teardown completed");
     }
 
     /**
@@ -291,13 +304,13 @@ public class MessagePriorityExampleTest {
     // Helper methods
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
-        producer.send(message).await();
+        awaitFuture(producer.send(message), 30, TimeUnit.SECONDS);
         logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
     }
 
     private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
-        producer.send(message).await();
+        awaitFuture(producer.send(message), 30, TimeUnit.SECONDS);
         logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
     }
 

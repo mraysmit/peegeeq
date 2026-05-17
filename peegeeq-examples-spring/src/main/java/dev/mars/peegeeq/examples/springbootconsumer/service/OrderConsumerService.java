@@ -205,13 +205,9 @@ public class OrderConsumerService {
                     });
             })
             .map(v -> (Void) null)
-            .otherwise(ex -> {
+            .onFailure(ex -> {
                 log.error("❌ Failed to process message: orderId={}", event.getOrderId(), ex);
                 messagesFailed.incrementAndGet();
-                if (ex instanceof RuntimeException) {
-                    throw (RuntimeException) ex;
-                }
-                throw new RuntimeException("Message processing failed", ex);
             });
     }
     

@@ -66,10 +66,10 @@ class PartitionedConsumerEngineLifecycleTest {
     @AfterEach
     void tearDown() {
         if (connectionManager != null) {
-            try { connectionManager.close(); } catch (Exception ignored) {}
+            connectionManager.close().onFailure(e -> fail("tearDown connectionManager.close() failed: " + e.getMessage()));
         }
         if (vertx != null) {
-            try { vertx.close(); } catch (Exception ignored) {}
+            vertx.close().onFailure(e -> {});
         }
     }
 

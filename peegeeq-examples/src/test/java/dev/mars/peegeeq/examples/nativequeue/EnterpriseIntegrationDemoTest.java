@@ -259,7 +259,7 @@ class EnterpriseIntegrationDemoTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Enterprise Integration Demo Test");
 
@@ -274,34 +274,33 @@ class EnterpriseIntegrationDemoTest {
         // Initialize PeeGeeQ with integration configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create native factory
+            var databaseService = new PgDatabaseService(manager);
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            // Register native factory implementation
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            queueFactory = provider.createFactory("native", databaseService);
 
-        queueFactory = provider.createFactory("native", databaseService);
-
-        logger.info("Setup complete - Ready for enterprise integration pattern testing");
+            logger.info("Setup complete - Ready for enterprise integration pattern testing");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up Enterprise Integration Demo Test");
-        
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error during manager cleanup: {}", e.getMessage());
-            }
-        }
-
-        logger.info("Cleanup complete");
+        (manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+                .onSuccess(v -> {
+                    logger.info("Cleanup complete");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

@@ -26,7 +26,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -49,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -114,14 +114,14 @@ class OutboxConsumerGroupSpringBootTest {
     }
     
     @AfterEach
-    void tearDown(Vertx vertx) throws InterruptedException {
+    void tearDown(Vertx vertx) throws Exception {
         logger.info("🧹 Cleaning up Consumer Group Spring Boot Test");
         
         // Close all active consumer groups first (critical for connection cleanup)
         for (ConsumerGroup<?> group : activeConsumerGroups) {
             try {
-                group.stop();
-                group.close();
+                awaitFuture(group.stop(), 5, TimeUnit.SECONDS);
+                awaitFuture(group.close(), 5, TimeUnit.SECONDS);
                 logger.info("Closed consumer group: {}", group.getGroupName());
             } catch (Exception e) {
                 logger.error("⚠️ Error closing consumer group: {}", e.getMessage());
@@ -142,18 +142,16 @@ class OutboxConsumerGroupSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         peeGeeQManagerRef = peeGeeQManager;
         logger.info("Cleanup complete");
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -210,7 +208,7 @@ class OutboxConsumerGroupSpringBootTest {
         logger.info("📤 Sending {} messages for load balancing test", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             String message = "message-" + i;
-            producer.send(message).await();
+            producer.send(message).onFailure(testContext::failNow);
         }
         
         // Wait for all messages to be processed
@@ -307,7 +305,7 @@ class OutboxConsumerGroupSpringBootTest {
         logger.info("📤 Sending {} messages for failure handling test", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             String message = "message-" + i;
-            producer.send(message).await();
+            producer.send(message).onFailure(testContext::failNow);
         }
         
         // Wait for all messages to be processed

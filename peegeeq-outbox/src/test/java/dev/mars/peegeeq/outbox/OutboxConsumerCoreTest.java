@@ -39,6 +39,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -59,13 +61,6 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 /**
  * Integration tests for OutboxConsumer core functionality.
  * Tests consumer operations with real database using TestContainers.
- * 
- * Focuses on testing uncovered consumer methods to increase coverage from 75% to 90%+:
- * - Consumer lifecycle (subscribe, unsubscribe, close)
- * - Message receiving and handling
- * - Consumer group tracking
- * - Error handling during consumption
- * - Configuration-based behavior
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -84,7 +79,7 @@ public class OutboxConsumerCoreTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "consumer-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -92,17 +87,19 @@ public class OutboxConsumerCoreTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+            .onSuccess(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, config);
+                producer = outboxFactory.createProducer(testTopic, String.class);
+                consumer = outboxFactory.createConsumer(testTopic, String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -113,9 +110,13 @@ public class OutboxConsumerCoreTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
-
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -124,7 +125,7 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerSubscribe(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerSubscribe(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: consumer creation");
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
@@ -136,54 +137,56 @@ public class OutboxConsumerCoreTest {
         });
 
         String testMessage = "Test message for subscribe";
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
         assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
     }
 
     @Test
-    void testConsumerUnsubscribe(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        io.vertx.core.Promise<Void> firstReceivedPromise = io.vertx.core.Promise.promise();
+    void testConsumerUnsubscribe(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger messageCount = new AtomicInteger(0);
+        Promise<Void> firstReceived = Promise.promise();
 
         consumer.subscribe(message -> {
-        logger.info("Test: consumer unsubscribe");
+            logger.info("Test: consumer unsubscribe");
             messageCount.incrementAndGet();
-            firstReceivedPromise.tryComplete();
+            firstReceived.tryComplete();
             return Future.succeededFuture();
         });
 
-        producer.send("Message 1").await();
-        firstReceivedPromise.future().await();
-        assertEquals(1, messageCount.get(), "Should have received one message");
-
-        consumer.unsubscribe();
-
-        vertx.timer(1000).await();
-
-        producer.send("Message 2").await();
-        vertx.timer(2000).await();
-
-        assertEquals(1, messageCount.get(), "Should not receive messages after unsubscribe");
-        testContext.completeNow();
+        producer.send("Message 1").onFailure(testContext::failNow);
+        firstReceived.future()
+            .onSuccess(v -> testContext.verify(() -> assertEquals(1, messageCount.get(), "Should have received one message")))
+            .compose(v -> {
+                consumer.unsubscribe();
+                return vertx.timer(1000);
+            })
+            .compose(v -> producer.send("Message 2"))
+            .compose(v -> vertx.timer(2000))
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, messageCount.get(), "Should not receive messages after unsubscribe");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testConsumerReceivesMultipleMessages(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerReceivesMultipleMessages(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
         Checkpoint latch = testContext.checkpoint(messageCount);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
-        logger.info("Test: consumer receives multiple messages");
+            logger.info("Test: consumer receives multiple messages");
             receivedCount.incrementAndGet();
             latch.flag();
             return Future.succeededFuture();
         });
 
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Message " + i).await();
+            producer.send("Message " + i).onFailure(testContext::failNow);
         }
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all messages within timeout");
@@ -191,12 +194,12 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerReceivesMessagesWithHeaders(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerReceivesMessagesWithHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         consumer.subscribe(message -> {
-        logger.info("Test: consumer receives messages with headers");
+            logger.info("Test: consumer receives messages with headers");
             receivedHeaders.set(message.getHeaders());
             latch.flag();
             return Future.succeededFuture();
@@ -206,7 +209,7 @@ public class OutboxConsumerCoreTest {
         headers.put("content-type", "application/json");
         headers.put("source", "test");
 
-        producer.send("Message with headers", headers).await();
+        producer.send("Message with headers", headers).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
         assertNotNull(receivedHeaders.get(), "Should receive headers");
@@ -215,12 +218,12 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerHandlerException(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerHandlerException(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint latch = testContext.checkpoint();
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
-        logger.info("Test: consumer handler exception");
+            logger.info("Test: consumer handler exception");
             int attempt = attemptCount.incrementAndGet();
             latch.flag();
 
@@ -230,39 +233,41 @@ public class OutboxConsumerCoreTest {
             return Future.succeededFuture();
         });
 
-        producer.send("Message that causes error").await();
+        producer.send("Message that causes error").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
         assertTrue(attemptCount.get() >= 1, "Should have at least one processing attempt");
     }
 
     @Test
-    void testConsumerClose(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        io.vertx.core.Promise<Void> firstReceivedPromise = io.vertx.core.Promise.promise();
+    void testConsumerClose(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger messageCount = new AtomicInteger(0);
+        Promise<Void> firstReceived = Promise.promise();
 
         consumer.subscribe(message -> {
-        logger.info("Test: consumer close");
+            logger.info("Test: consumer close");
             messageCount.incrementAndGet();
-            firstReceivedPromise.tryComplete();
+            firstReceived.tryComplete();
             return Future.succeededFuture();
         });
 
-        producer.send("Message before close").await();
-        firstReceivedPromise.future().await();
-
-        consumer.close();
-
-        producer.send("Message after close").await();
-
-        vertx.timer(2000).await();
-
-        assertEquals(1, messageCount.get(), "Should only have received one message");
-        testContext.completeNow();
+        producer.send("Message before close").onFailure(testContext::failNow);
+        firstReceived.future()
+            .compose(v -> {
+                consumer.close();
+                return producer.send("Message after close");
+            })
+            .compose(v -> vertx.timer(2000))
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, messageCount.get(), "Should only have received one message");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSubscribeOnClosedConsumerThrowsIllegalStateException(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testSubscribeOnClosedConsumerThrowsIllegalStateException(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: subscribe on closed consumer");
         consumer.close();
 
@@ -276,11 +281,11 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerGroupNameSetting(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConsumerGroupNameSetting(Vertx vertx, VertxTestContext testContext) throws Exception {
         MessageConsumer<String> groupConsumer = outboxFactory.createConsumer(testTopic, String.class);
 
         if (groupConsumer instanceof OutboxConsumer) {
-        logger.info("Test: consumer group name setting");
+            logger.info("Test: consumer group name setting");
             ((OutboxConsumer<String>) groupConsumer).setConsumerGroupName("test-group");
         }
 
@@ -291,7 +296,7 @@ public class OutboxConsumerCoreTest {
             return Future.succeededFuture();
         });
 
-        producer.send("Message for consumer group").await();
+        producer.send("Message for consumer group").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer with group should receive message");
 

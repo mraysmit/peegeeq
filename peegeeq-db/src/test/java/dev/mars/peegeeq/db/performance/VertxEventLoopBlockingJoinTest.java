@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the intentional blocking.
  */
 @Tag(TestCategories.CORE)
+@Tag("demonstration")
 @ExtendWith(VertxExtension.class)
 class VertxEventLoopBlockingJoinTest {
 

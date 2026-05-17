@@ -68,7 +68,7 @@ class ConsumerModeResourceManagementTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -85,23 +85,30 @@ class ConsumerModeResourceManagementTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        factory = provider.createFactory("native", databaseService);
+        manager.start().onSuccess(v -> {
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+            factory = provider.createFactory("native", databaseService);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

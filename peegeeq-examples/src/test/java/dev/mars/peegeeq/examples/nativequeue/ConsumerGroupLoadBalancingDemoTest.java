@@ -35,6 +35,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -143,7 +144,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Consumer Group Load Balancing Demo Test");
 
@@ -158,34 +159,36 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Initialize PeeGeeQ with load balancing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        queueFactory = provider.createFactory("native", databaseService);
-
-        logger.info("Setup complete - Ready for load balancing pattern testing");
+        manager.start()
+            .onSuccess(v -> {
+                var databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                queueFactory = provider.createFactory("native", databaseService);
+                logger.info("Setup complete - Ready for load balancing pattern testing");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up Consumer Group Load Balancing Demo Test");
-        
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error during manager cleanup: {}", e.getMessage());
-            }
-        }
 
-        logger.info("Cleanup complete");
+        if (manager == null) {
+            testContext.completeNow();
+            return;
+        }
+        manager.closeReactive()
+            .onSuccess(v -> {
+                logger.info("Cleanup complete");
+                testContext.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Error during manager cleanup: {}", err.getMessage());
+                testContext.completeNow();
+            });
     }
 
     /**
@@ -239,8 +242,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                Promise<Void> future = Promise.promise();
-                vertx.setTimer(work.processingTimeMs, timerId -> {
+                return vertx.timer(work.processingTimeMs).<Void>map(t -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
@@ -248,9 +250,8 @@ class ConsumerGroupLoadBalancingDemoTest {
                     logger.debug("{} processed work: {} (processing time: {}ms)", consumerId, work.workId, processingTime);
 
                     processedCheckpoint.flag();
-                    future.complete();
+                    return null;
                 });
-                return future.future();
             };
 
             // 🔄 **Add Consumer without Filter**: Enables automatic round-robin distribution
@@ -258,21 +259,23 @@ class ConsumerGroupLoadBalancingDemoTest {
             roundRobinGroup.addConsumer(consumerId, roundRobinHandler);
         }
 
-        // Start the consumer group
-        roundRobinGroup.start();
+        // Start the consumer group and wait for LISTEN registration before sending
+        roundRobinGroup.start()
+            .onFailure(testContext::failNow)
+            .onSuccess(v -> {
+                // 📤 **Send work items for round-robin distribution**
+                logger.info("Sending {} work items for round-robin distribution...", numMessages);
 
-        // 📤 **Send work items for round-robin distribution**
-        logger.info("Sending {} work items for round-robin distribution...", numMessages);
+                for (int i = 0; i < numMessages; i++) {
+                    Map<String, Object> workData = new HashMap<>();
+                    workData.put("taskType", "round-robin-task");
+                    workData.put("sequence", i + 1);
 
-        for (int i = 0; i < numMessages; i++) {
-            Map<String, Object> workData = new HashMap<>();
-            workData.put("taskType", "round-robin-task");
-            workData.put("sequence", i + 1);
-
-            WorkItem work = new WorkItem("rr-work-" + (i + 1), "session-" + (i % 3),
-                                       100, 5, workData);
-            producer.send(work);
-        }
+                    WorkItem work = new WorkItem("rr-work-" + (i + 1), "session-" + (i % 3),
+                                               100, 5, workData);
+                    producer.send(work).onFailure(testContext::failNow);
+                }
+            });
 
         // Wait for all work items to be processed
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all work items");
@@ -298,8 +301,8 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // 🧹 **Cleanup ConsumerGroup**: Proper resource management
-        roundRobinGroup.stop();
-        roundRobinGroup.close();
+        awaitFuture(roundRobinGroup.stop(), 5, TimeUnit.SECONDS);
+        awaitFuture(roundRobinGroup.close(), 5, TimeUnit.SECONDS);
 
         logger.info("Round Robin Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);
@@ -340,8 +343,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
                 // Simulate processing time inversely proportional to weight
                 int processingTime = work.processingTimeMs / weights[consumerIndex];
-                Promise<Void> future = Promise.promise();
-                vertx.setTimer(processingTime, timerId -> {
+                return vertx.timer(processingTime).<Void>map(t -> {
                     long actualProcessingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(actualProcessingTime);
@@ -349,9 +351,8 @@ class ConsumerGroupLoadBalancingDemoTest {
                     logger.debug("{} (weight={}) processed work: {} (processing time: {}ms)", consumerId, weights[consumerIndex], work.workId, actualProcessingTime);
 
                     processedCheckpoint.flag();
-                    future.complete();
+                    return null;
                 });
-                return future.future();
             });
         }
 
@@ -366,7 +367,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
             WorkItem work = new WorkItem("weighted-work-" + (i + 1), "session-" + (i % 5),
                                        300, 5, workData);
-            producer.send(work);
+            producer.send(work).onFailure(testContext::failNow);
         }
 
         // Wait for all work items to be processed
@@ -458,8 +459,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                Promise<Void> future = Promise.promise();
-                vertx.setTimer(work.processingTimeMs, timerId -> {
+                return vertx.timer(work.processingTimeMs).<Void>map(t -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
@@ -467,9 +467,8 @@ class ConsumerGroupLoadBalancingDemoTest {
                     logger.debug("{} processed work: {} for session: {} (processing time: {}ms)", consumerId, work.workId, work.sessionId, processingTime);
 
                     processedCheckpoint.flag();
-                    future.complete();
+                    return null;
                 });
-                return future.future();
             };
 
             // 🔗 **Add Consumer with Session Filter**: Only processes messages for this session
@@ -478,35 +477,37 @@ class ConsumerGroupLoadBalancingDemoTest {
                 MessageFilter.byHeader("sessionId", sessionId));
         }
 
-        // Start the consumer group
-        stickyGroup.start();
+        // Start the consumer group and wait for LISTEN registration before sending
+        stickyGroup.start()
+            .onFailure(testContext::failNow)
+            .onSuccess(v -> {
+                // 📤 **Send work items with session affinity headers**
+                // 🚨 KEY PATTERN: Set sessionId in message headers for MessageFilter.byHeader() routing
+                logger.info("Sending {} work items with session affinity...", totalMessages);
 
-        // 📤 **Send work items with session affinity headers**
-        // 🚨 KEY PATTERN: Set sessionId in message headers for MessageFilter.byHeader() routing
-        logger.info("Sending {} work items with session affinity...", totalMessages);
+                for (int session = 0; session < numSessions; session++) {
+                    String sessionId = "session-" + (session + 1);
 
-        for (int session = 0; session < numSessions; session++) {
-            String sessionId = "session-" + (session + 1);
+                    for (int msg = 0; msg < messagesPerSession; msg++) {
+                        Map<String, Object> workData = new HashMap<>();
+                        workData.put("taskType", "sticky-session-task");
+                        workData.put("sessionId", sessionId);
+                        workData.put("messageInSession", msg + 1);
+                        workData.put("statefulData", "session-state-" + session);
 
-            for (int msg = 0; msg < messagesPerSession; msg++) {
-                Map<String, Object> workData = new HashMap<>();
-                workData.put("taskType", "sticky-session-task");
-                workData.put("sessionId", sessionId);
-                workData.put("messageInSession", msg + 1);
-                workData.put("statefulData", "session-state-" + session);
+                        WorkItem work = new WorkItem("sticky-work-" + session + "-" + msg,
+                                                   sessionId, 150, 5, workData);
 
-                WorkItem work = new WorkItem("sticky-work-" + session + "-" + msg,
-                                           sessionId, 150, 5, workData);
+                        // 🔗 **Critical**: Set sessionId in message headers for filtering
+                        // This is what enables MessageFilter.byHeader("sessionId", sessionId) to work
+                        Map<String, String> headers = new HashMap<>();
+                        headers.put("sessionId", sessionId);
+                        headers.put("messageType", "sticky-session-task");
 
-                // 🔗 **Critical**: Set sessionId in message headers for filtering
-                // This is what enables MessageFilter.byHeader("sessionId", sessionId) to work
-                Map<String, String> headers = new HashMap<>();
-                headers.put("sessionId", sessionId);
-                headers.put("messageType", "sticky-session-task");
-
-                producer.send(work, headers);
-            }
-        }
+                        producer.send(work, headers).onFailure(testContext::failNow);
+                    }
+                }
+            });
 
         // Wait for all work items to be processed
         // Each message takes 150ms + network overhead, so 15 messages * 200ms + buffer = ~5 seconds minimum
@@ -534,8 +535,8 @@ class ConsumerGroupLoadBalancingDemoTest {
                     "Should have mapping for all sessions");
 
         // 🧹 **Cleanup ConsumerGroup**: Proper resource management
-        stickyGroup.stop();
-        stickyGroup.close();
+        awaitFuture(stickyGroup.stop(), 5, TimeUnit.SECONDS);
+        awaitFuture(stickyGroup.close(), 5, TimeUnit.SECONDS);
 
         logger.info("Sticky Session Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);
@@ -576,8 +577,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 long startTime = System.currentTimeMillis();
 
                 // Simulate different processing speeds
-                Promise<Void> future = Promise.promise();
-                vertx.setTimer(processingDelays[consumerIndex], timerId -> {
+                return vertx.timer(processingDelays[consumerIndex]).<Void>map(t -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
@@ -592,9 +592,8 @@ class ConsumerGroupLoadBalancingDemoTest {
                     logger.debug("{} ({}) processed work: {} (processing time: {}ms, avg: {}ms)", consumerId, performanceLevel, work.workId, processingTime, String.format("%.1f", avgTime));
 
                     processedCheckpoint.flag();
-                    future.complete();
+                    return null;
                 });
-                return future.future();
             });
         }
 
@@ -609,7 +608,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
             WorkItem work = new WorkItem("dynamic-work-" + (i + 1), "session-" + (i % 4),
                                        100, 5, workData);
-            producer.send(work);
+            producer.send(work).onFailure(testContext::failNow);
         }
 
         // Wait for all work items to be processed

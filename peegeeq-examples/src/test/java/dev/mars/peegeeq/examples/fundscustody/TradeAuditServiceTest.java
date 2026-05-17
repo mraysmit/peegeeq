@@ -9,7 +9,6 @@ import dev.mars.peegeeq.examples.fundscustody.model.CorrectionAudit;
 import dev.mars.peegeeq.examples.fundscustody.service.TradeAuditService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -34,17 +33,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class TradeAuditServiceTest extends FundsCustodyTestBase {
 
     private Future<Void> delay(Vertx vertx, long ms) {
-        Promise<Void> p = Promise.promise();
-        vertx.setTimer(ms, id -> p.complete());
-        return p.future();
+        return vertx.timer(ms).<Void>mapEmpty();
     }
     
     private TradeAuditService auditService;
     
     @BeforeEach
-    @Override
-    void setUp(Vertx vertx) throws Exception {
-        super.setUp(vertx);
+    void initAuditService() {
+        // Base @BeforeEach (FundsCustodyTestBase.setUp) is invoked by JUnit before this method.
+        // We just rebind the local auditService reference to the freshly-constructed stores.
         auditService = new TradeAuditService(tradeEventStore, cancellationEventStore);
     }
     

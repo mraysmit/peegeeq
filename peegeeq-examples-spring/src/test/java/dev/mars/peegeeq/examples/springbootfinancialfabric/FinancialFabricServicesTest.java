@@ -48,6 +48,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -129,9 +130,9 @@ public class FinancialFabricServicesTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -159,7 +160,7 @@ public class FinancialFabricServicesTest {
         DatabaseService databaseService = new PgDatabaseService(peeGeeQManager);
 
         // Execute the complete workflow in a transaction
-        databaseService.getConnectionProvider().withTransaction("peegeeq-main", connection -> {
+        Future<Void> workflowFuture = databaseService.getConnectionProvider().withTransaction("peegeeq-main", connection -> {
 
             // Step 1: Capture trade
             TradeEvent tradeEvent = new TradeEvent(
@@ -290,8 +291,9 @@ public class FinancialFabricServicesTest {
                 log.info("Complete trade lifecycle executed successfully");
                 return (Void) null;
             });
-        }).await();
-        
+        });
+        awaitFuture(workflowFuture, 30, TimeUnit.SECONDS);
+
         log.info("Complete Trade Lifecycle test passed");
     }
 }

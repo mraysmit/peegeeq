@@ -27,7 +27,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterAll;
@@ -51,7 +50,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -146,9 +147,9 @@ class OrderProcessingServiceTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -191,7 +192,7 @@ class OrderProcessingServiceTest {
         
         // SERVICE EXECUTION: Process the order
         logger.info("Processing single product order: {}", orderId);
-        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).await();
+        OrderProcessingResult result = awaitFuture(orderProcessingService.processCompleteOrder(request), 30, TimeUnit.SECONDS);
         
         // RESULT VALIDATION: Processing should be successful
         assertNotNull(result, "Processing result should not be null");
@@ -207,20 +208,18 @@ class OrderProcessingServiceTest {
         logger.info("Starting event store validation for order: {}", orderId);
 
         // Add a small delay to ensure all async operations complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         // 1. Order Event Validation - Query specifically for OrderCreated events
         logger.info("Querying order events for orderId: {}", orderId);
         List<BiTemporalEvent<OrderEvent>> orderEvents =
-            orderEventStore.query(EventQuery.builder()
+            awaitFuture(orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
-        
+
         BiTemporalEvent<OrderEvent> orderEvent = orderEvents.get(0);
         assertEquals("OrderCreated", orderEvent.getEventType(), "Order event type should be OrderCreated");
         assertEquals(orderId, orderEvent.getPayload().getOrderId(), "Order ID should match");
@@ -229,13 +228,13 @@ class OrderProcessingServiceTest {
         assertEquals(1, orderEvent.getPayload().getItems().size(), "Should have one order item");
         assertEquals(new BigDecimal("49.99"), orderEvent.getPayload().getTotalAmount(), "Total amount should match");
         assertEquals("USD", orderEvent.getPayload().getCurrency(), "Currency should match");
-        
+
         // 2. Inventory Event Validation - Query specifically for this order's inventory events
         List<BiTemporalEvent<InventoryEvent>> inventoryEvents =
-            inventoryEventStore.query(EventQuery.builder()
+            awaitFuture(inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         assertEquals(1, inventoryEvents.size(), "Should have exactly one inventory event");
         
@@ -249,10 +248,10 @@ class OrderProcessingServiceTest {
         
         // 3. Payment Event Validation - Query specifically for this order's payment events
         List<BiTemporalEvent<PaymentEvent>> paymentEvents =
-            paymentEventStore.query(EventQuery.builder()
+            awaitFuture(paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         
@@ -267,9 +266,9 @@ class OrderProcessingServiceTest {
         
         // 4. Audit Event Validation - Query specifically for this order's audit events
         List<BiTemporalEvent<AuditEvent>> auditEvents =
-            auditEventStore.query(EventQuery.builder()
+            awaitFuture(auditEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         // DEBUG: Log audit events to understand what's being returned
         logger.info("Found {} audit events for orderId: {}", auditEvents.size(), orderId);
@@ -284,9 +283,9 @@ class OrderProcessingServiceTest {
         // If no transaction lifecycle events found, try querying by correlation ID
         if (auditEvents.stream().noneMatch(e -> "TransactionStarted".equals(e.getEventType()))) {
             logger.info("No TransactionStarted events found with aggregateId={}, trying correlationId query", orderId);
-            auditEvents = auditEventStore.query(EventQuery.builder()
+            auditEvents = awaitFuture(auditEventStore.query(EventQuery.builder()
                 .correlationId(result.getCorrelationId())
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
             logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
             for (int i = 0; i < auditEvents.size(); i++) {
@@ -387,7 +386,7 @@ class OrderProcessingServiceTest {
         
         // SERVICE EXECUTION: Process the multi-product order
         logger.info("Processing multi-product order: {}", orderId);
-        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).await();
+        OrderProcessingResult result = awaitFuture(orderProcessingService.processCompleteOrder(request), 30, TimeUnit.SECONDS);
         
         // RESULT VALIDATION: Processing should be successful
         assertTrue(result.isSuccess(), "Multi-product order processing should be successful");
@@ -399,17 +398,15 @@ class OrderProcessingServiceTest {
         logger.info("Starting event store validation for order: {}", orderId);
 
         // Add a small delay to ensure all async operations complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         // 1. Order Event Validation - Query specifically for OrderCreated events
         logger.info("Querying order events for orderId: {}", orderId);
         List<BiTemporalEvent<OrderEvent>> orderEvents =
-            orderEventStore.query(EventQuery.builder()
+            awaitFuture(orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
@@ -419,10 +416,10 @@ class OrderProcessingServiceTest {
         
         // 2. Inventory Event Validation - Should have one event per product
         List<BiTemporalEvent<InventoryEvent>> inventoryEvents =
-            inventoryEventStore.query(EventQuery.builder()
+            awaitFuture(inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         assertEquals(3, inventoryEvents.size(), "Should have exactly three inventory events (one per product)");
         
@@ -455,10 +452,10 @@ class OrderProcessingServiceTest {
         
         // 3. Payment Event Validation - Should have one payment for total amount
         List<BiTemporalEvent<PaymentEvent>> paymentEvents =
-            paymentEventStore.query(EventQuery.builder()
+            awaitFuture(paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
-                .build()).await();
+                .build()), 30, TimeUnit.SECONDS);
 
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         

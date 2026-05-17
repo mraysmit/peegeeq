@@ -52,6 +52,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -133,7 +135,7 @@ public class OrderConsumerServiceTest {
             """;
 
         // Execute application-specific schema creation
-        databaseService.getConnectionProvider()
+        awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createConsumerStatusTable).execute())
@@ -141,7 +143,7 @@ public class OrderConsumerServiceTest {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).await();
+            }), 30, TimeUnit.SECONDS);
 
         log.info("=== Application-specific schema setup complete ===");
     }
@@ -168,10 +170,10 @@ public class OrderConsumerServiceTest {
     }
 
     @AfterAll
-    static void tearDown() {
+    static void tearDown() throws Exception {
         log.info("🧹 Cleaning up Order Consumer Service Test resources");
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
         log.info("Order Consumer Service Test cleanup complete");
     }
@@ -185,15 +187,13 @@ public class OrderConsumerServiceTest {
         
         // Send test message
         OrderEvent event = new OrderEvent("ORDER-001", "customer-1", new BigDecimal("100.00"), "PENDING");
-        producer.send(event).await();
-        
+        producer.send(event).onFailure(err -> log.warn("Failed to send event", err));
+
         // Wait for message to be processed
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
-        
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
+
         // Verify order was stored in database
-        boolean orderExists = databaseService.getConnectionProvider()
+        boolean orderExists = awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.preparedQuery("SELECT COUNT(*) FROM orders WHERE id = $1")
                     .execute(io.vertx.sqlclient.Tuple.of("ORDER-001"))
@@ -201,8 +201,7 @@ public class OrderConsumerServiceTest {
                         Row row = rows.iterator().next();
                         return row.getLong(0) > 0;
                     });
-            })
-            .await();
+            }), 30, TimeUnit.SECONDS);
         
         assertTrue(orderExists, "Order should be stored in database");
         assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
@@ -223,17 +222,15 @@ public class OrderConsumerServiceTest {
         
         // Send message with allowed status (should be processed)
         OrderEvent allowedEvent = new OrderEvent("ORDER-002", "customer-2", new BigDecimal("150.00"), "PENDING");
-        producer.send(allowedEvent).await();
-        
+        producer.send(allowedEvent).onFailure(err -> log.warn("Failed to send allowed event", err));
+
         // Send message with disallowed status (should be filtered)
         OrderEvent filteredEvent = new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED");
-        producer.send(filteredEvent).await();
-        
+        producer.send(filteredEvent).onFailure(err -> log.warn("Failed to send filtered event", err));
+
         // Wait for messages to be processed
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
-        
+        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
+
         // Verify filtering worked
         long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
         long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;

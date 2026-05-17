@@ -95,8 +95,13 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      * For late-joining consumer scenarios, use {@link #start(Object)} with SubscriptionOptions,
      * or manage subscriptions separately via SubscriptionManager.
      * </p>
+     *
+     * @return a Future that completes when the consumer group is fully active
+     *         (LISTEN connection registered, all members started). Callers MUST
+     *         observe this future before sending messages to guarantee delivery
+     *         via LISTEN/NOTIFY rather than the slower polling backstop.
      */
-    void start();
+    Future<Void> start();
     
     /**
      * Starts the consumer group with subscription options.
@@ -216,4 +221,24 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      */
     @Override
     void close();
+
+    /**
+     * Closes the consumer group asynchronously and returns a Future that completes when cleanup is done.
+     * <p>
+     * The {@code Async} suffix is required because {@code ConsumerGroup<T> extends AutoCloseable}
+     * already provides {@code void close()}, and Java does not allow a {@code Future<Void> close()}
+     * overload with the same parameter list.
+     * </p>
+     * <p>
+     * Implementations that perform real async cleanup (e.g. draining in-flight messages) should
+     * override this method. The default wraps the synchronous {@link #close()} in a succeeded Future.
+     * </p>
+     *
+     * @return a Future that completes when the consumer group is fully closed
+     * @since 1.3.0
+     */
+    default Future<Void> closeAsync() {
+        close();
+        return Future.succeededFuture();
+    }
 }

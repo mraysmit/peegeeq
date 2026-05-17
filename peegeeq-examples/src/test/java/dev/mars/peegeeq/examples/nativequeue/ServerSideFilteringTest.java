@@ -37,7 +37,6 @@ import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -78,7 +77,7 @@ public class ServerSideFilteringTest {
     private PgNativeQueueFactory nativeFactory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up ServerSideFilteringTest ===");
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
@@ -88,18 +87,20 @@ public class ServerSideFilteringTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        nativeFactory = (PgNativeQueueFactory) provider.createFactory("native", databaseService);
-        logger.info("Server-side filtering test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                var databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                nativeFactory = (PgNativeQueueFactory) provider.createFactory("native", databaseService);
+                logger.info("Server-side filtering test setup completed");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(Vertx vertx, VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down ServerSideFilteringTest ===");
         if (nativeFactory != null) {
@@ -109,17 +110,14 @@ public class ServerSideFilteringTest {
                 logger.warn("Error closing native factory: {}", e.getMessage());
             }
         }
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(2000, id -> delay.complete());
-                delay.future().await();
-            } catch (Exception e) {
-                logger.error("Error during manager cleanup", e);
-            }
+        if (manager == null) {
+            ctx.completeNow();
+            return;
         }
-        logger.info("Server-side filtering test teardown completed");
+        Future<Void> closeChain = manager.closeReactive()
+            .onFailure(err -> logger.error("Error during manager cleanup", err));
+        closeChain.onSuccess(v -> { logger.info("Server-side filtering test teardown completed"); ctx.completeNow(); });
+        closeChain.onFailure(err -> ctx.completeNow());
     }
 
     @Test
@@ -146,16 +144,14 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages with different types
-            producer.send("Order 1", Map.of("type", "ORDER"));
-            producer.send("Payment 1", Map.of("type", "PAYMENT"));
-            producer.send("Order 2", Map.of("type", "ORDER"));
-            producer.send("Payment 2", Map.of("type", "PAYMENT"));
+            producer.send("Order 1", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+            producer.send("Payment 1", Map.of("type", "PAYMENT")).onFailure(testContext::failNow);
+            producer.send("Order 2", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+            producer.send("Payment 2", Map.of("type", "PAYMENT")).onFailure(testContext::failNow);
             logger.info("Sent 4 messages: 2 ORDER, 2 PAYMENT");
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for filtered messages
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
@@ -195,16 +191,14 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages with different types
-            producer.send("Order 1", Map.of("type", "ORDER"));
-            producer.send("Payment 1", Map.of("type", "PAYMENT"));
-            producer.send("Refund 1", Map.of("type", "REFUND"));
-            producer.send("Order 2", Map.of("type", "ORDER"));
+            producer.send("Order 1", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+            producer.send("Payment 1", Map.of("type", "PAYMENT")).onFailure(testContext::failNow);
+            producer.send("Refund 1", Map.of("type", "REFUND")).onFailure(testContext::failNow);
+            producer.send("Order 2", Map.of("type", "ORDER")).onFailure(testContext::failNow);
             logger.info("Sent 4 messages: 2 ORDER, 1 PAYMENT, 1 REFUND");
-        });
+        }).onFailure(testContext::failNow);
 
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
@@ -243,15 +237,13 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages with different combinations
-            producer.send("Order Low", Map.of("type", "ORDER", "priority", "LOW"));
-            producer.send("Payment High", Map.of("type", "PAYMENT", "priority", "HIGH"));
-            producer.send("Order High", Map.of("type", "ORDER", "priority", "HIGH"));
+            producer.send("Order Low", Map.of("type", "ORDER", "priority", "LOW")).onFailure(testContext::failNow);
+            producer.send("Payment High", Map.of("type", "PAYMENT", "priority", "HIGH")).onFailure(testContext::failNow);
+            producer.send("Order High", Map.of("type", "ORDER", "priority", "HIGH")).onFailure(testContext::failNow);
             logger.info("Sent 3 messages with different type/priority combinations");
-        });
+        }).onFailure(testContext::failNow);
 
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
@@ -288,15 +280,13 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages with different statuses
-            producer.send("Order Active", Map.of("status", "ACTIVE"));
-            producer.send("Order Cancelled", Map.of("status", "CANCELLED"));
-            producer.send("Order Pending", Map.of("status", "PENDING"));
+            producer.send("Order Active", Map.of("status", "ACTIVE")).onFailure(testContext::failNow);
+            producer.send("Order Cancelled", Map.of("status", "CANCELLED")).onFailure(testContext::failNow);
+            producer.send("Order Pending", Map.of("status", "PENDING")).onFailure(testContext::failNow);
             logger.info("Sent 3 messages: ACTIVE, CANCELLED, PENDING");
-        });
+        }).onFailure(testContext::failNow);
 
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
@@ -338,16 +328,14 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages
-            producer.send("Order Normal", Map.of("type", "ORDER", "priority", "NORMAL"));
-            producer.send("Payment Urgent", Map.of("type", "PAYMENT", "priority", "URGENT"));
-            producer.send("Payment Normal", Map.of("type", "PAYMENT", "priority", "NORMAL"));
-            producer.send("Order Urgent", Map.of("type", "ORDER", "priority", "URGENT"));
+            producer.send("Order Normal", Map.of("type", "ORDER", "priority", "NORMAL")).onFailure(testContext::failNow);
+            producer.send("Payment Urgent", Map.of("type", "PAYMENT", "priority", "URGENT")).onFailure(testContext::failNow);
+            producer.send("Payment Normal", Map.of("type", "PAYMENT", "priority", "NORMAL")).onFailure(testContext::failNow);
+            producer.send("Order Urgent", Map.of("type", "ORDER", "priority", "URGENT")).onFailure(testContext::failNow);
             logger.info("Sent 4 messages with different type/priority combinations");
-        });
+        }).onFailure(testContext::failNow);
 
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
@@ -384,15 +372,13 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages with different event types
-            producer.send("Order Created", Map.of("eventType", "order-created"));
-            producer.send("Payment Received", Map.of("eventType", "payment-received"));
-            producer.send("Order Shipped", Map.of("eventType", "order-shipped"));
+            producer.send("Order Created", Map.of("eventType", "order-created")).onFailure(testContext::failNow);
+            producer.send("Payment Received", Map.of("eventType", "payment-received")).onFailure(testContext::failNow);
+            producer.send("Order Shipped", Map.of("eventType", "order-shipped")).onFailure(testContext::failNow);
             logger.info("Sent 3 messages with different eventType patterns");
-        });
+        }).onFailure(testContext::failNow);
 
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
@@ -430,15 +416,13 @@ public class ServerSideFilteringTest {
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
             return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
+        }).onSuccess(ready -> {
             // Send messages - some without the 'type' header
-            producer.send("No Header", Map.of("other", "value"));
-            producer.send("Order With Type", Map.of("type", "ORDER"));
-            producer.send("Empty Headers", Map.of());
+            producer.send("No Header", Map.of("other", "value")).onFailure(testContext::failNow);
+            producer.send("Order With Type", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+            producer.send("Empty Headers", Map.of()).onFailure(testContext::failNow);
             logger.info("Sent 3 messages: 1 with type=ORDER, 2 without type header");
-        });
+        }).onFailure(testContext::failNow);
 
         boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 

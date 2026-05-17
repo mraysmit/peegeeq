@@ -108,17 +108,17 @@ the test doesn't check for that.
 ### Correct Pattern
 
 ```java
-producer.send(msg)
-    .onSuccess(v -> sendLatch.countDown())
-    .onFailure(testContext::failNow);
-```
-
-Or with Checkpoint:
-```java
+// Only correct pattern: VertxTestContext Checkpoint, completion driven by .onSuccess,
+// failure routed to testContext::failNow. No CountDownLatch, no .await(...).
 producer.send(msg)
     .onSuccess(v -> checkpoint.flag())
     .onFailure(testContext::failNow);
 ```
+
+`CountDownLatch.countDown()` + `latch.await(...)` is **not** an acceptable variant:
+`.await(...)` on a latch as a Future-completion bridge is banned in test code (see
+"CRITICAL: Future.await() in Test Code"). Use `VertxTestContext` + `Checkpoint`
+exclusively.
 
 ### Affected Files (non-exhaustive)
 
@@ -147,9 +147,26 @@ producer.send(msg)
 Multiple `@AfterEach` methods use the same swallowing pattern for `manager.closeReactive()`:
 
 ```java
-// WRONG: close failure is invisible
+// WRONG: close failure is invisible; uses CountDownLatch.await as a Future bridge
 manager.closeReactive().onComplete(ar -> closeLatch.countDown());
 closeLatch.await(10, TimeUnit.SECONDS);
+
+// CORRECT: drive teardown via the injected VertxTestContext.
+// Real close failures are propagated to the test (failNow), not hidden behind
+// completeNow(). A failed close leaks database connections and the test must fail
+// loudly so the leak is visible at the offending test, not at some later "too many
+// clients" cascade.
+@AfterEach
+void tearDown(VertxTestContext testContext) {
+    if (manager == null) { testContext.completeNow(); return; }
+    manager.closeReactive()
+        .onSuccess(v -> { manager = null; testContext.completeNow(); })
+        .onFailure(err -> {
+            logger.error("close failed", err);
+            manager = null;
+            testContext.failNow(err);   // do NOT swallow to completeNow()
+        });
+}
 ```
 
 Files: `OutboxConsumerEdgeCasesCoverageTest`, `OutboxConsumerCrashRecoveryTest`,
@@ -162,7 +179,7 @@ errors.
 
 ---
 
-## MODERATE: Empty Catch Blocks in Test Teardown
+## MEDIUM: Empty Catch Blocks in Test Teardown
 
 27 instances of `catch (Exception ignored) {}` most in `@AfterEach` cleanup:
 
@@ -380,25 +397,20 @@ producer.send("msg1")
     .onFailure(testContext::failNow);
 ```
 
-### 6. Resource Allocation Outside try/finally (Low)
+### 6. Resource Cleanup via `try/finally` Around a Future Chain (Low)
 
-Producers and consumers created before the `try` block. If `awaitCompletion` or an
-assertion fails, the `finally` block is never reached and resources leak.
+`try`/`finally` does **not** bracket an async Future chain. The `finally` block runs
+the moment the `try` body returns control \u2014 typically *before* the chain has settled
+\u2014 so it does not guarantee cleanup, and it can close a resource while the chain is
+still using it.
 
 Found in: `ConsumerModeResourceManagementTest`, `JsonbConversionValidationTest`.
 
-**Fix:** Move resource creation inside `try`, or restructure so `finally` always runs:
-
-```java
-MessageConsumer<String> consumer = factory.createConsumer(...);
-MessageProducer<String> producer = factory.createProducer(...);
-try {
-    // test body
-} finally {
-    consumer.close();
-    producer.close();
-}
-```
+**Fix:** Track resources as instance fields and close them in `@AfterEach` (driven
+by the injected `VertxTestContext`), or chain cleanup via `.eventually(...)` on the
+Future chain itself \u2014 see "Tier 1: Resource & Lifecycle Discipline" above and the
+`QueueFactory` section below. Never wrap an async Future chain in `try`/`finally`
+expecting the `finally` to bracket the async work.
 
 ### 7. Missing `hashCode()` When `equals()` Is Overridden (Medium)
 
@@ -551,7 +563,8 @@ path in `processMessageWithCompletion`), the test should verify that the message
 ends up retried or in a failure state not just that the handler ran.
 
 ```java
-// WRONG: asserts invocation but not the null-return consequence
+// WRONG: asserts invocation but not the null-return consequence.
+// ALSO WRONG: .await() on Futures in test code — see Future.await() antipattern.
 consumer.subscribe(message -> {
     invoked.set(true);
     handlerCalled.tryComplete();
@@ -816,13 +829,27 @@ example, closing a transient mock server during teardown), the explicit form is 
 .onSuccess(server -> testContext.verify(() -> {
     assertTrue(server.isRunning());
     try {
-        server.close();
+        server.close();   // synchronous, void-returning close only
     } catch (Exception e) {
         logger.warn("Test mock server close failed (non-fatal): {}", e.getMessage());
     }
     testContext.completeNow();
 }))
 ```
+
+**Scope of this shield.** The shield is only valid for **synchronous, void-returning**
+`close()` calls inside `testContext.verify(...)`. It is **not** an acceptable wrapper
+for `Future`-returning close methods (e.g. `closeReactive()`, `closeAsync()`, anything
+returning `Future<Void>`):
+
+- `try { resource.closeReactive(); } catch (...) { ... }` would swallow only the
+  synchronous part of the call and fire-and-forget the returned `Future` \u2014 the
+  resource is not actually closed when `completeNow()` runs, and any async failure
+  is invisible.
+- For `Future`-returning closes, drive teardown via `.eventually(...)` on the test's
+  outer Future chain (outside `verify(...)`), or close in `@AfterEach` driven by the
+  injected `VertxTestContext`. See the `QueueFactory` and `BaseIntegrationTest`
+  sections later in this document.
 
 A bare `try { ... } catch (Exception e) {}` (empty catch) is an empty-catch
 antipattern (see "MODERATE: Empty Catch Blocks in Test Teardown" above). Always log.
@@ -1091,7 +1118,7 @@ void tearDown(VertxTestContext ctx) {
     manager.closeReactive()
         .onSuccess(v -> ctx.completeNow())
         .onFailure(ctx::failNow);
-    assertThat(ctx.awaitCompletion(10, TimeUnit.SECONDS)).isTrue();
+    assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS));
 }
 ```
 
@@ -1116,7 +1143,7 @@ exception type. This means:
 // WRONG: string-match assertions do not verify the exception was propagated
 boolean allWarnsHaveConnectCause = warns.stream()
         .allMatch(e -> e.getFormattedMessage().contains("Connection refused"));
-trueAssert(allWarnsHaveConnectCause, ...);
+assertTrue(allWarnsHaveConnectCause, ...);
 ```
 
 ### Why It Matters
@@ -1209,22 +1236,22 @@ intends. Put the exception-type assertions first.
 | LOW | Replace `assertTrue(x instanceof Y)` with `assertInstanceOf` / `assertNull` | Tests using weak assertion idioms |
 | MEDIUM | Replace commented-out `//@Test` with `@Disabled("reason")` or fix and re-enable | 1 test in OutboxConsumerFailureHandlingTest |
 | HIGH | Replace `LockSupport.parkNanos()` / `Thread.sleep` with event-driven waits (future chains, checkpoints, DB state observation) | 18 occurrences across 10 files |
-| CRITICAL | Replace `setTimer → completeNow()` timeout handlers with `failNow()` (P2 pattern) | 7 tests in `peegeeq-rest` |
-| HIGH | Replace `setTimer` readiness guards with future chains off `subscribe()` / `deployVerticle()` | P3: 6 setUp methods in `peegeeq-rest`; P4: 9 data-wait timers |
-| P1 | Replace 100 ms drain delay in `DatabaseTemplateManager` with `pg_stat_activity` poll loop | `peegeeq-db/.../DatabaseTemplateManager.java:140` |
-| SERIOUS | Add `.await()` or `.onFailure(testContext::failNow)` to fire-and-forget `producer.send()` | 7 occurrences in OutboxConsumerErrorHandlingTest |
+| CRITICAL | Replace `setTimer → completeNow()` timeout handlers with `failNow()` | 7 tests in `peegeeq-rest` |
+| HIGH | Replace `setTimer` readiness guards with future chains off `subscribe()` / `deployVerticle()` | 6 setUp methods in `peegeeq-rest`; 9 data-wait timers |
+| HIGH | Replace 100 ms drain delay in `DatabaseTemplateManager` with `pg_stat_activity` poll loop | `peegeeq-db/.../DatabaseTemplateManager.java:140` |
+| SERIOUS | Attach `.onFailure(testContext::failNow)` to fire-and-forget `producer.send()` (do NOT use `.await()` — see CRITICAL `Future.await()` antipattern) | 7 occurrences in OutboxConsumerErrorHandlingTest |
 | MEDIUM | Replace near-tautological handler-invocation assertions with outcome verification | OutboxConsumerNullHandlerTest |
 | LOW | Fix stale Javadoc referencing banned `CompletableFuture` type | OutboxConsumerNullHandlerTest |
 | MEDIUM | Replace `withConnection()` with `withTransaction()` for all write operations | `DeadLetterQueueManager` and any other class using `withConnection` for DML |
 | CRITICAL | Revert `Thread.sleep` "strategic delays" and threshold-based leak masking introduced as concurrency "fixes" | `peegeeq-db` test classes |
 | SERIOUS | Delete blocking `executeSupplier`/`executeRunnable`/`executeDatabaseOperation`/`executeQueueOperation` methods from `CircuitBreakerManager` | `peegeeq-db/.../resilience/CircuitBreakerManager.java` |
 | MEDIUM | Move misplaced tests to their correct subject class | `testCircuitBreakerIntegration` in `OutboxMetricsTest` |
-| MEDIUM | Move blocking waits inside `vertx.executeBlocking()` in `@ExtendWith(VertxExtension.class)` tests | `testHealthCheckIntegration` spin-poll in `OutboxMetricsTest` |
+| MEDIUM | Replace `LockSupport.parkNanos`/`while`-loop polling with recursive `vertx.timer` chain driven by `VertxTestContext`; do NOT use `vertx.executeBlocking(...)` as an escape hatch | `testHealthCheckIntegration` spin-poll in `OutboxMetricsTest` |
 | LOW | Fix logger messages that identify the wrong test (copy-paste contamination) | `OutboxMetricsTest` 3 mismatched log strings |
 | SERIOUS | Fix property-key mismatch in `BaseIntegrationTest.setupTestConfiguration()` use `*-ms` suffixed keys the loader actually reads | `BaseIntegrationTest.java` lines 179-183 |
 | SERIOUS | Add `peegeeq.database.pool.shared=false` in `BaseIntegrationTest.setupTestConfiguration()` | `BaseIntegrationTest.java` currently absent, tests inherit `shared=true` production default |
 | SERIOUS | Add `@AfterEach` calling `connectionManager.close()` to 28 integration test classes that create secondary `PgConnectionManager` instances | All files listed in §3c of `test-suite-connection-exhaustion-investigation.md` |
-| SERIOUS | Guard `@AfterEach` grace timer so `closeReactive()` is always called even when the Vertx event loop is dead | `BaseIntegrationTest.tearDownBaseIntegration()` 33% of teardowns silently skip `closeReactive()` |
+| SERIOUS | Remove `@AfterEach` grace timer and `awaitFuture` bridge helper; drive teardown via injected `VertxTestContext` calling `closeReactive()` directly | `BaseIntegrationTest.tearDownBaseIntegration()` 33% of teardowns silently skip `closeReactive()` |
 | LOW | Remove `System.gc()` from `BaseIntegrationTest.@AfterEach` | `BaseIntegrationTest.tearDownBaseIntegration()` GC-based resource cleanup is not deterministic |
 | HIGH | Add contract tests for `BaseIntegrationTest` pool configuration so property-key regressions are caught automatically | New test class `BaseIntegrationTestPoolConfigContractCoreTest` (`@Tag(CORE)`) |
 | SERIOUS | Remove manual `Vertx.vertx()` creation in classes annotated with `@ExtendWith(VertxExtension.class)` — either remove the extension or remove the manual instance | `ServiceDiscoveryExampleTest` and any class with both |
@@ -1338,7 +1365,7 @@ operation produces a `Future` chain off it. Every side-effect has an observable
 consequence observe it directly. A timer is always a guess at when something will be
 ready; the correct answer is always to know when it is ready.
 
-### Variant: P2 Timeout handler calls `completeNow()` instead of `failNow()`
+### Variant: Timeout handler calls `completeNow()` instead of `failNow()`
 
 The most deceptive form. The timer fires when the expected event *has not arrived*, and
 instead of failing the test it marks it as passed:
@@ -1369,7 +1396,7 @@ Affected files in `peegeeq-rest`:
 | `SystemMonitoringHandlerTest.java` | 553 | SSE metrics timeout → `completeNow()` |
 | `ConsumerGroupSubscriptionIntegrationTest.java` | 1010 | SSE configured event timeout → `completeNow()` |
 
-### Variant: P3 Post-`deployVerticle` readiness guard
+### Variant: Post-`deployVerticle` readiness guard
 
 `deployVerticle()` only completes after `Verticle.start()` finishes. If `start()`
 awaits the `HttpServer.listen()` future, the server is listening the moment `onSuccess`
@@ -1398,7 +1425,7 @@ Affected files (all in `peegeeq-rest`, all with `"Give server time to fully star
 server is not ready when `start()` completes, fix `start()` to return a `Future` that
 resolves only after `HttpServer.listen()` completes.
 
-### Variant: P4 Wall-clock wait for SSE/WebSocket buffer to accumulate
+### Variant: Wall-clock wait for SSE/WebSocket buffer to accumulate
 
 Timers that fire after connecting to an SSE or WebSocket stream, wait N seconds, then
 inspect the accumulated receive buffer. They race against actual message delivery.
@@ -1410,7 +1437,7 @@ Affected: 9 locations in `peegeeq-rest`, including `ConsumerGroupSubscriptionInt
 **Fix:** Use an event-driven handler that acts as soon as the expected event appears, then
 call `testContext.completeNow()`.
 
-### Variant: P1 Production code timing assumption (correctness risk)
+### Variant: Production code timing assumption (correctness risk)
 
 **File:** `peegeeq-db/.../DatabaseTemplateManager.java:140`
 
@@ -1452,14 +1479,19 @@ Found in: `OutboxConsumerErrorHandlingTest` (lines 142, 161, 183, 207, 256, 305,
 `testMessageWithNullPayload`, `testInterruptedExceptionHandling`,
 `testConcurrentMessageProcessing`).
 
-**Fix:** Await the send or attach a failure handler:
+**Fix:** Attach a failure handler so a send failure surfaces as a test failure. Do NOT
+use `Future.await()` — see the CRITICAL `Future.await()` antipattern further below; it
+deadlocks the test thread.
 
 ```java
-// Option 1: await (preferred when send must complete before assertions)
-producer.send("test-message").await();
-
-// Option 2: chain with failure handler
+// CORRECT — consumer-side checkpoint completes testContext on success
 producer.send("test-message")
+    .onFailure(testContext::failNow);
+
+// If the test must observe the send completing before continuing, chain explicitly:
+producer.send("test-message")
+    .compose(v -> nextStep())
+    .onSuccess(v -> testContext.completeNow())
     .onFailure(testContext::failNow);
 ```
 | SERIOUS | Convert all ERASURE-IN-SHUTDOWN `.recover()` calls to `.eventually()` | 27 production instances see `vertx-recover-usage.md` |
@@ -1563,30 +1595,45 @@ Under `VertxExtension`, the test thread shares lifecycle state with `VertxTestCo
 Parking it is indistinguishable from an unresponsive test, races with `VertxTestContext`
 timeout handling, and hides the wait from the Vert.x scheduler entirely.
 
-**Fix:** Move any blocking wait inside `vertx.executeBlocking()`, then chain the result
-back into the `VertxTestContext`:
+**Fix:** Express the poll as a recursive `vertx.timer` chain. Each retry is a fresh
+Future continuation scheduled on the event loop; the deadline is carried in the chain;
+the test thread never blocks. `vertx.executeBlocking(...)` is **not** an acceptable
+escape hatch — it smuggles `Thread.sleep`/`LockSupport.park`/spin-loop polling back
+into a reactive system, all of which are independently banned (see the HIGH
+`LockSupport.parkNanos()` section above and the project coding principles).
 
 ```java
-// CORRECT
-vertx.executeBlocking(() -> {
-    long deadline = System.currentTimeMillis() + 10_000;
-    while (System.currentTimeMillis() < deadline) {
-        var status = healthCheckManager.getOverallHealth();
-        if (status != null && status.isHealthy()) return status;
-        LockSupport.parkNanos(200_000_000L);
+// CORRECT — recursive timer poll, no blocking, no executeBlocking
+long deadline = System.currentTimeMillis() + 10_000;
+pollHealth(vertx, healthCheckManager, deadline)
+    .onSuccess(status -> testContext.verify(() -> {
+        assertTrue(status.isHealthy());
+        testContext.completeNow();
+    }))
+    .onFailure(testContext::failNow);
+
+// Helper — recurses via Future composition, not via a loop:
+private Future<HealthStatus> pollHealth(Vertx vertx, HealthCheckManager hcm, long deadline) {
+    HealthStatus status = hcm.getOverallHealth();
+    if (status != null && status.isHealthy()) {
+        return Future.succeededFuture(status);
     }
-    throw new AssertionError("Health check did not become healthy within 10 seconds");
-})
-.onSuccess(status -> testContext.verify(() -> {
-    assertTrue(status.isHealthy());
-    testContext.completeNow();
-}))
-.onFailure(testContext::failNow);
+    if (System.currentTimeMillis() >= deadline) {
+        return Future.failedFuture(new AssertionError(
+            "Health check did not become healthy within 10 seconds"));
+    }
+    return vertx.timer(200).compose(t -> pollHealth(vertx, hcm, deadline));
+}
 ```
 
-**Rule:** In `@ExtendWith(VertxExtension.class)` tests, any blocking wait polling,
-`Thread.sleep`, `LockSupport.park`, `CountDownLatch.await` belongs inside
-`vertx.executeBlocking()`, not on the test thread directly.
+If `getOverallHealth()` itself returns a `Future`, chain it inside the helper rather
+than calling it synchronously — the recursive shape is the same.
+
+**Rule:** In `@ExtendWith(VertxExtension.class)` tests, blocking waits, polling,
+`Thread.sleep`, `LockSupport.park`, and `CountDownLatch.await` on the JUnit thread
+are not allowed. Express the wait as a composed Future continuation driven by
+`VertxTestContext`. Time-based delays use `vertx.timer(ms)` chained off the
+relevant async op, never `Thread.sleep`.
 
 ---
 
@@ -1818,7 +1865,7 @@ it does not know about.
 
 ---
 
-## SERIOUS: `@AfterEach` Grace Timer Skips `closeReactive()` When Vertx Event Loop Is Dead
+## SERIOUS: `@AfterEach` Grace Timer + `awaitFuture` Bridge Skips `closeReactive()` When Vertx Event Loop Is Dead
 
 `BaseIntegrationTest.tearDownBaseIntegration()` called `manager.getVertx().timer(100)`
 as a grace delay *before* calling `closeReactive()`. When the Vertx event loop is dead
@@ -1828,28 +1875,46 @@ the error and continued to `finally`, which nulled `manager` but `closeReactive(
 never called.
 
 ```java
-// WRONG timer throws if event loop is dead; closeReactive() is then skipped
+// WRONG: grace timer + awaitFuture bridge helper. Two violations:
+//   1. vertx.timer(100) as a "grace delay" is a setTimer-as-readiness-guard antipattern
+//      (see "HIGH: setTimer as a Readiness Guard"). If the event loop is dead, this
+//      throws RejectedExecutionException, and closeReactive() is never reached.
+//   2. awaitFuture(...) is a CountDownLatch-based bridge helper around a Future
+//      (see "CRITICAL: Future.await() in Test Code") \u2014 banned in test code.
 try {
-    awaitFuture(manager.getVertx().timer(100).mapEmpty());   // ← throws RejectedExecutionException
-    awaitFuture(manager.closeReactive());
+    awaitFuture(manager.getVertx().timer(100).mapEmpty());   // \u2190 grace timer; throws if loop is dead
+    awaitFuture(manager.closeReactive());                    // \u2190 banned bridge helper
 } catch (Exception e) {
     logger.error("...", e);
 } finally {
     manager = null;   // pool connections never released
 }
 
-// CORRECT remove the grace timer; closeReactive() handles dead Vertx internally
+// CORRECT: remove the grace timer entirely; drive teardown reactively via VertxTestContext.
+//   - No timer \u2014 closeReactive() is the only thing that should run, and it handles
+//     a dead Vertx internally.
+//   - No awaitFuture / CountDownLatch / .await() bridge \u2014 the injected VertxTestContext
+//     is the only permitted completion mechanism (see ANTIPATTERN doc rules above).
+//   - Close failures are propagated via failNow(err), NOT swallowed to completeNow().
+//     A failed closeReactive() leaks pool connections; that is the exact failure mode
+//     this section exists to surface, and 232 silent skips proved the cost of hiding it.
 @AfterEach
-void tearDownBaseIntegration() throws Exception {
-    if (manager != null) {
-        try {
-            awaitFuture(manager.closeReactive());
-        } catch (Exception e) {
-            logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
-        } finally {
-            manager = null;
-        }
+void tearDownBaseIntegration(VertxTestContext testContext) {
+    if (manager == null) {
+        testContext.completeNow();
+        return;
     }
+    manager.closeReactive()
+        .onSuccess(v -> {
+            manager = null;
+            testContext.completeNow();
+        })
+        .onFailure(err -> {
+            logger.error("Error closing PeeGeeQ Manager for profile: {}",
+                testProfile, err);
+            manager = null;
+            testContext.failNow(err);   // do NOT swallow \u2014 leaked pool is the real failure
+        });
 }
 ```
 
@@ -1860,7 +1925,10 @@ left its pool connections open, compounding the connection exhaustion.
 
 **Rule:** Teardown logic must never place pool cleanup behind a conditional gate that
 can be skipped. Every code path through `@AfterEach` must reach `closeReactive()`.
-The grace timer served no documented purpose and must be removed.
+The grace timer served no documented purpose and must be removed. The `awaitFuture`
+bridge helper (or any equivalent `CountDownLatch.await`/`Future.await()`-based wrapper)
+must be removed at the same time: drive teardown completion via the injected
+`VertxTestContext`, not via a blocking bridge.
 
 ---
 
@@ -2116,10 +2184,12 @@ public class ServiceDiscoveryExampleTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         ...
-        vertx.close().await();      // closes the manual instance, but VertxExtension
-                                    // also closes its own instance (different object)
+        // WRONG: .await() in a JUnit thread deadlocks (see Future.await() antipattern).
+        // Also closes the manual instance, but VertxExtension also closes its own
+        // instance (different object), so this whole pattern is double-wrong.
+        vertx.close().await();
     }
 }
 ```
@@ -2176,12 +2246,17 @@ public class MyTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (client != null) client.close();
-        if (vertx != null) vertx.close().await();
+        if (vertx == null) { testContext.completeNow(); return; }
+        vertx.close()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> { logger.error("vertx close failed", err); testContext.failNow(err); });
     }
 }
 ```
+
+Do NOT use `vertx.close().await()` — see the CRITICAL `Future.await()` antipattern.
 
 **Rule:** Never mix `@ExtendWith(VertxExtension.class)` with a manually-created `Vertx`
 instance stored in a field. Pick one owner. `VertxExtension` is the correct choice when
@@ -2212,18 +2287,20 @@ infrastructure last:
 2. Message producers      (stop sending)
 3. OutboxFactory / consumer group   (close managed lifecycle objects)
 4. PgConnectionManager / secondary pools  (release pool connections)
-5. PeeGeeQManager / primary pool    (closeReactive().await())
-6. Vertx                  (vertx.close().await() — only if self-managed, not VertxExtension)
+5. PeeGeeQManager / primary pool    (closeReactive())
+6. Vertx                  (vertx.close() — only if self-managed, not VertxExtension)
 ```
 
-Each step must complete before the next starts. Use `.await()` for synchronous teardown
-or chain with `.compose()` for reactive teardown.
+Each step must complete before the next starts. Chain with `.compose()` and drive the
+`VertxTestContext` from terminal handlers. **Do not use `Future.await()`** — see the
+CRITICAL `Future.await()` antipattern further below.
 
 ### Anti-Pattern: Independent `try/catch` Blocks With No Guaranteed Ordering
 
 ```java
-// WRONG: if block 1 throws, blocks 2 and 3 are still reached but in wrong order;
-// if block 2 throws unexpectedly, block 3 may not run at all without finally
+// WRONG on TWO counts:
+//   1. independent try/catch blocks don't guarantee ordering
+//   2. .await() in a JUnit thread deadlocks the test (see Future.await() antipattern)
 @AfterEach
 void tearDown() throws Exception {
     try {
@@ -2235,47 +2312,52 @@ void tearDown() throws Exception {
     } catch (Exception e) { ... }
 
     try {
-        manager.closeReactive().await();    // step 5
+        manager.closeReactive().await();    // step 5 — BANNED .await()
     } catch (Exception e) { ... }
 }
 ```
 
-### Correct Pattern: `finally` Chains Guarantee Execution
+### Correct Pattern: Reactive Teardown Chain Driven By `VertxTestContext`
 
 ```java
 @AfterEach
-void tearDown() throws Exception {
-    try {
-        if (consumer != null) consumer.close();
-        if (producer != null) producer.close();
-    } finally {
-        try {
-            if (outboxFactory != null) outboxFactory.close();
-        } finally {
-            try {
-                if (connectionManager != null) connectionManager.close();
-            } finally {
-                if (manager != null) {
-                    manager.closeReactive().await();
-                }
-                // Do NOT close vertx if @ExtendWith(VertxExtension.class) is present
-            }
-        }
+void tearDown(VertxTestContext testContext) {
+    // sync close() calls (those that don't return a Future) inside try/catch + WARN log
+    if (consumer != null) {
+        try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
     }
+    if (producer != null) {
+        try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
+    }
+    if (outboxFactory != null) {
+        try { outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
+    }
+    if (manager == null) { testContext.completeNow(); return; }
+    manager.closeReactive()
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(err -> {
+            logger.warn("Error during manager cleanup: {}", err.getMessage());
+            testContext.completeNow();
+        });
+    // Do NOT close vertx here if @ExtendWith(VertxExtension.class) is present
 }
 ```
 
-Or, equivalently, use a reactive teardown chain:
+If multiple resources expose `Future`-returning close methods, compose them:
 
 ```java
 @AfterEach
 void tearDown(VertxTestContext testContext) {
     Future.<Void>succeededFuture()
-        .compose(v -> consumer != null ? consumer.close() : Future.succeededFuture())
-        .compose(v -> producer != null ? producer.close() : Future.succeededFuture())
+        .compose(v -> consumer != null ? consumer.closeAsync() : Future.succeededFuture())
+        .compose(v -> producer != null ? producer.closeAsync() : Future.succeededFuture())
         .compose(v -> outboxFactory != null ? outboxFactory.closeAsync() : Future.succeededFuture())
         .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
-        .onComplete(ar -> testContext.completeNow());
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(err -> {
+            logger.warn("Error during reactive teardown: {}", err.getMessage());
+            testContext.completeNow();
+        });
 }
 ```
 
@@ -2367,3 +2449,306 @@ void testOutboxTransactionParticipation(VertxTestContext testContext) throws Exc
 cannot be used (e.g., a second round of async work mid-test after the first has already
 been drained). When a standalone context is unavoidable, always wrap the code between
 creation and `awaitCompletion` in `try/finally` so the drain always runs.
+
+---
+
+## CRITICAL: `Future.await()` in Test Code Causes Indefinite Teardown Hangs
+
+Added: 2026-05-16
+
+### What Happens
+
+`io.vertx.core.Future#await()` is a Vert.x 5 helper designed for **virtual threads only**.
+Calling it from a JUnit/main platform thread blocks that thread until the future settles.
+If settling the future requires the Vert.x event loop to dispatch work, and the event
+loop is already busy (or the close operation itself routes through the same thread the
+test is sitting on), the future never completes and the test hangs **indefinitely** —
+no timeout, no error, no thread dump unless the user kills the JVM.
+
+This is especially common in `@AfterEach` teardown:
+
+```java
+// WRONG: blocks platform test thread until closeReactive() future completes.
+// If the close path needs event-loop dispatch, deadlocks forever.
+@AfterEach
+void tearDown() throws Exception {
+    if (producer != null) producer.close();
+    if (factory != null) factory.close();
+    if (manager != null) {
+        manager.closeReactive().await();   // ← hang point
+    }
+}
+```
+
+The failure mode is observable in logs as `WARN ... Cannot be called on a Vert.x
+event-loop thread` immediately before the hang — the close handler detected wrong-thread
+dispatch but the test thread is already pinned waiting on a future that will never
+resolve.
+
+A bounded earlier version of the same pattern (`closeLatch.await(10, TimeUnit.SECONDS)`)
+would have timed out and surfaced the bug. Removing the timeout to "clean up" the code
+is what turns a slow test into a hung CI job.
+
+### Real-World Instances
+
+- `peegeeq-native/.../ConsumerGroupSubscriptionTest` — `manager.closeReactive().await()`
+  in `tearDown()` introduced in commit `a6b9cc8d` (replaced a bounded `CountDownLatch.await(10s)`).
+  Hung the entire `peegeeq-native` test run on a build server.
+- `peegeeq-outbox/.../OutboxConsumerErrorHandlingTest` — same pattern in `setUp()` and
+  `tearDown()`, plus `producer.send(...).await()` inside every `@Test` body.
+  Hung when triggered transitively via `mvn -am`.
+
+### Banned Forms
+
+All of these are banned in **test code** (the same patterns are also banned in
+production code per the project coding principles):
+
+```java
+manager.start().await();
+manager.closeReactive().await();
+producer.send("msg").await();
+consumer.close().await();
+group.start(options).await();
+vertx.timer(100).await();
+vertx.close().await();
+someFuture.await();
+```
+
+The **only** `await*` calls allowed in test code are JUnit / VertxTestContext idioms:
+
+```java
+testContext.awaitCompletion(10, TimeUnit.SECONDS);   // OK — drains VertxTestContext
+startBarrier.await();                                 // OK — CyclicBarrier coordinates worker threads, not Futures
+```
+
+**`CountDownLatch.await(...)` is not on this list.** In `@ExtendWith(VertxExtension.class)`
+tests, Future completion is driven by `VertxTestContext` exclusively. There is no
+"temporary bridge" allowance — a permanent helper that wraps `CountDownLatch.await`
+around a Future (often named `awaitFuture`, `blockOnFuture`, `syncFuture`) is itself an
+antipattern: it preserves the structurally-synchronous test shape that
+`VertxTestContext` was designed to replace, and it makes every test method look like
+it cannot fail by timeout when it can. If you find yourself reaching for such a
+helper, the test method's signature needs to take `VertxTestContext` and the body
+needs to be a composed Future chain. Sleeps and delays inside that chain are
+`vertx.timer(ms)`, not `Thread.sleep`.
+
+### Correct Pattern: `VertxTestContext` Lifecycle Hooks
+
+Use the Vert.x JUnit5 extension to inject a `VertxTestContext` into `setUp` and
+`tearDown` and drive completion via terminal handlers:
+
+```java
+@BeforeEach
+void setUp(VertxTestContext testContext) {
+    PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+    manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+    manager.start()
+        .onSuccess(v -> {
+            // wire factory/producer/consumer *inside* onSuccess so they're ready
+            // before any @Test runs
+            factory = new OutboxFactory(new PgDatabaseService(manager), config);
+            producer = factory.createProducer(topic, String.class);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
+}
+
+@AfterEach
+void tearDown(VertxTestContext testContext) {
+    if (producer != null) {
+        try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
+    }
+    if (factory != null) {
+        try { factory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
+    }
+    if (manager == null) { testContext.completeNow(); return; }
+    manager.closeReactive()
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(err -> {
+            logger.warn("Error during manager cleanup: {}", err.getMessage());
+            testContext.completeNow();
+        });
+}
+```
+
+For in-test sequencing, replace `.await()` chains with composed futures:
+
+```java
+// WRONG
+group1.start(opts1).await();
+assertTrue(group1.isActive());
+group1.close();
+group2.start(opts2).await();
+assertTrue(group2.isActive());
+group2.close();
+
+// CORRECT
+group1.start(opts1)
+    .compose(v -> {
+        assertTrue(group1.isActive());
+        group1.close();
+        return group2.start(opts2);
+    })
+    .onSuccess(v -> testContext.verify(() -> {
+        assertTrue(group2.isActive());
+        group2.close();
+        testContext.completeNow();
+    }))
+    .onFailure(testContext::failNow);
+```
+
+For fire-and-forget sends where the test waits via consumer checkpoints, attach a
+failure handler instead of awaiting:
+
+```java
+// WRONG
+producer.send("msg").await();
+
+// CORRECT — consumer-side checkpoint will drive testContext completion
+producer.send("msg").onFailure(testContext::failNow);
+```
+
+### Why This Antipattern Slipped Through
+
+Earlier revisions of this very document recommended `.await()` as a "preferred" fix for
+fire-and-forget `producer.send()` calls and as the canonical teardown pattern. Those
+recommendations were wrong and have been corrected. If you find any code that still
+follows them, fix the code — do not propagate the pattern by appeal to existing usage.
+
+### Verification
+
+Audit every file you touch with:
+
+```powershell
+grep -nE '\.await\(\)' path/to/Test.java
+```
+
+Matches that are NOT `testContext.awaitCompletion(...)` or `CyclicBarrier.await()` are
+violations. Fix them before claiming the file is done — "compilation passes" is not
+evidence of a hang-free test. `CountDownLatch.await(timeout, unit)` is **not** on the
+allow-list: in `@ExtendWith(VertxExtension.class)` tests, Future completion must be
+driven by `VertxTestContext` and time delays by `vertx.timer(ms)`.
+
+---
+
+## CRITICAL: `.eventually(factory::close)` for `QueueFactory` Logs Cleanup Errors and Skips Cleanup
+
+Added: 2026-05-17
+
+### What Happens
+
+The general advice elsewhere in these docs — "use `.eventually(() -> resource.close())`
+as the reactive equivalent of `finally`" — is **not** safe for every resource. It is
+safe only when the resource's `close()` is event-loop-safe.
+
+`QueueFactory.close()` (and its `OutboxFactory` / `PgNativeQueueFactory` implementations)
+is **blocking** and **thread-affinity guarded**: it refuses to run on a Vert.x event-loop
+thread, throwing/logging:
+
+```
+WARN  Error closing queue factory: Do not call blocking close() on event-loop thread
+      - close this factory from a worker thread
+```
+
+When the close is chained off the test body via `.eventually(...)`, the callback runs on
+the event-loop that just executed the test's reactive chain. The guard trips, the factory
+is **not** closed, and the WARN is the only signal — the test still passes.
+
+```java
+// WRONG: runs factory.close() on the event-loop, hits the thread-affinity guard,
+// emits a cleanup WARN, and leaves the factory open.
+@Test
+void testSomething(Vertx vertx, VertxTestContext testContext) {
+    QueueFactory factory = configManager.createFactory("x", "outbox");
+    doWork(factory)
+        .eventually(() -> {
+            factory.close();                      // ← WARN, factory NOT closed
+            return Future.<Void>succeededFuture();
+        })
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
+}
+```
+
+`vertx.executeBlocking(...)` is **not** an acceptable escape hatch for thread-affinity
+guarded close methods: it smuggles a blocking primitive into a reactive system, and the
+project has no other test that does it. The established pattern below — close the
+factory in `@AfterEach` on the JUnit worker thread — is the only correct fix.
+
+### Correct Pattern
+
+Track factories as instance fields and close them in `@AfterEach`. JUnit invokes
+`@AfterEach` on the platform test thread (a worker thread), so the thread-affinity
+guard does not trip.
+
+```java
+private MultiConfigurationManager configManager;
+private final List<QueueFactory> openFactories = new ArrayList<>();
+
+private <F extends QueueFactory> F track(F factory) {
+    openFactories.add(factory);
+    return factory;
+}
+
+@Test
+void testSomething(Vertx vertx, VertxTestContext testContext) {
+    QueueFactory factory = track(configManager.createFactory("x", "outbox"));
+    doWork(factory)
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
+}
+
+@AfterEach
+void tearDown(VertxTestContext testContext) {
+    for (QueueFactory f : openFactories) {
+        try { f.close(); }
+        catch (Exception e) { logger.warn("Error closing queue factory: {}", e.getMessage()); }
+    }
+    openFactories.clear();
+
+    if (configManager == null) { testContext.completeNow(); return; }
+    configManager.close()
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(err -> {
+            logger.warn("Error during configManager cleanup: {}", err.getMessage());
+            testContext.completeNow();
+        });
+}
+```
+
+This is the established project pattern, used by
+`NativeVsOutboxComparisonTest`, `TransactionalOutboxAnalysisTest`,
+`OutboxServerSideFilteringTest`, `PeeGeeQBiTemporalIntegrationTest`,
+`PeeGeeQBiTemporalWorkingIntegrationTest`, and others.
+
+### Rule
+
+`.eventually(() -> resource.close())` is correct only when `resource.close()` is
+event-loop-safe. For any resource whose `close()` has thread-affinity requirements —
+including every `QueueFactory` implementation — close it from `@AfterEach` on the
+JUnit worker thread instead.
+
+Resources known to require worker-thread `close()` in this project:
+
+- `QueueFactory` (all implementations: `OutboxFactory`, `PgNativeQueueFactory`)
+
+Resources known to be event-loop-safe and therefore valid inside `.eventually(...)`:
+
+- `MessageProducer.close()`
+- `MessageConsumer.close()`
+- Any `Future`-returning close (`PeeGeeQManager.closeReactive()`,
+  `MultiConfigurationManager.close()`, `Pool.close()`).
+
+### Verification
+
+After touching any test that constructs a `QueueFactory`, audit:
+
+```powershell
+grep -nE '\.eventually\(.*close|QueueFactory.*close' path\to\Test.java
+```
+
+A hit on `.eventually(... factory.close() ...)` is a violation. Run the test and grep
+the log for `Error closing queue factory: Do not call blocking close()` — its presence
+confirms the antipattern.
+
+---

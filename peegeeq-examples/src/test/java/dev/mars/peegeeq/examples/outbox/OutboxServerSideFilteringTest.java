@@ -45,10 +45,10 @@ import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import java.util.*;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
@@ -73,7 +73,7 @@ public class OutboxServerSideFilteringTest {
     private OutboxFactory outboxFactory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up OutboxServerSideFilteringTest ===");
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
@@ -83,18 +83,20 @@ public class OutboxServerSideFilteringTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        var databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        outboxFactory = (OutboxFactory) provider.createFactory("outbox", databaseService);
-        logger.info("Outbox server-side filtering test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                var databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                outboxFactory = (OutboxFactory) provider.createFactory("outbox", databaseService);
+                logger.info("Outbox server-side filtering test setup completed");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(Vertx vertx, VertxTestContext ctx) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down OutboxServerSideFilteringTest ===");
         if (outboxFactory != null) {
@@ -104,27 +106,25 @@ public class OutboxServerSideFilteringTest {
                 logger.warn("Error closing outbox factory: {}", e.getMessage());
             }
         }
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(2000, id -> delay.complete());
-                delay.future().await();
-            } catch (Exception e) {
-                logger.error("Error during manager cleanup", e);
-            }
+        if (manager == null) {
+            ctx.completeNow();
+            return;
         }
-        logger.info("Outbox server-side filtering test teardown completed");
+        Future<Void> closeChain = manager.closeReactive()
+            .onFailure(err -> logger.error("Error during manager cleanup", err));
+        closeChain.onSuccess(v -> { logger.info("Outbox server-side filtering test teardown completed"); ctx.completeNow(); });
+        closeChain.onFailure(err -> ctx.completeNow());
     }
 
     @Test
-    void testOutboxServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @DisplayName("Outbox server-side filter: headerEquals delivers only matching messages")
+    void testOutboxServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) throws Throwable {
         logger.info("=== Testing Outbox Server-Side Filter EQUALS ===");
+        final int expected = 2;
         String topic = "outbox-filter-equals-" + System.currentTimeMillis();
 
         MessageProducer<String> producer = outboxFactory.createProducer(topic, String.class);
 
-        // Create consumer with server-side filter for type=ORDER
         ServerSideFilter filter = ServerSideFilter.headerEquals("type", "ORDER");
         OutboxConsumerConfig config = OutboxConsumerConfig.builder()
             .serverSideFilter(filter)
@@ -133,48 +133,54 @@ public class OutboxServerSideFilteringTest {
         MessageConsumer<String> consumer = outboxFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(2);
+        AtomicInteger seen = new AtomicInteger();
+        Checkpoint settled = testContext.checkpoint(1);
 
-        consumer.subscribe(message -> {
-            logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
-            receivedMessages.add(message.getPayload());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
-            try {
-                // Send messages with different types
-                producer.send("Order 1", Map.of("type", "ORDER"));
-                producer.send("Payment 1", Map.of("type", "PAYMENT"));
-                producer.send("Order 2", Map.of("type", "ORDER"));
-                producer.send("Payment 2", Map.of("type", "PAYMENT"));
+        try {
+            consumer.subscribe(message -> {
+                logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
+                receivedMessages.add(message.getPayload());
+                int n = seen.incrementAndGet();
+                if (n > expected) {
+                    testContext.failNow(new AssertionError("Unexpected extra message after filter: " + message.getPayload()));
+                } else if (n == expected) {
+                    vertx.timer(500).onSuccess(t -> testContext.verify(() -> {
+                        Assertions.assertEquals(expected, receivedMessages.size(),
+                            "No additional messages should arrive after settle window");
+                        Assertions.assertTrue(receivedMessages.stream().allMatch(m -> m.startsWith("Order")),
+                            "All received messages should be ORDER type");
+                        settled.flag();
+                    }));
+                }
+                return Future.succeededFuture();
+            }).onComplete(testContext.succeeding(ready -> {
+                producer.send("Order 1", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+                producer.send("Payment 1", Map.of("type", "PAYMENT")).onFailure(testContext::failNow);
+                producer.send("Order 2", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+                producer.send("Payment 2", Map.of("type", "PAYMENT")).onFailure(testContext::failNow);
                 logger.info("Sent 4 messages: 2 ORDER, 2 PAYMENT");
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+            }));
 
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
+            Assertions.assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Test should complete within 30 seconds");
+            if (testContext.failed()) throw testContext.causeOfFailure();
 
-        Assertions.assertEquals(2, receivedMessages.size(), "Should receive exactly 2 ORDER messages");
-        Assertions.assertTrue(receivedMessages.stream().allMatch(m -> m.startsWith("Order")),
-            "All received messages should be ORDER type");
-
-        logger.info("Outbox server-side filter EQUALS test passed: received {} ORDER messages", receivedMessages.size());
-
-        consumer.close();
-        producer.close();
+            logger.info("Outbox server-side filter EQUALS test passed: received {} ORDER messages", receivedMessages.size());
+        } finally {
+            try { consumer.close(); } catch (Exception e) { logger.warn("Consumer close failed", e); }
+            try { producer.close(); } catch (Exception e) { logger.warn("Producer close failed", e); }
+        }
     }
 
     @Test
-    void testOutboxServerSideFilterIn(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @DisplayName("Outbox server-side filter: headerIn delivers only set-matching messages")
+    void testOutboxServerSideFilterIn(Vertx vertx, VertxTestContext testContext) throws Throwable {
         logger.info("=== Testing Outbox Server-Side Filter IN ===");
+        final int expected = 3;
         String topic = "outbox-filter-in-" + System.currentTimeMillis();
 
         MessageProducer<String> producer = outboxFactory.createProducer(topic, String.class);
 
-        // Create consumer with server-side filter for type IN (ORDER, REFUND)
         ServerSideFilter filter = ServerSideFilter.headerIn("type", Set.of("ORDER", "REFUND"));
         OutboxConsumerConfig config = OutboxConsumerConfig.builder()
             .serverSideFilter(filter)
@@ -183,45 +189,52 @@ public class OutboxServerSideFilteringTest {
         MessageConsumer<String> consumer = outboxFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(3);
+        AtomicInteger seen = new AtomicInteger();
+        Checkpoint settled = testContext.checkpoint(1);
 
-        consumer.subscribe(message -> {
-            logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
-            receivedMessages.add(message.getPayload());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
-            try {
-                producer.send("Order 1", Map.of("type", "ORDER"));
-                producer.send("Payment 1", Map.of("type", "PAYMENT"));
-                producer.send("Refund 1", Map.of("type", "REFUND"));
-                producer.send("Order 2", Map.of("type", "ORDER"));
+        try {
+            consumer.subscribe(message -> {
+                logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
+                receivedMessages.add(message.getPayload());
+                int n = seen.incrementAndGet();
+                if (n > expected) {
+                    testContext.failNow(new AssertionError("Unexpected extra message after filter: " + message.getPayload()));
+                } else if (n == expected) {
+                    vertx.timer(500).onSuccess(t -> testContext.verify(() -> {
+                        Assertions.assertEquals(expected, receivedMessages.size(),
+                            "No additional messages should arrive after settle window");
+                        settled.flag();
+                    }));
+                }
+                return Future.succeededFuture();
+            }).onComplete(testContext.succeeding(ready -> {
+                producer.send("Order 1", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+                producer.send("Payment 1", Map.of("type", "PAYMENT")).onFailure(testContext::failNow);
+                producer.send("Refund 1", Map.of("type", "REFUND")).onFailure(testContext::failNow);
+                producer.send("Order 2", Map.of("type", "ORDER")).onFailure(testContext::failNow);
                 logger.info("Sent 4 messages: 2 ORDER, 1 PAYMENT, 1 REFUND");
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+            }));
 
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
+            Assertions.assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Test should complete within 30 seconds");
+            if (testContext.failed()) throw testContext.causeOfFailure();
 
-        Assertions.assertEquals(3, receivedMessages.size(), "Should receive 3 messages (ORDER + REFUND)");
-
-        logger.info("Outbox server-side filter IN test passed: received {} messages", receivedMessages.size());
-
-        consumer.close();
-        producer.close();
+            logger.info("Outbox server-side filter IN test passed: received {} messages", receivedMessages.size());
+        } finally {
+            try { consumer.close(); } catch (Exception e) { logger.warn("Consumer close failed", e); }
+            try { producer.close(); } catch (Exception e) { logger.warn("Producer close failed", e); }
+        }
     }
 
     @Test
-    void testOutboxServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @DisplayName("Outbox server-side filter: AND composition delivers only conjunction-matching messages")
+    void testOutboxServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) throws Throwable {
         logger.info("=== Testing Outbox Server-Side Filter AND ===");
+        final int expected = 1;
         String topic = "outbox-filter-and-" + System.currentTimeMillis();
 
         MessageProducer<String> producer = outboxFactory.createProducer(topic, String.class);
 
-        // Create consumer with server-side filter for type=ORDER AND priority=HIGH
         ServerSideFilter filter = ServerSideFilter.and(
             ServerSideFilter.headerEquals("type", "ORDER"),
             ServerSideFilter.headerEquals("priority", "HIGH")
@@ -233,45 +246,52 @@ public class OutboxServerSideFilteringTest {
         MessageConsumer<String> consumer = outboxFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(1);
+        AtomicInteger seen = new AtomicInteger();
+        Checkpoint settled = testContext.checkpoint(1);
 
-        consumer.subscribe(message -> {
-            logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
-            receivedMessages.add(message.getPayload());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
-            try {
-                producer.send("Order High", Map.of("type", "ORDER", "priority", "HIGH"));
-                producer.send("Order Low", Map.of("type", "ORDER", "priority", "LOW"));
-                producer.send("Payment High", Map.of("type", "PAYMENT", "priority", "HIGH"));
+        try {
+            consumer.subscribe(message -> {
+                logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
+                receivedMessages.add(message.getPayload());
+                int n = seen.incrementAndGet();
+                if (n > expected) {
+                    testContext.failNow(new AssertionError("Unexpected extra message after filter: " + message.getPayload()));
+                } else if (n == expected) {
+                    vertx.timer(500).onSuccess(t -> testContext.verify(() -> {
+                        Assertions.assertEquals(expected, receivedMessages.size(),
+                            "No additional messages should arrive after settle window");
+                        Assertions.assertEquals("Order High", receivedMessages.get(0));
+                        settled.flag();
+                    }));
+                }
+                return Future.succeededFuture();
+            }).onComplete(testContext.succeeding(ready -> {
+                producer.send("Order High", Map.of("type", "ORDER", "priority", "HIGH")).onFailure(testContext::failNow);
+                producer.send("Order Low", Map.of("type", "ORDER", "priority", "LOW")).onFailure(testContext::failNow);
+                producer.send("Payment High", Map.of("type", "PAYMENT", "priority", "HIGH")).onFailure(testContext::failNow);
                 logger.info("Sent 3 messages with different type/priority combinations");
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+            }));
 
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
+            Assertions.assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Test should complete within 30 seconds");
+            if (testContext.failed()) throw testContext.causeOfFailure();
 
-        Assertions.assertEquals(1, receivedMessages.size(), "Should receive exactly 1 message");
-        Assertions.assertEquals("Order High", receivedMessages.get(0));
-
-        logger.info("Outbox server-side filter AND test passed");
-
-        consumer.close();
-        producer.close();
+            logger.info("Outbox server-side filter AND test passed");
+        } finally {
+            try { consumer.close(); } catch (Exception e) { logger.warn("Consumer close failed", e); }
+            try { producer.close(); } catch (Exception e) { logger.warn("Producer close failed", e); }
+        }
     }
 
     @Test
-    void testOutboxServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @DisplayName("Outbox server-side filter: NULL-safe — messages missing the filter header are excluded")
+    void testOutboxServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Throwable {
         logger.info("=== Testing Outbox Server-Side Filter with Missing Headers ===");
+        final int expected = 1;
         String topic = "outbox-filter-missing-" + System.currentTimeMillis();
 
         MessageProducer<String> producer = outboxFactory.createProducer(topic, String.class);
 
-        // Create consumer with filter for type=ORDER
         ServerSideFilter filter = ServerSideFilter.headerEquals("type", "ORDER");
         OutboxConsumerConfig config = OutboxConsumerConfig.builder()
             .serverSideFilter(filter)
@@ -280,36 +300,41 @@ public class OutboxServerSideFilteringTest {
         MessageConsumer<String> consumer = outboxFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        Checkpoint checkpoint = testContext.checkpoint(1);
+        AtomicInteger seen = new AtomicInteger();
+        Checkpoint settled = testContext.checkpoint(1);
 
-        consumer.subscribe(message -> {
-            logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
-            receivedMessages.add(message.getPayload());
-            checkpoint.flag();
-            return Future.succeededFuture();
-        });
-
-        vertx.setTimer(2000, id -> {
-            try {
-                // Send messages - some without the 'type' header
-                producer.send("Order With Type", Map.of("type", "ORDER"));
-                producer.send("No Type Header 1", Map.of("other", "value"));
-                producer.send("No Type Header 2", Map.of());
+        try {
+            consumer.subscribe(message -> {
+                logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
+                receivedMessages.add(message.getPayload());
+                int n = seen.incrementAndGet();
+                if (n > expected) {
+                    testContext.failNow(new AssertionError("Unexpected extra message after filter: " + message.getPayload()));
+                } else if (n == expected) {
+                    vertx.timer(500).onSuccess(t -> testContext.verify(() -> {
+                        Assertions.assertEquals(expected, receivedMessages.size(),
+                            "No additional messages should arrive after settle window");
+                        Assertions.assertEquals("Order With Type", receivedMessages.get(0));
+                        settled.flag();
+                    }));
+                }
+                return Future.succeededFuture();
+            }).onComplete(testContext.succeeding(ready -> {
+                producer.send("Order With Type", Map.of("type", "ORDER")).onFailure(testContext::failNow);
+                producer.send("No Type Header 1", Map.of("other", "value")).onFailure(testContext::failNow);
+                producer.send("No Type Header 2", Map.of()).onFailure(testContext::failNow);
                 logger.info("Sent 3 messages: 1 with type=ORDER, 2 without type header");
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
-        });
+            }));
 
-        testContext.awaitCompletion(30, TimeUnit.SECONDS);
+            Assertions.assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Test should complete within 30 seconds");
+            if (testContext.failed()) throw testContext.causeOfFailure();
 
-        Assertions.assertEquals(1, receivedMessages.size(), "Should receive exactly 1 message with type=ORDER");
-        Assertions.assertEquals("Order With Type", receivedMessages.get(0));
-
-        logger.info("Outbox server-side filter missing header test passed - NULL-safe filtering works");
-
-        consumer.close();
-        producer.close();
+            logger.info("Outbox server-side filter missing header test passed - NULL-safe filtering works");
+        } finally {
+            try { consumer.close(); } catch (Exception e) { logger.warn("Consumer close failed", e); }
+            try { producer.close(); } catch (Exception e) { logger.warn("Producer close failed", e); }
+        }
     }
 }
 

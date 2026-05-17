@@ -6,6 +6,8 @@ import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -61,8 +63,8 @@ class ZombieReproA {
     }
 
     @AfterEach
-    void closeManager() {
-        peeGeeQManager.closeReactive().await();
+    void closeManager() throws Exception {
+        awaitFuture(peeGeeQManager.closeReactive(), 30, TimeUnit.SECONDS);
     }
 
     @Test

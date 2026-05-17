@@ -87,7 +87,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
     private MessageProducer<String> producer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
@@ -98,14 +98,15 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            DatabaseService databaseService = new PgDatabaseService(manager);
+            QueueFactoryProvider provider = new PgQueueFactoryProvider();
+            OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-topic", String.class);
+            factory = provider.createFactory("outbox", databaseService);
+            producer = factory.createProducer("test-topic", String.class);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

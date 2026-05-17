@@ -252,17 +252,21 @@ public class OrderProcessingService {
                 );
             });
             
-        }).otherwise(throwable -> {
-            logger.error("Complete order processing failed for order: {} - {}", 
+        }).transform(ar -> {
+            if (ar.succeeded()) {
+                return Future.succeededFuture(ar.result());
+            }
+            Throwable throwable = ar.cause();
+            logger.error("Complete order processing failed for order: {} - {}",
                         orderRequest.getOrderId(), throwable.getMessage(), throwable);
-            return new OrderProcessingResult(
+            return Future.succeededFuture(new OrderProcessingResult(
                 orderRequest.getOrderId(),
                 "FAILED",
                 "Order processing failed: " + throwable.getMessage(),
                 correlationId,
                 transactionId,
                 validTime
-            );
+            ));
         });
     }
 

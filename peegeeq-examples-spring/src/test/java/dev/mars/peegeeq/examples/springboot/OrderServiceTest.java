@@ -45,6 +45,8 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -97,9 +99,9 @@ class OrderServiceTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -149,7 +151,7 @@ class OrderServiceTest {
             """;
 
         // Execute application-specific schema creation
-        databaseService.getConnectionProvider()
+        awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -157,7 +159,7 @@ class OrderServiceTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).await();
+            }), 30, TimeUnit.SECONDS);
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -171,11 +173,11 @@ class OrderServiceTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = orderService.createOrder(request).await();
-        
+        String orderId = awaitFuture(orderService.createOrder(request), 30, TimeUnit.SECONDS);
+
         assertNotNull(orderId, "Order ID should not be null");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty");
-        
+
         logger.info("Order created successfully with ID: {}", orderId);
         logger.info("Successful order creation test passed");
     }
@@ -198,13 +200,13 @@ class OrderServiceTest {
         
         // Should complete exceptionally due to business validation failure
         Exception exception = assertThrows(Exception.class, () -> {
-            orderService.createOrderWithBusinessValidation(request).await();
+            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
         });
-        
+
         assertTrue(exception.getMessage().contains("Order amount exceeds maximum limit") ||
                   exception.getCause().getMessage().contains("Order amount exceeds maximum limit"),
                   "Exception should mention amount limit");
-        
+
         logger.info("Business validation rollback triggered correctly");
         logger.info("Business validation rollback test passed");
     }
@@ -228,13 +230,13 @@ class OrderServiceTest {
         
         // Should complete exceptionally due to invalid customer
         Exception exception = assertThrows(Exception.class, () -> {
-            orderService.createOrderWithBusinessValidation(request).await();
+            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
         });
-        
+
         assertTrue(exception.getMessage().contains("Invalid customer ID") ||
                   exception.getCause().getMessage().contains("Invalid customer ID"),
                   "Exception should mention invalid customer");
-        
+
         logger.info("Invalid customer rollback triggered correctly");
         logger.info("Invalid customer rollback test passed");
     }
@@ -258,13 +260,13 @@ class OrderServiceTest {
         
         // Should complete exceptionally due to database constraint violation
         Exception exception = assertThrows(Exception.class, () -> {
-            orderService.createOrderWithDatabaseConstraints(request).await();
+            awaitFuture(orderService.createOrderWithDatabaseConstraints(request), 30, TimeUnit.SECONDS);
         });
-        
+
         assertTrue(exception.getMessage().contains("Database constraint violation") ||
                   exception.getCause().getMessage().contains("Database constraint violation"),
                   "Exception should mention database constraint violation");
-        
+
         logger.info("Database constraints rollback triggered correctly");
         logger.info("Database constraints rollback test passed");
     }
@@ -278,11 +280,11 @@ class OrderServiceTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = orderService.createOrderWithMultipleEvents(request).await();
-        
+        String orderId = awaitFuture(orderService.createOrderWithMultipleEvents(request), 30, TimeUnit.SECONDS);
+
         assertNotNull(orderId, "Order ID should not be null");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty");
-        
+
         logger.info("Order with multiple events created successfully with ID: {}", orderId);
         logger.info("Multiple events creation test passed");
     }

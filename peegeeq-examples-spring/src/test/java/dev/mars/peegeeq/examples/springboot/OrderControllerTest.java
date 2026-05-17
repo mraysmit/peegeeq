@@ -55,7 +55,8 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
-
+import java.util.concurrent.TimeUnit;
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -112,9 +113,9 @@ class OrderControllerTest {
     }
 
     @AfterAll
-    static void closeManager() {
+    static void closeManager() throws Exception {
         if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
+            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
         }
     }
 
@@ -162,7 +163,7 @@ class OrderControllerTest {
             )
             """;
 
-        databaseService.getConnectionProvider()
+        awaitFuture(databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -170,7 +171,7 @@ class OrderControllerTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).await();
+            }), 30, TimeUnit.SECONDS);
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -227,9 +228,7 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -292,9 +291,7 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -332,9 +329,7 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -372,9 +367,7 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -404,9 +397,7 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(100, id -> delay.complete());
-        delay.future().await();
+        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());

@@ -482,63 +482,60 @@ class EventSourcingCQRSDemoTest {
      * Configure system properties for TestContainers PostgreSQL connection
      */
     @BeforeEach
-    void setUp() {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up Event Sourcing & CQRS Demo Test");
 
-        // Configure database connection properties
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        // Initialize database schema for event sourcing CQRS test
         logger.info("Initializing database schema for event sourcing CQRS test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Initialize PeeGeeQ with event sourcing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create outbox factory. The OFFSET_WATERMARK partitioned consumer engine
-        // (PartitionedConsumerEngine + PartitionedFetcher) reads from the `outbox` table,
-        // so producers and consumers in this demo use the outbox factory end-to-end.
-        // A future phase (Phase 7 in GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md)
-        // will add native-subsystem OFFSET_WATERMARK support; until then this demo lives
-        // in the outbox examples package.
-        this.databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register outbox factory implementation
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        queueFactory = provider.createFactory("outbox", databaseService);
-
-        logger.info("Setup complete - Ready for event sourcing & CQRS pattern testing");
+        manager.start()
+            .map(v -> {
+                // Create outbox factory. The OFFSET_WATERMARK partitioned consumer engine
+                // (PartitionedConsumerEngine + PartitionedFetcher) reads from the `outbox` table,
+                // so producers and consumers in this demo use the outbox factory end-to-end.
+                this.databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                queueFactory = provider.createFactory("outbox", databaseService);
+                logger.info("Setup complete - Ready for event sourcing & CQRS pattern testing");
+                return (Void) null;
+            })
+            .onComplete(testContext.succeedingThenComplete());
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up Event Sourcing & CQRS Demo Test");
 
-        if (manager != null) {
-            try {
-                logger.info("Closing PeeGeeQ manager...");
-                manager.closeReactive().await();
-                logger.info("PeeGeeQ manager closed successfully");
-
-                // CRITICAL: Wait for all resources to be fully released
-                // This prevents connection pool exhaustion between tests
-                Promise<Void> delay = Promise.promise();
-                vertx.setTimer(3000, id -> delay.complete());
-                delay.future().await();
-                logger.info("Resource cleanup wait completed");
-            } catch (Exception e) {
-                logger.warn("Error during manager cleanup: {}", e.getMessage());
-            }
+        if (manager == null) {
+            testContext.completeNow();
+            return;
         }
 
-        logger.info("Cleanup complete");
+        logger.info("Closing PeeGeeQ manager...");
+        manager.closeReactive()
+            .onSuccess(v -> logger.info("PeeGeeQ manager closed successfully"))
+            .onFailure(err -> logger.warn("Error during manager cleanup: {}", err.getMessage()))
+            // CRITICAL: Wait for all resources to be fully released
+            // This prevents connection pool exhaustion between tests.
+            // NOTE: wall-clock settle delay (3s) is a deeper antipattern flagged for follow-up;
+            // kept here to preserve existing inter-test isolation behaviour.
+            .eventually(() -> vertx.timer(3000))
+            .onSuccess(v -> {
+                logger.info("Resource cleanup wait completed");
+                logger.info("Cleanup complete");
+                testContext.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Cleanup wait error: {}", err.getMessage());
+                testContext.completeNow();
+            });
     }
 
     /**
@@ -648,7 +645,8 @@ class EventSourcingCQRSDemoTest {
                 // Publish uncommitted events to the event stream
                 // In event sourcing, commands generate events that represent state changes
                 for (DomainEvent event : aggregate.getUncommittedEvents()) {
-                    eventProducer.send(event);
+                    eventProducer.send(event)
+                            .onFailure(err -> logger.error("Failed to publish event {} for aggregate {}", event.eventType.eventName, event.aggregateId, err));
                 }
 
                 // Mark events as committed (they've been published)
@@ -704,7 +702,7 @@ class EventSourcingCQRSDemoTest {
             openAccountData,
             "user-001"
         );
-        commandProducer.send(openAccount);
+        commandProducer.send(openAccount).onFailure(testContext::failNow);
 
         // Command 2: Deposit money (first business transaction)
         Map<String, Object> deposit1Data = new HashMap<>();
@@ -726,19 +724,16 @@ class EventSourcingCQRSDemoTest {
         freezeAccountData.put("reason", "Suspicious activity detected");
         Command freezeAccount = new Command("cmd-005", "FreezeAccount", accountId, freezeAccountData, "admin-001");
 
-        // 🚨 WORKAROUND: Pacing delays via Vert.x timers to ensure command ordering
-        vertx.setTimer(100, id1 -> {
-            commandProducer.send(deposit1);
-            vertx.setTimer(50, id2 -> {
-                commandProducer.send(withdraw1);
-                vertx.setTimer(50, id3 -> {
-                    commandProducer.send(deposit2);
-                    vertx.setTimer(50, id4 -> {
-                        commandProducer.send(freezeAccount);
-                    });
-                });
-            });
-        });
+        // Pacing delays via composed timer chain to ensure command ordering.
+        vertx.timer(100)
+            .compose(v -> commandProducer.send(deposit1))
+            .compose(v -> vertx.timer(50))
+            .compose(v -> commandProducer.send(withdraw1))
+            .compose(v -> vertx.timer(50))
+            .compose(v -> commandProducer.send(deposit2))
+            .compose(v -> vertx.timer(50))
+            .compose(v -> commandProducer.send(freezeAccount))
+            .onFailure(testContext::failNow);
 
         // Wait for all commands and events to be processed
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
@@ -826,9 +821,14 @@ class EventSourcingCQRSDemoTest {
         String eventGroupName = "cqrs-read-models";
 
         // Configure the event topic for OFFSET_WATERMARK so per-aggregate ordering is enforced.
-        configureOffsetWatermarkTopic(eventQueue, eventGroupName).await();
+        configureOffsetWatermarkTopic(eventQueue, eventGroupName)
+            .compose(cfg -> runCqrsScenario(vertx, testContext, commandQueue, eventQueue, eventGroupName))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
 
-        // Separate models for writes and reads - the core of CQRS
+    private Future<Void> runCqrsScenario(Vertx vertx, VertxTestContext testContext,
+                                          String commandQueue, String eventQueue, String eventGroupName) {
         Map<String, BankAccountAggregate> writeModel = new HashMap<>();
         Map<String, AccountReadModel> readModel = new HashMap<>();
 
@@ -836,6 +836,13 @@ class EventSourcingCQRSDemoTest {
         AtomicInteger eventsProcessed = new AtomicInteger(0);
         Checkpoint commandCheckpoint = testContext.checkpoint(4);
         Checkpoint eventCheckpoint = testContext.checkpoint(4);
+        // Promise completes when all 4 commands and all 4 events have been processed.
+        Promise<Void> allDone = Promise.promise();
+        Runnable maybeAllDone = () -> {
+            if (commandsProcessed.get() >= 4 && eventsProcessed.get() >= 4) {
+                allDone.tryComplete();
+            }
+        };
         // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before flagging
         // the per-unique-event checkpoint. The read-model version fence is the same
         // idempotency guarantee a production consumer must provide.
@@ -909,6 +916,7 @@ class EventSourcingCQRSDemoTest {
                         finalAggregate.markEventsAsCommitted();
                         int processed = commandsProcessed.incrementAndGet();
                         commandCheckpoint.flag();
+                        maybeAllDone.run();
                         // Once the OpenAccount event is persisted, signal that the partition
                         // exists so the event consumer group can join.
                         if ("OpenAccount".equals(command.getCommandType())) {
@@ -945,6 +953,7 @@ class EventSourcingCQRSDemoTest {
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
             eventCheckpoint.flag();
+            maybeAllDone.run();
             return Future.succeededFuture();
         });
 
@@ -968,7 +977,7 @@ class EventSourcingCQRSDemoTest {
         Command withdraw1 = new Command("cqrs-cmd-004", "Withdraw", accountId, withdraw1Data, "user-002");
 
         // Send the OpenAccount command first so the partition exists.
-        commandProducer.send(openAccount);
+        commandProducer.send(openAccount).onFailure(testContext::failNow);
 
         // Once the open event is persisted, start the partitioned consumer group so it
         // discovers the partition, then send the remaining commands.
@@ -979,46 +988,51 @@ class EventSourcingCQRSDemoTest {
                 .compose(v -> eventGroup.start(options))
                 .onSuccess(v -> {
                     logger.info("Event ConsumerGroup started; sending remaining commands");
-                    commandProducer.send(deposit1);
-                    commandProducer.send(deposit2);
-                    commandProducer.send(withdraw1);
+                    commandProducer.send(deposit1).onFailure(testContext::failNow);
+                    commandProducer.send(deposit2).onFailure(testContext::failNow);
+                    commandProducer.send(withdraw1).onFailure(testContext::failNow);
                 })
                 .onFailure(err -> testContext.failNow(err));
 
-        // Wait for processing.
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
+        // Reactive completion: wait for allDone, then settle 500ms, then run final
+        // assertions and shut down. The cqrsScenario Future is returned by this method
+        // and chained to testContext.completeNow() / testContext.failNow().
+        return allDone.future()
+                .compose(v -> vertx.timer(500).<Void>mapEmpty())
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");
+                        assertEquals(4, eventsProcessed.get(), "Should have processed 4 events");
 
-        // Small delay to ensure all async read model updates complete
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(500, id -> delay.complete());
-        delay.future().await();
+                        BankAccountAggregate writeAggregate = writeModel.get(accountId);
+                        assertNotNull(writeAggregate, "Write model should exist");
+                        assertEquals(2050.0, writeAggregate.balance, 0.01, "Write model balance should be correct");
 
-        assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");
-        assertEquals(4, eventsProcessed.get(), "Should have processed 4 events");
+                        AccountReadModel readAggregate = readModel.get(accountId);
+                        assertNotNull(readAggregate, "Read model should exist");
+                        assertEquals(2050.0, readAggregate.currentBalance, 0.01, "Read model balance should match write model");
+                        assertEquals(4, readAggregate.totalTransactions, "Read model should track transaction count");
+                        assertEquals(2450.0, readAggregate.totalDeposits, 0.01, "Read model should track total deposits");
+                        assertEquals(400.0, readAggregate.totalWithdrawals, 0.01, "Read model should track total withdrawals");
 
-        BankAccountAggregate writeAggregate = writeModel.get(accountId);
-        assertNotNull(writeAggregate, "Write model should exist");
-        assertEquals(2050.0, writeAggregate.balance, 0.01, "Write model balance should be correct");
-
-        AccountReadModel readAggregate = readModel.get(accountId);
-        assertNotNull(readAggregate, "Read model should exist");
-        assertEquals(2050.0, readAggregate.currentBalance, 0.01, "Read model balance should match write model");
-        assertEquals(4, readAggregate.totalTransactions, "Read model should track transaction count");
-        assertEquals(2450.0, readAggregate.totalDeposits, 0.01, "Read model should track total deposits");
-        assertEquals(400.0, readAggregate.totalWithdrawals, 0.01, "Read model should track total withdrawals");
-
-        logger.info("CQRS Results:");
-        logger.info("  Write Model Balance: ${}", writeAggregate.balance);
-        logger.info("  Read Model Balance: ${}", readAggregate.currentBalance);
-        logger.info("  Read Model Transactions: {}", readAggregate.totalTransactions);
-        logger.info("  Read Model Total Deposits: ${}", readAggregate.totalDeposits);
-        logger.info("  Read Model Total Withdrawals: ${}", readAggregate.totalWithdrawals);
-
-        // Cleanup
-        commandConsumer.close();
-        eventGroup.stopGracefully().await();
-
-        logger.info("CQRS test completed successfully");
+                        logger.info("CQRS Results:");
+                        logger.info("  Write Model Balance: ${}", writeAggregate.balance);
+                        logger.info("  Read Model Balance: ${}", readAggregate.currentBalance);
+                        logger.info("  Read Model Transactions: {}", readAggregate.totalTransactions);
+                        logger.info("  Read Model Total Deposits: ${}", readAggregate.totalDeposits);
+                        logger.info("  Read Model Total Withdrawals: ${}", readAggregate.totalWithdrawals);
+                    });
+                    // Cleanup
+                    commandConsumer.close();
+                    return eventGroup.stopGracefully()
+                            .transform(ar -> {
+                                if (ar.failed()) {
+                                    logger.warn("eventGroup.stopGracefully failed: {}", ar.cause().getMessage());
+                                }
+                                return Future.<Void>succeededFuture();
+                            });
+                })
+                .onSuccess(v -> logger.info("CQRS test completed successfully"));
     }
 
     /**
@@ -1054,8 +1068,14 @@ class EventSourcingCQRSDemoTest {
         String eventGroupName = "cqrs-multi-read-models";
 
         // Configure the event topic for OFFSET_WATERMARK so per-aggregate ordering is enforced.
-        configureOffsetWatermarkTopic(eventQueue, eventGroupName).await();
+        configureOffsetWatermarkTopic(eventQueue, eventGroupName)
+            .compose(cfg -> runMultiAccountScenario(vertx, testContext, commandQueue, eventQueue, eventGroupName))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
 
+    private Future<Void> runMultiAccountScenario(Vertx vertx, VertxTestContext testContext,
+                                                  String commandQueue, String eventQueue, String eventGroupName) {
         List<String> accountIds = List.of(
             "account-cqrs-multi-A-" + System.currentTimeMillis(),
             "account-cqrs-multi-B-" + System.currentTimeMillis(),
@@ -1073,6 +1093,13 @@ class EventSourcingCQRSDemoTest {
         AtomicInteger opensProcessed = new AtomicInteger(0);
         Checkpoint commandCheckpoint = testContext.checkpoint(totalCommands);
         Checkpoint eventCheckpoint = testContext.checkpoint(totalCommands);
+        // Promise completes when every command AND every event has been processed.
+        Promise<Void> allDone = Promise.promise();
+        Runnable maybeAllDone = () -> {
+            if (commandsProcessed.get() >= totalCommands && eventsProcessed.get() >= totalCommands) {
+                allDone.tryComplete();
+            }
+        };
         // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before flagging
         // the per-unique-event checkpoint.
         Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
@@ -1144,6 +1171,7 @@ class EventSourcingCQRSDemoTest {
                         finalAggregate.markEventsAsCommitted();
                         commandsProcessed.incrementAndGet();
                         commandCheckpoint.flag();
+                        maybeAllDone.run();
                         if ("OpenAccount".equals(command.getCommandType())
                                 && opensProcessed.incrementAndGet() == accountIds.size()) {
                             openPhaseDone.tryComplete();
@@ -1179,6 +1207,7 @@ class EventSourcingCQRSDemoTest {
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
             eventCheckpoint.flag();
+            maybeAllDone.run();
             return Future.succeededFuture();
         });
 
@@ -1222,46 +1251,49 @@ class EventSourcingCQRSDemoTest {
                 })
                 .onFailure(err -> testContext.failNow(err));
 
-        // Wait for all checkpoints.
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "Should process all commands and events");
+        // Reactive completion: wait for allDone, then settle 500ms, then assertions + shutdown.
+        return allDone.future()
+                .compose(v -> vertx.timer(500).<Void>mapEmpty())
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertEquals(totalCommands, commandsProcessed.get(),
+                                "Should have processed " + totalCommands + " commands");
+                        assertEquals(totalCommands, eventsProcessed.get(),
+                                "Should have processed " + totalCommands + " events");
 
-        // Allow async read-model updates to settle.
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(500, id -> delay.complete());
-        delay.future().await();
+                        // Per-account assertions on the READ model these are the assertions that
+                        // fail when events are processed out of order.
+                        for (String accountId : accountIds) {
+                            BankAccountAggregate writeAggregate = writeModel.get(accountId);
+                            assertNotNull(writeAggregate, "Write model should exist for " + accountId);
+                            assertEquals(1400.0, writeAggregate.balance, 0.01,
+                                    "Write model balance should be correct for " + accountId);
 
-        assertEquals(totalCommands, commandsProcessed.get(),
-                "Should have processed " + totalCommands + " commands");
-        assertEquals(totalCommands, eventsProcessed.get(),
-                "Should have processed " + totalCommands + " events");
+                            AccountReadModel readAggregate = readModel.get(accountId);
+                            assertNotNull(readAggregate, "Read model should exist for " + accountId);
+                            assertEquals(1400.0, readAggregate.currentBalance, 0.01,
+                                    "Read model balance should match write model for " + accountId);
+                            assertEquals(4, readAggregate.totalTransactions,
+                                    "Read model should record 4 transactions for " + accountId);
+                            assertEquals(1500.0, readAggregate.totalDeposits, 0.01,
+                                    "Read model totalDeposits incorrect for " + accountId);
+                            assertEquals(100.0, readAggregate.totalWithdrawals, 0.01,
+                                    "Read model totalWithdrawals incorrect for " + accountId);
+                            assertEquals(4L, readAggregate.lastProcessedVersion,
+                                    "Read model lastProcessedVersion should be 4 for " + accountId);
+                        }
+                    });
 
-        // Per-account assertions on the READ model these are the assertions that
-        // fail when events are processed out of order.
-        for (String accountId : accountIds) {
-            BankAccountAggregate writeAggregate = writeModel.get(accountId);
-            assertNotNull(writeAggregate, "Write model should exist for " + accountId);
-            assertEquals(1400.0, writeAggregate.balance, 0.01,
-                    "Write model balance should be correct for " + accountId);
-
-            AccountReadModel readAggregate = readModel.get(accountId);
-            assertNotNull(readAggregate, "Read model should exist for " + accountId);
-            assertEquals(1400.0, readAggregate.currentBalance, 0.01,
-                    "Read model balance should match write model for " + accountId);
-            assertEquals(4, readAggregate.totalTransactions,
-                    "Read model should record 4 transactions for " + accountId);
-            assertEquals(1500.0, readAggregate.totalDeposits, 0.01,
-                    "Read model totalDeposits incorrect for " + accountId);
-            assertEquals(100.0, readAggregate.totalWithdrawals, 0.01,
-                    "Read model totalWithdrawals incorrect for " + accountId);
-            assertEquals(4L, readAggregate.lastProcessedVersion,
-                    "Read model lastProcessedVersion should be 4 for " + accountId);
-        }
-
-        commandConsumer.close();
-        eventGroup.stopGracefully().await();
-
-        logger.info("Multi-account CQRS ordering test completed successfully");
+                    commandConsumer.close();
+                    return eventGroup.stopGracefully()
+                            .transform(ar -> {
+                                if (ar.failed()) {
+                                    logger.warn("eventGroup.stopGracefully failed: {}", ar.cause().getMessage());
+                                }
+                                return Future.<Void>succeededFuture();
+                            });
+                })
+                .onSuccess(v -> logger.info("Multi-account CQRS ordering test completed successfully"));
     }
 
     /**

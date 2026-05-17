@@ -48,7 +48,6 @@ import java.util.UUID;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -73,24 +72,21 @@ public class OutboxMetricsTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
-        // Initialize schema first
+    void setUp(VertxTestContext testContext) {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-
-        // Use unique topic for each test to avoid interference
         testTopic = "metrics-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
-        // Set up database connection
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and components using DatabaseService
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, manager.getObjectMapper());
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+            .onSuccess(v -> {
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                outboxFactory = new OutboxFactory(databaseService, manager.getObjectMapper());
+                producer = outboxFactory.createProducer(testTopic, String.class);
+                consumer = outboxFactory.createConsumer(testTopic, String.class);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
@@ -145,19 +141,25 @@ public class OutboxMetricsTest {
                 logger.info("Message sent, waiting for processing...");
                 return messageProcessed.future();
             })
-            .compose(v -> vertx.executeBlocking(() -> {
-                long deadline = System.currentTimeMillis() + 10_000;
-                while (System.currentTimeMillis() < deadline) {
+            .compose(v -> {
+                Promise<Void> p = Promise.promise();
+                long[] ids = new long[2];
+                ids[0] = vertx.setPeriodic(100, id -> {
                     var m = manager.getMetrics().getSummary();
                     if (m.getMessagesSent() > initialSent
-                        && m.getMessagesReceived() > initialReceived
-                        && m.getMessagesProcessed() > initialProcessed) {
-                        return null;
+                            && m.getMessagesReceived() > initialReceived
+                            && m.getMessagesProcessed() > initialProcessed) {
+                        vertx.cancelTimer(ids[0]);
+                        vertx.cancelTimer(ids[1]);
+                        p.tryComplete();
                     }
-                    LockSupport.parkNanos(100_000_000L);
-                }
-                throw new AssertionError("Metrics were not updated within 10 seconds");
-            }))
+                });
+                ids[1] = vertx.setTimer(10_000, id -> {
+                    vertx.cancelTimer(ids[0]);
+                    p.tryFail(new AssertionError("Metrics were not updated within 10 seconds"));
+                });
+                return p.future();
+            })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalSent = finalMetrics.getMessagesSent();
@@ -186,20 +188,24 @@ public class OutboxMetricsTest {
         var healthCheckManager = manager.getHealthCheckManager();
         assertNotNull(healthCheckManager, "Health check manager should be available");
 
-        // Health checks may need time to initialise after manager.start().
-        // Poll on a worker thread so the event loop is never blocked.
-        vertx.executeBlocking(() -> {
-            long deadline = System.currentTimeMillis() + 10_000;
-            while (System.currentTimeMillis() < deadline) {
-                var status = healthCheckManager.getOverallHealth();
-                if (status != null && status.isHealthy()) {
-                    return status;
-                }
-                LockSupport.parkNanos(200_000_000L); // 200 ms
+        // Poll on the event loop until the health check becomes healthy.
+        Promise<Void> healthReady = Promise.promise();
+        long[] ids = new long[2];
+        ids[0] = vertx.setPeriodic(200, id -> {
+            var status = healthCheckManager.getOverallHealth();
+            if (status != null && status.isHealthy()) {
+                vertx.cancelTimer(ids[0]);
+                vertx.cancelTimer(ids[1]);
+                healthReady.tryComplete();
             }
-            throw new AssertionError("Health check did not become healthy within 10 seconds");
-        })
-        .onComplete(testContext.succeeding(healthStatus -> testContext.verify(() -> {
+        });
+        ids[1] = vertx.setTimer(10_000, id -> {
+            vertx.cancelTimer(ids[0]);
+            healthReady.tryFail(new AssertionError("Health check did not become healthy within 10 seconds"));
+        });
+        healthReady.future()
+        .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            var healthStatus = healthCheckManager.getOverallHealth();
             logger.info("Health check status: {}", healthStatus.status());
             logger.info("Health check components: {}", healthStatus.components());
             assertTrue(healthStatus.isHealthy(),
@@ -246,19 +252,25 @@ public class OutboxMetricsTest {
         // Wait for all messages processed, then poll metrics in executeBlocking
         sendChain
             .compose(v -> allProcessed.future())
-            .compose(v -> vertx.executeBlocking(() -> {
-                long deadline = System.currentTimeMillis() + 10_000;
-                while (System.currentTimeMillis() < deadline) {
+            .compose(v -> {
+                Promise<Void> p = Promise.promise();
+                long[] ids = new long[2];
+                ids[0] = vertx.setPeriodic(100, id -> {
                     var m = manager.getMetrics().getSummary();
                     if (m.getMessagesSent() >= initialSent + messageCount
-                        && m.getMessagesReceived() >= initialReceived + messageCount
-                        && m.getMessagesProcessed() >= initialProcessed + messageCount) {
-                        return null;
+                            && m.getMessagesReceived() >= initialReceived + messageCount
+                            && m.getMessagesProcessed() >= initialProcessed + messageCount) {
+                        vertx.cancelTimer(ids[0]);
+                        vertx.cancelTimer(ids[1]);
+                        p.tryComplete();
                     }
-                    LockSupport.parkNanos(100_000_000L);
-                }
-                throw new AssertionError("Metrics were not updated within 10 seconds");
-            }))
+                });
+                ids[1] = vertx.setTimer(10_000, id -> {
+                    vertx.cancelTimer(ids[0]);
+                    p.tryFail(new AssertionError("Metrics were not updated within 10 seconds"));
+                });
+                return p.future();
+            })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalSent = finalMetrics.getMessagesSent();
@@ -303,16 +315,22 @@ public class OutboxMetricsTest {
         // Send message, wait for error, then poll metrics in executeBlocking
         producer.send(testMessage)
             .compose(v -> errorOccurred.future())
-            .compose(v -> vertx.executeBlocking(() -> {
-                long deadline = System.currentTimeMillis() + 10_000;
-                while (System.currentTimeMillis() < deadline) {
+            .compose(v -> {
+                Promise<Void> p = Promise.promise();
+                long[] ids = new long[2];
+                ids[0] = vertx.setPeriodic(100, id -> {
                     if (manager.getMetrics().getSummary().getMessagesFailed() > initialErrors) {
-                        return null;
+                        vertx.cancelTimer(ids[0]);
+                        vertx.cancelTimer(ids[1]);
+                        p.tryComplete();
                     }
-                    LockSupport.parkNanos(100_000_000L);
-                }
-                throw new AssertionError("Error metrics were not updated within 10 seconds");
-            }))
+                });
+                ids[1] = vertx.setTimer(10_000, id -> {
+                    vertx.cancelTimer(ids[0]);
+                    p.tryFail(new AssertionError("Error metrics were not updated within 10 seconds"));
+                });
+                return p.future();
+            })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalErrors = finalMetrics.getMessagesFailed();

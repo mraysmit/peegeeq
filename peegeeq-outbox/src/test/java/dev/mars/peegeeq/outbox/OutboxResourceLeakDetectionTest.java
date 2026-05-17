@@ -71,7 +71,7 @@ public class OutboxResourceLeakDetectionTest {
     private Set<String> initialVertxThreadNames;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -87,17 +87,17 @@ public class OutboxResourceLeakDetectionTest {
         // Create manager
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create outbox factory
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            OutboxFactoryRegistrar.registerWith(provider);
+            queueFactory = provider.createFactory("outbox", databaseService);
 
-        // Create outbox factory
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        queueFactory = provider.createFactory("outbox", databaseService);
-
-        logger.info("Test setup completed - initial thread count: {}", initialThreadCount);
-
-        logger.info("=== OutboxResourceLeakDetectionTest.setUp() COMPLETED ===");
+            logger.info("Test setup completed - initial thread count: {}", initialThreadCount);
+            logger.info("=== OutboxResourceLeakDetectionTest.setUp() COMPLETED ===");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

@@ -37,6 +37,8 @@ import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 
 
 /**
@@ -52,50 +54,57 @@ public class CloudEventsExample {
     
     private static final Logger logger = LoggerFactory.getLogger(CloudEventsExample.class);
     
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         logger.info("Starting CloudEvents integration example");
-        
-        PeeGeeQManager manager = null;
-        MessageProducer<CloudEvent> producer = null;
-        MessageConsumer<CloudEvent> consumer = null;
-        
-        try {
-            // Initialize PeeGeeQ Manager
-            manager = new PeeGeeQManager(new PeeGeeQConfiguration("development", new java.util.Properties()), new SimpleMeterRegistry());
-            manager.start().await();
-            logger.info("PeeGeeQ Manager started");
-            
-            // Create outbox factory with CloudEvents support
-            PgDatabaseService databaseService = new PgDatabaseService(manager);
-            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-            OutboxFactoryRegistrar.registerWith(provider);
-            
-            QueueFactory factory = provider.createFactory("outbox", databaseService);
-            
-            // Create producer and consumer for CloudEvents
-            producer = factory.createProducer("cloudevents-demo", CloudEvent.class);
-            consumer = factory.createConsumer("cloudevents-demo", CloudEvent.class);
-            
-            // Demonstrate CloudEvents ObjectMapper integration
-            demonstrateObjectMapperIntegration(manager.getObjectMapper());
-            
-            // Demonstrate CloudEvents messaging
-            demonstrateCloudEventsMessaging(producer, consumer);
-            
-            logger.info("CloudEvents example completed successfully");
-            
-        } catch (Exception e) {
-            logger.error("Error in CloudEvents example", e);
-        } finally {
-            // Cleanup resources
-            try {
-                if (consumer != null) consumer.close();
-                if (producer != null) producer.close();
-                if (manager != null) manager.close();
-            } catch (Exception e) {
-                logger.error("Error during cleanup", e);
-            }
-        }
+
+        PeeGeeQManager manager = new PeeGeeQManager(
+            new PeeGeeQConfiguration("development", new java.util.Properties()),
+            new SimpleMeterRegistry());
+
+        AtomicReference<MessageProducer<CloudEvent>> producerRef = new AtomicReference<>();
+        AtomicReference<MessageConsumer<CloudEvent>> consumerRef = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+
+        manager.start()
+            .compose(v -> {
+                logger.info("PeeGeeQ Manager started");
+
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith(provider);
+                QueueFactory factory = provider.createFactory("outbox", databaseService);
+
+                MessageProducer<CloudEvent> producer = factory.createProducer("cloudevents-demo", CloudEvent.class);
+                MessageConsumer<CloudEvent> consumer = factory.createConsumer("cloudevents-demo", CloudEvent.class);
+                producerRef.set(producer);
+                consumerRef.set(consumer);
+
+                try {
+                    demonstrateObjectMapperIntegration(manager.getObjectMapper());
+                } catch (Exception e) {
+                    return Future.<Void>failedFuture(e);
+                }
+                return demonstrateCloudEventsMessaging(producer, consumer);
+            })
+            .onSuccess(v -> logger.info("CloudEvents example completed successfully"))
+            .onFailure(err -> logger.error("Error in CloudEvents example", err))
+            .eventually(() -> {
+                // Cleanup runs in both success and failure paths.
+                try {
+                    MessageConsumer<CloudEvent> consumer = consumerRef.get();
+                    if (consumer != null) consumer.close();
+                    MessageProducer<CloudEvent> producer = producerRef.get();
+                    if (producer != null) producer.close();
+                    manager.close();
+                } catch (Exception e) {
+                    logger.error("Error during cleanup", e);
+                } finally {
+                    done.countDown();
+                }
+                return Future.succeededFuture();
+            });
+
+        done.await();
     }
     
     /**
@@ -141,26 +150,26 @@ public class CloudEventsExample {
     /**
      * Demonstrates CloudEvents messaging through PeeGeeQ outbox pattern.
      */
-    private static void demonstrateCloudEventsMessaging(
-            MessageProducer<CloudEvent> producer, 
-            MessageConsumer<CloudEvent> consumer) throws Exception {
-        
+    private static Future<Void> demonstrateCloudEventsMessaging(
+            MessageProducer<CloudEvent> producer,
+            MessageConsumer<CloudEvent> consumer) {
+
         logger.info("=== CloudEvents Messaging ===");
-        
+
         // Set up consumer to process CloudEvents
         Promise<CloudEvent> receivedEventPromise = Promise.promise();
-        
+
         consumer.subscribe(message -> {
             try {
                 CloudEvent event = message.getPayload();
-                logger.info("Received CloudEvent: id={}, type={}, source={}", 
+                logger.info("Received CloudEvent: id={}, type={}, source={}",
                     event.getId(), event.getType(), event.getSource());
-                
+
                 // Log extensions
                 String correlationId = (String) event.getExtension("correlationid");
                 String priority = (String) event.getExtension("priority");
                 logger.info("Event metadata - correlationId: {}, priority: {}", correlationId, priority);
-                
+
                 receivedEventPromise.complete(event);
                 return Future.succeededFuture();
             } catch (Exception e) {
@@ -169,29 +178,34 @@ public class CloudEventsExample {
                 return Future.failedFuture(e);
             }
         }).onFailure(err -> logger.error("Consumer subscription failed", err));
-        
-        // Create and send a CloudEvent
-        CloudEvent eventToSend = CloudEventBuilder.v1()
-            .withId("messaging-demo-" + UUID.randomUUID())
-            .withType("com.example.trade.executed.v1")
-            .withSource(URI.create("https://example.com/trading"))
-            .withTime(OffsetDateTime.now())
-            .withDataContentType("application/json")
-            .withData(createTradePayload())
-            .withExtension("correlationid", "trade-workflow-" + UUID.randomUUID())
-            .withExtension("priority", "HIGH")
-            .withExtension("validtime", OffsetDateTime.now().toString())
-            .build();
-        
+
+        // Build and send the CloudEvent, then await receipt via the promise (composed, never blocked).
+        CloudEvent eventToSend;
+        try {
+            eventToSend = CloudEventBuilder.v1()
+                .withId("messaging-demo-" + UUID.randomUUID())
+                .withType("com.example.trade.executed.v1")
+                .withSource(URI.create("https://example.com/trading"))
+                .withTime(OffsetDateTime.now())
+                .withDataContentType("application/json")
+                .withData(createTradePayload())
+                .withExtension("correlationid", "trade-workflow-" + UUID.randomUUID())
+                .withExtension("priority", "HIGH")
+                .withExtension("validtime", OffsetDateTime.now().toString())
+                .build();
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
+
         logger.info("Sending CloudEvent: id={}, type={}", eventToSend.getId(), eventToSend.getType());
-        
-        // Send the CloudEvent through outbox
-        producer.send(eventToSend, Map.of("priority", "HIGH")).await();
-        logger.info("CloudEvent sent successfully");
-        
-        // Wait for the event to be received and processed
-        CloudEvent receivedEvent = receivedEventPromise.future().await();
-        logger.info("CloudEvent processing completed: id={}", receivedEvent.getId());
+
+        return producer.send(eventToSend, Map.of("priority", "HIGH"))
+            .onSuccess(v -> logger.info("CloudEvent sent successfully"))
+            .compose(v -> receivedEventPromise.future())
+            .map(receivedEvent -> {
+                logger.info("CloudEvent processing completed: id={}", receivedEvent.getId());
+                return null;
+            });
     }
     
     /**

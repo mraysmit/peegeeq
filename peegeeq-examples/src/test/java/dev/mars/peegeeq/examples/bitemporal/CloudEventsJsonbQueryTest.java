@@ -49,6 +49,7 @@ import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 
+import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -82,14 +83,6 @@ public class CloudEventsJsonbQueryTest {
     private static EventStore<CloudEvent> eventStore;
     private static Pool pool;
 
-    private static <T> T await(io.vertx.core.Future<T> future) {
-        try {
-            return future.await();
-        } catch (Exception e) {
-            throw new RuntimeException("Timed out waiting for async operation", e);
-        }
-    }
-
     @BeforeAll
     static void setup() throws Exception {
         logger.info("Setting up CloudEvents JSONB query test with PostgreSQL container");
@@ -102,7 +95,7 @@ public class CloudEventsJsonbQueryTest {
 
         // Initialize PeeGeeQManager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        awaitFuture(manager.start(), 30, TimeUnit.SECONDS);
 
         // Get Pool for direct SQL queries
         pool = manager.getClientFactory().getPool("peegeeq-main")
@@ -119,7 +112,7 @@ public class CloudEventsJsonbQueryTest {
     @AfterAll
     static void teardown() throws Exception {
         if (manager != null) {
-            manager.closeReactive().await();
+            awaitFuture(manager.closeReactive(), 30, TimeUnit.SECONDS);
         }
         logger.info("Teardown complete");
     }
@@ -284,12 +277,12 @@ public class CloudEventsJsonbQueryTest {
             .build();
 
         // Store events with appropriate valid times
-        await(eventStore.appendBuilder().eventType("TradeNew").payload(event1New).validTime(baseTime).execute());
-        await(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event1Affirmed).validTime(baseTime.plus(30, ChronoUnit.MINUTES)).execute());
-        await(eventStore.appendBuilder().eventType("TradeSettled").payload(event1Settled).validTime(baseTime.plus(2, ChronoUnit.DAYS)).execute());
-        await(eventStore.appendBuilder().eventType("TradeNew").payload(event2New).validTime(baseTime.plus(1, ChronoUnit.HOURS)).execute());
-        await(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event2Affirmed).validTime(baseTime.plus(2, ChronoUnit.HOURS)).execute());
-        await(eventStore.appendBuilder().eventType("TradeNew").payload(event3New).validTime(baseTime.plus(3, ChronoUnit.HOURS)).execute());
+        awaitFuture(eventStore.appendBuilder().eventType("TradeNew").payload(event1New).validTime(baseTime).execute(), 30, TimeUnit.SECONDS);
+        awaitFuture(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event1Affirmed).validTime(baseTime.plus(30, ChronoUnit.MINUTES)).execute(), 30, TimeUnit.SECONDS);
+        awaitFuture(eventStore.appendBuilder().eventType("TradeSettled").payload(event1Settled).validTime(baseTime.plus(2, ChronoUnit.DAYS)).execute(), 30, TimeUnit.SECONDS);
+        awaitFuture(eventStore.appendBuilder().eventType("TradeNew").payload(event2New).validTime(baseTime.plus(1, ChronoUnit.HOURS)).execute(), 30, TimeUnit.SECONDS);
+        awaitFuture(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event2Affirmed).validTime(baseTime.plus(2, ChronoUnit.HOURS)).execute(), 30, TimeUnit.SECONDS);
+        awaitFuture(eventStore.appendBuilder().eventType("TradeNew").payload(event3New).validTime(baseTime.plus(3, ChronoUnit.HOURS)).execute(), 30, TimeUnit.SECONDS);
 
         logger.info("Stored 6 trade lifecycle CloudEvents (3 trades in various stages)");
     }
@@ -299,7 +292,7 @@ public class CloudEventsJsonbQueryTest {
         logger.info("TEST 1: Verifying stored backoffice trade lifecycle CloudEvents");
 
         String sql = "SELECT COUNT(*) as total FROM bitemporal_event_log";
-        RowSet<Row> rows = pool.preparedQuery(sql).execute().await();
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql).execute(), 30, TimeUnit.SECONDS);
         int total = rows.iterator().next().getInteger("total");
         assertEquals(6, total, "Should have stored 6 trade lifecycle CloudEvents");
         logger.info("Verified {} trade lifecycle CloudEvents stored (3 trades in various stages)", total);
@@ -314,9 +307,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'type' = $1 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("backoffice.trade.new.v1"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -341,9 +334,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'correlationid' = $1 " +
                     "ORDER BY valid_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("TRD-001"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -367,9 +360,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'bookingsystem' = $1 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Murex"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -394,9 +387,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE (payload->'data'->>'notionalAmount')::numeric > $1 " +
                     "ORDER BY (payload->'data'->>'notionalAmount')::numeric DESC";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(new BigDecimal("100000")))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -424,9 +417,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->'data'->>'status' = $2 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Goldman Sachs", "AFFIRMED"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -455,9 +448,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND valid_time < $2 " +
                     "ORDER BY valid_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("DTCC", cutoffTime.atOffset(java.time.ZoneOffset.UTC)))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -482,9 +475,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'source' = $1 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("https://backoffice.example.com/affirmation"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -512,9 +505,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->'data'->>'side' = $2 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("AAPL", "BUY"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -542,9 +535,9 @@ public class CloudEventsJsonbQueryTest {
                     "GROUP BY payload->'data'->>'counterparty' " +
                     "ORDER BY total_notional DESC";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("backoffice.trade.new.v1"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -576,11 +569,11 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'clearinghouse' = $2 " +
                     "ORDER BY valid_time DESC";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(
                 pointInTime.atOffset(java.time.ZoneOffset.UTC),
                 "DTCC"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -611,9 +604,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'correlationid' = $1 " +
                     "ORDER BY valid_time ASC";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("TRD-001"))
-            .await();
+            , 30, TimeUnit.SECONDS);
 
         logger.info("=== Trade Lifecycle for TRD-001 ===");
         int count = 0;
@@ -654,9 +647,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'type' = $2 " +
                     "ORDER BY payload->'data'->>'settlementDate'";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("2025-10-18", "backoffice.trade.new.v1"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -688,9 +681,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'type' = $3 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = pool.preparedQuery(sql)
+        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Murex", "DTCC", "backoffice.trade.new.v1"))
-            .await();
+            , 30, TimeUnit.SECONDS);
         int count = 0;
         for (Row row : rows) {
             count++;

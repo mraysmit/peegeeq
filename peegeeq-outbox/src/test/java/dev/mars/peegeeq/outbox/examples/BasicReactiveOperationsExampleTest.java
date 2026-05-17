@@ -68,32 +68,32 @@ public class BasicReactiveOperationsExampleTest {
     private MessageProducer<OrderEvent> orderProducer;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Basic Reactive Operations Example Test");
-        
+
         // Set database properties from TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-        
+
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
-        
-        // Create outbox factory
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        
-        // Register outbox factory implementation
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        outboxFactory = provider.createFactory("outbox", databaseService);
-        orderProducer = outboxFactory.createProducer("orders", OrderEvent.class);
-        
-        logger.info("✓ Basic Reactive Operations Example Test setup completed");
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started successfully");
+                // Create outbox factory
+                DatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                // Register outbox factory implementation
+                OutboxFactoryRegistrar.registerWith(provider);
+                outboxFactory = provider.createFactory("outbox", databaseService);
+                orderProducer = outboxFactory.createProducer("orders", OrderEvent.class);
+                logger.info("✓ Basic Reactive Operations Example Test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach

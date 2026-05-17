@@ -74,7 +74,7 @@ public class OutboxFutureExceptionTest {
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -87,16 +87,17 @@ public class OutboxFutureExceptionTest {
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start().onSuccess(v -> {
+            // Create outbox factory and producer/consumer
+            PgDatabaseService databaseService = new PgDatabaseService(manager);
+            PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+            OutboxFactoryRegistrar.registerWith(provider);
 
-        // Create outbox factory and producer/consumer
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-future-exceptions", String.class);
-        consumer = factory.createConsumer("test-future-exceptions", String.class);
+            QueueFactory factory = provider.createFactory("outbox", databaseService);
+            producer = factory.createProducer("test-future-exceptions", String.class);
+            consumer = factory.createConsumer("test-future-exceptions", String.class);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

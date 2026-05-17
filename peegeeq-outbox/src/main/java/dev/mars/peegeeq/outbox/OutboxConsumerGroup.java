@@ -332,50 +332,54 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
     
     @Override
-    public void start() {
+    public Future<Void> start() {
         if (!state.compareAndSet(State.NEW, State.STARTING)) {
             State current = state.get();
             if (current == State.CLOSED) {
-                throw new IllegalStateException("Consumer group is closed");
+                return Future.failedFuture(new IllegalStateException("Consumer group is closed"));
             }
             if (current == State.ACTIVE || current == State.STARTING) {
-                // Already started or starting idempotent
-                return;
+                // Already started or starting - idempotent
+                return Future.succeededFuture();
             }
-            throw new IllegalStateException("Cannot start consumer group in state: " + current);
+            return Future.failedFuture(new IllegalStateException("Cannot start consumer group in state: " + current));
         }
 
-        try {
-            logger.info("Starting outbox consumer group '{}' for topic '{}'", groupName, topic);
+        logger.info("Starting outbox consumer group '{}' for topic '{}'", groupName, topic);
 
-            // Create the underlying consumer that will receive all messages
-            OutboxConsumer<T> outboxConsumer;
+        // Create the underlying consumer that will receive all messages
+        OutboxConsumer<T> outboxConsumer;
+        try {
             if (clientFactory != null) {
                 outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId);
             } else if (databaseService != null) {
                 outboxConsumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId);
             } else {
-                throw new IllegalStateException("Both clientFactory and databaseService are null");
+                state.set(State.NEW);
+                return Future.failedFuture(new IllegalStateException("Both clientFactory and databaseService are null"));
             }
-            underlyingConsumer = outboxConsumer;
-
-            // Set the consumer group name for tracking
-            outboxConsumer.setConsumerGroupName(groupName);
-
-            // Subscribe to messages and distribute them to group members
-            underlyingConsumer.subscribe(this::distributeMessage)
-                    .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
-                            groupName, topic, err.getMessage(), err));
-
-            // Start all existing members
-            members.values().forEach(OutboxConsumerGroupMember::start);
-
-            state.set(State.ACTIVE);
-            logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
         } catch (Exception e) {
             state.set(State.NEW);
-            throw e;
+            return Future.failedFuture(e);
         }
+        underlyingConsumer = outboxConsumer;
+
+        // Set the consumer group name for tracking
+        outboxConsumer.setConsumerGroupName(groupName);
+
+        // Subscribe to messages and distribute them to group members
+        return underlyingConsumer.subscribe(this::distributeMessage)
+                .onSuccess(v -> {
+                    // Start all existing members
+                    members.values().forEach(OutboxConsumerGroupMember::start);
+                    state.set(State.ACTIVE);
+                    logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
+                })
+                .onFailure(err -> {
+                    state.set(State.NEW);
+                    logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                            groupName, topic, err.getMessage(), err);
+                });
     }
     
     @Override
@@ -724,7 +728,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         }
     }
 
-    Future<Void> closeAsync() {
+    @Override
+    public Future<Void> closeAsync() {
         State prev = state.getAndSet(State.CLOSED);
         if (prev == State.CLOSED) {
             return Future.succeededFuture();

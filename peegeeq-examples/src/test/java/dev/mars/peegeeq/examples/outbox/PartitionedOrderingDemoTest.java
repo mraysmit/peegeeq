@@ -38,7 +38,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
@@ -63,7 +62,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -139,7 +137,7 @@ class PartitionedOrderingDemoTest {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         // ALL covers outbox + consumer-group/fanout subscription tables.
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
@@ -147,27 +145,30 @@ class PartitionedOrderingDemoTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
 
-        databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        factory = provider.createFactory("outbox", (DatabaseService) databaseService);
+        manager.start()
+            .onSuccess(v -> {
+                databaseService = new PgDatabaseService(manager);
+                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                factory = provider.createFactory("outbox", (DatabaseService) databaseService);
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
-            }
-            // Settle so connection pools fully release before the next test.
-            Promise<Void> delay = Promise.promise();
-            vertx.setTimer(2000, id -> delay.complete());
-            delay.future().await();
+    void tearDown(Vertx vertx, VertxTestContext ctx) {
+        if (manager == null) {
+            ctx.completeNow();
+            return;
         }
+        // Close manager, then settle 2s so connection pools fully release before the next test.
+        Future<Void> closeChain = manager.closeReactive()
+            .onFailure(err -> logger.warn("Error closing manager: {}", err.getMessage()))
+            .eventually(() -> vertx.timer(2000).<Void>mapEmpty());
+        closeChain.onSuccess(v -> ctx.completeNow());
+        closeChain.onFailure(err -> ctx.completeNow());
     }
 
     // ------------------------------------------------------------------
@@ -175,10 +176,9 @@ class PartitionedOrderingDemoTest {
     // ------------------------------------------------------------------
     @Test
     @DisplayName("2a per-aggregate version order strictly ascending")
-    void testPartitionedOrdering_eventsPerAggregateInOrder(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testPartitionedOrdering_eventsPerAggregateInOrder(Vertx vertx, VertxTestContext testContext) {
         String topic = "pod-2a-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2a-group";
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         int aggregates = 3;
         int eventsPerAggregate = 5;
@@ -197,7 +197,8 @@ class PartitionedOrderingDemoTest {
             received.put(id, Collections.synchronizedList(new ArrayList<>()));
         }
         Set<String> seen = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint = testContext.checkpoint(total);
+        Promise<Void> allReceived = Promise.promise();
+        AtomicInteger arrivalCount = new AtomicInteger(0);
 
         group.setMessageHandler(message -> {
             AggEvent ev = message.getPayload();
@@ -207,38 +208,45 @@ class PartitionedOrderingDemoTest {
                 return Future.succeededFuture();
             }
             received.get(ev.getAggregateId()).add(ev.getVersion());
-            checkpoint.flag();
+            if (arrivalCount.incrementAndGet() == total) {
+                allReceived.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
-        // Send all events first (interleaved across aggregates), then start the group.
-        Future<Void> sendChain = Future.succeededFuture();
-        for (int v = 1; v <= eventsPerAggregate; v++) {
-            for (String aggId : aggIds) {
-                final long version = v;
-                AggEvent ev = new AggEvent(aggId, version, "payload-" + aggId + "-v" + version);
-                sendChain = sendChain.compose(x -> producer.send(ev, null, null, aggId));
-            }
-        }
-        sendChain
+        // Send all events first (interleaved across aggregates), then start the group,
+        // then await arrival, assert, and stop the group — all as one composed chain.
+        configureOffsetWatermarkTopic(topic, groupName)
+                .compose(cfg -> {
+                    Future<Void> sendChain = Future.succeededFuture();
+                    for (int v = 1; v <= eventsPerAggregate; v++) {
+                        for (String aggId : aggIds) {
+                            final long version = v;
+                            AggEvent ev = new AggEvent(aggId, version, "payload-" + aggId + "-v" + version);
+                            sendChain = sendChain.compose(x -> producer.send(ev, null, null, aggId));
+                        }
+                    }
+                    return sendChain;
+                })
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
+                .compose(v -> allReceived.future())
+                .compose(v -> {
+                    for (String aggId : aggIds) {
+                        List<Long> versions = received.get(aggId);
+                        assertEquals(eventsPerAggregate, versions.size(),
+                                "aggregate " + aggId + " should receive every event");
+                        for (int i = 0; i < eventsPerAggregate; i++) {
+                            assertEquals((long) (i + 1), (long) versions.get(i),
+                                    "aggregate " + aggId + " out-of-order at position " + i);
+                        }
+                    }
+                    producer.close();
+                    return group.stopGracefully()
+                            .onFailure(err -> logger.warn("stopGracefully error: {}", err.getMessage()))
+                            .transform(ar -> Future.<Void>succeededFuture());
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "should process all " + total + " events within timeout");
-
-        for (String aggId : aggIds) {
-            List<Long> versions = received.get(aggId);
-            assertEquals(eventsPerAggregate, versions.size(),
-                    "aggregate " + aggId + " should receive every event");
-            for (int i = 0; i < eventsPerAggregate; i++) {
-                assertEquals((long) (i + 1), (long) versions.get(i),
-                        "aggregate " + aggId + " out-of-order at position " + i);
-            }
-        }
-
-        producer.close();
-        group.stopGracefully().await();
     }
 
     // ------------------------------------------------------------------
@@ -255,10 +263,9 @@ class PartitionedOrderingDemoTest {
     @Test
     @DisplayName("2b different aggregates processed concurrently")
     void testPartitionedOrdering_differentAggregatesProcessedConcurrently(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            Vertx vertx, VertxTestContext testContext) {
         String topic = "pod-2b-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2b-group";
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         int eventsPerAggregate = 3;
         long handlerDelayMs = 50L;
@@ -277,7 +284,8 @@ class PartitionedOrderingDemoTest {
             lastAt.put(id, new AtomicLong(0));
         }
         Set<String> seen = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint = testContext.checkpoint(total);
+        Promise<Void> allReceived = Promise.promise();
+        AtomicInteger arrivalCount = new AtomicInteger(0);
 
         group.setMessageHandler(message -> {
             AggEvent ev = message.getPayload();
@@ -289,59 +297,64 @@ class PartitionedOrderingDemoTest {
             firstAt.get(ev.getAggregateId()).compareAndSet(0, now);
             received.get(ev.getAggregateId()).add(ev.getVersion());
 
-            Promise<Void> p = Promise.promise();
-            vertx.setTimer(handlerDelayMs, id -> {
-                lastAt.get(ev.getAggregateId()).set(System.currentTimeMillis());
-                checkpoint.flag();
-                p.complete();
-            });
-            return p.future();
+            return vertx.timer(handlerDelayMs)
+                    .onSuccess(id -> {
+                        lastAt.get(ev.getAggregateId()).set(System.currentTimeMillis());
+                        if (arrivalCount.incrementAndGet() == total) {
+                            allReceived.tryComplete();
+                        }
+                    })
+                    .mapEmpty();
         });
 
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain2b = Future.succeededFuture();
         for (int v = 1; v <= eventsPerAggregate; v++) {
             for (String aggId : aggIds) {
                 final long version = v;
                 AggEvent ev = new AggEvent(aggId, version, "p-" + aggId + "-v" + version);
-                sendChain = sendChain.compose(x -> producer.send(ev, null, null, aggId));
+                sendChain2b = sendChain2b.compose(x -> producer.send(ev, null, null, aggId));
             }
         }
-        sendChain
+        final Future<Void> sendChain2bFinal = sendChain2b;
+        configureOffsetWatermarkTopic(topic, groupName)
+                .compose(cfg -> sendChain2bFinal)
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
+                .compose(v -> allReceived.future())
+                .compose(v -> {
+                    // Per-aggregate ordering still holds.
+                    for (String aggId : aggIds) {
+                        List<Long> versions = received.get(aggId);
+                        assertEquals(eventsPerAggregate, versions.size(),
+                                "aggregate " + aggId + " should receive every event");
+                        for (int i = 0; i < eventsPerAggregate; i++) {
+                            assertEquals((long) (i + 1), (long) versions.get(i),
+                                    "aggregate " + aggId + " out-of-order at position " + i);
+                        }
+                    }
+
+                    // Concurrency assertion: temporal overlap between the two partitions.
+                    // Under serial dispatch, one partition would fully complete before the
+                    // other started, i.e. lastAt(A) <= firstAt(B) (or vice versa).
+                    long firstA = firstAt.get(aggIds.get(0)).get();
+                    long lastA  = lastAt.get(aggIds.get(0)).get();
+                    long firstB = firstAt.get(aggIds.get(1)).get();
+                    long lastB  = lastAt.get(aggIds.get(1)).get();
+                    logger.info("2b partition windows: {}=[{}..{}] (Δ={} ms), {}=[{}..{}] (Δ={} ms)",
+                            aggIds.get(0), firstA, lastA, lastA - firstA,
+                            aggIds.get(1), firstB, lastB, lastB - firstB);
+                    boolean overlap = (firstA < lastB) && (firstB < lastA);
+                    assertTrue(overlap,
+                            "partitions should be processed concurrently (temporally overlapping); "
+                                    + "got " + aggIds.get(0) + "=[" + firstA + ".." + lastA + "], "
+                                    + aggIds.get(1) + "=[" + firstB + ".." + lastB + "]");
+
+                    producer.close();
+                    return group.stopGracefully()
+                            .onFailure(err -> logger.warn("stopGracefully error: {}", err.getMessage()))
+                            .transform(ar -> Future.<Void>succeededFuture());
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "should process all " + total + " events within timeout");
-
-        // Per-aggregate ordering still holds.
-        for (String aggId : aggIds) {
-            List<Long> versions = received.get(aggId);
-            assertEquals(eventsPerAggregate, versions.size(),
-                    "aggregate " + aggId + " should receive every event");
-            for (int i = 0; i < eventsPerAggregate; i++) {
-                assertEquals((long) (i + 1), (long) versions.get(i),
-                        "aggregate " + aggId + " out-of-order at position " + i);
-            }
-        }
-
-        // Concurrency assertion: temporal overlap between the two partitions.
-        // Under serial dispatch, one partition would fully complete before the
-        // other started, i.e. lastAt(A) <= firstAt(B) (or vice versa).
-        long firstA = firstAt.get(aggIds.get(0)).get();
-        long lastA  = lastAt.get(aggIds.get(0)).get();
-        long firstB = firstAt.get(aggIds.get(1)).get();
-        long lastB  = lastAt.get(aggIds.get(1)).get();
-        logger.info("2b partition windows: {}=[{}..{}] (Δ={} ms), {}=[{}..{}] (Δ={} ms)",
-                aggIds.get(0), firstA, lastA, lastA - firstA,
-                aggIds.get(1), firstB, lastB, lastB - firstB);
-        boolean overlap = (firstA < lastB) && (firstB < lastA);
-        assertTrue(overlap,
-                "partitions should be processed concurrently (temporally overlapping); "
-                        + "got " + aggIds.get(0) + "=[" + firstA + ".." + lastA + "], "
-                        + aggIds.get(1) + "=[" + firstB + ".." + lastB + "]");
-
-        producer.close();
-        group.stopGracefully().await();
     }
 
     // ------------------------------------------------------------------
@@ -357,10 +370,9 @@ class PartitionedOrderingDemoTest {
     @Test
     @DisplayName("2c no messageGroup → __default__ partition serial order")
     void testPartitionedOrdering_defaultPartition_noMessageGroup(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            Vertx vertx, VertxTestContext testContext) {
         String topic = "pod-2c-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2c-group";
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         int total = 5;
         MessageProducer<AggEvent> producer = factory.createProducer(topic, AggEvent.class);
@@ -368,7 +380,8 @@ class PartitionedOrderingDemoTest {
 
         List<Long> received = Collections.synchronizedList(new ArrayList<>());
         Set<String> seen = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint = testContext.checkpoint(total);
+        Promise<Void> allReceived = Promise.promise();
+        AtomicInteger arrivalCount = new AtomicInteger(0);
 
         group.setMessageHandler(message -> {
             AggEvent ev = message.getPayload();
@@ -377,47 +390,52 @@ class PartitionedOrderingDemoTest {
                 return Future.succeededFuture();
             }
             received.add(ev.getVersion());
-            checkpoint.flag();
+            if (arrivalCount.incrementAndGet() == total) {
+                allReceived.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
         // Send all 5 messages WITHOUT messageGroup, then start consumer.
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain2c = Future.succeededFuture();
         for (long v = 1; v <= total; v++) {
             final long version = v;
             AggEvent ev = new AggEvent("default-agg", version, "p-default-v" + version);
             // Note: send(payload) no messageGroup, no headers, no correlationId.
-            sendChain = sendChain.compose(x -> producer.send(ev));
+            sendChain2c = sendChain2c.compose(x -> producer.send(ev));
         }
-        sendChain
+        final Future<Void> sendChain2cFinal = sendChain2c;
+        configureOffsetWatermarkTopic(topic, groupName)
+                .compose(cfg -> sendChain2cFinal)
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
+                .compose(v -> allReceived.future())
+                .compose(v -> {
+                    // Assertion 1: serial order preserved.
+                    assertEquals(total, received.size(), "should receive every message exactly once");
+                    for (int i = 0; i < total; i++) {
+                        assertEquals((long) (i + 1), (long) received.get(i),
+                                "__default__ partition messages out-of-order at position " + i);
+                    }
+                    // Assertion 2: outbox_partition_assignments has exactly one row
+                    // with partition_key = '__default__' for this (topic, group).
+                    return databaseService.getPool()
+                            .withConnection(conn -> conn.preparedQuery(
+                                    "SELECT COUNT(*) AS cnt FROM outbox_partition_assignments " +
+                                            "WHERE topic = $1 AND group_name = $2 " +
+                                            "AND partition_key = '__default__'")
+                                    .execute(Tuple.of(topic, groupName))
+                                    .map(rs -> rs.iterator().next().getLong("cnt")));
+                })
+                .compose(count -> {
+                    assertEquals(1L, (long) count,
+                            "should be exactly one __default__ partition assignment for (topic, group); got " + count);
+                    producer.close();
+                    return group.stopGracefully()
+                            .onFailure(err -> logger.warn("stopGracefully error: {}", err.getMessage()))
+                            .transform(ar -> Future.<Void>succeededFuture());
+                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "should process all " + total + " events within timeout");
-
-        // Assertion 1: serial order preserved.
-        assertEquals(total, received.size(), "should receive every message exactly once");
-        for (int i = 0; i < total; i++) {
-            assertEquals((long) (i + 1), (long) received.get(i),
-                    "__default__ partition messages out-of-order at position " + i);
-        }
-
-        // Assertion 2: outbox_partition_assignments has exactly one row
-        // with partition_key = '__default__' for this (topic, group).
-        Long count = databaseService.getPool()
-                .withConnection(conn -> conn.preparedQuery(
-                        "SELECT COUNT(*) AS cnt FROM outbox_partition_assignments " +
-                                "WHERE topic = $1 AND group_name = $2 " +
-                                "AND partition_key = '__default__'")
-                        .execute(Tuple.of(topic, groupName))
-                        .map(rs -> rs.iterator().next().getLong("cnt")))
-                .await();
-        assertEquals(1L, (long) count,
-                "should be exactly one __default__ partition assignment for (topic, group); got " + count);
-
-        producer.close();
-        group.stopGracefully().await();
     }
 
     // ------------------------------------------------------------------
@@ -434,10 +452,9 @@ class PartitionedOrderingDemoTest {
     @Test
     @DisplayName("2d committed offset prevents redelivery after restart")
     void testPartitionedOrdering_idempotentRedelivery(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            Vertx vertx, VertxTestContext testContext) {
         String topic = "pod-2d-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2d-group";
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         MessageProducer<AggEvent> producer = factory.createProducer(topic, AggEvent.class);
 
@@ -446,13 +463,35 @@ class PartitionedOrderingDemoTest {
         ConsumerGroup<AggEvent> group1 = factory.createConsumerGroup(groupName, topic, AggEvent.class);
         List<Long> received1 = Collections.synchronizedList(new ArrayList<>());
         Set<String> seen1 = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint1 = testContext.checkpoint(firstBatch);
+        Promise<Void> batch1Received = Promise.promise();
+        AtomicInteger batch1Count = new AtomicInteger(0);
 
         group1.setMessageHandler(message -> {
             AggEvent ev = message.getPayload();
             if (seen1.add("v" + ev.getVersion())) {
                 received1.add(ev.getVersion());
-                checkpoint1.flag();
+                if (batch1Count.incrementAndGet() == firstBatch) {
+                    batch1Received.tryComplete();
+                }
+            }
+            return Future.succeededFuture();
+        });
+
+        // --- Second batch: versions 4–6 ---
+        int secondBatch = 3;
+        ConsumerGroup<AggEvent> group2 = factory.createConsumerGroup(groupName, topic, AggEvent.class);
+        List<Long> received2 = Collections.synchronizedList(new ArrayList<>());
+        Set<String> seen2 = ConcurrentHashMap.newKeySet();
+        Promise<Void> batch2Received = Promise.promise();
+        AtomicInteger batch2Count = new AtomicInteger(0);
+
+        group2.setMessageHandler(message -> {
+            AggEvent ev = message.getPayload();
+            if (seen2.add("v" + ev.getVersion())) {
+                received2.add(ev.getVersion());
+                if (batch2Count.incrementAndGet() == secondBatch) {
+                    batch2Received.tryComplete();
+                }
             }
             return Future.succeededFuture();
         });
@@ -463,82 +502,66 @@ class PartitionedOrderingDemoTest {
             AggEvent ev = new AggEvent("agg-2d", version, "batch1-v" + version);
             sendBatch1 = sendBatch1.compose(x -> producer.send(ev, null, null, "agg-2d"));
         }
-        sendBatch1
+        final Future<Void> sendBatch1Final = sendBatch1;
+
+        configureOffsetWatermarkTopic(topic, groupName)
+                .compose(cfg -> sendBatch1Final)
                 .compose(v -> group1.start(SubscriptionOptions.fromBeginning()))
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "first batch should be processed within timeout");
-        assertEquals(firstBatch, received1.size(), "first batch: should receive every message exactly once");
-        for (int i = 0; i < firstBatch; i++) {
-            assertEquals((long) (i + 1), (long) received1.get(i),
-                    "first batch out-of-order at position " + i);
-        }
-
-        // Stop group1 gracefully this commits the offset so a new consumer starts after message 3.
-        group1.stopGracefully().await();
-
-        // Re-activate the subscription so group2 can resume from the committed offset.
-        // (stopGracefully cancels the subscription as part of lifecycle management;
-        // re-activation simulates a consumer restart without resetting committed offsets.)
-        databaseService.getPool()
-                .withConnection(conn -> conn.preparedQuery(
-                        "UPDATE outbox_topic_subscriptions SET subscription_status = 'ACTIVE'" +
-                        " WHERE topic = $1 AND group_name = $2")
-                        .execute(Tuple.of(topic, groupName)))
-                .await();
-
-        // --- Second batch: versions 4–6 ---
-        int secondBatch = 3;
-        ConsumerGroup<AggEvent> group2 = factory.createConsumerGroup(groupName, topic, AggEvent.class);
-        List<Long> received2 = Collections.synchronizedList(new ArrayList<>());
-        Set<String> seen2 = ConcurrentHashMap.newKeySet();
-        // Reset the test context for the second round using a fresh VertxTestContext is not
-        // possible mid-test; use an AtomicInteger latch pattern instead.
-        java.util.concurrent.CountDownLatch latch2 = new java.util.concurrent.CountDownLatch(secondBatch);
-
-        group2.setMessageHandler(message -> {
-            AggEvent ev = message.getPayload();
-            if (seen2.add("v" + ev.getVersion())) {
-                received2.add(ev.getVersion());
-                latch2.countDown();
-            }
-            return Future.succeededFuture();
-        });
-
-        Future<Void> sendBatch2 = Future.succeededFuture();
-        for (long v = firstBatch + 1; v <= firstBatch + secondBatch; v++) {
-            final long version = v;
-            AggEvent ev = new AggEvent("agg-2d", version, "batch2-v" + version);
-            sendBatch2 = sendBatch2.compose(x -> producer.send(ev, null, null, "agg-2d"));
-        }
-        sendBatch2
+                .compose(v -> batch1Received.future())
+                .compose(v -> {
+                    assertEquals(firstBatch, received1.size(),
+                            "first batch: should receive every message exactly once");
+                    for (int i = 0; i < firstBatch; i++) {
+                        assertEquals((long) (i + 1), (long) received1.get(i),
+                                "first batch out-of-order at position " + i);
+                    }
+                    // Stop group1 gracefully — this commits the offset so a new consumer starts after message 3.
+                    return group1.stopGracefully()
+                            .onFailure(err -> logger.warn("group1 stopGracefully error: {}", err.getMessage()))
+                            .transform(ar -> Future.<Void>succeededFuture());
+                })
+                .compose(v -> {
+                    // Re-activate the subscription so group2 can resume from the committed offset.
+                    // (stopGracefully cancels the subscription as part of lifecycle management;
+                    // re-activation simulates a consumer restart without resetting committed offsets.)
+                    return databaseService.getPool()
+                            .withConnection(conn -> conn.preparedQuery(
+                                    "UPDATE outbox_topic_subscriptions SET subscription_status = 'ACTIVE'" +
+                                    " WHERE topic = $1 AND group_name = $2")
+                                    .execute(Tuple.of(topic, groupName)))
+                            .<Void>mapEmpty();
+                })
+                .compose(v -> {
+                    Future<Void> sendBatch2 = Future.succeededFuture();
+                    for (long ver = firstBatch + 1; ver <= firstBatch + secondBatch; ver++) {
+                        final long version = ver;
+                        AggEvent ev = new AggEvent("agg-2d", version, "batch2-v" + version);
+                        sendBatch2 = sendBatch2.compose(x -> producer.send(ev, null, null, "agg-2d"));
+                    }
+                    return sendBatch2;
+                })
                 .compose(v -> group2.start(SubscriptionOptions.fromBeginning()))
-                .onFailure(err -> {
-                    logger.error("group2 start failed: {}", err.getMessage());
-                    // drain the latch on failure so the test terminates
-                    while (latch2.getCount() > 0) latch2.countDown();
-                });
-
-        assertTrue(latch2.await(30, TimeUnit.SECONDS),
-                "second batch should be processed within timeout");
-
-        // Assertion 1: only second batch delivered (no redelivery of first batch).
-        assertEquals(secondBatch, received2.size(),
-                "second batch: should receive exactly " + secondBatch + " messages; got " + received2.size());
-        for (Long v : received2) {
-            assertTrue(v > firstBatch,
-                    "redelivery detected: version " + v + " is from the first batch");
-        }
-
-        // Assertion 2: second batch arrives in send order.
-        for (int i = 0; i < secondBatch; i++) {
-            assertEquals((long) (firstBatch + i + 1), (long) received2.get(i),
-                    "second batch out-of-order at position " + i);
-        }
-
-        producer.close();
-        group2.stopGracefully().await();
+                .compose(v -> batch2Received.future())
+                .compose(v -> {
+                    // Assertion 1: only second batch delivered (no redelivery of first batch).
+                    assertEquals(secondBatch, received2.size(),
+                            "second batch: should receive exactly " + secondBatch + " messages; got " + received2.size());
+                    for (Long ver : received2) {
+                        assertTrue(ver > firstBatch,
+                                "redelivery detected: version " + ver + " is from the first batch");
+                    }
+                    // Assertion 2: second batch arrives in send order.
+                    for (int i = 0; i < secondBatch; i++) {
+                        assertEquals((long) (firstBatch + i + 1), (long) received2.get(i),
+                                "second batch out-of-order at position " + i);
+                    }
+                    producer.close();
+                    return group2.stopGracefully()
+                            .onFailure(err -> logger.warn("group2 stopGracefully error: {}", err.getMessage()))
+                            .transform(ar -> Future.<Void>succeededFuture());
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     /**
