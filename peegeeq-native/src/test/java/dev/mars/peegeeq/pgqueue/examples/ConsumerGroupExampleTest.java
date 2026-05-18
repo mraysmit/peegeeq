@@ -186,9 +186,9 @@ class ConsumerGroupExampleTest {
                     logger.info("Analytics: {} messages", analyticsCount.get());
                     
                     // Stop consumer groups
-                    orderGroup.stop().onFailure(testContext::failNow);
-                    paymentGroup.stop().onFailure(testContext::failNow);
-                    analyticsGroup.stop().onFailure(testContext::failNow);
+                    orderGroup.stopGracefully().onFailure(testContext::failNow);
+                    paymentGroup.stopGracefully().onFailure(testContext::failNow);
+                    analyticsGroup.stopGracefully().onFailure(testContext::failNow);
                     
                     logger.info("Consumer Groups with Message Filtering test completed successfully!");
                 });

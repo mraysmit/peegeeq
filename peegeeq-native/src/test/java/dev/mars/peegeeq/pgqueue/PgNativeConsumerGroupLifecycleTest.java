@@ -68,7 +68,7 @@ class PgNativeConsumerGroupLifecycleTest {
     @AfterEach
     void tearDown() {
         if (group != null) {
-            group.close().onFailure(e -> fail("tearDown group.close() failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("tearDown group.close() failed: " + e.getMessage()));
         }
         for (PgConnectionManager cm : extraConnectionManagers) {
             try { cm.close(); } catch (Exception ignored) { }
@@ -120,9 +120,11 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("start() throws when group is CLOSED")
         void startThrowsWhenClosed() {
             group = createGroup("sm-group", "topic-a");
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
-            assertThrows(IllegalStateException.class, () -> group.start());
+            Future<Void> result = group.start();
+            assertTrue(result.failed(), "start() must return a failed future when CLOSED");
+            assertInstanceOf(IllegalStateException.class, result.cause());
         }
 
         @Test
@@ -131,7 +133,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
             assertFalse(group.isActive());
         }
@@ -150,7 +152,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
@@ -162,7 +164,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("sm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
             assertFalse(group.isActive());
         }
@@ -171,7 +173,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("close() from NEW goes directly to CLOSED")
         void closeFromNewGoesToClosed() {
             group = createGroup("sm-group", "topic-a");
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
 
@@ -179,7 +181,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("close() is idempotent")
         void closeIsIdempotent() {
             group = createGroup("sm-group", "topic-a");
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertDoesNotThrow(() -> group.close());
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
@@ -191,7 +193,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
             assertEquals(2, group.getConsumerIds().size());
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertTrue(group.getConsumerIds().isEmpty());
         }
 
@@ -205,10 +207,10 @@ class PgNativeConsumerGroupLifecycleTest {
             group.start();
             assertTrue(group.isActive(), "ACTIVE");
 
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertFalse(group.isActive(), "back to NEW after stop");
 
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertFalse(group.isActive(), "CLOSED");
         }
     }
@@ -232,7 +234,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("start(SubscriptionOptions) fails with future when CLOSED")
         void failsWhenClosed() {
             group = createGroup("sub-group", "topic-a");
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
 
             var options = SubscriptionOptions.builder().build();
             Future<Void> result = group.start(options);
@@ -288,7 +290,7 @@ class PgNativeConsumerGroupLifecycleTest {
         @DisplayName("addConsumer throws when group is CLOSED")
         void throwsWhenClosed() {
             group = createGroup("mem-group", "topic-a");
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertThrows(IllegalStateException.class,
                     () -> group.addConsumer("c1", msg -> Future.succeededFuture()));
         }
@@ -403,7 +405,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState(),
                     "State must be NEW after stop, not stuck in STOPPING or ACTIVE");
         }
@@ -444,7 +446,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertDoesNotThrow(() -> group.stop());
             assertDoesNotThrow(() -> group.stop());
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
@@ -456,7 +458,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertDoesNotThrow(() -> group.close());
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
@@ -467,9 +469,11 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
-            assertThrows(IllegalStateException.class, () -> group.start());
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.close();
+            Future<Void> result = group.start();
+            assertTrue(result.failed(), "start() must return a failed future when CLOSED");
+            assertInstanceOf(IllegalStateException.class, result.cause());
         }
 
         @Test
@@ -481,7 +485,7 @@ class PgNativeConsumerGroupLifecycleTest {
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
             // Stop and restart should not fail due to stale underlyingConsumer
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
@@ -508,7 +512,7 @@ class PgNativeConsumerGroupLifecycleTest {
             // Graceful stop starts the STOPPING transition
             group.stopGracefully();
             // Immediately close should set CLOSED
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
                     "close() must win over stop's NEW reset state should be CLOSED");
         }
@@ -519,12 +523,14 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroup("cas-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
 
             // Verify no operation can resurrect from CLOSED
-            assertThrows(IllegalStateException.class, () -> group.start());
+            Future<Void> result = group.start();
+            assertTrue(result.failed(), "start() must return a failed future when CLOSED");
+            assertInstanceOf(IllegalStateException.class, result.cause());
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
                     "State must remain CLOSED after failed start attempt");
         }
@@ -547,9 +553,9 @@ class PgNativeConsumerGroupLifecycleTest {
                     try {
                         barrier.await(5, TimeUnit.SECONDS);
                         if (doClose) {
-                            group.close().onFailure(e -> {});
+                            group.close();
                         } else {
-                            group.stop().onFailure(e -> {});
+                            group.stopGracefully().onFailure(e -> {});
                         }
                     } catch (Exception ignored) {}
                 });
@@ -629,7 +635,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
 
             group.start();
@@ -1039,7 +1045,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stop().onFailure(e -> fail("stop failed: " + e.getMessage()));
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
 
             group.start();
@@ -1056,7 +1062,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.start();
             // Even though start is async, the transform → reference-counting path
             // completes synchronously on the fallback branch
-            group.close().onFailure(e -> fail("close failed: " + e.getMessage()));
+            group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
         }
     }
