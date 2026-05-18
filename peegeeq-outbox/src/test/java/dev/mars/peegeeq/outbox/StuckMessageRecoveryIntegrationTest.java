@@ -54,7 +54,6 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 /**
  * Integration test for the stuck message recovery mechanism.
@@ -142,8 +141,8 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Create a dedicated recovery manager for testing with a very short timeout
         // Get the reactive pool from the manager's database service
-        io.vertx.sqlclient.Pool pool = awaitFuture(manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main"), 10, TimeUnit.SECONDS);
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").await();
         StuckMessageRecoveryManager testRecoveryManager =
             new StuckMessageRecoveryManager(pool, Duration.ofSeconds(2), true);
 
@@ -155,7 +154,7 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("Sent {} test messages", messageCount);
 
         // Wait for messages to be persisted
-        awaitFuture(vertx.timer(1000), 2, TimeUnit.SECONDS);
+        vertx.timer(1000).await();
 
         // Verify messages are in PENDING state
         int pendingCount = countMessagesByStatus("PENDING");
@@ -182,18 +181,18 @@ public class StuckMessageRecoveryIntegrationTest {
         assertTrue(processingCount > 0, "Should have messages stuck in PROCESSING state after crash");
 
         // Wait for messages to be considered stuck (longer than the recovery timeout)
-        awaitFuture(vertx.timer(3000), 4, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
 
         // Now test the recovery mechanism
         logger.info("Running stuck message recovery...");
-        int recoveredCount = awaitFuture(testRecoveryManager.recoverStuckMessages(), 10, TimeUnit.SECONDS);
+        int recoveredCount = testRecoveryManager.recoverStuckMessages().await();
 
         // Verify that messages were recovered
         assertTrue(recoveredCount > 0, "Recovery manager should have recovered stuck messages");
         logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Wait for recovery to complete
-        awaitFuture(vertx.timer(1000), 2, TimeUnit.SECONDS);
+        vertx.timer(1000).await();
 
         // Verify messages are back in PENDING state
         int pendingAfterRecovery = countMessagesByStatus("PENDING");
@@ -206,7 +205,7 @@ public class StuckMessageRecoveryIntegrationTest {
             "Should have fewer PROCESSING messages after recovery");
 
         // Verify recovery statistics
-        StuckMessageRecoveryManager.RecoveryStats stats = awaitFuture(testRecoveryManager.getRecoveryStats(), 10, TimeUnit.SECONDS);
+        StuckMessageRecoveryManager.RecoveryStats stats = testRecoveryManager.getRecoveryStats().await();
         assertTrue(stats.isEnabled(), "Recovery should be enabled");
         logger.info("Recovery stats: {}", stats);
 
@@ -224,8 +223,8 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Create a recovery manager with recovery disabled
         // Get the reactive pool from the manager's database service
-        io.vertx.sqlclient.Pool pool = awaitFuture(manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main"), 10, TimeUnit.SECONDS);
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").await();
         StuckMessageRecoveryManager disabledRecoveryManager =
             new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), false);
 
@@ -237,7 +236,7 @@ public class StuckMessageRecoveryIntegrationTest {
         verifyMessageStatus(stuckMessageId, "PROCESSING");
 
         // Try recovery with disabled manager
-        int recoveredCount = awaitFuture(disabledRecoveryManager.recoverStuckMessages(), 10, TimeUnit.SECONDS);
+        int recoveredCount = disabledRecoveryManager.recoverStuckMessages().await();
 
         // Should not recover anything
         assertEquals(0, recoveredCount, "Disabled recovery manager should not recover any messages");
@@ -246,7 +245,7 @@ public class StuckMessageRecoveryIntegrationTest {
         verifyMessageStatus(stuckMessageId, "PROCESSING");
 
         // Stats should show disabled
-        StuckMessageRecoveryManager.RecoveryStats stats = awaitFuture(disabledRecoveryManager.getRecoveryStats(), 10, TimeUnit.SECONDS);
+        StuckMessageRecoveryManager.RecoveryStats stats = disabledRecoveryManager.getRecoveryStats().await();
         assertFalse(stats.isEnabled(), "Recovery should be disabled");
 
         logger.info("Disabled recovery test completed successfully");
@@ -263,8 +262,8 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Create recovery manager with short timeout for testing
         // Get the reactive pool from the manager's database service
-        io.vertx.sqlclient.Pool pool = awaitFuture(manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main"), 10, TimeUnit.SECONDS);
+        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main").await();
         StuckMessageRecoveryManager testRecoveryManager =
             new StuckMessageRecoveryManager(pool, Duration.ofSeconds(3), true);
 
@@ -279,11 +278,11 @@ public class StuckMessageRecoveryIntegrationTest {
         assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
 
         // Wait for the message to be considered stuck (timeout is 3 seconds)
-        awaitFuture(vertx.timer(4000), 5, TimeUnit.SECONDS);
+        vertx.timer(4000).await();
 
         // Test recovery
         logger.info("Running stuck message recovery...");
-        int recoveredCount = awaitFuture(testRecoveryManager.recoverStuckMessages(), 10, TimeUnit.SECONDS);
+        int recoveredCount = testRecoveryManager.recoverStuckMessages().await();
         logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Verify recovery worked
@@ -321,7 +320,7 @@ public class StuckMessageRecoveryIntegrationTest {
         Instant now = Instant.now();
         Instant stuckTime = now.minus(Duration.ofMinutes(10));
 
-        long messageId = awaitFuture(reactivePool.withConnection(conn ->
+        long messageId = reactivePool.withConnection(conn ->
             conn.preparedQuery(insertSql)
                 .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"",
                     stuckTime.atOffset(ZoneOffset.UTC), now.atOffset(ZoneOffset.UTC)))
@@ -334,7 +333,7 @@ public class StuckMessageRecoveryIntegrationTest {
                         throw new RuntimeException("Failed to insert stuck message - no ID returned");
                     }
                 })
-        ), 10, TimeUnit.SECONDS);
+        ).await();
         
         return messageId;
     }
@@ -345,7 +344,7 @@ public class StuckMessageRecoveryIntegrationTest {
     private void verifyMessageStatus(long messageId, String expectedStatus) throws Exception {
         logger.info("Looking for message with ID: {}", messageId);
 
-        awaitFuture(reactivePool.withConnection(conn -> {
+        reactivePool.withConnection(conn -> {
             // First, let's see all messages in the database
             String allSql = "SELECT id, topic, status, processed_at FROM outbox ORDER BY id";
             return conn.query(allSql).execute()
@@ -375,7 +374,7 @@ public class StuckMessageRecoveryIntegrationTest {
                         "Message " + messageId + " should have status: " + expectedStatus);
                     return null;
                 });
-        }), 10, TimeUnit.SECONDS);
+        }).await();
     }
 
     /**
@@ -384,7 +383,7 @@ public class StuckMessageRecoveryIntegrationTest {
     private int countMessagesByStatus(String status) throws Exception {
         String sql = "SELECT COUNT(*) as count FROM outbox WHERE topic = $1 AND status = $2";
         
-        return awaitFuture(reactivePool.withConnection(conn ->
+        return reactivePool.withConnection(conn ->
             conn.preparedQuery(sql).execute(Tuple.of(testTopic, status))
                 .map(rows -> {
                     if (rows.size() > 0) {
@@ -394,7 +393,7 @@ public class StuckMessageRecoveryIntegrationTest {
                     }
                     return 0;
                 })
-        ), 10, TimeUnit.SECONDS);
+        ).await();
     }
 
     /**
@@ -403,7 +402,7 @@ public class StuckMessageRecoveryIntegrationTest {
      * @return the number of messages that were forced into PROCESSING state
      */
     private int forceMessagesIntoProcessingState(int maxMessages) throws Exception {
-        return awaitFuture(reactivePool.withConnection(conn -> {
+        return reactivePool.withConnection(conn -> {
             // First, let's see what messages exist
             String selectSql = "SELECT id, topic, status, payload::text as payload_text FROM outbox WHERE topic = $1";
             return conn.preparedQuery(selectSql).execute(Tuple.of(testTopic))
@@ -438,7 +437,7 @@ public class StuckMessageRecoveryIntegrationTest {
                     logger.info("Forced {} messages from PENDING to PROCESSING state", updated);
                     return updated;
                 });
-        }), 10, TimeUnit.SECONDS);
+        }).await();
     }
 
 }

@@ -55,10 +55,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 
-import dev.mars.peegeeq.test.util.FutureTestHelper;
 import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -304,13 +301,13 @@ public class MessagePriorityExampleTest {
     // Helper methods
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
-        awaitFuture(producer.send(message), 30, TimeUnit.SECONDS);
+        producer.send(message).await();
         logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
     }
 
     private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
-        awaitFuture(producer.send(message), 30, TimeUnit.SECONDS);
+        producer.send(message).await();
         logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
     }
 

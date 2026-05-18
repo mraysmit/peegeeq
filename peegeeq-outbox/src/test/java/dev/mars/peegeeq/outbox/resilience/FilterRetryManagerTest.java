@@ -510,7 +510,7 @@ class FilterRetryManagerTest {
     }
 
     @Test
-    void testSchedulerShutdownGracefully(VertxTestContext testContext) {
+    void testSchedulerShutdownGracefully(VertxTestContext testContext) throws Exception {
         Message<String> message = createTestMessage("msg-shutdown", "payload");
 
         Predicate<Message<String>> filter = msg -> {
@@ -525,9 +525,12 @@ class FilterRetryManagerTest {
 
         // Wait 20 ms to allow retries to start, then close Vertx while retries are in-progress.
         // The invariant under test: closing must complete without throwing or hanging.
-        vertx.timer(20)
-            .compose(v -> vertx.close())
-            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+        // NOTE: Do NOT chain close via .compose from the timer — that binds the close future to the
+        // event loop context, causing RejectedExecutionException when close tries to dispatch its own
+        // completion to the (now-terminated) event loop. Use .await() from the test thread instead.
+        vertx.timer(20).await();
+        vertx.close().await();
+        testContext.completeNow();
     }
 
     @Test

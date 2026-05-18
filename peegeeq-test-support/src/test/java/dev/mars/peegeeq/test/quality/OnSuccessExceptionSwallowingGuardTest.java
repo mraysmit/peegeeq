@@ -11,6 +11,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
@@ -234,6 +236,13 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static final Pattern FUTURE_CHAIN_CONTINUATION =
             Pattern.compile("^\\.(?:compose|onSuccess|onFailure|onComplete|eventually|map|recover|transform|andThen)\\s*\\(");
 
+    /** Baseline CSV for the T7 ratchet. */
+    private static final String TIER_7_BASELINE_RESOURCE = "/quality/discarded-future-baseline.csv";
+    /** Baseline CSV for the T4 ratchet. */
+    private static final String TIER_4_BASELINE_RESOURCE = "/quality/future-await-baseline.csv";
+    /** Baseline CSV for the T5 ratchet. */
+    private static final String TIER_5_BASELINE_RESOURCE = "/quality/blocking-sleep-baseline.csv";
+
     // =========================================================================
     // Test methods
     // =========================================================================
@@ -245,12 +254,18 @@ class OnSuccessExceptionSwallowingGuardTest {
 
     @Test
     void noFutureAwaitInTestSources() throws IOException {
-        runCheck(CheckType.TIER_4_AWAIT);
+        Path workspaceRoot = locateWorkspaceRoot();
+        Map<String, Integer> baseline = loadPathCountBaseline(TIER_4_BASELINE_RESOURCE);
+        Map<String, Integer> actual = scanAwaitPerFile(workspaceRoot);
+        assertRatchet("Future.await() [Tier 4]", "future-await-baseline.csv", baseline, actual);
     }
 
     @Test
     void noBlockingThreadDelaysInTestSources() throws IOException {
-        runCheck(CheckType.TIER_5_SLEEP);
+        Path workspaceRoot = locateWorkspaceRoot();
+        Map<String, Integer> baseline = loadPathCountBaseline(TIER_5_BASELINE_RESOURCE);
+        Map<String, Integer> actual = scanSleepPerFile(workspaceRoot);
+        assertRatchet("Thread.sleep [Tier 5]", "blocking-sleep-baseline.csv", baseline, actual);
     }
 
     @Test
@@ -260,7 +275,45 @@ class OnSuccessExceptionSwallowingGuardTest {
 
     @Test
     void noDiscardedFuturesFromStopOrCloseInTestSources() throws IOException {
-        runCheck(CheckType.TIER_7_DISCARD);
+        Path workspaceRoot = locateWorkspaceRoot();
+        Map<String, Integer> baseline = loadT7Baseline();
+        Map<String, Integer> actual = scanDiscardedFuturePerFile(workspaceRoot);
+
+        List<String> regressions = new ArrayList<>();
+        List<String> stale = new ArrayList<>();
+
+        for (Map.Entry<String, Integer> e : actual.entrySet()) {
+            int allowed = baseline.getOrDefault(e.getKey(), 0);
+            if (e.getValue() > allowed) {
+                regressions.add("  REGRESSION  " + e.getKey()
+                        + "  actual=" + e.getValue() + "  allowed=" + allowed);
+            }
+        }
+        for (Map.Entry<String, Integer> e : baseline.entrySet()) {
+            int found = actual.getOrDefault(e.getKey(), 0);
+            if (e.getValue() > found) {
+                stale.add("  STALE       " + e.getKey()
+                        + "  actual=" + found + "  baselined=" + e.getValue()
+                        + "  -> update or delete the row in discarded-future-baseline.csv");
+            }
+        }
+
+        if (regressions.isEmpty() && stale.isEmpty()) return;
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Discarded-Future guard [Tier 7] FAILED.\n")
+          .append("Baseline: peegeeq-test-support/src/test/resources/quality/discarded-future-baseline.csv\n\n");
+        if (!regressions.isEmpty()) {
+            sb.append("Regressions (new or increased T7 violations; not permitted):\n");
+            regressions.forEach(r -> sb.append(r).append('\n'));
+            sb.append('\n');
+        }
+        if (!stale.isEmpty()) {
+            sb.append("Stale baseline entries (file was remediated but CSV was not updated):\n")
+              .append("Update each row to the new count, or delete the row if count is now 0.\n");
+            stale.forEach(r -> sb.append(r).append('\n'));
+        }
+        fail(sb.toString());
     }
 
     // =========================================================================
@@ -568,6 +621,167 @@ class OnSuccessExceptionSwallowingGuardTest {
             // outer call) is context we cannot reliably classify — skip conservatively
             // to avoid false positives.
         }
+    }
+
+    // =========================================================================
+    // T7 ratchet helpers
+    // =========================================================================
+
+    /**
+     * Scans the workspace and returns a map of relative-path -> violation count
+     * for files that contain at least one Tier-7 violation. Only files with count > 0
+     * appear in the result.
+     */
+    private static Map<String, Integer> scanDiscardedFuturePerFile(Path workspaceRoot) throws IOException {
+        Map<String, Integer> result = new TreeMap<>();
+        try (Stream<Path> modules = Files.list(workspaceRoot)) {
+            List<Path> testRoots = modules
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
+                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
+                    .filter(Files::isDirectory)
+                    .toList();
+            for (Path testRoot : testRoots) {
+                try (Stream<Path> files = Files.walk(testRoot)) {
+                    files.filter(Files::isRegularFile)
+                         .filter(p -> p.getFileName().toString().endsWith(".java"))
+                         .forEach(p -> {
+                             List<Violation> fileViolations = new ArrayList<>();
+                             scanDiscardedFuture(p, fileViolations);
+                             if (!fileViolations.isEmpty()) {
+                                 String rel = workspaceRoot.relativize(p).toString().replace('\\', '/');
+                                 result.put(rel, fileViolations.size());
+                             }
+                         });
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Map<String, Integer> loadT7Baseline() throws IOException {
+        return loadPathCountBaseline(TIER_7_BASELINE_RESOURCE);
+    }
+
+    /**
+     * Shared loader for any {@code path,count} baseline CSV on the classpath.
+     * Returns an empty map if the resource is absent (treats all violations as regressions).
+     */
+    private static Map<String, Integer> loadPathCountBaseline(String resource) throws IOException {
+        Map<String, Integer> baseline = new TreeMap<>();
+        try (var in = OnSuccessExceptionSwallowingGuardTest.class.getResourceAsStream(resource)) {
+            if (in == null) return baseline;
+            String csv = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            for (String line : csv.split("\\r?\\n")) {
+                if (line.isBlank() || line.startsWith("#") || line.startsWith("path,")) continue;
+                int comma = line.lastIndexOf(',');
+                if (comma < 0) continue;
+                String path = line.substring(0, comma).trim();
+                int count;
+                try {
+                    count = Integer.parseInt(line.substring(comma + 1).trim());
+                } catch (NumberFormatException nfe) {
+                    throw new IOException("Malformed baseline count on line: '" + line + "'");
+                }
+                if (count > 0) baseline.put(path, count);
+            }
+        }
+        return baseline;
+    }
+
+    /**
+     * Shared ratchet assertion: fails if {@code actual} has more violations than
+     * {@code baseline} for any file (regression), or if {@code baseline} has more
+     * than {@code actual} for any file (stale — file was fixed but CSV not updated).
+     */
+    private static void assertRatchet(String label, String csvFileName,
+                                      Map<String, Integer> baseline, Map<String, Integer> actual) {
+        List<String> regressions = new ArrayList<>();
+        List<String> stale = new ArrayList<>();
+        for (Map.Entry<String, Integer> e : actual.entrySet()) {
+            int allowed = baseline.getOrDefault(e.getKey(), 0);
+            if (e.getValue() > allowed) {
+                regressions.add("  REGRESSION  " + e.getKey()
+                        + "  actual=" + e.getValue() + "  allowed=" + allowed);
+            }
+        }
+        for (Map.Entry<String, Integer> e : baseline.entrySet()) {
+            int found = actual.getOrDefault(e.getKey(), 0);
+            if (e.getValue() > found) {
+                stale.add("  STALE       " + e.getKey()
+                        + "  actual=" + found + "  baselined=" + e.getValue()
+                        + "  -> update or delete the row in " + csvFileName);
+            }
+        }
+        if (regressions.isEmpty() && stale.isEmpty()) return;
+        StringBuilder sb = new StringBuilder();
+        sb.append(label).append(" guard FAILED.\n")
+          .append("Baseline: peegeeq-test-support/src/test/resources/quality/").append(csvFileName).append("\n\n");
+        if (!regressions.isEmpty()) {
+            sb.append("Regressions (new or increased violations; not permitted):\n");
+            regressions.forEach(r -> sb.append(r).append('\n'));
+            sb.append('\n');
+        }
+        if (!stale.isEmpty()) {
+            sb.append("Stale baseline entries (file was remediated but CSV was not updated):\n")
+              .append("Update each row to the new count, or delete the row if count is now 0.\n");
+            stale.forEach(r -> sb.append(r).append('\n'));
+        }
+        fail(sb.toString());
+    }
+
+    private static Map<String, Integer> scanAwaitPerFile(Path workspaceRoot) throws IOException {
+        Map<String, Integer> result = new TreeMap<>();
+        try (Stream<Path> modules = Files.list(workspaceRoot)) {
+            List<Path> testRoots = modules
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
+                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
+                    .filter(Files::isDirectory)
+                    .toList();
+            for (Path testRoot : testRoots) {
+                try (Stream<Path> files = Files.walk(testRoot)) {
+                    files.filter(Files::isRegularFile)
+                         .filter(p -> p.getFileName().toString().endsWith(".java"))
+                         .forEach(p -> {
+                             List<Violation> fv = new ArrayList<>();
+                             scanAwait(p, fv);
+                             if (!fv.isEmpty()) {
+                                 String rel = workspaceRoot.relativize(p).toString().replace('\\', '/');
+                                 result.put(rel, fv.size());
+                             }
+                         });
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Map<String, Integer> scanSleepPerFile(Path workspaceRoot) throws IOException {
+        Map<String, Integer> result = new TreeMap<>();
+        try (Stream<Path> modules = Files.list(workspaceRoot)) {
+            List<Path> testRoots = modules
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
+                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
+                    .filter(Files::isDirectory)
+                    .toList();
+            for (Path testRoot : testRoots) {
+                try (Stream<Path> files = Files.walk(testRoot)) {
+                    files.filter(Files::isRegularFile)
+                         .filter(p -> p.getFileName().toString().endsWith(".java"))
+                         .forEach(p -> {
+                             List<Violation> fv = new ArrayList<>();
+                             scanSleep(p, fv);
+                             if (!fv.isEmpty()) {
+                                 String rel = workspaceRoot.relativize(p).toString().replace('\\', '/');
+                                 result.put(rel, fv.size());
+                             }
+                         });
+                }
+            }
+        }
+        return result;
     }
 
     /**
