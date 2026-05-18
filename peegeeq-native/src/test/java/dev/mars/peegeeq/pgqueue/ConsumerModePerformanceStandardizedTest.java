@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import io.vertx.core.Future;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -87,7 +86,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             factory.close();
         }
         if (manager != null) {
-            awaitFuture(manager.closeReactive(), 10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
@@ -100,7 +99,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        awaitFuture(manager.start(), 30, TimeUnit.SECONDS);
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -218,7 +217,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         }
         if (manager != null) {
             try {
-                awaitFuture(manager.closeReactive(), 10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             } catch (Exception ignore) {}
             manager = null;
         }
@@ -231,7 +230,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        awaitFuture(manager.start(), 30, TimeUnit.SECONDS);
+        manager.start().await();
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
