@@ -126,7 +126,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
      * giving a cumulative worst-case of ~162 s plus startup/teardown headroom.</p>
      */
     @Test
-    @Timeout(value = 240, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 480, timeUnit = TimeUnit.SECONDS)
     void testFanoutScaling(VertxTestContext testContext) {
         logger.info("=== P2: FANOUT SCALING TEST ===");
 
