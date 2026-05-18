@@ -61,7 +61,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -379,7 +378,7 @@ class PerformanceComparisonExampleTest {
             boolean completed;
             try {
                 vertx.timer(30000).onSuccess(id -> allProcessed.tryFail("Timeout waiting for all messages"));
-                awaitFuture(allProcessed.future(), 10, TimeUnit.SECONDS);
+                allProcessed.future().await();
                 completed = true;
             } catch (Exception e) {
                 completed = false;

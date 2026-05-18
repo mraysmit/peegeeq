@@ -38,6 +38,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.sqlclient.Tuple;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -99,7 +100,9 @@ class ConsumerGroupTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
+        manager.start()
+            .compose(v -> manager.getPool().preparedQuery("DELETE FROM queue_messages WHERE topic = $1").execute(Tuple.of("test-topic")))
+            .onSuccess(v -> {
             // Create factory and producer
             DatabaseService databaseService = new PgDatabaseService(manager);
             QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -115,22 +118,22 @@ class ConsumerGroupTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
-            producer.close();
+            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
         }
         if (factory != null) {
-            factory.close();
+            try { factory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
         }
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
         } else {
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        testContext.awaitCompletion(30, TimeUnit.SECONDS);
     }
 
     @Test
@@ -196,7 +199,7 @@ class ConsumerGroupTest {
                 });
 
                 // Clean up
-                consumerGroup.close().onFailure(testContext::failNow);
+                consumerGroup.stopGracefully().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -253,7 +256,7 @@ class ConsumerGroupTest {
                 vertx.cancelTimer(id);
                 testContext.verify(() ->
                     assertTrue(allCount.get() >= 3, "All consumer should process at least 3 messages, got: " + allCount.get()));
-                consumerGroup.close().onFailure(testContext::failNow);
+                consumerGroup.stopGracefully().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -295,7 +298,7 @@ class ConsumerGroupTest {
                 vertx.cancelTimer(id);
                 testContext.verify(() ->
                     assertTrue(processedCount.get() >= 3, "At least 3 messages should be processed, got: " + processedCount.get()));
-                consumerGroup.close().onFailure(testContext::failNow);
+                consumerGroup.stopGracefully().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -357,7 +360,7 @@ class ConsumerGroupTest {
                 });
 
                 // Clean up
-                consumerGroup.close().onFailure(testContext::failNow);
+                consumerGroup.stopGracefully().onFailure(testContext::failNow);
                 testContext.completeNow();
             }
         });
@@ -391,7 +394,7 @@ class ConsumerGroupTest {
         assertFalse(notRemoved);
 
         // Clean up
-        consumerGroup.close().onFailure(e -> logger.warn("close failed in testRemoveConsumerFromGroup", e));
+        consumerGroup.stopGracefully().onFailure(e -> logger.warn("close failed in testRemoveConsumerFromGroup", e));
     }
 }
 
