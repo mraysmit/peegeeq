@@ -52,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
+import io.vertx.sqlclient.Tuple;
 
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
@@ -106,6 +107,7 @@ class ConsumerGroupSubscriptionTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
+            .compose(v -> manager.getPool().preparedQuery("DELETE FROM queue_messages WHERE topic = $1").execute(Tuple.of("test-topic")))
             .onSuccess(v -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -118,7 +120,7 @@ class ConsumerGroupSubscriptionTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
@@ -126,16 +128,14 @@ class ConsumerGroupSubscriptionTest {
         if (factory != null) {
             try { factory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
         }
-        if (manager == null) {
+        if (manager != null) {
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
+        } else {
             testContext.completeNow();
-            return;
         }
-        manager.closeReactive()
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(err -> {
-                logger.warn("Error during manager cleanup: {}", err.getMessage());
-                testContext.completeNow();
-            });
+        testContext.awaitCompletion(30, TimeUnit.SECONDS);
     }
 
     // ========================================================================
@@ -426,17 +426,17 @@ class ConsumerGroupSubscriptionTest {
                     .build())
                 .compose(v -> {
                     assertTrue(group1.isActive());
-                    return group1.close().compose(ignored -> group2.start(SubscriptionOptions.builder()
+                    return group1.stopGracefully().compose(ignored -> group2.start(SubscriptionOptions.builder()
                         .startPosition(StartPosition.FROM_BEGINNING)
                         .build()));
                 })
                 .compose(v -> {
                     assertTrue(group2.isActive());
-                    return group2.close().compose(ignored -> group3.start(SubscriptionOptions.defaults()));
+                    return group2.stopGracefully().compose(ignored -> group3.start(SubscriptionOptions.defaults()));
                 })
                 .onSuccess(v -> testContext.verify(() -> {
                     assertTrue(group3.isActive());
-                    group3.close().onFailure(testContext::failNow);
+                    group3.stopGracefully().onFailure(testContext::failNow);
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);

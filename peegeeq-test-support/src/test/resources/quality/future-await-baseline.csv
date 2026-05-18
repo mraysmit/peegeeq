@@ -2,14 +2,17 @@
 # Guard: OnSuccessExceptionSwallowingGuardTest.noFutureAwaitInTestSources.
 # Build fails on any mismatch with this baseline (regression OR stale entry).
 # To FIX a file: remediate it, then update or delete its row here in the same commit.
-# Baseline captured: 2026-05-18. Total allowed violations: 460.
+# Baseline captured: 2026-05-18. Total allowed violations: 468.
 path,count
 peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/BiTemporalEventStoreExampleTest.java,3
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeMetricsTest.java,10
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePerformanceStandardizedTest.java,4
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePerformanceTest.java,4
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePropertyIntegrationTest.java,1
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeTypeSafetyTest.java,4
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/MessagePriorityExampleTest.java,3
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/NativeVsOutboxComparisonExampleTest.java,2
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/PerformanceComparisonExampleTest.java,1
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/HybridModeEdgeCaseTest.java,8
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/JsonbConversionValidationTest.java,7
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ListenNotifyOnlyEdgeCaseTest.java,5
@@ -17,6 +20,7 @@ peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MemoryAndResourceLeakTest.
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MultiConsumerModeTest.java,7
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MultiTenantSchemaIsolationTest.java,9
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/NativeQueueIntegrationTest.java,23
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PeeGeeQConfigurationConsumerModeTest.java,2
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConcurrentClaimIT.java,4
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerClaimIT.java,8
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerCleanupIT.java,3

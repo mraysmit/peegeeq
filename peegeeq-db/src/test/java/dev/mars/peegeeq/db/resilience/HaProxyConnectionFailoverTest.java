@@ -46,7 +46,10 @@ import org.testcontainers.containers.Network;
 import org.testcontainers.containers.wait.strategy.Wait;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import io.vertx.junit5.Timeout;
+
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -480,6 +483,7 @@ class HaProxyConnectionFailoverTest {
      */
     @Test
     @Order(5)
+    @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Phase 5: failback — traffic returns after replacement primary starts")
     void testFailbackAfterPrimaryRecovery(Vertx vertx, VertxTestContext ctx) {
         long t0 = System.currentTimeMillis();

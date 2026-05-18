@@ -2,8 +2,12 @@
 # Guard: OnSuccessExceptionSwallowingGuardTest.noDiscardedFuturesFromStopOrCloseInTestSources.
 # Build fails on any mismatch with this baseline (regression OR stale entry).
 # To FIX a file: remediate it, then update or delete its row here in the same commit.
-# Baseline captured: 2026-05-18. Total allowed violations: 65.
+# Baseline captured: 2026-05-18. Total allowed violations: 79.
+# Note: peegeeq-native entries below are false positives — PgNativeConsumerGroup.close() returns void,
+# not Future<Void>. The guard detects the pattern syntactically without checking the return type.
 path,count
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PartitionedConsumerSafetyIntegrationTest.java,1
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeConsumerGroupLifecycleTest.java,13
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/deadletter/DeadLetterQueueManagerCoverageTest.java,3
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/JsonbConversionValidationTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java,1

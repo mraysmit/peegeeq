@@ -619,8 +619,10 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         }
 
         if (job.getTotalDeadDetected() >= 1) {
-            return manager.getVertx().timer(500)
-                    .map(v -> messageIds);
+            // Stop the job to await the in-flight detection+cleanup cycle before returning.
+            // job.stop() waits for the in-flight Future (which includes cleanupAllDeadGroups)
+            // so callers can safely verify message states without racing against cleanup writes.
+            return job.stop().map(v -> messageIds);
         }
 
         return manager.getVertx().timer(200)

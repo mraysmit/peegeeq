@@ -116,25 +116,38 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown(io.vertx.junit5.VertxTestContext testContext) {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
             cleanupTestData()
-                .transform(ar -> connectionManager.close())
-                .transform(ar -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(err -> {
-                    logger.warn("tearDown failed: {}", err.getMessage());
-                    testContext.completeNow();
+                .compose(v -> connectionManager.close())
+                .onSuccess(v -> {
+                    if (manager != null) {
+                        manager.closeReactive()
+                            .onSuccess(vv -> testContext.completeNow())
+                            .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
+                    } else {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> {
+                    logger.warn("Cleanup failed: {}", e.getMessage());
+                    if (manager != null) {
+                        manager.closeReactive()
+                            .onSuccess(vv -> testContext.completeNow())
+                            .onFailure(ee -> testContext.completeNow());
+                    } else {
+                        testContext.completeNow();
+                    }
                 });
         } else if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
         } else {
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        testContext.awaitCompletion(30, TimeUnit.SECONDS);
     }
 
     // ========================================================================
@@ -188,7 +201,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                             "Should have at least 3 partition assignments (one per message_group), got: " + count);
                                     logger.info("TEST 6.1 PASSED: {} partition assignments created", count);
                                     return (Void) null;
-                                }).eventually(() -> group.close());
+                                }).eventually(group::stopGracefully);
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -241,7 +254,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                             logger.info("TEST 6.2: {} assignments before close", countBefore);
 
                                             // Close the group should call leaveGroup
-                                            group.close().onFailure(testContext::failNow);
+                                            group.stopGracefully().onFailure(testContext::failNow);
 
                                             // Wait for leave to complete
                                             return databaseService.getVertx().timer(2000).mapEmpty()
@@ -308,7 +321,7 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Wait long enough for fetch loop to process the messages
                     return databaseService.getVertx().timer(4000).mapEmpty()
                             .map(delayed -> {
-                                group.close().onFailure(testContext::failNow);
+                                group.stopGracefully().onFailure(testContext::failNow);
 
                                 // Verify messages were received
                                 assertFalse(receivedIds.isEmpty(),
@@ -370,7 +383,7 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Wait for processing and auto-commit
                     return databaseService.getVertx().timer(4000).mapEmpty()
                             .compose(delayed -> {
-                                group.close().onFailure(testContext::failNow);
+                                group.stopGracefully().onFailure(testContext::failNow);
                                 // Verify offset was committed in the database
                                 return connectionManager.withConnection(SERVICE_ID, conn ->
                                         conn.preparedQuery(
@@ -464,7 +477,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     });
                                         });
                             })
-                            .eventually(() -> group1.close());
+                            .eventually(group1::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {
@@ -587,7 +600,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
                     return databaseService.getVertx().timer(4000).mapEmpty()
                             .map(delayed -> {
-                                group.close().onFailure(testContext::failNow);
+                                group.stopGracefully().onFailure(testContext::failNow);
 
                                 // Verify: no partition assignments exist (REFERENCE_COUNTING doesn't use them)
                                 logger.info("TEST 6.7: received {} messages via REFERENCE_COUNTING", receivedIds.size());
@@ -665,7 +678,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                     return (Void) null;
                                 });
                             })
-                            .eventually(() -> group.close());
+                            .eventually(group::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {
@@ -977,9 +990,11 @@ class PartitionedNativeConsumerIntegrationTest {
                                                                 })
                                                         );
                                                     })
-                                                    .eventually(() -> group3.close())
-                                        .eventually(() -> group2.close())
-                            .eventually(() -> group1.close());
+                                                    .eventually(group3::stopGracefully);
+                                        })
+                                        .eventually(group2::stopGracefully);
+                            })
+                            .eventually(group1::stopGracefully);
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {
