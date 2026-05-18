@@ -100,6 +100,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     private TopicConfigService topicConfigService;
     private SubscriptionManager subscriptionManager;
     private BackfillService backfillService;
+    private String instanceTopic;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -124,6 +125,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
         subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
         backfillService = new BackfillService(connectionManager, "peegeeq-main");
+        instanceTopic = TOPIC_PREFIX + UUID.randomUUID().toString().replace("-", "").substring(0, 8);
 
         logger.info("BackfillTeardownDeadlockProofTest setup complete");
     }
@@ -144,14 +146,10 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            // ---------------------------------------------------------------
-            // BUG: broad LIKE predicate covers every concurrent test's topics.
-            // This races with in-flight backfill transactions and causes 40P01.
-            // ---------------------------------------------------------------
             connectionManager.withConnection("peegeeq-main", connection ->
                     connection.preparedQuery(
-                            "DELETE FROM outbox WHERE topic LIKE 'deadlock-probe-%'")
-                            .execute()
+                            "DELETE FROM outbox WHERE topic = $1")
+                            .execute(Tuple.of(instanceTopic))
                             .mapEmpty())
                     .compose(v -> connectionManager.close())
                     .onSuccess(v -> testContext.completeNow())
@@ -168,7 +166,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     @Test
     @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     void testProbeAlpha_BackfillWhileTeardownRaces(VertxTestContext testContext) {
-        String topic = TOPIC_PREFIX + "alpha-" + UUID.randomUUID().toString().substring(0, 8);
+        String topic = instanceTopic;
         String groupName = "probe-grp-alpha";
 
         logger.info("=== PROOF TEST alpha: topic={} ===", topic);
@@ -187,7 +185,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     @Test
     @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     void testProbeBeta_BackfillWhileTeardownRaces(VertxTestContext testContext) {
-        String topic = TOPIC_PREFIX + "beta-" + UUID.randomUUID().toString().substring(0, 8);
+        String topic = instanceTopic;
         String groupName = "probe-grp-beta";
 
         logger.info("=== PROOF TEST beta: topic={} ===", topic);
@@ -206,7 +204,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     @Test
     @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     void testProbeGamma_BackfillWhileTeardownRaces(VertxTestContext testContext) {
-        String topic = TOPIC_PREFIX + "gamma-" + UUID.randomUUID().toString().substring(0, 8);
+        String topic = instanceTopic;
         String groupName = "probe-grp-gamma";
 
         logger.info("=== PROOF TEST gamma: topic={} ===", topic);
