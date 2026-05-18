@@ -30,9 +30,7 @@ import io.vertx.core.Future;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -84,7 +82,7 @@ public class DeadLetterQueueManagerCoverageTest {
 
     @Test
     @DisplayName("should send message to dead letter successfully")
-    void testSendToDeadLetterSuccess() throws Exception {
+    void testSendToDeadLetterSuccess() {
         Message<String> message = createTestMessage("msg-1", "payload");
         Exception testException = new RuntimeException("Test error");
         
@@ -97,7 +95,7 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        awaitFuture(result, 10, TimeUnit.SECONDS);
+        assertTrue(result.succeeded());
 
         // Verify metrics updated
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
@@ -123,28 +121,28 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        IllegalStateException exception = assertThrows(IllegalStateException.class,
-            () -> awaitFuture(result, 10, TimeUnit.SECONDS));
-        assertTrue(exception.getMessage().contains("disabled"));
+        assertTrue(result.failed());
+        assertInstanceOf(IllegalStateException.class, result.cause());
+        assertTrue(result.cause().getMessage().contains("disabled"));
         
         disabledManager.close();
     }
 
     @Test
     @DisplayName("should handle multiple messages")
-    void testMultipleMessages() throws Exception {
+    void testMultipleMessages() {
         for (int i = 1; i <= 5; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload-" + i);
             Exception testException = new RuntimeException("Error " + i);
             
-            awaitFuture(manager.sendToDeadLetter(
+            assertTrue(manager.sendToDeadLetter(
                 message,
                 "filter-" + i,
                 "Failure " + i,
                 i,
                 FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
                 testException
-            ), 10, TimeUnit.SECONDS);
+            ).succeeded());
         }
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
@@ -155,7 +153,7 @@ public class DeadLetterQueueManagerCoverageTest {
 
     @Test
     @DisplayName("should enrich metadata with error details")
-    void testMetadataEnrichment() throws Exception {
+    void testMetadataEnrichment() {
         Message<String> message = createTestMessage("msg-1", "payload");
         Exception testException = new IllegalArgumentException("Invalid argument");
         
@@ -169,12 +167,12 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
     }
 
     @Test
     @DisplayName("should handle different error classifications")
-    void testDifferentErrorClassifications() throws Exception {
+    void testDifferentErrorClassifications() {
         FilterErrorHandlingConfig.ErrorClassification[] classifications = {
             FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
@@ -194,7 +192,7 @@ public class DeadLetterQueueManagerCoverageTest {
                 testException
             );
             
-            assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
+            assertTrue(result.succeeded());
         }
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
@@ -230,17 +228,17 @@ public class DeadLetterQueueManagerCoverageTest {
 
     @Test
     @DisplayName("should return aggregated metrics")
-    void testGetMetrics() throws Exception {
+    void testGetMetrics() {
         // Send a message to populate metrics
         Message<String> message = createTestMessage("msg-1", "payload");
-        awaitFuture(manager.sendToDeadLetter(
+        assertTrue(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ), 10, TimeUnit.SECONDS);
+        ).succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
 
@@ -254,16 +252,16 @@ public class DeadLetterQueueManagerCoverageTest {
 
     @Test
     @DisplayName("should calculate success rate correctly")
-    void testMetricsSuccessRate() throws Exception {
+    void testMetricsSuccessRate() {
         Message<String> message = createTestMessage("msg-1", "payload");
-        awaitFuture(manager.sendToDeadLetter(
+        assertTrue(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ), 10, TimeUnit.SECONDS);
+        ).succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(1.0, metrics.getSuccessRate(), 0.01);
@@ -278,7 +276,7 @@ public class DeadLetterQueueManagerCoverageTest {
 
     @Test
     @DisplayName("should handle intentional test failures")
-    void testIntentionalTestFailureHandling() throws Exception {
+    void testIntentionalTestFailureHandling() {
         Message<String> message = createTestMessage("msg-test", "test payload");
         Exception testException = new RuntimeException("Test exception");
         
@@ -291,21 +289,21 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
     }
 
     @Test
     @DisplayName("should format manager metrics toString correctly")
-    void testManagerMetricsToString() throws Exception {
+    void testManagerMetricsToString() {
         Message<String> message = createTestMessage("msg-1", "payload");
-        awaitFuture(manager.sendToDeadLetter(
+        assertTrue(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ), 10, TimeUnit.SECONDS);
+        ).succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         String metricsString = metrics.toString();
@@ -318,24 +316,24 @@ public class DeadLetterQueueManagerCoverageTest {
 
     @Test
     @DisplayName("should close all queues without errors")
-    void testClose() throws Exception {
+    void testClose() {
         // Send a message to ensure queue is active
         Message<String> message = createTestMessage("msg-1", "payload");
-        awaitFuture(manager.sendToDeadLetter(
+        assertTrue(manager.sendToDeadLetter(
             message,
             "filter-1",
             "test",
             1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test")
-        ), 10, TimeUnit.SECONDS);
+        ).succeeded());
 
         assertDoesNotThrow(() -> manager.close());
     }
 
     @Test
     @DisplayName("should handle exceptions with stack traces")
-    void testExceptionWithStackTrace() throws Exception {
+    void testExceptionWithStackTrace() {
         Message<String> message = createTestMessage("msg-1", "payload");
         Exception testException = new RuntimeException("Test error with stack trace");
         // Ensure stack trace is populated
@@ -350,12 +348,12 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
     }
 
     @Test
     @DisplayName("should handle exceptions with no stack trace")
-    void testExceptionWithoutStackTrace() throws Exception {
+    void testExceptionWithoutStackTrace() {
         Message<String> message = createTestMessage("msg-1", "payload");
         Exception testException = new RuntimeException("Test error") {
             @Override
@@ -373,34 +371,34 @@ public class DeadLetterQueueManagerCoverageTest {
             testException
         );
         
-        assertDoesNotThrow(() -> awaitFuture(result, 10, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
     }
 
     @Test
     @DisplayName("should track metrics across multiple operations")
-    void testMetricsTracking() throws Exception {
+    void testMetricsTracking() {
         // Initial metrics
         DeadLetterQueueManager.DeadLetterManagerMetrics initialMetrics = manager.getMetrics();
         assertEquals(0, initialMetrics.getTotalMessages());
         
         // Send first message
         Message<String> message1 = createTestMessage("msg-1", "payload1");
-        awaitFuture(manager.sendToDeadLetter(
+        assertTrue(manager.sendToDeadLetter(
             message1, "filter-1", "test1", 1,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test1")
-        ), 10, TimeUnit.SECONDS);
+        ).succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics afterFirst = manager.getMetrics();
         assertEquals(1, afterFirst.getTotalMessages());
 
         // Send second message
         Message<String> message2 = createTestMessage("msg-2", "payload2");
-        awaitFuture(manager.sendToDeadLetter(
+        assertTrue(manager.sendToDeadLetter(
             message2, "filter-2", "test2", 2,
             FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
             new RuntimeException("test2")
-        ), 10, TimeUnit.SECONDS);
+        ).succeeded());
         
         DeadLetterQueueManager.DeadLetterManagerMetrics afterSecond = manager.getMetrics();
         assertEquals(2, afterSecond.getTotalMessages());
