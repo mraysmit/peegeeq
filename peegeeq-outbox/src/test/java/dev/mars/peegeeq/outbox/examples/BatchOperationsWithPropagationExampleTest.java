@@ -39,9 +39,7 @@ import java.util.Properties;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
-import dev.mars.peegeeq.test.util.FutureTestHelper;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -78,14 +76,14 @@ public class BatchOperationsWithPropagationExampleTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        awaitFuture(manager.start(), 30, TimeUnit.SECONDS);
+        manager.start().await();
     }
 
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
-            awaitFuture(manager.closeReactive(), 30, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 

@@ -282,16 +282,19 @@ public class OutboxConsumerCoreTest {
 
     @Test
     void testConsumerGroupNameSetting(Vertx vertx, VertxTestContext testContext) throws Exception {
-        MessageConsumer<String> groupConsumer = outboxFactory.createConsumer(testTopic, String.class);
+        // Close the setUp consumer and replace with a group-named one;
+        // tearDown will close the reassigned field, avoiding an explicit close() here.
+        consumer.close();
+        consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        if (groupConsumer instanceof OutboxConsumer) {
+        if (consumer instanceof OutboxConsumer) {
             logger.info("Test: consumer group name setting");
-            ((OutboxConsumer<String>) groupConsumer).setConsumerGroupName("test-group");
+            ((OutboxConsumer<String>) consumer).setConsumerGroupName("test-group");
         }
 
         Checkpoint latch = testContext.checkpoint();
 
-        groupConsumer.subscribe(message -> {
+        consumer.subscribe(message -> {
             latch.flag();
             return Future.succeededFuture();
         });
@@ -299,8 +302,6 @@ public class OutboxConsumerCoreTest {
         producer.send("Message for consumer group").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer with group should receive message");
-
-        groupConsumer.close();
     }
 }
 

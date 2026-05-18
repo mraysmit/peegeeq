@@ -1,0 +1,23 @@
+# Tier-7 discarded-Future-from-stop/close baseline. One row per file with violation count > 0.
+# Guard: OnSuccessExceptionSwallowingGuardTest.noDiscardedFuturesFromStopOrCloseInTestSources.
+# Build fails on any mismatch with this baseline (regression OR stale entry).
+# To FIX a file: remediate it, then update or delete its row here in the same commit.
+# Baseline captured: 2026-05-18. Total allowed violations: 65.
+path,count
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/deadletter/DeadLetterQueueManagerCoverageTest.java,3
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/JsonbConversionValidationTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerFailureHandlingTest.java,3
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupClientIdPropagationTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFaultToleranceTest.java,3
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFilteredMessageStatusTest.java,5
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java,3
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupIntegrationTest.java,2
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupReviewFixesTest.java,5
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java,13
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionTest.java,20
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerNullHandlerTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryConcurrencyTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryResilienceTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ReactiveOutboxProducerTest.java,1

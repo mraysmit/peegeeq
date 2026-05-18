@@ -1,0 +1,8 @@
+# Tier-5 Thread.sleep baseline. One row per file with violation count > 0.
+# Guard: OnSuccessExceptionSwallowingGuardTest.noBlockingThreadDelaysInTestSources.
+# Build fails on any mismatch with this baseline (regression OR stale entry).
+# To FIX a file: remediate it, then update or delete its row here in the same commit.
+# Baseline captured: 2026-05-18. Total allowed violations: 7.
+# Note: all violations are Thread.sleep calls inside executeBlocking lambdas (worker-thread context).
+path,count
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MemoryAndResourceLeakTest.java,7

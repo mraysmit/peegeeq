@@ -64,6 +64,16 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for {@link OutboxConsumerGroup} covering lifecycle, membership,
  * routing, stats, and builder validation against a real PostgreSQL container.
+ *
+ * <p><strong>Synchronous-completion assumption:</strong> Several tests call
+ * {@code group.closeAsync().onFailure(...)} or {@code group.stopGracefully().onFailure(...)}
+ * and then immediately assert state synchronously (e.g. {@code assertEquals(State.CLOSED, ...)}).
+ * This is safe only because {@link OutboxConsumerGroup#closeAsync()} and
+ * {@link OutboxConsumerGroup#stopGracefully()} perform their state-machine transitions
+ * synchronously before returning the {@code Future}. If either method ever defers its
+ * state transition to an event-loop tick, those assertions will race and must be moved
+ * inside the Future's {@code onSuccess} callback.
+ * </p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -87,7 +97,9 @@ class OutboxConsumerGroupCoreTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        this.manager.start().onSuccess(v -> {
+        
+        this.manager.start()
+        .onSuccess(v -> {
             this.databaseService = new PgDatabaseService(manager);
             testContext.completeNow();
         }).onFailure(testContext::failNow);
@@ -95,16 +107,11 @@ class OutboxConsumerGroupCoreTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        if (group != null) {
-            group.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        Future<?> closeFuture = (group != null) ? group.closeAsync() : Future.succeededFuture();
+        closeFuture
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -148,7 +155,7 @@ class OutboxConsumerGroupCoreTest {
         @DisplayName("start() returns failed future when group is CLOSED")
         void startThrowsWhenClosed() {
             group = createGroup("lifecycle-group", "test-topic");
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             Future<Void> result = group.start();
             assertTrue(result.failed(), "start() must return a failed future when CLOSED");
             assertInstanceOf(IllegalStateException.class, result.cause());
@@ -162,7 +169,7 @@ class OutboxConsumerGroupCoreTest {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop();
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
             assertFalse(group.isActive());
         }
@@ -181,7 +188,7 @@ class OutboxConsumerGroupCoreTest {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.stop();
+            group.stopGracefully().onFailure(e -> fail("stop failed: " + e.getMessage()));
             assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
             group.start();
             assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
@@ -193,7 +200,7 @@ class OutboxConsumerGroupCoreTest {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
             assertFalse(group.isActive());
         }
@@ -202,7 +209,7 @@ class OutboxConsumerGroupCoreTest {
         @DisplayName("close() from NEW goes directly to CLOSED")
         void closeFromNewGoesToClosed() {
             group = createGroup("lifecycle-group", "test-topic");
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
         }
 
@@ -210,7 +217,7 @@ class OutboxConsumerGroupCoreTest {
         @DisplayName("close() is idempotent")
         void closeIsIdempotent() {
             group = createGroup("lifecycle-group", "test-topic");
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             assertDoesNotThrow(() -> group.close());
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
         }
@@ -222,7 +229,7 @@ class OutboxConsumerGroupCoreTest {
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
             assertEquals(2, group.getConsumerIds().size());
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             assertTrue(group.getConsumerIds().isEmpty());
         }
 
@@ -230,7 +237,7 @@ class OutboxConsumerGroupCoreTest {
         @DisplayName("start(SubscriptionOptions) fails with failed future when CLOSED")
         void startWithOptionsFailsWhenClosed() {
             group = createGroup("lifecycle-group", "test-topic");
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
 
             var options = dev.mars.peegeeq.api.messaging.SubscriptionOptions.builder().build();
             Future<Void> result = group.start(options);
@@ -316,7 +323,7 @@ class OutboxConsumerGroupCoreTest {
         @DisplayName("addConsumer throws when group is CLOSED")
         void addConsumerThrowsWhenClosed() {
             group = createGroup("membership-group", "test-topic");
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             assertThrows(IllegalStateException.class,
                     () -> group.addConsumer("c1", msg -> Future.succeededFuture()));
         }
@@ -390,7 +397,7 @@ class OutboxConsumerGroupCoreTest {
         @DisplayName("setMessageHandler throws when group is CLOSED")
         void setMessageHandlerThrowsWhenClosed() {
             group = createGroup("handler-group", "test-topic");
-            group.close();
+            group.closeAsync().onFailure(e -> fail("close failed: " + e.getMessage()));
             assertThrows(IllegalStateException.class,
                     () -> group.setMessageHandler(msg -> Future.succeededFuture()));
         }
