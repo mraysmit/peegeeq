@@ -406,8 +406,8 @@ class NativeVsOutboxComparisonTest {
                 assertEquals(2, nativeStats.getActiveConsumerCount());
                 assertEquals(2, outboxStats.getActiveConsumerCount());
 
-                nativeGroup.stop().onFailure(testContext::failNow);
-                outboxGroup.stop().onFailure(testContext::failNow);
+                nativeGroup.stopGracefully().onFailure(testContext::failNow);
+                outboxGroup.stopGracefully().onFailure(testContext::failNow);
                 nativeProducer.close();
                 outboxProducer.close();
 

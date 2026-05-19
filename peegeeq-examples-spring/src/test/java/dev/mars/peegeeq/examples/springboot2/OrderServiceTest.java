@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -46,11 +47,12 @@ import reactor.test.StepVerifier;
 
 import io.vertx.core.Future;
 
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 /**
  * Integration test for the Reactive Order Service using StepVerifier.
@@ -80,6 +82,7 @@ import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OrderServiceTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderServiceTest.class);
@@ -99,10 +102,12 @@ class OrderServiceTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Container
@@ -122,7 +127,7 @@ class OrderServiceTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         logger.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
@@ -151,7 +156,7 @@ class OrderServiceTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
+        databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -159,9 +164,10 @@ class OrderServiceTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }), 30, TimeUnit.SECONDS);
-
-        logger.info("=== Application-specific schema setup complete ===");
+            }).onComplete(setupContext.succeeding(v -> {
+                logger.info("=== Application-specific schema setup complete ===");
+                setupContext.completeNow();
+            }));
     }
 
     /**

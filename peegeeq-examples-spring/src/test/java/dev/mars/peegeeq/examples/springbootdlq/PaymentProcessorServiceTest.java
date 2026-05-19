@@ -27,11 +27,13 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,9 +52,6 @@ import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
-import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -93,7 +92,7 @@ public class PaymentProcessorServiceTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         log.info("=== Setting up application-specific tables ===");
 
         // Create payments table for this specific test
@@ -112,16 +111,14 @@ public class PaymentProcessorServiceTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
-            .withTransaction("peegeeq-main", connection -> {
-                return connection.query(createPaymentsTable).execute()
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection ->
+                connection.query(createPaymentsTable).execute()
                     .map(v -> {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
-                    });
-            }), 30, TimeUnit.SECONDS);
-
-        log.info("=== Application-specific schema setup complete ===");
+                    }))
+            .onComplete(setupContext.succeedingThenComplete());
     }
 
     @Autowired
@@ -140,33 +137,31 @@ public class PaymentProcessorServiceTest {
     private TestRestTemplate restTemplate;
 
     @Test
-    public void testSuccessfulPaymentProcessing(Vertx vertx) throws Exception {
+    @Timeout(60)
+    public void testSuccessfulPaymentProcessing(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Successful Payment Processing ===");
-        
+
         // Send a payment event that should succeed
         PaymentEvent event = new PaymentEvent(
             "PAY-001", "ORDER-001", new BigDecimal("100.00"), "USD", "CREDIT_CARD", false
         );
-        awaitFuture(producer.send(event), 30, TimeUnit.SECONDS);
 
-        // Wait for processing
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-        
-        // Verify payment was stored in database
-        boolean paymentExists = awaitFuture(databaseService.getConnectionProvider()
-            .withTransaction("peegeeq-main", connection -> {
-                return connection.preparedQuery("SELECT COUNT(*) FROM payments WHERE id = $1")
-                    .execute(io.vertx.sqlclient.Tuple.of("PAY-001"))
-                    .map(rows -> {
-                        Row row = rows.iterator().next();
-                        return row.getLong(0) > 0;
-                    });
-            }), 30, TimeUnit.SECONDS);
-        
-        assertTrue(paymentExists, "Payment should be stored in database");
-        assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");
-        
-        log.info("Successful Payment Processing test passed");
+        producer.send(event)
+            .compose(v -> vertx.timer(2000))
+            .compose(v -> databaseService.getConnectionProvider()
+                .withTransaction("peegeeq-main", connection ->
+                    connection.preparedQuery("SELECT COUNT(*) FROM payments WHERE id = $1")
+                        .execute(io.vertx.sqlclient.Tuple.of("PAY-001"))
+                        .map(rows -> {
+                            Row row = rows.iterator().next();
+                            return row.getLong(0) > 0;
+                        })))
+            .onComplete(testContext.succeeding(paymentExists -> testContext.verify(() -> {
+                assertTrue(paymentExists, "Payment should be stored in database");
+                assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");
+                log.info("Successful Payment Processing test passed");
+                testContext.completeNow();
+            })));
     }
     
     @Test

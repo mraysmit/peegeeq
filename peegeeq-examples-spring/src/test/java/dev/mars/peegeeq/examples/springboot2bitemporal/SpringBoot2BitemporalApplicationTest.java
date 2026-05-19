@@ -22,9 +22,10 @@ import dev.mars.peegeeq.examples.springboot2bitemporal.service.SettlementService
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -71,6 +72,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class SpringBoot2BitemporalApplicationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(SpringBoot2BitemporalApplicationTest.class);
@@ -90,10 +92,12 @@ class SpringBoot2BitemporalApplicationTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @DynamicPropertySource

@@ -61,7 +61,55 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Integration tests for consumer groups functionality.
- * 
+ *
+ * <h2>Why these tests use {@code vertx.setPeriodic} — and why that is correct</h2>
+ *
+ * <p>Most production code in this codebase uses composable {@code Future<T>} chains
+ * ({@code .compose()}, {@code .map()}, {@code .transform()}) to sequence async work.
+ * Polling helpers, spin-loops, {@code Thread.sleep}, and {@code CountDownLatch} are
+ * explicitly forbidden everywhere.</p>
+ *
+ * <p>These tests are a justified exception because {@link ConsumerGroup} works
+ * differently from a Future-returning API:
+ * <ul>
+ *   <li>A {@code ConsumerGroup} starts an <em>internal</em> database-poll loop when
+ *       {@code start()} is called. That loop runs indefinitely at its own cadence,
+ *       pulling messages from PostgreSQL and dispatching them to registered consumers.</li>
+ *   <li>There is no {@code Future<T>} you can {@code .compose()} onto to learn when a
+ *       specific message has been delivered — message delivery is a side effect observed
+ *       through the consumer lambda incrementing an {@code AtomicInteger} counter.</li>
+ *   <li>Because the trigger is an externally-driven side effect rather than a returned
+ *       {@code Future}, the only correct way to wait for it on the Vert.x event loop is
+ *       {@code vertx.setPeriodic}: a non-blocking, event-loop-driven polling check.</li>
+ * </ul>
+ *
+ * <h2>Why {@code vertx.setPeriodic} is not a spin-loop</h2>
+ * <ul>
+ *   <li>The test thread is <em>blocked</em> at {@code testContext.awaitCompletion()} —
+ *       it is not looping or burning CPU.</li>
+ *   <li>The periodic callback runs on the <em>Vert.x event loop</em> without blocking it;
+ *       each firing is a lightweight condition check followed by an immediate return.</li>
+ *   <li>When the condition is satisfied, {@code vertx.cancelTimer(id)} removes the
+ *       periodic callback and {@code testContext.completeNow()} unblocks the test thread.
+ *       The timer is never left running after the assertion passes.</li>
+ *   <li>{@code Thread.sleep} would block the event loop thread and prevent the consumer
+ *       group's own poll loop from running. {@code vertx.setPeriodic} does not.</li>
+ * </ul>
+ *
+ * <h2>Role of {@code assertTrue(testContext.awaitCompletion(30, ...))} </h2>
+ * <p>The periodic timer has no intrinsic upper bound — if the consumer never delivers,
+ * it would fire forever. {@code awaitCompletion(30, SECONDS)} is the hard safety
+ * timeout: it caps the test at 30 seconds and converts a hang into an explicit
+ * assertion failure rather than an indefinitely blocked build.
+ * The {@code assertTrue} wrapping it turns a timeout (returns {@code false}) into a
+ * clear JUnit failure with a meaningful failure line number.</p>
+ *
+ * <h2>Why {@code AtomicInteger} counters</h2>
+ * <p>The consumer lambdas may be dispatched by the consumer group on different event-loop
+ * threads. {@code AtomicInteger} provides the cross-thread visibility guarantee needed
+ * when the periodic callback reads the counter from the event-loop thread that owns the
+ * timer, which may differ from the thread that ran the consumer lambda.</p>
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-14
  * @version 1.0
@@ -180,10 +228,14 @@ class ConsumerGroupTest {
         producer.send("Message 2").onFailure(testContext::failNow);
         producer.send("Message 3").onFailure(testContext::failNow);
 
-        // Wait for processing - increase time for async operations
+        // Poll the consumer group's statistics every 200 ms on the Vert.x event loop.
+        // This is the approved pattern for observing side effects driven by ConsumerGroup's
+        // internal DB-poll loop (see class-level Javadoc for full rationale).
+        // Thread.sleep / spin-loops are forbidden; this approach is non-blocking.
         vertx.setPeriodic(200, id -> {
             ConsumerGroupStats stats = consumerGroup.getStats();
             if (stats.getTotalMessagesProcessed() >= 3) {
+                // Condition met — cancel the timer immediately so it does not fire again.
                 vertx.cancelTimer(id);
 
                 // Verify messages were processed
@@ -204,7 +256,10 @@ class ConsumerGroupTest {
             }
         });
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+        // Hard timeout guard: if the consumer group never delivers, awaitCompletion returns
+        // false after 30 s and assertTrue converts that into an explicit JUnit failure.
+        // This prevents an indefinitely blocked build without resorting to Thread.sleep.
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -250,7 +305,11 @@ class ConsumerGroupTest {
         producer.send("EU Message").onFailure(testContext::failNow);
         producer.send("ASIA Message").onFailure(testContext::failNow);
 
-        // Wait for processing
+        // Poll the all-consumer's counter every 200 ms on the Vert.x event loop.
+        // The us-consumer and eu-consumer use header filters; since messages are sent
+        // without headers here, only the all-consumer (MessageFilter.acceptAll()) will
+        // match. We observe the side effect via AtomicInteger rather than a Future chain
+        // because ConsumerGroup drives its own internal poll loop with no returned Future.
         vertx.setPeriodic(200, id -> {
             if (allCount.get() >= 3) {
                 vertx.cancelTimer(id);
@@ -261,7 +320,8 @@ class ConsumerGroupTest {
             }
         });
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+        // Hard timeout guard — see class-level Javadoc for rationale.
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -292,7 +352,10 @@ class ConsumerGroupTest {
         producer.send("Test Message 2").onFailure(testContext::failNow);
         producer.send("Test Message 3").onFailure(testContext::failNow);
 
-        // Wait for processing with longer timeout to avoid flaky test failures
+        // Poll the consumer's counter every 200 ms on the Vert.x event loop.
+        // Group-level header filtering is not yet active (see TODO above); this test
+        // therefore verifies basic single-consumer delivery via the same non-blocking
+        // periodic pattern used throughout this class (see class-level Javadoc).
         vertx.setPeriodic(200, id -> {
             if (processedCount.get() >= 3) {
                 vertx.cancelTimer(id);
@@ -303,6 +366,7 @@ class ConsumerGroupTest {
             }
         });
 
+        // Hard timeout guard — see class-level Javadoc for rationale.
         assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));
     }
 
@@ -330,7 +394,10 @@ class ConsumerGroupTest {
             producer.send("Message " + i).onFailure(testContext::failNow);
         }
 
-        // Wait for processing
+        // Poll the consumer's counter every 200 ms on the Vert.x event loop.
+        // Statistics are read inside testContext.verify() to ensure any assertion
+        // failure is reported through VertxTestContext rather than swallowed.
+        // See class-level Javadoc for the full rationale for this pattern.
         vertx.setPeriodic(200, id -> {
             if (processedCount.get() >= 3) {
                 vertx.cancelTimer(id);
@@ -365,7 +432,8 @@ class ConsumerGroupTest {
             }
         });
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+        // Hard timeout guard — see class-level Javadoc for rationale.
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test

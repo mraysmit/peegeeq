@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -91,7 +90,7 @@ class OutboxErrorHandlingSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown(Vertx vertx) {
+    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
@@ -115,16 +114,19 @@ class OutboxErrorHandlingSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
-        peeGeeQManagerRef = peeGeeQManager;
+        vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
+            peeGeeQManagerRef = peeGeeQManager;
+            tearDownContext.completeNow();
+        }));
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Test
@@ -213,7 +215,6 @@ class OutboxErrorHandlingSpringBootTest {
             "Should attempt processing multiple times");
 
         // Verify max retries were attempted
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         int finalAttempts = attemptCount.get();
         assertTrue(finalAttempts >= 4, 
             "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);

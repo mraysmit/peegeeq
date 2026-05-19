@@ -268,7 +268,7 @@ class NativeQueueFeatureTest {
         assertEquals(2, stats.getActiveConsumerCount());
         assertTrue(stats.getTotalMessagesProcessed() >= 5);
 
-        consumerGroup.stop().onFailure(e -> logger.warn("consumerGroup stop failed", e));
+        consumerGroup.stopGracefully().onFailure(e -> logger.warn("consumerGroup stop failed", e));
         producer.close();
 
         logger.info("Native consumer groups test passed");
