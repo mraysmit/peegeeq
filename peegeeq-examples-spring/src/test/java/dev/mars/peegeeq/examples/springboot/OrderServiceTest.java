@@ -43,10 +43,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,6 +78,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OrderServiceTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OrderServiceTest.class);
@@ -99,10 +101,12 @@ class OrderServiceTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Container
@@ -122,7 +126,7 @@ class OrderServiceTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         logger.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
@@ -151,7 +155,7 @@ class OrderServiceTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
+        databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -159,34 +163,35 @@ class OrderServiceTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }), 30, TimeUnit.SECONDS);
-
-        logger.info("=== Application-specific schema setup complete ===");
+            }).onComplete(setupContext.succeeding(v -> {
+                logger.info("=== Application-specific schema setup complete ===");
+                setupContext.completeNow();
+            }));
     }
 
     /**
      * Test successful order creation.
      */
     @Test
-    void testCreateOrderSuccess() throws Exception {
+    void testCreateOrderSuccess(VertxTestContext testContext) {
         logger.info("=== Testing Successful Order Creation ===");
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = awaitFuture(orderService.createOrder(request), 30, TimeUnit.SECONDS);
-
-        assertNotNull(orderId, "Order ID should not be null");
-        assertFalse(orderId.isEmpty(), "Order ID should not be empty");
-
-        logger.info("Order created successfully with ID: {}", orderId);
-        logger.info("Successful order creation test passed");
+        orderService.createOrder(request).onComplete(testContext.succeeding(orderId -> testContext.verify(() -> {
+            assertNotNull(orderId, "Order ID should not be null");
+            assertFalse(orderId.isEmpty(), "Order ID should not be empty");
+            logger.info("Order created successfully with ID: {}", orderId);
+            logger.info("Successful order creation test passed");
+            testContext.completeNow();
+        })));
     }
     
     /**
      * Test order creation with business validation that triggers rollback.
      */
     @Test
-    void testCreateOrderWithBusinessValidationRollback() {
+    void testCreateOrderWithBusinessValidationRollback(VertxTestContext testContext) {
         logger.info("=== Testing Business Validation Rollback ===");
 
         // Create request that exceeds $10,000 limit
@@ -199,23 +204,24 @@ class OrderServiceTest {
         );
         
         // Should complete exceptionally due to business validation failure
-        Exception exception = assertThrows(Exception.class, () -> {
-            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
-        });
-
-        assertTrue(exception.getMessage().contains("Order amount exceeds maximum limit") ||
-                  exception.getCause().getMessage().contains("Order amount exceeds maximum limit"),
-                  "Exception should mention amount limit");
-
-        logger.info("Business validation rollback triggered correctly");
-        logger.info("Business validation rollback test passed");
+        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Expected a failure");
+            Throwable cause = ar.cause();
+            boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Order amount exceeds maximum limit")) ||
+                               (cause.getCause() != null && cause.getCause().getMessage() != null &&
+                                cause.getCause().getMessage().contains("Order amount exceeds maximum limit"));
+            assertTrue(msgMatch, "Exception should mention amount limit");
+            logger.info("Business validation rollback triggered correctly");
+            logger.info("Business validation rollback test passed");
+            testContext.completeNow();
+        }));
     }
     
     /**
      * Test order creation with invalid customer that triggers rollback.
      */
     @Test
-    void testCreateOrderWithInvalidCustomerRollback() {
+    void testCreateOrderWithInvalidCustomerRollback(VertxTestContext testContext) {
         logger.info("=== Testing Invalid Customer Rollback ===");
 
         // Create request with invalid customer ID
@@ -229,23 +235,24 @@ class OrderServiceTest {
         );
         
         // Should complete exceptionally due to invalid customer
-        Exception exception = assertThrows(Exception.class, () -> {
-            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
-        });
-
-        assertTrue(exception.getMessage().contains("Invalid customer ID") ||
-                  exception.getCause().getMessage().contains("Invalid customer ID"),
-                  "Exception should mention invalid customer");
-
-        logger.info("Invalid customer rollback triggered correctly");
-        logger.info("Invalid customer rollback test passed");
+        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Expected a failure");
+            Throwable cause = ar.cause();
+            boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Invalid customer ID")) ||
+                               (cause.getCause() != null && cause.getCause().getMessage() != null &&
+                                cause.getCause().getMessage().contains("Invalid customer ID"));
+            assertTrue(msgMatch, "Exception should mention invalid customer");
+            logger.info("Invalid customer rollback triggered correctly");
+            logger.info("Invalid customer rollback test passed");
+            testContext.completeNow();
+        }));
     }
     
     /**
      * Test order creation with database constraints that trigger rollback.
      */
     @Test
-    void testCreateOrderWithDatabaseConstraintsRollback() {
+    void testCreateOrderWithDatabaseConstraintsRollback(VertxTestContext testContext) {
         logger.info("=== Testing Database Constraints Rollback ===");
 
         // Create request with customer ID that triggers database constraint violation
@@ -259,34 +266,35 @@ class OrderServiceTest {
         );
         
         // Should complete exceptionally due to database constraint violation
-        Exception exception = assertThrows(Exception.class, () -> {
-            awaitFuture(orderService.createOrderWithDatabaseConstraints(request), 30, TimeUnit.SECONDS);
-        });
-
-        assertTrue(exception.getMessage().contains("Database constraint violation") ||
-                  exception.getCause().getMessage().contains("Database constraint violation"),
-                  "Exception should mention database constraint violation");
-
-        logger.info("Database constraints rollback triggered correctly");
-        logger.info("Database constraints rollback test passed");
+        orderService.createOrderWithDatabaseConstraints(request).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Expected a failure");
+            Throwable cause = ar.cause();
+            boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Database constraint violation")) ||
+                               (cause.getCause() != null && cause.getCause().getMessage() != null &&
+                                cause.getCause().getMessage().contains("Database constraint violation"));
+            assertTrue(msgMatch, "Exception should mention database constraint violation");
+            logger.info("Database constraints rollback triggered correctly");
+            logger.info("Database constraints rollback test passed");
+            testContext.completeNow();
+        }));
     }
     
     /**
      * Test successful order creation with multiple events.
      */
     @Test
-    void testCreateOrderWithMultipleEventsSuccess() throws Exception {
+    void testCreateOrderWithMultipleEventsSuccess(VertxTestContext testContext) {
         logger.info("=== Testing Order Creation with Multiple Events ===");
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = awaitFuture(orderService.createOrderWithMultipleEvents(request), 30, TimeUnit.SECONDS);
-
-        assertNotNull(orderId, "Order ID should not be null");
-        assertFalse(orderId.isEmpty(), "Order ID should not be empty");
-
-        logger.info("Order with multiple events created successfully with ID: {}", orderId);
-        logger.info("Multiple events creation test passed");
+        orderService.createOrderWithMultipleEvents(request).onComplete(testContext.succeeding(orderId -> testContext.verify(() -> {
+            assertNotNull(orderId, "Order ID should not be null");
+            assertFalse(orderId.isEmpty(), "Order ID should not be empty");
+            logger.info("Order with multiple events created successfully with ID: {}", orderId);
+            logger.info("Multiple events creation test passed");
+            testContext.completeNow();
+        })));
     }
     
     /**

@@ -47,9 +47,9 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
-
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -70,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @Testcontainers
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(VertxExtension.class)
 public class FinancialFabricServicesTest {
     
     private static final Logger log = LoggerFactory.getLogger(FinancialFabricServicesTest.class);
@@ -130,10 +131,12 @@ public class FinancialFabricServicesTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     /**
@@ -148,7 +151,8 @@ public class FinancialFabricServicesTest {
      * 6. Submit regulatory report
      */
     @Test
-    void testCompleteTradeLifecycle() throws Exception {
+    @org.junit.jupiter.api.Timeout(60)
+    void testCompleteTradeLifecycle(VertxTestContext testContext) {
         log.info("=== Testing Complete Trade Lifecycle ===");
         
         // Generate correlation ID for the entire workflow
@@ -292,9 +296,10 @@ public class FinancialFabricServicesTest {
                 return (Void) null;
             });
         });
-        awaitFuture(workflowFuture, 30, TimeUnit.SECONDS);
-
-        log.info("Complete Trade Lifecycle test passed");
+        workflowFuture.onComplete(testContext.succeeding(v -> {
+            log.info("Complete Trade Lifecycle test passed");
+            testContext.completeNow();
+        }));
     }
 }
 

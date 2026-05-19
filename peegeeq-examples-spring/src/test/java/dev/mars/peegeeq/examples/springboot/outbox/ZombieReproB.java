@@ -6,9 +6,10 @@ import dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class ZombieReproB {
 
     private static final Logger logger = LoggerFactory.getLogger(ZombieReproB.class);
@@ -60,8 +62,8 @@ class ZombieReproB {
     }
 
     @AfterEach
-    void closeManager() throws Exception {
-        awaitFuture(peeGeeQManager.closeReactive(), 30, TimeUnit.SECONDS);
+    void closeManager(VertxTestContext testContext) {
+        peeGeeQManager.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Test

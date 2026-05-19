@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -455,7 +454,7 @@ class DistributedSystemResilienceDemoTest {
         }
 
         // Wait for all sends to complete
-        awaitFuture(Future.all(sendTasks), 30, TimeUnit.SECONDS);
+        Future.all(sendTasks).onFailure(testContext::failNow);
 
         // Wait for all processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");

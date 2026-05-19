@@ -31,12 +31,10 @@ import java.math.BigDecimal;
 import java.util.*;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.junit5.VertxTestContext;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -149,7 +147,7 @@ class EnhancedErrorHandlingDemoTest {
 
     @Test
     @DisplayName("Demonstrate Enhanced Error Handling with Retry and DLQ")
-    void demonstrateEnhancedErrorHandling(Vertx vertx) throws Exception {
+    void demonstrateEnhancedErrorHandling(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("🚀 Step 1: Demonstrating enhanced error handling patterns");
         
         // Create producers and consumers for main queue and DLQ
@@ -255,40 +253,42 @@ class EnhancedErrorHandlingDemoTest {
             }));
         }
         
-        // Wait for all producers to complete
-        awaitFuture(Future.all(producerTasks), 30, TimeUnit.SECONDS);
+        // Wait for all producers to complete, then wait 5s for processing
+        Future.all(producerTasks)
+            .compose(v -> vertx.timer(5000))
+            .onSuccess(v -> testContext.verify(() -> {
+                // Stop consumers
+                consumer.close();
+                dlqConsumer.close();
 
-        // Wait for processing to complete
-        new CountDownLatch(1).await(5, TimeUnit.SECONDS);
-        
-        // Stop consumers
-        consumer.close();
-        dlqConsumer.close();
-        
-        // Report results
-        logger.info("📊 Error Handling Results:");
-        logger.info("  Total produced: {}", totalMessagesProduced.get());
-        logger.info("  Total consumed: {}", totalMessagesConsumed.get());
-        logger.info("  Total retries: {}", totalRetries.get());
-        logger.info("  DLQ messages: {}", dlqMessages.get());
-        logger.info("  Successful recoveries: {}", successfulRecoveries.get());
-        
-        for (ErrorType errorType : ErrorType.values()) {
-            int count = errorCounters.get(errorType).get();
-            if (count > 0) {
-                logger.info("  {} errors: {}", errorType, count);
-            }
-        }
-        
-        // Verify error handling behavior
-        assertTrue(totalRetries.get() > 0, "Should have performed retries");
-        // Note: DLQ messages may be 0 if all errors are handled by retry mechanisms
-        // DLQ count may be 0 if all errors are handled by retry; verify this is a plausible outcome
-        assertTrue(dlqMessages.get() > 0 || successfulRecoveries.get() > 0,
-                "Either DLQ should have messages or recoveries should have occurred");
-        assertTrue(successfulRecoveries.get() > 0, "Should have successful recoveries");
-        
-        logger.info("Enhanced error handling demonstration complete");
+                // Report results
+                logger.info("📊 Error Handling Results:");
+                logger.info("  Total produced: {}", totalMessagesProduced.get());
+                logger.info("  Total consumed: {}", totalMessagesConsumed.get());
+                logger.info("  Total retries: {}", totalRetries.get());
+                logger.info("  DLQ messages: {}", dlqMessages.get());
+                logger.info("  Successful recoveries: {}", successfulRecoveries.get());
+
+                for (ErrorType errorType : ErrorType.values()) {
+                    int count = errorCounters.get(errorType).get();
+                    if (count > 0) {
+                        logger.info("  {} errors: {}", errorType, count);
+                    }
+                }
+
+                // Verify error handling behavior
+                assertTrue(totalRetries.get() > 0, "Should have performed retries");
+                // Note: DLQ messages may be 0 if all errors are handled by retry mechanisms
+                // DLQ count may be 0 if all errors are handled by retry; verify this is a plausible outcome
+                assertTrue(dlqMessages.get() > 0 || successfulRecoveries.get() > 0,
+                        "Either DLQ should have messages or recoveries should have occurred");
+                assertTrue(successfulRecoveries.get() > 0, "Should have successful recoveries");
+
+                logger.info("Enhanced error handling demonstration complete");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should complete error handling demo within 45 seconds");
     }
 
     private Future<Void> processOrderWithErrorHandling(OrderEvent order, ErrorType errorType, Map<String, String> headers) {

@@ -50,11 +50,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import io.vertx.junit5.VertxTestContext;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -149,17 +147,18 @@ class DeadConsumerDetectionDemoTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (connectionManager != null) {
-            awaitFuture(connectionManager.close(), 5, TimeUnit.SECONDS);
-        }
-        (manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
-                .onSuccess(v -> {
-                    logger.info("Test teardown completed");
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+        (connectionManager != null ? connectionManager.close() : io.vertx.core.Future.succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                testContext.completeNow();
+            });
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -173,54 +172,52 @@ class DeadConsumerDetectionDemoTest {
      * settings based on processing characteristics.</p>
      */
     @Test
-    void testHeartbeatConfiguration() throws Exception {
+    void testHeartbeatConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("\n=== DEMO 1: Heartbeat Configuration ===\n");
 
         String topic = "orders.heartbeat";
         String consumerGroup = "order-processor";
 
-        // Step 1: Create PUB_SUB topic
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
-        logger.info("✓ Topic created successfully");
-
-        // Step 2: Subscribe with custom heartbeat settings
-        logger.info("\nStep 2: Subscribing '{}' with custom heartbeat settings", consumerGroup);
-        logger.info("  - Heartbeat interval: 30 seconds");
-        logger.info("  - Heartbeat timeout: 120 seconds (2 minutes)");
-
         SubscriptionOptions heartbeatOptions = SubscriptionOptions.builder()
-            .heartbeatIntervalSeconds(30)   // Send heartbeat every 30 seconds
-            .heartbeatTimeoutSeconds(120)   // Mark dead after 120 seconds without heartbeat
+            .heartbeatIntervalSeconds(30)
+            .heartbeatTimeoutSeconds(120)
             .build();
 
-        awaitFuture(subscriptionManager.subscribe(topic, consumerGroup, heartbeatOptions), 30, TimeUnit.SECONDS);
-        logger.info("✓ Subscription created with custom heartbeat settings");
-
-        // Step 3: Verify subscription configuration
-        logger.info("\nStep 3: Verifying heartbeat configuration");
-        Subscription subscription = awaitFuture(subscriptionManager.getSubscriptionInternal(topic, consumerGroup), 30, TimeUnit.SECONDS);
-
-        assertNotNull(subscription, "Subscription should exist");
-        assertEquals(30, subscription.getHeartbeatIntervalSeconds(),
-            "Heartbeat interval should be 30 seconds");
-        assertEquals(120, subscription.getHeartbeatTimeoutSeconds(),
-            "Heartbeat timeout should be 120 seconds");
-        assertEquals(SubscriptionStatus.ACTIVE, subscription.getStatus(),
-            "Subscription should be ACTIVE");
-
-        logger.info("✓ Verified heartbeat configuration:");
-        logger.info("  - Interval: {} seconds", subscription.getHeartbeatIntervalSeconds());
-        logger.info("  - Timeout: {} seconds", subscription.getHeartbeatTimeoutSeconds());
-        logger.info("  - Status: {}", subscription.getStatus());
-
-        logger.info("\n=== DEMO 1 COMPLETE: Heartbeat Configuration ===\n");
-        logger.info("Key Takeaway: Configure heartbeat settings based on your processing characteristics.");
+        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                logger.info("✓ Topic created successfully");
+                logger.info("\nStep 2: Subscribing '{}' with custom heartbeat settings", consumerGroup);
+                return subscriptionManager.subscribe(topic, consumerGroup, heartbeatOptions);
+            })
+            .compose(v -> {
+                logger.info("✓ Subscription created with custom heartbeat settings");
+                logger.info("\nStep 3: Verifying heartbeat configuration");
+                return subscriptionManager.getSubscriptionInternal(topic, consumerGroup);
+            })
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription, "Subscription should exist");
+                assertEquals(30, subscription.getHeartbeatIntervalSeconds(),
+                    "Heartbeat interval should be 30 seconds");
+                assertEquals(120, subscription.getHeartbeatTimeoutSeconds(),
+                    "Heartbeat timeout should be 120 seconds");
+                assertEquals(SubscriptionStatus.ACTIVE, subscription.getStatus(),
+                    "Subscription should be ACTIVE");
+                logger.info("✓ Verified heartbeat configuration:");
+                logger.info("  - Interval: {} seconds", subscription.getHeartbeatIntervalSeconds());
+                logger.info("  - Timeout: {} seconds", subscription.getHeartbeatTimeoutSeconds());
+                logger.info("  - Status: {}", subscription.getStatus());
+                logger.info("\n=== DEMO 1 COMPLETE: Heartbeat Configuration ===\n");
+                logger.info("Key Takeaway: Configure heartbeat settings based on your processing characteristics.");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }
 
     /**
@@ -233,100 +230,83 @@ class DeadConsumerDetectionDemoTest {
      * instances and alerts operations team.</p>
      */
     @Test
-    void testDeadConsumerDetection(Vertx vertx) throws Exception {
+    void testDeadConsumerDetection(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("\n=== DEMO 2: Dead Consumer Detection ===\n");
 
         String topic = "orders.monitoring";
         String healthyGroup = "healthy-consumer";
         String deadGroup = "dead-consumer";
 
-        // Step 1: Create PUB_SUB topic
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
-        logger.info("✓ Topic created successfully");
-
-        // Step 2: Subscribe two consumer groups with short timeout for demo
-        logger.info("\nStep 2: Subscribing two consumer groups");
-        logger.info("  - '{}': Will send heartbeats (healthy)", healthyGroup);
-        logger.info("  - '{}': Will NOT send heartbeats (will become dead)", deadGroup);
-
         SubscriptionOptions shortTimeoutOptions = SubscriptionOptions.builder()
-            .heartbeatIntervalSeconds(1)    // Very short for demo
-            .heartbeatTimeoutSeconds(10)    // 10 seconds timeout for demo
-            .deadAfterMisses(1)             // Mark DEAD after first missed detection run
+            .heartbeatIntervalSeconds(1)
+            .heartbeatTimeoutSeconds(10)
+            .deadAfterMisses(1)
             .build();
 
-        awaitFuture(subscriptionManager.subscribe(topic, healthyGroup, shortTimeoutOptions), 30, TimeUnit.SECONDS);
-        awaitFuture(subscriptionManager.subscribe(topic, deadGroup, shortTimeoutOptions), 30, TimeUnit.SECONDS);
-        logger.info("✓ Both consumer groups subscribed");
-
-        // Step 3: Healthy consumer sends heartbeat
-        logger.info("\nStep 3: Healthy consumer sends heartbeat");
-        awaitFuture(subscriptionManager.updateHeartbeat(topic, healthyGroup), 30, TimeUnit.SECONDS);
-        logger.info("✓ Heartbeat sent by '{}'", healthyGroup);
-
-        // Step 4: Wait for dead consumer timeout (dead consumer does NOT send heartbeat)
-        logger.info("\nStep 4: Waiting 12 seconds for dead consumer timeout...");
-        logger.info("  (Dead consumer '{}' is NOT sending heartbeats)", deadGroup);
-        logger.info("  (Healthy consumer '{}' WILL send periodic heartbeats)", healthyGroup);
-
-        // Send periodic heartbeats for healthy consumer during wait period
-        for (int i = 0; i < 3; i++) {
-            new CountDownLatch(1).await(4, TimeUnit.SECONDS);
-            awaitFuture(subscriptionManager.updateHeartbeat(topic, healthyGroup), 30, TimeUnit.SECONDS);
-            logger.info("  - Heartbeat #{} sent by '{}'", i + 1, healthyGroup);
-        }
-
-        logger.info("✓ Timeout period elapsed (12 seconds)");
-
-        // Step 5: Run dead consumer detection
-        logger.info("\nStep 5: Running dead consumer detection");
-        int deadCount = awaitFuture(deadConsumerDetector.detectDeadSubscriptions(topic), 30, TimeUnit.SECONDS);
-
-        logger.info("✓ Dead consumer detection complete");
-        logger.info("  - Marked {} subscriptions as DEAD", deadCount);
-
-        // Step 6: Get list of all subscriptions and filter for DEAD ones
-        logger.info("\nStep 6: Retrieving dead subscriptions");
-        List<Subscription> allSubscriptions = awaitFuture(subscriptionManager.listSubscriptionsInternal(topic), 30, TimeUnit.SECONDS);
-
-        List<Subscription> deadSubscriptions = allSubscriptions.stream()
-            .filter(sub -> sub.getStatus() == SubscriptionStatus.DEAD)
-            .toList();
-
-        logger.info("✓ Found {} dead subscriptions", deadSubscriptions.size());
-
-        // Step 7: Verify dead consumer was detected
-        logger.info("\nStep 7: Verifying dead consumer detection");
-        assertEquals(1, deadCount, "Should have marked exactly 1 subscription as DEAD");
-        assertEquals(1, deadSubscriptions.size(), "Should have exactly 1 dead subscription");
-
-        Subscription deadSub = deadSubscriptions.get(0);
-        assertEquals(deadGroup, deadSub.getGroupName(),
-            "Dead consumer should be '" + deadGroup + "'");
-        assertEquals(SubscriptionStatus.DEAD, deadSub.getStatus(),
-            "Status should be DEAD");
-
-        logger.info("✓ Verified dead consumer detection:");
-        logger.info("  - Dead consumer: {}", deadSub.getGroupName());
-        logger.info("  - Status: {}", deadSub.getStatus());
-        logger.info("  - Last heartbeat: {}", deadSub.getLastHeartbeatAt());
-
-        // Step 7: Verify healthy consumer is still ACTIVE
-        logger.info("\nStep 7: Verifying healthy consumer is still ACTIVE");
-        Subscription healthySub = awaitFuture(subscriptionManager.getSubscriptionInternal(topic, healthyGroup), 30, TimeUnit.SECONDS);
-
-        assertEquals(SubscriptionStatus.ACTIVE, healthySub.getStatus(),
-            "Healthy consumer should still be ACTIVE");
-        logger.info("✓ Healthy consumer '{}' is still ACTIVE", healthyGroup);
-
-        logger.info("\n=== DEMO 2 COMPLETE: Dead Consumer Detection ===\n");
-        logger.info("Key Takeaway: Dead consumer detection automatically identifies consumers that stop sending heartbeats.");
+        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                logger.info("✓ Topic created successfully");
+                logger.info("\nStep 2: Subscribing two consumer groups");
+                return subscriptionManager.subscribe(topic, healthyGroup, shortTimeoutOptions);
+            })
+            .compose(v -> subscriptionManager.subscribe(topic, deadGroup, shortTimeoutOptions))
+            .compose(v -> {
+                logger.info("✓ Both consumer groups subscribed");
+                logger.info("\nStep 3: Healthy consumer sends heartbeat");
+                return subscriptionManager.updateHeartbeat(topic, healthyGroup);
+            })
+            .compose(v -> {
+                logger.info("✓ Heartbeat sent by '{}'", healthyGroup);
+                logger.info("\nStep 4: Waiting 12 seconds for dead consumer timeout...");
+                return vertx.timer(4000);
+            })
+            .compose(v -> subscriptionManager.updateHeartbeat(topic, healthyGroup))
+            .compose(v -> vertx.timer(4000))
+            .compose(v -> subscriptionManager.updateHeartbeat(topic, healthyGroup))
+            .compose(v -> vertx.timer(4000))
+            .compose(v -> subscriptionManager.updateHeartbeat(topic, healthyGroup))
+            .compose(v -> {
+                logger.info("✓ Timeout period elapsed (12 seconds)");
+                logger.info("\nStep 5: Running dead consumer detection");
+                return deadConsumerDetector.detectDeadSubscriptions(topic);
+            })
+            .compose(deadCount -> {
+                logger.info("✓ Dead consumer detection complete - marked {} subscriptions as DEAD", deadCount);
+                logger.info("\nStep 6: Retrieving dead subscriptions");
+                return subscriptionManager.listSubscriptionsInternal(topic)
+                    .compose(allSubs -> subscriptionManager.getSubscriptionInternal(topic, healthyGroup)
+                        .onSuccess(healthySub -> testContext.verify(() -> {
+                            List<Subscription> deadSubs = allSubs.stream()
+                                .filter(sub -> sub.getStatus() == SubscriptionStatus.DEAD)
+                                .toList();
+                            logger.info("✓ Found {} dead subscriptions", deadSubs.size());
+                            logger.info("\nStep 7: Verifying dead consumer detection");
+                            assertEquals(1, (int) deadCount, "Should have marked exactly 1 subscription as DEAD");
+                            assertEquals(1, deadSubs.size(), "Should have exactly 1 dead subscription");
+                            Subscription deadSub = deadSubs.get(0);
+                            assertEquals(deadGroup, deadSub.getGroupName(),
+                                "Dead consumer should be '" + deadGroup + "'");
+                            assertEquals(SubscriptionStatus.DEAD, deadSub.getStatus(), "Status should be DEAD");
+                            logger.info("✓ Verified dead consumer detection:");
+                            logger.info("  - Dead consumer: {}", deadSub.getGroupName());
+                            logger.info("  - Status: {}", deadSub.getStatus());
+                            logger.info("  - Last heartbeat: {}", deadSub.getLastHeartbeatAt());
+                            assertEquals(SubscriptionStatus.ACTIVE, healthySub.getStatus(),
+                                "Healthy consumer should still be ACTIVE");
+                            logger.info("✓ Healthy consumer '{}' is still ACTIVE", healthyGroup);
+                            logger.info("\n=== DEMO 2 COMPLETE: Dead Consumer Detection ===\n");
+                            logger.info("Key Takeaway: Dead consumer detection automatically identifies consumers that stop sending heartbeats.");
+                            testContext.completeNow();
+                        })));
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Test should complete within 60 seconds");
     }
 
     /**
@@ -339,79 +319,79 @@ class DeadConsumerDetectionDemoTest {
      * as DEAD, then recovered and needs to resume processing.</p>
      */
     @Test
-    void testConsumerRecovery(Vertx vertx) throws Exception {
+    void testConsumerRecovery(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("\n=== DEMO 3: Consumer Recovery ===\n");
 
         String topic = "orders.recovery";
         String consumerGroup = "recoverable-consumer";
 
-        // Step 1: Create PUB_SUB topic
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
-        logger.info("✓ Topic created successfully");
-
-        // Step 2: Subscribe consumer group
-        logger.info("\nStep 2: Subscribing '{}'", consumerGroup);
         SubscriptionOptions shortTimeoutOptions = SubscriptionOptions.builder()
             .heartbeatIntervalSeconds(1)
             .heartbeatTimeoutSeconds(10)
-            .deadAfterMisses(1)             // Mark DEAD after first missed detection run
+            .deadAfterMisses(1)
             .build();
 
-        awaitFuture(subscriptionManager.subscribe(topic, consumerGroup, shortTimeoutOptions), 30, TimeUnit.SECONDS);
-        logger.info("✓ Consumer group subscribed");
-
-        // Step 3: Verify initial status is ACTIVE
-        logger.info("\nStep 3: Verifying initial status");
-        Subscription initialSub = awaitFuture(subscriptionManager.getSubscriptionInternal(topic, consumerGroup), 30, TimeUnit.SECONDS);
-        assertEquals(SubscriptionStatus.ACTIVE, initialSub.getStatus(),
-            "Initial status should be ACTIVE");
-        logger.info("✓ Initial status: {}", initialSub.getStatus());
-
-        // Step 4: Simulate consumer crash (stop sending heartbeats)
-        logger.info("\nStep 4: Simulating consumer crash (no heartbeats for 12 seconds)");
-        new CountDownLatch(1).await(12, TimeUnit.SECONDS);
-        logger.info("✓ Consumer has been 'crashed' for 12 seconds");
-
-        // Step 5: Run dead consumer detection
-        logger.info("\nStep 5: Running dead consumer detection");
-        int deadCount = awaitFuture(deadConsumerDetector.detectDeadSubscriptions(topic), 30, TimeUnit.SECONDS);
-        logger.info("✓ Marked {} subscriptions as DEAD", deadCount);
-        assertEquals(1, deadCount, "Should have marked 1 subscription as DEAD");
-
-        // Step 6: Verify consumer is now DEAD
-        logger.info("\nStep 6: Verifying consumer is marked as DEAD");
-        Subscription deadSub = awaitFuture(subscriptionManager.getSubscriptionInternal(topic, consumerGroup), 30, TimeUnit.SECONDS);
-        assertEquals(SubscriptionStatus.DEAD, deadSub.getStatus(),
-            "Status should be DEAD after detection");
-        logger.info("✓ Consumer status: {}", deadSub.getStatus());
-
-        // Step 7: Recover consumer by resuming subscription
-        logger.info("\nStep 7: Recovering consumer by resuming subscription");
-        awaitFuture(subscriptionManager.resume(topic, consumerGroup), 30, TimeUnit.SECONDS);
-        logger.info("✓ Subscription resumed");
-
-        // Step 8: Verify consumer is ACTIVE again
-        logger.info("\nStep 8: Verifying consumer is ACTIVE after recovery");
-        Subscription recoveredSub = awaitFuture(subscriptionManager.getSubscriptionInternal(topic, consumerGroup), 30, TimeUnit.SECONDS);
-        assertEquals(SubscriptionStatus.ACTIVE, recoveredSub.getStatus(),
-            "Status should be ACTIVE after resume");
-        logger.info("✓ Consumer recovered successfully");
-        logger.info("  - Status: {}", recoveredSub.getStatus());
-        logger.info("  - Last active: {}", recoveredSub.getLastActiveAt());
-
-        // Step 9: Send heartbeat to keep consumer alive
-        logger.info("\nStep 9: Sending heartbeat to keep consumer alive");
-        awaitFuture(subscriptionManager.updateHeartbeat(topic, consumerGroup), 30, TimeUnit.SECONDS);
-        logger.info("✓ Heartbeat sent - consumer is now healthy");
-
-        logger.info("\n=== DEMO 3 COMPLETE: Consumer Recovery ===\n");
-        logger.info("Key Takeaway: Dead consumers can be recovered by resuming the subscription and sending heartbeats.");
+        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                logger.info("✓ Topic created successfully");
+                logger.info("\nStep 2: Subscribing '{}'", consumerGroup);
+                return subscriptionManager.subscribe(topic, consumerGroup, shortTimeoutOptions);
+            })
+            .compose(v -> {
+                logger.info("✓ Consumer group subscribed");
+                logger.info("\nStep 3: Verifying initial status");
+                return subscriptionManager.getSubscriptionInternal(topic, consumerGroup);
+            })
+            .compose(initialSub -> {
+                assertEquals(SubscriptionStatus.ACTIVE, initialSub.getStatus(), "Initial status should be ACTIVE");
+                logger.info("✓ Initial status: {}", initialSub.getStatus());
+                logger.info("\nStep 4: Simulating consumer crash (no heartbeats for 12 seconds)");
+                return vertx.timer(12000);
+            })
+            .compose(v -> {
+                logger.info("✓ Consumer has been 'crashed' for 12 seconds");
+                logger.info("\nStep 5: Running dead consumer detection");
+                return deadConsumerDetector.detectDeadSubscriptions(topic);
+            })
+            .compose(deadCount -> {
+                logger.info("✓ Marked {} subscriptions as DEAD", deadCount);
+                assertEquals(1, (int) deadCount, "Should have marked 1 subscription as DEAD");
+                logger.info("\nStep 6: Verifying consumer is marked as DEAD");
+                return subscriptionManager.getSubscriptionInternal(topic, consumerGroup);
+            })
+            .compose(deadSub -> {
+                assertEquals(SubscriptionStatus.DEAD, deadSub.getStatus(), "Status should be DEAD after detection");
+                logger.info("✓ Consumer status: {}", deadSub.getStatus());
+                logger.info("\nStep 7: Recovering consumer by resuming subscription");
+                return subscriptionManager.resume(topic, consumerGroup);
+            })
+            .compose(v -> {
+                logger.info("✓ Subscription resumed");
+                logger.info("\nStep 8: Verifying consumer is ACTIVE after recovery");
+                return subscriptionManager.getSubscriptionInternal(topic, consumerGroup);
+            })
+            .compose(recoveredSub -> {
+                assertEquals(SubscriptionStatus.ACTIVE, recoveredSub.getStatus(), "Status should be ACTIVE after resume");
+                logger.info("✓ Consumer recovered successfully");
+                logger.info("  - Status: {}", recoveredSub.getStatus());
+                logger.info("  - Last active: {}", recoveredSub.getLastActiveAt());
+                logger.info("\nStep 9: Sending heartbeat to keep consumer alive");
+                return subscriptionManager.updateHeartbeat(topic, consumerGroup);
+            })
+            .onSuccess(v -> {
+                logger.info("✓ Heartbeat sent - consumer is now healthy");
+                logger.info("\n=== DEMO 3 COMPLETE: Consumer Recovery ===\n");
+                logger.info("Key Takeaway: Dead consumers can be recovered by resuming the subscription and sending heartbeats.");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Test should complete within 60 seconds");
     }
 }
 

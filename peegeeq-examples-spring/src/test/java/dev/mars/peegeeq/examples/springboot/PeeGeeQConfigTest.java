@@ -26,15 +26,14 @@ import dev.mars.peegeeq.outbox.OutboxProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import dev.mars.peegeeq.test.util.FutureTestHelper;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -74,6 +73,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class PeeGeeQConfigTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQConfigTest.class);
@@ -88,10 +88,12 @@ class PeeGeeQConfigTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Autowired

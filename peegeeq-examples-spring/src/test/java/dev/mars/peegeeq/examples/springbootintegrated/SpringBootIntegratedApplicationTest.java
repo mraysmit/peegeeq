@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -53,9 +54,7 @@ import io.vertx.core.Future;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -113,14 +112,16 @@ class SpringBootIntegratedApplicationTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
+    static void closeManager(VertxTestContext testContext) {
         if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+            peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        } else {
+            testContext.completeNow();
         }
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
@@ -136,20 +137,22 @@ class SpringBootIntegratedApplicationTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
+        databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .map(v -> {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }), 30, TimeUnit.SECONDS);
-
-        logger.info("=== Application-specific schema setup complete ===");
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("=== Application-specific schema setup complete ===");
+                testContext.completeNow();
+            })));
     }
 
     @Test
-    void testIntegratedTransactionSuccess(Vertx vertx) throws Exception {
+    void testIntegratedTransactionSuccess(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Integrated Transaction Success ===");
         
         // Create order request
@@ -160,41 +163,46 @@ class SpringBootIntegratedApplicationTest {
         request.setValidTime(Instant.now());
         
         // Create order (integrated transaction)
-        String orderId = awaitFuture(orderService.createOrder(request), 30, TimeUnit.SECONDS);
-        assertNotNull(orderId);
-        logger.info("Order created: {}", orderId);
-
-        // Wait a bit for async operations
-        awaitFuture(vertx.timer(500), 2, TimeUnit.SECONDS);
-        
-        // Verify 1: Order saved to database
-        boolean orderExists = verifyOrderInDatabase(orderId);
-        assertTrue(orderExists, "Order should exist in database");
-        logger.info("Order found in database");
-        
-        // Verify 2: Event sent to outbox
-        boolean eventInOutbox = verifyEventInOutbox(orderId);
-        assertTrue(eventInOutbox, "Event should exist in outbox");
-        logger.info("Event found in outbox");
-        
-        // Verify 3: Event appended to event store
-        OrderResponse history = awaitFuture(orderService.getOrderHistory(orderId), 30, TimeUnit.SECONDS);
-        assertNotNull(history);
-        assertTrue(history.getHistory().size() >= 1, "Event should exist in event store");
-        logger.info("Event found in event store ({} events)", history.getHistory().size());
-        
-        // Verify event details
-        BiTemporalEvent<OrderEvent> event = history.getHistory().get(0);
-        assertEquals("OrderCreated", event.getEventType());
-        assertEquals(orderId, event.getPayload().getOrderId());
-        assertEquals("CUST-001", event.getPayload().getCustomerId());
-        assertEquals(0, new BigDecimal("1500.00").compareTo(event.getPayload().getAmount()));
-        
-        logger.info("=== Test Passed: All three operations committed together ===");
+        orderService.createOrder(request)
+            .compose(orderId -> {
+                assertNotNull(orderId);
+                logger.info("Order created: {}", orderId);
+                // Wait a bit for async operations
+                return vertx.timer(500)
+                    .compose(v -> verifyOrderInDatabase(orderId))
+                    .compose(orderExists -> {
+                        // Verify 1: Order saved to database
+                        assertTrue(orderExists, "Order should exist in database");
+                        logger.info("Order found in database");
+                        return verifyEventInOutbox(orderId);
+                    })
+                    .compose(eventInOutbox -> {
+                        // Verify 2: Event sent to outbox
+                        assertTrue(eventInOutbox, "Event should exist in outbox");
+                        logger.info("Event found in outbox");
+                        // Verify 3: Event appended to event store
+                        return orderService.getOrderHistory(orderId);
+                    })
+                    .map(history -> {
+                        assertNotNull(history);
+                        assertTrue(history.getHistory().size() >= 1, "Event should exist in event store");
+                        logger.info("Event found in event store ({} events)", history.getHistory().size());
+                        BiTemporalEvent<OrderEvent> event = history.getHistory().get(0);
+                        assertEquals("OrderCreated", event.getEventType());
+                        assertEquals(orderId, event.getPayload().getOrderId());
+                        assertEquals("CUST-001", event.getPayload().getCustomerId());
+                        assertEquals(0, new BigDecimal("1500.00").compareTo(event.getPayload().getAmount()));
+                        return (Void) null;
+                    });
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("=== Test Passed: All three operations committed together ===");
+                testContext.completeNow();
+            })));
     }
     
     @Test
-    void testQueryOrderHistory() throws Exception {
+    void testQueryOrderHistory(VertxTestContext testContext) {
         logger.info("=== Testing Query Order History ===");
         
         // Create order
@@ -203,21 +211,27 @@ class SpringBootIntegratedApplicationTest {
         request.setAmount(new BigDecimal("2500.00"));
         request.setDescription("Desktop purchase");
         
-        String orderId = awaitFuture(orderService.createOrder(request), 30, TimeUnit.SECONDS);
-        logger.info("Order created: {}", orderId);
-        
-        // Query order history
-        OrderResponse history = awaitFuture(orderService.getOrderHistory(orderId), 30, TimeUnit.SECONDS);
-        assertNotNull(history);
-        assertEquals(orderId, history.getOrderId());
-        assertTrue(history.getHistory().size() >= 1);
-        
-        logger.info("Order history retrieved: {} events", history.getHistory().size());
-        logger.info("=== Test Passed ===");
+        orderService.createOrder(request)
+            .compose(orderId -> {
+                logger.info("Order created: {}", orderId);
+                // Query order history
+                return orderService.getOrderHistory(orderId)
+                    .map(history -> {
+                        assertNotNull(history);
+                        assertEquals(orderId, history.getOrderId());
+                        assertTrue(history.getHistory().size() >= 1);
+                        return history;
+                    });
+            })
+            .onComplete(testContext.succeeding(history -> testContext.verify(() -> {
+                logger.info("Order history retrieved: {} events", history.getHistory().size());
+                logger.info("=== Test Passed ===");
+                testContext.completeNow();
+            })));
     }
     
     @Test
-    void testQueryCustomerOrders() throws Exception {
+    void testQueryCustomerOrders(VertxTestContext testContext) {
         logger.info("=== Testing Query Customer Orders ===");
         
         String customerId = "CUST-003";
@@ -233,28 +247,28 @@ class SpringBootIntegratedApplicationTest {
         request2.setAmount(new BigDecimal("2000.00"));
         request2.setDescription("Order 2");
         
-        String orderId1 = awaitFuture(orderService.createOrder(request1), 10, TimeUnit.SECONDS);
-        String orderId2 = awaitFuture(orderService.createOrder(request2), 10, TimeUnit.SECONDS);
-        
-        logger.info("Orders created: {}, {}", orderId1, orderId2);
-        
-        // Query customer orders
-        List<BiTemporalEvent<OrderEvent>> orders = awaitFuture(orderService.getCustomerOrders(customerId),
-            30, TimeUnit.SECONDS);
-        
-        assertNotNull(orders);
-        assertTrue(orders.size() >= 2, "Should have at least 2 orders for customer");
-        
-        logger.info("Found {} orders for customer {}", orders.size(), customerId);
-        logger.info("=== Test Passed ===");
+        orderService.createOrder(request1)
+            .compose(orderId1 -> orderService.createOrder(request2)
+                .compose(orderId2 -> {
+                    logger.info("Orders created: {}, {}", orderId1, orderId2);
+                    // Query customer orders
+                    return orderService.getCustomerOrders(customerId);
+                })
+            )
+            .onComplete(testContext.succeeding(orders -> testContext.verify(() -> {
+                assertNotNull(orders);
+                assertTrue(orders.size() >= 2, "Should have at least 2 orders for customer");
+                logger.info("Found {} orders for customer {}", orders.size(), customerId);
+                logger.info("=== Test Passed ===");
+                testContext.completeNow();
+            })));
     }
     
     @Test
-    void testPointInTimeQuery(Vertx vertx) throws Exception {
+    void testPointInTimeQuery(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Point-in-Time Query ===");
         
         Instant beforeOrders = Instant.now();
-        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
         
         // Create order
         CreateOrderRequest request = new CreateOrderRequest();
@@ -262,32 +276,34 @@ class SpringBootIntegratedApplicationTest {
         request.setAmount(new BigDecimal("3000.00"));
         request.setDescription("Server purchase");
         
-        String orderId = awaitFuture(orderService.createOrder(request), 30, TimeUnit.SECONDS);
-        logger.info("Order created: {}", orderId);
-        
-        Instant afterOrders = Instant.now();
-        
-        // Query as of before orders
-        List<BiTemporalEvent<OrderEvent>> beforeResults = awaitFuture(orderService.getOrdersAsOfTime(beforeOrders),
-            30, TimeUnit.SECONDS);
-        
-        // Query as of after orders
-        List<BiTemporalEvent<OrderEvent>> afterResults = awaitFuture(orderService.getOrdersAsOfTime(afterOrders),
-            30, TimeUnit.SECONDS);
-        
-        // After should have more orders than before
-        assertTrue(afterResults.size() >= beforeResults.size(), 
-            "After timestamp should have more or equal orders");
-        
-        logger.info("Orders before: {}, after: {}", beforeResults.size(), afterResults.size());
-        logger.info("=== Test Passed ===");
+        vertx.timer(100)
+            .compose(v -> orderService.createOrder(request))
+            .compose(orderId -> {
+                logger.info("Order created: {}", orderId);
+                Instant afterOrders = Instant.now();
+                // Query as of before orders
+                return orderService.getOrdersAsOfTime(beforeOrders)
+                    .compose(beforeResults -> orderService.getOrdersAsOfTime(afterOrders)
+                        .map(afterResults -> {
+                            // After should have more orders than before
+                            assertTrue(afterResults.size() >= beforeResults.size(),
+                                "After timestamp should have more or equal orders");
+                            logger.info("Orders before: {}, after: {}", beforeResults.size(), afterResults.size());
+                            return (Void) null;
+                        })
+                    );
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("=== Test Passed ===");
+                testContext.completeNow();
+            })));
     }
     
     /**
      * Verifies that an order exists in the database.
      */
-    private boolean verifyOrderInDatabase(String orderId) throws Exception {
-        return awaitFuture(databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
+    private Future<Boolean> verifyOrderInDatabase(String orderId) {
+        return databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
             String sql = "SELECT COUNT(*) as count FROM orders WHERE id = $1";
             return connection.preparedQuery(sql)
                 .execute(Tuple.of(orderId))
@@ -295,14 +311,14 @@ class SpringBootIntegratedApplicationTest {
                     int count = rows.iterator().next().getInteger("count");
                     return count > 0;
                 });
-        }), 30, TimeUnit.SECONDS);
+        });
     }
     
     /**
      * Verifies that an event exists in the outbox.
      */
-    private boolean verifyEventInOutbox(String orderId) throws Exception {
-        return awaitFuture(databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
+    private Future<Boolean> verifyEventInOutbox(String orderId) {
+        return databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
             String sql = "SELECT COUNT(*) as count FROM outbox WHERE payload::text LIKE $1";
             return connection.preparedQuery(sql)
                 .execute(Tuple.of("%" + orderId + "%"))
@@ -310,7 +326,7 @@ class SpringBootIntegratedApplicationTest {
                     int count = rows.iterator().next().getInteger("count");
                     return count > 0;
                 });
-        }), 30, TimeUnit.SECONDS);
+        });
     }
 }
 

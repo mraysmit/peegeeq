@@ -56,8 +56,23 @@ public class ConsulServiceDiscovery {
      */
     public Future<Void> registerInstance(PeeGeeQInstance instance) {
         Promise<Void> promise = Promise.promise();
-        
-        logger.info("Registering PeeGeeQ instance: {} at {}:{}", 
+
+        // Validate input
+        if (instance == null) {
+            return Future.failedFuture(new IllegalArgumentException("instance must not be null"));
+        }
+        if (instance.getInstanceId() == null || instance.getInstanceId().isBlank()) {
+            return Future.failedFuture(new IllegalArgumentException("instanceId must not be null or blank"));
+        }
+        if (instance.getHost() == null || instance.getHost().isBlank()) {
+            return Future.failedFuture(new IllegalArgumentException("host must not be null or blank"));
+        }
+        if (instance.getPort() <= 0 || instance.getPort() > 65535) {
+            return Future.failedFuture(new IllegalArgumentException(
+                "port must be in range 1..65535 (was " + instance.getPort() + ")"));
+        }
+
+        logger.info("Registering PeeGeeQ instance: {} at {}:{}",
                 instance.getInstanceId(), instance.getHost(), instance.getPort());
         
         try {

@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,8 +53,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -106,7 +105,7 @@ public class OrderConsumerServiceTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         log.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
@@ -135,7 +134,7 @@ public class OrderConsumerServiceTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
+        databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createConsumerStatusTable).execute())
@@ -143,9 +142,10 @@ public class OrderConsumerServiceTest {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }), 30, TimeUnit.SECONDS);
-
-        log.info("=== Application-specific schema setup complete ===");
+            }).onComplete(setupContext.succeeding(v -> {
+                log.info("=== Application-specific schema setup complete ===");
+                setupContext.completeNow();
+            }));
     }
 
     @Autowired
@@ -170,16 +170,21 @@ public class OrderConsumerServiceTest {
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
-        log.info("🧹 Cleaning up Order Consumer Service Test resources");
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void tearDown(VertxTestContext testContext) {
+        log.info("\uD83E\uDDF9 Cleaning up Order Consumer Service Test resources");
+        if (peeGeeQManagerRef == null) {
+            log.info("Order Consumer Service Test cleanup complete");
+            testContext.completeNow();
+            return;
         }
-        log.info("Order Consumer Service Test cleanup complete");
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeeding(v -> {
+            log.info("Order Consumer Service Test cleanup complete");
+            testContext.completeNow();
+        }));
     }
 
     @Test
-    void testBasicMessageConsumption(Vertx vertx) throws Exception {
+    void testBasicMessageConsumption(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Basic Message Consumption ===");
         
         // Create producer
@@ -189,29 +194,28 @@ public class OrderConsumerServiceTest {
         OrderEvent event = new OrderEvent("ORDER-001", "customer-1", new BigDecimal("100.00"), "PENDING");
         producer.send(event).onFailure(err -> log.warn("Failed to send event", err));
 
-        // Wait for message to be processed
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
-        // Verify order was stored in database
-        boolean orderExists = awaitFuture(databaseService.getConnectionProvider()
-            .withTransaction("peegeeq-main", connection -> {
-                return connection.preparedQuery("SELECT COUNT(*) FROM orders WHERE id = $1")
-                    .execute(io.vertx.sqlclient.Tuple.of("ORDER-001"))
-                    .map(rows -> {
-                        Row row = rows.iterator().next();
-                        return row.getLong(0) > 0;
-                    });
-            }), 30, TimeUnit.SECONDS);
-        
-        assertTrue(orderExists, "Order should be stored in database");
-        assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
-        
-        producer.close();
-        log.info("Basic Message Consumption test passed");
+        // Wait for message to be processed, then verify
+        vertx.timer(2000)
+            .compose(v -> databaseService.getConnectionProvider()
+                .withTransaction("peegeeq-main", connection -> {
+                    return connection.preparedQuery("SELECT COUNT(*) FROM orders WHERE id = $1")
+                        .execute(io.vertx.sqlclient.Tuple.of("ORDER-001"))
+                        .map(rows -> {
+                            Row row = rows.iterator().next();
+                            return row.getLong(0) > 0;
+                        });
+                }))
+            .onComplete(testContext.succeeding(orderExists -> testContext.verify(() -> {
+                assertTrue(orderExists, "Order should be stored in database");
+                assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
+                producer.close();
+                log.info("Basic Message Consumption test passed");
+                testContext.completeNow();
+            })));
     }
     
     @Test
-    void testMessageFiltering(Vertx vertx) throws Exception {
+    void testMessageFiltering(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Message Filtering ===");
         
         // Create producer
@@ -228,18 +232,16 @@ public class OrderConsumerServiceTest {
         OrderEvent filteredEvent = new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED");
         producer.send(filteredEvent).onFailure(err -> log.warn("Failed to send filtered event", err));
 
-        // Wait for messages to be processed
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
-        // Verify filtering worked
-        long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
-        long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;
-        
-        assertTrue(processedDelta >= 1, "At least one message should be processed");
-        assertTrue(filteredDelta >= 1, "At least one message should be filtered");
-        
-        producer.close();
-        log.info("Message Filtering test passed");
+        // Wait for messages to be processed then verify
+        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;
+            long filteredDelta = consumerService.getMessagesFiltered() - initialFiltered;
+            assertTrue(processedDelta >= 1, "At least one message should be processed");
+            assertTrue(filteredDelta >= 1, "At least one message should be filtered");
+            producer.close();
+            log.info("Message Filtering test passed");
+            testContext.completeNow();
+        })));
     }
     
     @SuppressWarnings("null")

@@ -28,6 +28,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -40,7 +41,6 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -99,7 +99,7 @@ class OutboxMetricsSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown(Vertx vertx) throws Exception {
+    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
@@ -123,8 +123,7 @@ class OutboxMetricsSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
+        vertx.timer(2000).onComplete(tearDownContext.succeedingThenComplete());
     }
 
     @Test
@@ -167,9 +166,6 @@ class OutboxMetricsSpringBootTest {
         // Wait for processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
-        
-        // Allow time for metrics to be updated
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -230,23 +226,21 @@ class OutboxMetricsSpringBootTest {
             producer.send("Error test message " + i).onFailure(testContext::failNow);
         }
 
-        // Wait for first errorCount errors to occur
-        awaitFuture(errorsComplete.future(), 30, TimeUnit.SECONDS);
-
-        // Allow time for error metrics to be updated
-        awaitFuture(vertx.timer(3000), 4, TimeUnit.SECONDS);
-        
-        // Verify error metrics increased
-        PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
-        double finalErrors = finalMetrics.getMessagesFailed();
-        
-        logger.info("Final error count: {}", finalErrors);
-        
-        assertTrue(finalErrors > initialErrors, 
-            "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
-        
-        logger.info("Error rate metrics verified successfully");
-        testContext.completeNow();
+        // Wait for first errorCount errors, then wait for metrics to update
+        errorsComplete.future()
+            .compose(v -> vertx.timer(3000))
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
+                double finalErrors = finalMetrics.getMessagesFailed();
+                
+                logger.info("Final error count: {}", finalErrors);
+                
+                assertTrue(finalErrors > initialErrors, 
+                    "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
+                
+                logger.info("Error rate metrics verified successfully");
+                testContext.completeNow();
+            })));
     }
 
     @Test
@@ -286,9 +280,6 @@ class OutboxMetricsSpringBootTest {
         // Wait for processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
-        
-        // Allow time for metrics to be updated
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
         
         // Verify metrics were collected (we can't easily verify exact timing in integration test)
         PeeGeeQMetrics.MetricsSummary metrics = manager.getMetrics().getSummary();

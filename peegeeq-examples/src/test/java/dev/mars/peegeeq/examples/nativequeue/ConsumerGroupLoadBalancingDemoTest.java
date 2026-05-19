@@ -35,7 +35,6 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -301,8 +300,9 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // 🧹 **Cleanup ConsumerGroup**: Proper resource management
-        awaitFuture(roundRobinGroup.stop(), 5, TimeUnit.SECONDS);
-        awaitFuture(roundRobinGroup.close(), 5, TimeUnit.SECONDS);
+        roundRobinGroup.stopGracefully()
+            .compose(v -> roundRobinGroup.closeAsync())
+            .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));
 
         logger.info("Round Robin Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);
@@ -535,8 +535,9 @@ class ConsumerGroupLoadBalancingDemoTest {
                     "Should have mapping for all sessions");
 
         // 🧹 **Cleanup ConsumerGroup**: Proper resource management
-        awaitFuture(stickyGroup.stop(), 5, TimeUnit.SECONDS);
-        awaitFuture(stickyGroup.close(), 5, TimeUnit.SECONDS);
+        stickyGroup.stopGracefully()
+            .compose(v -> stickyGroup.closeAsync())
+            .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));
 
         logger.info("Sticky Session Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);

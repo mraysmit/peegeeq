@@ -32,6 +32,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,13 +46,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -110,6 +110,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class MultiEventStoreTransactionTest {
     
     private static final Logger logger = LoggerFactory.getLogger(MultiEventStoreTransactionTest.class);
@@ -154,9 +155,11 @@ class MultiEventStoreTransactionTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
+    static void closeManager(VertxTestContext testContext) {
         if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+            peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -191,7 +194,7 @@ class MultiEventStoreTransactionTest {
      * multiple bi-temporal event stores for a complete order processing workflow.
      */
     @Test
-    void testCompleteOrderProcessingWithTransactionCoordination() throws Exception {
+    void testCompleteOrderProcessingWithTransactionCoordination(VertxTestContext testContext) {
         logger.info("=== Testing Complete Order Processing with Transaction Coordination ===");
         
         // BUSINESS SETUP: Create realistic order processing request
@@ -226,150 +229,133 @@ class MultiEventStoreTransactionTest {
         
         // TRANSACTION COORDINATION: Process order across all event stores
         logger.info("Processing order with coordinated transactions: {}", orderId);
-        OrderProcessingResult result =
-            awaitFuture(orderProcessingService.processCompleteOrder(request), 30, TimeUnit.SECONDS);
-        
-        // VALIDATION: Processing should be successful
-        assertNotNull(result, "Processing result should not be null");
-        assertTrue(result.isSuccess(), "Order processing should be successful");
-        assertEquals(orderId, result.getOrderId(), "Order ID should match");
-        assertNotNull(result.getCorrelationId(), "Correlation ID should be set");
-        assertNotNull(result.getTransactionId(), "Transaction ID should be set");
-        
-        logger.info("Order processing successful: {} with correlation: {}", 
-                   result.getOrderId(), result.getCorrelationId());
-        
-        // CROSS-STORE VALIDATION: Verify events were created in all stores
-        
-        // 1. Verify Order Events - Query specifically for OrderCreated events
-        List<BiTemporalEvent<OrderEvent>> orderEvents =
-            awaitFuture(orderEventStore.query(EventQuery.builder()
-                .aggregateId(orderId)
-                .eventType("OrderCreated")
-                .build()), 30, TimeUnit.SECONDS);
+        orderProcessingService.processCompleteOrder(request)
+            .compose(result -> {
+                // VALIDATION: Processing should be successful
+                assertNotNull(result, "Processing result should not be null");
+                assertTrue(result.isSuccess(), "Order processing should be successful");
+                assertEquals(orderId, result.getOrderId(), "Order ID should match");
+                assertNotNull(result.getCorrelationId(), "Correlation ID should be set");
+                assertNotNull(result.getTransactionId(), "Transaction ID should be set");
 
-        // DEBUG: Log all found events to understand the issue
-        logger.info("Found {} OrderCreated events for orderId: {}", orderEvents.size(), orderId);
-        for (int i = 0; i < orderEvents.size(); i++) {
-            BiTemporalEvent<OrderEvent> event = orderEvents.get(i);
-            logger.info("Event {}: type={}, aggregateId={}, orderId={}, correlationId={}",
-                i + 1, event.getEventType(), event.getAggregateId(),
-                event.getPayload().getOrderId(), event.getCorrelationId());
-        }
+                logger.info("Order processing successful: {} with correlation: {}",
+                    result.getOrderId(), result.getCorrelationId());
 
-        assertFalse(orderEvents.isEmpty(), "Order events should be created");
-        assertEquals(1, orderEvents.size(), "Should have exactly one OrderCreated event");
-        
-        BiTemporalEvent<OrderEvent> orderEvent = orderEvents.get(0);
-        assertEquals("OrderCreated", orderEvent.getEventType(), "Order event type should be OrderCreated");
-        assertEquals(orderId, orderEvent.getPayload().getOrderId(), "Order ID should match");
-        assertEquals("CREATED", orderEvent.getPayload().getOrderStatus(), "Order status should be CREATED");
-        assertEquals(result.getCorrelationId(), orderEvent.getCorrelationId(), "Correlation ID should match");
-        
-        // 2. Verify Inventory Events - Query specifically for this order's inventory events
-        List<BiTemporalEvent<InventoryEvent>> inventoryEvents =
-            awaitFuture(inventoryEventStore.query(EventQuery.builder()
-                .aggregateId(orderId)
-                .eventType("InventoryReserved")
-                .correlationId(result.getCorrelationId())
-                .build()), 30, TimeUnit.SECONDS);
+                // 1. Verify Order Events
+                return orderEventStore.query(EventQuery.builder()
+                    .aggregateId(orderId)
+                    .eventType("OrderCreated")
+                    .build())
+                    .compose(orderEvents -> {
+                        logger.info("Found {} OrderCreated events for orderId: {}", orderEvents.size(), orderId);
+                        for (int i = 0; i < orderEvents.size(); i++) {
+                            BiTemporalEvent<OrderEvent> event = orderEvents.get(i);
+                            logger.info("Event {}: type={}, aggregateId={}, orderId={}, correlationId={}",
+                                i + 1, event.getEventType(), event.getAggregateId(),
+                                event.getPayload().getOrderId(), event.getCorrelationId());
+                        }
+                        assertFalse(orderEvents.isEmpty(), "Order events should be created");
+                        assertEquals(1, orderEvents.size(), "Should have exactly one OrderCreated event");
+                        BiTemporalEvent<OrderEvent> orderEvent = orderEvents.get(0);
+                        assertEquals("OrderCreated", orderEvent.getEventType(), "Order event type should be OrderCreated");
+                        assertEquals(orderId, orderEvent.getPayload().getOrderId(), "Order ID should match");
+                        assertEquals("CREATED", orderEvent.getPayload().getOrderStatus(), "Order status should be CREATED");
+                        assertEquals(result.getCorrelationId(), orderEvent.getCorrelationId(), "Correlation ID should match");
 
-        // DEBUG: Log inventory events
-        logger.info("Found {} InventoryReserved events for orderId: {}", inventoryEvents.size(), orderId);
-        for (int i = 0; i < inventoryEvents.size(); i++) {
-            BiTemporalEvent<InventoryEvent> event = inventoryEvents.get(i);
-            logger.info("Inventory Event {}: type={}, aggregateId={}, orderId={}, correlationId={}",
-                i + 1, event.getEventType(), event.getAggregateId(),
-                event.getPayload().getOrderId(), event.getCorrelationId());
-        }
+                        // 2. Verify Inventory Events
+                        return inventoryEventStore.query(EventQuery.builder()
+                            .aggregateId(orderId)
+                            .eventType("InventoryReserved")
+                            .correlationId(result.getCorrelationId())
+                            .build())
+                            .compose(inventoryEvents -> {
+                                logger.info("Found {} InventoryReserved events for orderId: {}", inventoryEvents.size(), orderId);
+                                for (int i = 0; i < inventoryEvents.size(); i++) {
+                                    BiTemporalEvent<InventoryEvent> event = inventoryEvents.get(i);
+                                    logger.info("Inventory Event {}: type={}, aggregateId={}, orderId={}, correlationId={}",
+                                        i + 1, event.getEventType(), event.getAggregateId(),
+                                        event.getPayload().getOrderId(), event.getCorrelationId());
+                                }
+                                assertFalse(inventoryEvents.isEmpty(), "Inventory events should be created");
+                                assertEquals(2, inventoryEvents.size(), "Should have inventory events for both products");
+                                for (BiTemporalEvent<InventoryEvent> inventoryEvent : inventoryEvents) {
+                                    assertEquals("InventoryReserved", inventoryEvent.getEventType(), "Inventory event type should be InventoryReserved");
+                                    assertEquals("RESERVED", inventoryEvent.getPayload().getMovementType(), "Movement type should be RESERVED");
+                                    assertEquals(orderId, inventoryEvent.getPayload().getOrderId(), "Order ID should match");
+                                    assertEquals(result.getCorrelationId(), inventoryEvent.getCorrelationId(), "Correlation ID should match");
+                                }
 
-        assertFalse(inventoryEvents.isEmpty(), "Inventory events should be created");
-        assertEquals(2, inventoryEvents.size(), "Should have inventory events for both products");
-        
-        for (BiTemporalEvent<InventoryEvent> inventoryEvent : inventoryEvents) {
-            assertEquals("InventoryReserved", inventoryEvent.getEventType(), "Inventory event type should be InventoryReserved");
-            assertEquals("RESERVED", inventoryEvent.getPayload().getMovementType(), "Movement type should be RESERVED");
-            assertEquals(orderId, inventoryEvent.getPayload().getOrderId(), "Order ID should match");
-            assertEquals(result.getCorrelationId(), inventoryEvent.getCorrelationId(), "Correlation ID should match");
-        }
-        
-        // 3. Verify Payment Events - Query specifically for this order's payment events
-        List<BiTemporalEvent<PaymentEvent>> paymentEvents =
-            awaitFuture(paymentEventStore.query(EventQuery.builder()
-                .aggregateId(orderId)
-                .eventType("PaymentAuthorized")
-                .correlationId(result.getCorrelationId())
-                .build()), 30, TimeUnit.SECONDS);
+                                // 3. Verify Payment Events
+                                return paymentEventStore.query(EventQuery.builder()
+                                    .aggregateId(orderId)
+                                    .eventType("PaymentAuthorized")
+                                    .correlationId(result.getCorrelationId())
+                                    .build())
+                                    .compose(paymentEvents -> {
+                                        logger.info("Found {} PaymentAuthorized events for orderId: {}", paymentEvents.size(), orderId);
+                                        assertFalse(paymentEvents.isEmpty(), "Payment events should be created");
+                                        assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
+                                        BiTemporalEvent<PaymentEvent> paymentEvent = paymentEvents.get(0);
+                                        assertEquals("PaymentAuthorized", paymentEvent.getEventType(), "Payment event type should be PaymentAuthorized");
+                                        assertEquals("AUTHORIZED", paymentEvent.getPayload().getPaymentStatus(), "Payment status should be AUTHORIZED");
+                                        assertEquals(orderId, paymentEvent.getPayload().getOrderId(), "Order ID should match");
+                                        assertEquals(result.getCorrelationId(), paymentEvent.getCorrelationId(), "Correlation ID should match");
 
-        // DEBUG: Log payment events
-        logger.info("Found {} PaymentAuthorized events for orderId: {}", paymentEvents.size(), orderId);
+                                        // 4. Verify Audit Events
+                                        return auditEventStore.query(EventQuery.builder()
+                                            .correlationId(result.getCorrelationId())
+                                            .build())
+                                            .map(auditEvents -> {
+                                                logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
+                                                for (int i = 0; i < auditEvents.size(); i++) {
+                                                    BiTemporalEvent<AuditEvent> event = auditEvents.get(i);
+                                                    logger.info("Audit Event {}: type={}, transactionId={}, correlationId={}",
+                                                        i + 1, event.getEventType(), event.getPayload().getTransactionId(), event.getCorrelationId());
+                                                }
+                                                assertFalse(auditEvents.isEmpty(), "Audit events should be created");
+                                                assertTrue(auditEvents.size() >= 2, "Should have at least transaction start and complete events");
 
-        assertFalse(paymentEvents.isEmpty(), "Payment events should be created");
-        assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
+                                                BiTemporalEvent<AuditEvent> startEvent = auditEvents.stream()
+                                                    .filter(e -> "TransactionStarted".equals(e.getEventType()))
+                                                    .findFirst()
+                                                    .orElse(null);
+                                                BiTemporalEvent<AuditEvent> completeEvent = auditEvents.stream()
+                                                    .filter(e -> "TransactionCompleted".equals(e.getEventType()))
+                                                    .findFirst()
+                                                    .orElse(null);
 
-        BiTemporalEvent<PaymentEvent> paymentEvent = paymentEvents.get(0);
-        assertEquals("PaymentAuthorized", paymentEvent.getEventType(), "Payment event type should be PaymentAuthorized");
-        assertEquals("AUTHORIZED", paymentEvent.getPayload().getPaymentStatus(), "Payment status should be AUTHORIZED");
-        assertEquals(orderId, paymentEvent.getPayload().getOrderId(), "Order ID should match");
-        assertEquals(result.getCorrelationId(), paymentEvent.getCorrelationId(), "Correlation ID should match");
+                                                assertNotNull(startEvent, "Transaction start event should exist");
+                                                assertNotNull(completeEvent, "Transaction complete event should exist");
+                                                assertEquals(result.getCorrelationId(), startEvent.getCorrelationId(), "Start event correlation ID should match");
+                                                assertEquals(result.getCorrelationId(), completeEvent.getCorrelationId(), "Complete event correlation ID should match");
+                                                assertEquals(result.getTransactionId(), startEvent.getPayload().getTransactionId(), "Start event transaction ID should match");
+                                                assertEquals(result.getTransactionId(), completeEvent.getPayload().getTransactionId(), "Complete event transaction ID should match");
 
-        // 4. Verify Audit Events - Query specifically for this transaction's audit events
-        List<BiTemporalEvent<AuditEvent>> auditEvents =
-            awaitFuture(auditEventStore.query(EventQuery.builder()
-                .correlationId(result.getCorrelationId())
-                .build()), 30, TimeUnit.SECONDS);
+                                                // TEMPORAL CONSISTENCY VALIDATION
+                                                long startTransactionTime = startEvent.getTransactionTime().toEpochMilli();
+                                                long orderTransactionTime = orderEvent.getTransactionTime().toEpochMilli();
+                                                long paymentTransactionTime = paymentEvent.getTransactionTime().toEpochMilli();
+                                                long completeTransactionTime = completeEvent.getTransactionTime().toEpochMilli();
 
-        // DEBUG: Log audit events
-        logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
-        for (int i = 0; i < auditEvents.size(); i++) {
-            BiTemporalEvent<AuditEvent> event = auditEvents.get(i);
-            logger.info("Audit Event {}: type={}, transactionId={}, correlationId={}",
-                i + 1, event.getEventType(), event.getPayload().getTransactionId(), event.getCorrelationId());
-        }
+                                                long maxTimeDiff = Math.max(
+                                                    Math.max(Math.abs(orderTransactionTime - startTransactionTime),
+                                                        Math.abs(paymentTransactionTime - startTransactionTime)),
+                                                    Math.abs(completeTransactionTime - startTransactionTime)
+                                                );
+                                                assertTrue(maxTimeDiff < 1000, "All events should have similar transaction times (within 1 second)");
 
-        assertFalse(auditEvents.isEmpty(), "Audit events should be created");
-        assertTrue(auditEvents.size() >= 2, "Should have at least transaction start and complete events");
-
-        // Find transaction start and complete events (using correct event type names from service)
-        BiTemporalEvent<AuditEvent> startEvent = auditEvents.stream()
-            .filter(e -> "TransactionStarted".equals(e.getEventType()))
-            .findFirst()
-            .orElse(null);
-
-        BiTemporalEvent<AuditEvent> completeEvent = auditEvents.stream()
-            .filter(e -> "TransactionCompleted".equals(e.getEventType()))
-            .findFirst()
-            .orElse(null);
-        
-        assertNotNull(startEvent, "Transaction start event should exist");
-        assertNotNull(completeEvent, "Transaction complete event should exist");
-        
-        assertEquals(result.getCorrelationId(), startEvent.getCorrelationId(), "Start event correlation ID should match");
-        assertEquals(result.getCorrelationId(), completeEvent.getCorrelationId(), "Complete event correlation ID should match");
-        assertEquals(result.getTransactionId(), startEvent.getPayload().getTransactionId(), "Start event transaction ID should match");
-        assertEquals(result.getTransactionId(), completeEvent.getPayload().getTransactionId(), "Complete event transaction ID should match");
-        
-        // TEMPORAL CONSISTENCY VALIDATION: All events should have consistent transaction times
-        // (within a reasonable tolerance since they're in the same transaction)
-        long startTransactionTime = startEvent.getTransactionTime().toEpochMilli();
-        long orderTransactionTime = orderEvent.getTransactionTime().toEpochMilli();
-        long paymentTransactionTime = paymentEvent.getTransactionTime().toEpochMilli();
-        long completeTransactionTime = completeEvent.getTransactionTime().toEpochMilli();
-        
-        // All transaction times should be within 1 second of each other (same transaction)
-        long maxTimeDiff = Math.max(
-            Math.max(Math.abs(orderTransactionTime - startTransactionTime), 
-                    Math.abs(paymentTransactionTime - startTransactionTime)),
-            Math.abs(completeTransactionTime - startTransactionTime)
-        );
-        
-        assertTrue(maxTimeDiff < 1000, "All events should have similar transaction times (within 1 second)");
-        
-        logger.info("Complete order processing with transaction coordination validated successfully");
-        logger.info("Order: {}, Correlation: {}, Transaction: {}", 
-                   result.getOrderId(), result.getCorrelationId(), result.getTransactionId());
-        logger.info("Events created: {} order, {} inventory, {} payment, {} audit", 
-                   orderEvents.size(), inventoryEvents.size(), paymentEvents.size(), auditEvents.size());
+                                                logger.info("Complete order processing with transaction coordination validated successfully");
+                                                logger.info("Order: {}, Correlation: {}, Transaction: {}",
+                                                    result.getOrderId(), result.getCorrelationId(), result.getTransactionId());
+                                                logger.info("Events created: {} order, {} inventory, {} payment, {} audit",
+                                                    orderEvents.size(), inventoryEvents.size(), paymentEvents.size(), auditEvents.size());
+                                                return (Void) null;
+                                            });
+                                    });
+                            });
+                    });
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> testContext.completeNow())));
     }
     
     /**
@@ -379,7 +365,7 @@ class MultiEventStoreTransactionTest {
      * and queried together for complete business process reconstruction.
      */
     @Test
-    void testCrossStoreEventCorrelation() throws Exception {
+    void testCrossStoreEventCorrelation(VertxTestContext testContext) {
         logger.info("=== Testing Cross-Store Event Correlation ===");
         
         // BUSINESS SETUP: Process an order to generate correlated events
@@ -406,63 +392,50 @@ class MultiEventStoreTransactionTest {
         );
         
         // Process order and get correlation ID
-        OrderProcessingResult result = awaitFuture(orderProcessingService.processCompleteOrder(request), 30, TimeUnit.SECONDS);
-        assertTrue(result.isSuccess(), "Order processing should be successful");
-        
-        String correlationId = result.getCorrelationId();
-        assertNotNull(correlationId, "Correlation ID should be set");
-        
-        logger.info("Order processed with correlation ID: {}", correlationId);
-        
-        // CROSS-STORE CORRELATION VALIDATION: Query all stores for correlated events
-        
-        // Query each store for events with the correlation ID
-        List<BiTemporalEvent<OrderEvent>> correlatedOrderEvents =
-            awaitFuture(orderEventStore.query(EventQuery.builder()
-                .correlationId(correlationId)
-                .build()), 30, TimeUnit.SECONDS);
+        orderProcessingService.processCompleteOrder(request)
+            .compose(result -> {
+                assertTrue(result.isSuccess(), "Order processing should be successful");
+                String correlationId = result.getCorrelationId();
+                assertNotNull(correlationId, "Correlation ID should be set");
+                logger.info("Order processed with correlation ID: {}", correlationId);
 
-        List<BiTemporalEvent<InventoryEvent>> correlatedInventoryEvents =
-            awaitFuture(inventoryEventStore.query(EventQuery.builder()
-                .correlationId(correlationId)
-                .build()), 30, TimeUnit.SECONDS);
+                // CROSS-STORE CORRELATION VALIDATION
+                return orderEventStore.query(EventQuery.builder().correlationId(correlationId).build())
+                    .compose(correlatedOrderEvents -> inventoryEventStore.query(EventQuery.builder().correlationId(correlationId).build())
+                        .compose(correlatedInventoryEvents -> paymentEventStore.query(EventQuery.builder().correlationId(correlationId).build())
+                            .compose(correlatedPaymentEvents -> auditEventStore.query(EventQuery.builder().correlationId(correlationId).build())
+                                .map(correlatedAuditEvents -> {
+                                    // VALIDATION: All stores should have events with the correlation ID
+                                    assertFalse(correlatedOrderEvents.isEmpty(), "Should find correlated order events");
+                                    assertFalse(correlatedInventoryEvents.isEmpty(), "Should find correlated inventory events");
+                                    assertFalse(correlatedPaymentEvents.isEmpty(), "Should find correlated payment events");
+                                    assertFalse(correlatedAuditEvents.isEmpty(), "Should find correlated audit events");
 
-        List<BiTemporalEvent<PaymentEvent>> correlatedPaymentEvents =
-            awaitFuture(paymentEventStore.query(EventQuery.builder()
-                .correlationId(correlationId)
-                .build()), 30, TimeUnit.SECONDS);
+                                    correlatedOrderEvents.forEach(event ->
+                                        assertEquals(correlationId, event.getCorrelationId(), "Order event correlation ID should match"));
+                                    correlatedInventoryEvents.forEach(event ->
+                                        assertEquals(correlationId, event.getCorrelationId(), "Inventory event correlation ID should match"));
+                                    correlatedPaymentEvents.forEach(event ->
+                                        assertEquals(correlationId, event.getCorrelationId(), "Payment event correlation ID should match"));
+                                    correlatedAuditEvents.forEach(event ->
+                                        assertEquals(correlationId, event.getCorrelationId(), "Audit event correlation ID should match"));
 
-        List<BiTemporalEvent<AuditEvent>> correlatedAuditEvents =
-            awaitFuture(auditEventStore.query(EventQuery.builder()
-                .correlationId(correlationId)
-                .build()), 30, TimeUnit.SECONDS);
-        
-        // VALIDATION: All stores should have events with the correlation ID
-        assertFalse(correlatedOrderEvents.isEmpty(), "Should find correlated order events");
-        assertFalse(correlatedInventoryEvents.isEmpty(), "Should find correlated inventory events");
-        assertFalse(correlatedPaymentEvents.isEmpty(), "Should find correlated payment events");
-        assertFalse(correlatedAuditEvents.isEmpty(), "Should find correlated audit events");
-        
-        // Verify all events have the same correlation ID
-        correlatedOrderEvents.forEach(event -> 
-            assertEquals(correlationId, event.getCorrelationId(), "Order event correlation ID should match"));
-        correlatedInventoryEvents.forEach(event -> 
-            assertEquals(correlationId, event.getCorrelationId(), "Inventory event correlation ID should match"));
-        correlatedPaymentEvents.forEach(event -> 
-            assertEquals(correlationId, event.getCorrelationId(), "Payment event correlation ID should match"));
-        correlatedAuditEvents.forEach(event -> 
-            assertEquals(correlationId, event.getCorrelationId(), "Audit event correlation ID should match"));
-        
-        // BUSINESS PROCESS RECONSTRUCTION: Verify complete business process can be reconstructed
-        int totalCorrelatedEvents = correlatedOrderEvents.size() + correlatedInventoryEvents.size() + 
-                                   correlatedPaymentEvents.size() + correlatedAuditEvents.size();
-        
-        assertTrue(totalCorrelatedEvents >= 4, "Should have at least 4 correlated events across all stores");
-        
-        logger.info("Cross-store event correlation validated successfully");
-        logger.info("Correlation ID: {}, Total correlated events: {}", correlationId, totalCorrelatedEvents);
-        logger.info("Events by store: {} order, {} inventory, {} payment, {} audit", 
-                   correlatedOrderEvents.size(), correlatedInventoryEvents.size(), 
-                   correlatedPaymentEvents.size(), correlatedAuditEvents.size());
+                                    // BUSINESS PROCESS RECONSTRUCTION
+                                    int totalCorrelatedEvents = correlatedOrderEvents.size() + correlatedInventoryEvents.size() +
+                                                               correlatedPaymentEvents.size() + correlatedAuditEvents.size();
+                                    assertTrue(totalCorrelatedEvents >= 4, "Should have at least 4 correlated events across all stores");
+
+                                    logger.info("Cross-store event correlation validated successfully");
+                                    logger.info("Correlation ID: {}, Total correlated events: {}", correlationId, totalCorrelatedEvents);
+                                    logger.info("Events by store: {} order, {} inventory, {} payment, {} audit",
+                                        correlatedOrderEvents.size(), correlatedInventoryEvents.size(),
+                                        correlatedPaymentEvents.size(), correlatedAuditEvents.size());
+                                    return (Void) null;
+                                })
+                            )
+                        )
+                    );
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> testContext.completeNow())));
     }
 }

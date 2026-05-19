@@ -25,9 +25,8 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -55,8 +54,6 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -113,10 +110,12 @@ class OrderControllerTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Container
@@ -136,7 +135,7 @@ class OrderControllerTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         logger.info("=== Setting up application-specific tables for order controller test ===");
 
         String createOrdersTable = """
@@ -163,17 +162,15 @@ class OrderControllerTest {
             )
             """;
 
-        awaitFuture(databaseService.getConnectionProvider()
-            .withTransaction("peegeeq-main", connection -> {
-                return connection.query(createOrdersTable).execute()
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection ->
+                connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
                     .map(v -> {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
-                    });
-            }), 30, TimeUnit.SECONDS);
-
-        logger.info("=== Application-specific schema setup complete ===");
+                    }))
+            .onComplete(setupContext.succeedingThenComplete());
     }
 
     /**
@@ -214,7 +211,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderSuccess(Vertx vertx) throws Exception {
+    void testCreateOrderSuccess() throws Exception {
         logger.info("=== Testing Successful Order Creation (Real HTTP) ===");
 
         CreateOrderRequest request = createValidOrderRequest();
@@ -226,9 +223,6 @@ class OrderControllerTest {
         // Make actual HTTP POST request
         ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
-
-        // Wait a bit for async processing to complete
-        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -270,7 +264,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithBusinessValidationRollback(Vertx vertx) throws Exception {
+    void testCreateOrderWithBusinessValidationRollback() throws Exception {
         logger.info("=== Testing Business Validation Rollback Scenario (Real HTTP) ===");
 
         // Create request that will trigger business validation failure
@@ -290,9 +284,6 @@ class OrderControllerTest {
         ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
-        // Wait a bit for async processing to complete
-        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
         assertNull(response.getBody().getOrderId());
@@ -308,7 +299,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithInvalidCustomerRollback(Vertx vertx) throws Exception {
+    void testCreateOrderWithInvalidCustomerRollback() throws Exception {
         logger.info("=== Testing Invalid Customer Rollback Scenario (Real HTTP) ===");
 
         CreateOrderRequest request = new CreateOrderRequest(
@@ -328,9 +319,6 @@ class OrderControllerTest {
         ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
-        // Wait a bit for async processing to complete
-        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
         assertNull(response.getBody().getOrderId());
@@ -346,7 +334,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithDatabaseConstraintsRollback(Vertx vertx) throws Exception {
+    void testCreateOrderWithDatabaseConstraintsRollback() throws Exception {
         logger.info("=== Testing Database Constraints Rollback Scenario (Real HTTP) ===");
 
         CreateOrderRequest request = new CreateOrderRequest(
@@ -366,9 +354,6 @@ class OrderControllerTest {
         ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
-        // Wait a bit for async processing to complete
-        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
-
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
         assertNull(response.getBody().getOrderId());
@@ -384,7 +369,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithMultipleEventsSuccess(Vertx vertx) throws Exception {
+    void testCreateOrderWithMultipleEventsSuccess() throws Exception {
         logger.info("=== Testing Successful Order Creation with Multiple Events (Real HTTP) ===");
 
         CreateOrderRequest request = createValidOrderRequest();
@@ -395,9 +380,6 @@ class OrderControllerTest {
         // Make actual HTTP POST request
         ResponseEntity<CreateOrderResponse> response = restTemplate.exchange(
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
-
-        // Wait a bit for async processing to complete
-        awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
