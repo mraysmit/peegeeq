@@ -47,9 +47,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.UUID;
 import java.util.Properties;
 
-import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -64,6 +65,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class CloudEventsJsonbQueryTest {
 
     private static final Logger logger = LoggerFactory.getLogger(CloudEventsJsonbQueryTest.class);
@@ -84,7 +86,7 @@ public class CloudEventsJsonbQueryTest {
     private static Pool pool;
 
     @BeforeAll
-    static void setup() throws Exception {
+    static void setup(VertxTestContext testContext) {
         logger.info("Setting up CloudEvents JSONB query test with PostgreSQL container");
 
         // Configure system properties for PeeGeeQ
@@ -95,26 +97,43 @@ public class CloudEventsJsonbQueryTest {
 
         // Initialize PeeGeeQManager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        awaitFuture(manager.start(), 30, TimeUnit.SECONDS);
 
-        // Get Pool for direct SQL queries
-        pool = manager.getClientFactory().getPool("peegeeq-main")
-            .orElseThrow(() -> new IllegalStateException("Pool not found"));
-
-        // Create bi-temporal event store for CloudEvents
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
-        eventStore = factory.createEventStore(CloudEvent.class, "bitemporal_event_log");
-
-        storeTradeLifecycleTestData();
-        logger.info("Setup complete - ready for CloudEvents JSONB query tests");
+        manager.start()
+            .compose(v -> {
+                try {
+                    pool = manager.getClientFactory().getPool("peegeeq-main")
+                        .orElseThrow(() -> new IllegalStateException("Pool not found"));
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
+                    eventStore = factory.createEventStore(CloudEvent.class, "bitemporal_event_log");
+                    return storeTradeLifecycleTestData();
+                } catch (Exception e) {
+                    return Future.failedFuture(e);
+                }
+            })
+            .onSuccess(v -> {
+                logger.info("Setup complete - ready for CloudEvents JSONB query tests");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterAll
-    static void teardown() throws Exception {
+    static void teardown(VertxTestContext testContext) {
         if (manager != null) {
-            awaitFuture(manager.closeReactive(), 30, TimeUnit.SECONDS);
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    logger.info("Teardown complete");
+                    testContext.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.warn("Error during manager cleanup: {}", err.getMessage());
+                    logger.info("Teardown complete");
+                    testContext.completeNow();
+                });
+        } else {
+            logger.info("Teardown complete");
+            testContext.completeNow();
         }
-        logger.info("Teardown complete");
     }
 
     /**
@@ -158,7 +177,7 @@ public class CloudEventsJsonbQueryTest {
         }
     }
 
-    private static void storeTradeLifecycleTestData() throws Exception {
+    private static Future<Void> storeTradeLifecycleTestData() throws Exception {
         logger.info("Storing backoffice trade lifecycle CloudEvents in @BeforeAll");
 
         Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
@@ -277,29 +296,33 @@ public class CloudEventsJsonbQueryTest {
             .build();
 
         // Store events with appropriate valid times
-        awaitFuture(eventStore.appendBuilder().eventType("TradeNew").payload(event1New).validTime(baseTime).execute(), 30, TimeUnit.SECONDS);
-        awaitFuture(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event1Affirmed).validTime(baseTime.plus(30, ChronoUnit.MINUTES)).execute(), 30, TimeUnit.SECONDS);
-        awaitFuture(eventStore.appendBuilder().eventType("TradeSettled").payload(event1Settled).validTime(baseTime.plus(2, ChronoUnit.DAYS)).execute(), 30, TimeUnit.SECONDS);
-        awaitFuture(eventStore.appendBuilder().eventType("TradeNew").payload(event2New).validTime(baseTime.plus(1, ChronoUnit.HOURS)).execute(), 30, TimeUnit.SECONDS);
-        awaitFuture(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event2Affirmed).validTime(baseTime.plus(2, ChronoUnit.HOURS)).execute(), 30, TimeUnit.SECONDS);
-        awaitFuture(eventStore.appendBuilder().eventType("TradeNew").payload(event3New).validTime(baseTime.plus(3, ChronoUnit.HOURS)).execute(), 30, TimeUnit.SECONDS);
-
-        logger.info("Stored 6 trade lifecycle CloudEvents (3 trades in various stages)");
+        return eventStore.appendBuilder().eventType("TradeNew").payload(event1New).validTime(baseTime).execute()
+            .compose(v -> eventStore.appendBuilder().eventType("TradeAffirmed").payload(event1Affirmed).validTime(baseTime.plus(30, ChronoUnit.MINUTES)).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("TradeSettled").payload(event1Settled).validTime(baseTime.plus(2, ChronoUnit.DAYS)).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("TradeNew").payload(event2New).validTime(baseTime.plus(1, ChronoUnit.HOURS)).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("TradeAffirmed").payload(event2Affirmed).validTime(baseTime.plus(2, ChronoUnit.HOURS)).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("TradeNew").payload(event3New).validTime(baseTime.plus(3, ChronoUnit.HOURS)).execute())
+            .onSuccess(v -> logger.info("Stored 6 trade lifecycle CloudEvents (3 trades in various stages)"))
+            .mapEmpty();
     }
 
     @Test
-    void testStoreTradeLifecycleEvents() throws Exception {
+    void testStoreTradeLifecycleEvents(VertxTestContext testContext) {
         logger.info("TEST 1: Verifying stored backoffice trade lifecycle CloudEvents");
 
         String sql = "SELECT COUNT(*) as total FROM bitemporal_event_log";
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql).execute(), 30, TimeUnit.SECONDS);
-        int total = rows.iterator().next().getInteger("total");
-        assertEquals(6, total, "Should have stored 6 trade lifecycle CloudEvents");
-        logger.info("Verified {} trade lifecycle CloudEvents stored (3 trades in various stages)", total);
+        pool.preparedQuery(sql).execute()
+            .onSuccess(rows -> testContext.verify(() -> {
+                int total = rows.iterator().next().getInteger("total");
+                assertEquals(6, total, "Should have stored 6 trade lifecycle CloudEvents");
+                logger.info("Verified {} trade lifecycle CloudEvents stored (3 trades in various stages)", total);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryByCloudEventType() throws Exception {
+    void testQueryByCloudEventType(VertxTestContext testContext) {
         logger.info("TEST 2: Query CloudEvents by type using JSONB operators");
 
         String sql = "SELECT event_id, payload->>'type' as event_type, payload->>'subject' as trade_id " +
@@ -307,23 +330,25 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'type' = $1 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("backoffice.trade.new.v1"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("backoffice.trade.new.v1", row.getString("event_type"));
-            logger.info("Found NEW trade event: {} for trade: {}",
-                row.getValue("event_id"), row.getString("trade_id"));
-        }
-
-        assertEquals(3, count, "Should find 3 NEW trade events");
-        logger.info("Successfully queried {} NEW trade events by CloudEvent type", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("backoffice.trade.new.v1", row.getString("event_type"));
+                    logger.info("Found NEW trade event: {} for trade: {}",
+                        row.getValue("event_id"), row.getString("trade_id"));
+                }
+                assertEquals(3, count, "Should find 3 NEW trade events");
+                logger.info("Successfully queried {} NEW trade events by CloudEvent type", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryByExtensionAttribute() throws Exception {
+    void testQueryByExtensionAttribute(VertxTestContext testContext) {
         logger.info("TEST 3: Query CloudEvents by extension attributes (correlationid)");
 
         // Find all events for a specific trade using correlationid
@@ -334,23 +359,25 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'correlationid' = $1 " +
                     "ORDER BY valid_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("TRD-001"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("TRD-001", row.getString("correlation_id"));
-            logger.info("Found lifecycle event: {} type: {} for trade TRD-001",
-                row.getValue("event_id"), row.getString("event_type"));
-        }
-
-        assertEquals(3, count, "Should find 3 lifecycle events for TRD-001 (NEW, AFFIRMED, SETTLED)");
-        logger.info("Successfully queried {} lifecycle events by correlationid", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("TRD-001", row.getString("correlation_id"));
+                    logger.info("Found lifecycle event: {} type: {} for trade TRD-001",
+                        row.getValue("event_id"), row.getString("event_type"));
+                }
+                assertEquals(3, count, "Should find 3 lifecycle events for TRD-001 (NEW, AFFIRMED, SETTLED)");
+                logger.info("Successfully queried {} lifecycle events by correlationid", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryByBookingSystem() throws Exception {
+    void testQueryByBookingSystem(VertxTestContext testContext) {
         logger.info("TEST 4: Query CloudEvents by booking system extension");
 
         // Find all trades processed through Murex
@@ -360,23 +387,25 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'bookingsystem' = $1 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Murex"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("Murex", row.getString("booking_system"));
-            logger.info("Found Murex trade: {} event: {}",
-                row.getString("trade_id"), row.getValue("event_id"));
-        }
-
-        assertEquals(4, count, "Should find 4 events processed through Murex (TRD-001: 3 events, TRD-003: 1 event)");
-        logger.info("Successfully queried {} events by booking system", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("Murex", row.getString("booking_system"));
+                    logger.info("Found Murex trade: {} event: {}",
+                        row.getString("trade_id"), row.getValue("event_id"));
+                }
+                assertEquals(4, count, "Should find 4 events processed through Murex (TRD-001: 3 events, TRD-003: 1 event)");
+                logger.info("Successfully queried {} events by booking system", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryByDataPayloadField() throws Exception {
+    void testQueryByDataPayloadField(VertxTestContext testContext) {
         logger.info("TEST 5: Query CloudEvents by data payload fields (notional amount)");
 
         // Find all trades with notional amount > 100,000
@@ -387,25 +416,27 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE (payload->'data'->>'notionalAmount')::numeric > $1 " +
                     "ORDER BY (payload->'data'->>'notionalAmount')::numeric DESC";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(new BigDecimal("100000")))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            BigDecimal notional = row.getBigDecimal("notional");
-            assertTrue(notional.compareTo(new BigDecimal("100000")) > 0);
-            logger.info("Found large trade: {} notional: {} event: {}",
-                row.getString("trade_id"), notional, row.getString("event_type"));
-        }
-
-        assertTrue(count >= 1, "Should find at least 1 trade with notional > 100,000");
-        logger.info("Successfully queried {} large trades by notional amount", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    BigDecimal notional = row.getBigDecimal("notional");
+                    assertTrue(notional.compareTo(new BigDecimal("100000")) > 0);
+                    logger.info("Found large trade: {} notional: {} event: {}",
+                        row.getString("trade_id"), notional, row.getString("event_type"));
+                }
+                assertTrue(count >= 1, "Should find at least 1 trade with notional > 100,000");
+                logger.info("Successfully queried {} large trades by notional amount", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
 
     @Test
-    void testQueryByCounterpartyAndStatus() throws Exception {
+    void testQueryByCounterpartyAndStatus(VertxTestContext testContext) {
         logger.info("TEST 6: Query CloudEvents by multiple data payload fields");
 
         // Find all AFFIRMED trades with specific counterparty
@@ -417,24 +448,26 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->'data'->>'status' = $2 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Goldman Sachs", "AFFIRMED"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("Goldman Sachs", row.getString("counterparty"));
-            assertEquals("AFFIRMED", row.getString("status"));
-            logger.info("Found AFFIRMED Goldman Sachs trade: {} event: {}",
-                row.getString("trade_id"), row.getValue("event_id"));
-        }
-
-        assertEquals(1, count, "Should find 1 AFFIRMED trade with Goldman Sachs");
-        logger.info("Successfully queried {} trades by counterparty and status", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("Goldman Sachs", row.getString("counterparty"));
+                    assertEquals("AFFIRMED", row.getString("status"));
+                    logger.info("Found AFFIRMED Goldman Sachs trade: {} event: {}",
+                        row.getString("trade_id"), row.getValue("event_id"));
+                }
+                assertEquals(1, count, "Should find 1 AFFIRMED trade with Goldman Sachs");
+                logger.info("Successfully queried {} trades by counterparty and status", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryByClearingHouseWithTimeRange() throws Exception {
+    void testQueryByClearingHouseWithTimeRange(VertxTestContext testContext) {
         logger.info("TEST 7: Combine JSONB query with bi-temporal time range");
 
         Instant cutoffTime = Instant.now().plus(2, ChronoUnit.HOURS);
@@ -448,23 +481,25 @@ public class CloudEventsJsonbQueryTest {
                     "AND valid_time < $2 " +
                     "ORDER BY valid_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("DTCC", cutoffTime.atOffset(java.time.ZoneOffset.UTC)))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("DTCC", row.getString("clearing_house"));
-            logger.info("Found DTCC trade before cutoff: {} at valid_time: {}",
-                row.getString("trade_id"), row.getOffsetDateTime("valid_time"));
-        }
-
-        assertTrue(count >= 1, "Should find at least 1 DTCC trade before cutoff");
-        logger.info("Successfully queried {} DTCC trades with time range", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("DTCC", row.getString("clearing_house"));
+                    logger.info("Found DTCC trade before cutoff: {} at valid_time: {}",
+                        row.getString("trade_id"), row.getOffsetDateTime("valid_time"));
+                }
+                assertTrue(count >= 1, "Should find at least 1 DTCC trade before cutoff");
+                logger.info("Successfully queried {} DTCC trades with time range", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryByCloudEventSource() throws Exception {
+    void testQueryByCloudEventSource(VertxTestContext testContext) {
         logger.info("TEST 8: Query CloudEvents by source system");
 
         // Find all events from the affirmation system
@@ -475,24 +510,26 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'source' = $1 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("https://backoffice.example.com/affirmation"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("https://backoffice.example.com/affirmation", row.getString("source"));
-            assertTrue(row.getString("event_type").contains("affirmed"));
-            logger.info("Found affirmation event: {} for trade: {}",
-                row.getValue("event_id"), row.getString("trade_id"));
-        }
-
-        assertEquals(2, count, "Should find 2 affirmation events");
-        logger.info("Successfully queried {} events by source system", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("https://backoffice.example.com/affirmation", row.getString("source"));
+                    assertTrue(row.getString("event_type").contains("affirmed"));
+                    logger.info("Found affirmation event: {} for trade: {}",
+                        row.getValue("event_id"), row.getString("trade_id"));
+                }
+                assertEquals(2, count, "Should find 2 affirmation events");
+                logger.info("Successfully queried {} events by source system", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueryBySymbolAndSide() throws Exception {
+    void testQueryBySymbolAndSide(VertxTestContext testContext) {
         logger.info("TEST 9: Query CloudEvents by nested data payload fields");
 
         // Find all BUY trades for AAPL
@@ -505,24 +542,26 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->'data'->>'side' = $2 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("AAPL", "BUY"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("AAPL", row.getString("symbol"));
-            assertEquals("BUY", row.getString("side"));
-            logger.info("Found AAPL BUY trade: {} status: {}",
-                row.getString("trade_id"), row.getString("status"));
-        }
-
-        assertEquals(3, count, "Should find 3 AAPL BUY events (NEW, AFFIRMED, SETTLED)");
-        logger.info("Successfully queried {} AAPL BUY trades", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("AAPL", row.getString("symbol"));
+                    assertEquals("BUY", row.getString("side"));
+                    logger.info("Found AAPL BUY trade: {} status: {}",
+                        row.getString("trade_id"), row.getString("status"));
+                }
+                assertEquals(3, count, "Should find 3 AAPL BUY events (NEW, AFFIRMED, SETTLED)");
+                logger.info("Successfully queried {} AAPL BUY trades", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testComplexAggregationQuery() throws Exception {
+    void testComplexAggregationQuery(VertxTestContext testContext) {
         logger.info("TEST 10: Complex aggregation query on CloudEvents data");
 
         // Aggregate notional amounts by counterparty
@@ -535,26 +574,27 @@ public class CloudEventsJsonbQueryTest {
                     "GROUP BY payload->'data'->>'counterparty' " +
                     "ORDER BY total_notional DESC";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("backoffice.trade.new.v1"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            String counterparty = row.getString("counterparty");
-            Integer tradeCount = row.getInteger("trade_count");
-            BigDecimal totalNotional = row.getBigDecimal("total_notional");
-
-            logger.info("Counterparty: {} - Trades: {} - Total Notional: {}",
-                counterparty, tradeCount, totalNotional);
-        }
-
-        assertEquals(3, count, "Should have 3 counterparties");
-        logger.info("Successfully executed aggregation query on {} counterparties", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    String counterparty = row.getString("counterparty");
+                    Integer tradeCount = row.getInteger("trade_count");
+                    BigDecimal totalNotional = row.getBigDecimal("total_notional");
+                    logger.info("Counterparty: {} - Trades: {} - Total Notional: {}",
+                        counterparty, tradeCount, totalNotional);
+                }
+                assertEquals(3, count, "Should have 3 counterparties");
+                logger.info("Successfully executed aggregation query on {} counterparties", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testBiTemporalPointInTimeQuery() throws Exception {
+    void testBiTemporalPointInTimeQuery(VertxTestContext testContext) {
         logger.info("TEST 11: Bi-temporal point-in-time query with JSONB filtering");
 
         Instant pointInTime = Instant.now().plus(1, ChronoUnit.HOURS);
@@ -569,27 +609,29 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'clearinghouse' = $2 " +
                     "ORDER BY valid_time DESC";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(
                 pointInTime.atOffset(java.time.ZoneOffset.UTC),
                 "DTCC"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            assertEquals("DTCC", row.getString("clearing_house"));
-            logger.info("Point-in-time DTCC trade: {} status: {} valid_time: {}",
-                row.getString("trade_id"),
-                row.getString("status"),
-                row.getOffsetDateTime("valid_time"));
-        }
-
-        assertTrue(count >= 1, "Should find at least 1 DTCC trade at point in time");
-        logger.info("Successfully executed bi-temporal point-in-time query with {} results", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    assertEquals("DTCC", row.getString("clearing_house"));
+                    logger.info("Point-in-time DTCC trade: {} status: {} valid_time: {}",
+                        row.getString("trade_id"),
+                        row.getString("status"),
+                        row.getOffsetDateTime("valid_time"));
+                }
+                assertTrue(count >= 1, "Should find at least 1 DTCC trade at point in time");
+                logger.info("Successfully executed bi-temporal point-in-time query with {} results", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testTradeLifecycleReconstruction() throws Exception {
+    void testTradeLifecycleReconstruction(VertxTestContext testContext) {
         logger.info("TEST 12: Reconstruct complete trade lifecycle using correlationid");
 
         // Get complete lifecycle for TRD-001
@@ -604,37 +646,39 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'correlationid' = $1 " +
                     "ORDER BY valid_time ASC";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("TRD-001"))
-            , 30, TimeUnit.SECONDS);
+            .onSuccess(rows -> testContext.verify(() -> {
+                logger.info("=== Trade Lifecycle for TRD-001 ===");
+                int count = 0;
+                String[] expectedStatuses = {"NEW", "AFFIRMED", "SETTLED"};
 
-        logger.info("=== Trade Lifecycle for TRD-001 ===");
-        int count = 0;
-        String[] expectedStatuses = {"NEW", "AFFIRMED", "SETTLED"};
+                for (Row row : rows) {
+                    assertEquals("TRD-001", row.getString("trade_id"));
+                    assertEquals("TRD-001", row.getString("correlation_id"));
 
-        for (Row row : rows) {
-            assertEquals("TRD-001", row.getString("trade_id"));
-            assertEquals("TRD-001", row.getString("correlation_id"));
+                    String status = row.getString("status");
+                    assertEquals(expectedStatuses[count], status);
 
-            String status = row.getString("status");
-            assertEquals(expectedStatuses[count], status);
+                    logger.info("Stage {}: {} - Status: {} - Notional: {} - Valid Time: {}",
+                        count + 1,
+                        row.getString("event_type"),
+                        status,
+                        row.getString("notional"),
+                        row.getOffsetDateTime("valid_time"));
 
-            logger.info("Stage {}: {} - Status: {} - Notional: {} - Valid Time: {}",
-                count + 1,
-                row.getString("event_type"),
-                status,
-                row.getString("notional"),
-                row.getOffsetDateTime("valid_time"));
+                    count++;
+                }
 
-            count++;
-        }
-
-        assertEquals(3, count, "Should have complete lifecycle: NEW -> AFFIRMED -> SETTLED");
-        logger.info("Successfully reconstructed complete trade lifecycle with {} stages", count);
+                assertEquals(3, count, "Should have complete lifecycle: NEW -> AFFIRMED -> SETTLED");
+                logger.info("Successfully reconstructed complete trade lifecycle with {} stages", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSettlementDateRangeQuery() throws Exception {
+    void testSettlementDateRangeQuery(VertxTestContext testContext) {
         logger.info("TEST 13: Query trades by settlement date range");
 
         // Find all trades settling on or after a specific date
@@ -647,26 +691,28 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'type' = $2 " +
                     "ORDER BY payload->'data'->>'settlementDate'";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("2025-10-18", "backoffice.trade.new.v1"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            String settlementDate = row.getString("settlement_date");
-            assertTrue(settlementDate.compareTo("2025-10-18") >= 0);
-            logger.info("Trade settling on/after 2025-10-18: {} settlement: {} status: {}",
-                row.getString("trade_id"),
-                settlementDate,
-                row.getString("status"));
-        }
-
-        assertTrue(count >= 1, "Should find at least 1 trade settling on or after 2025-10-18");
-        logger.info("Successfully queried {} trades by settlement date range", count);
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    String settlementDate = row.getString("settlement_date");
+                    assertTrue(settlementDate.compareTo("2025-10-18") >= 0);
+                    logger.info("Trade settling on/after 2025-10-18: {} settlement: {} status: {}",
+                        row.getString("trade_id"),
+                        settlementDate,
+                        row.getString("status"));
+                }
+                assertTrue(count >= 1, "Should find at least 1 trade settling on or after 2025-10-18");
+                logger.info("Successfully queried {} trades by settlement date range", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultiSystemQuery() throws Exception {
+    void testMultiSystemQuery(VertxTestContext testContext) {
         logger.info("TEST 14: Query across multiple booking systems and clearing houses");
 
         // Find all trades processed through Murex OR cleared through DTCC
@@ -681,29 +727,31 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'type' = $3 " +
                     "ORDER BY transaction_time";
 
-        RowSet<Row> rows = awaitFuture(pool.preparedQuery(sql)
+        pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Murex", "DTCC", "backoffice.trade.new.v1"))
-            , 30, TimeUnit.SECONDS);
-        int count = 0;
-        for (Row row : rows) {
-            count++;
-            String bookingSystem = row.getString("booking_system");
-            String clearingHouse = row.getString("clearing_house");
+            .onSuccess(rows -> testContext.verify(() -> {
+                int count = 0;
+                for (Row row : rows) {
+                    count++;
+                    String bookingSystem = row.getString("booking_system");
+                    String clearingHouse = row.getString("clearing_house");
 
-            assertTrue(
-                "Murex".equals(bookingSystem) || "DTCC".equals(clearingHouse),
-                "Trade should be processed through Murex OR cleared through DTCC"
-            );
+                    assertTrue(
+                        "Murex".equals(bookingSystem) || "DTCC".equals(clearingHouse),
+                        "Trade should be processed through Murex OR cleared through DTCC"
+                    );
 
-            logger.info("Multi-system trade: {} - Booking: {} - Clearing: {} - Status: {}",
-                row.getString("trade_id"),
-                bookingSystem,
-                clearingHouse,
-                row.getString("status"));
-        }
-
-        assertTrue(count >= 2, "Should find at least 2 trades matching criteria");
-        logger.info("Successfully queried {} trades across multiple systems", count);
+                    logger.info("Multi-system trade: {} - Booking: {} - Clearing: {} - Status: {}",
+                        row.getString("trade_id"),
+                        bookingSystem,
+                        clearingHouse,
+                        row.getString("status"));
+                }
+                assertTrue(count >= 2, "Should find at least 2 trades matching criteria");
+                logger.info("Successfully queried {} trades across multiple systems", count);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }
 

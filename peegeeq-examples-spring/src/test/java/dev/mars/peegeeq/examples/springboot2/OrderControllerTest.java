@@ -32,6 +32,9 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -46,8 +49,6 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,6 +83,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OrderControllerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderControllerTest.class);
@@ -101,10 +103,12 @@ class OrderControllerTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Container
@@ -124,7 +128,7 @@ class OrderControllerTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         logger.info("=== Setting up application-specific tables for reactive test ===");
 
         // Create orders table for this specific test
@@ -154,17 +158,15 @@ class OrderControllerTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
-            .withTransaction("peegeeq-main", connection -> {
-                return connection.query(createOrdersTable).execute()
+        databaseService.getConnectionProvider()
+            .withTransaction("peegeeq-main", connection ->
+                connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
                     .map(v -> {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
-                    });
-            }), 30, TimeUnit.SECONDS);
-
-        logger.info("=== Application-specific schema setup complete ===");
+                    }))
+            .onComplete(setupContext.succeedingThenComplete());
     }
 
     /**

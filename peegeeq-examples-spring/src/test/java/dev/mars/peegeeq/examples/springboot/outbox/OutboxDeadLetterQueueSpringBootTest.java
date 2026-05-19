@@ -37,7 +37,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -47,10 +46,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -122,9 +119,9 @@ class OutboxDeadLetterQueueSpringBootTest {
     }
     
     @AfterEach
-    void tearDown(Vertx vertx) throws InterruptedException {
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
         logger.info("🧹 Cleaning up Dead Letter Queue Spring Boot Test");
-        
+
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
@@ -135,7 +132,7 @@ class OutboxDeadLetterQueueSpringBootTest {
             }
         }
         activeConsumers.clear();
-        
+
         // Close all active producers
         for (MessageProducer<?> producer : activeProducers) {
             try {
@@ -146,20 +143,24 @@ class OutboxDeadLetterQueueSpringBootTest {
             }
         }
         activeProducers.clear();
-        
-        // Wait for connections to be fully released before next test
-        logger.info("⏳ Waiting for connections to be released...");
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
 
         managerRef = manager;
-        logger.info("Cleanup complete");
+
+        // Wait for connections to be fully released before next test
+        logger.info("⏳ Waiting for connections to be released...");
+        vertx.timer(2000).onComplete(testContext.succeeding(v -> {
+            logger.info("Cleanup complete");
+            testContext.completeNow();
+        }));
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (managerRef != null) {
-            awaitFuture(managerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (managerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        managerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     /**
@@ -174,28 +175,31 @@ class OutboxDeadLetterQueueSpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Dead Letter Queue - Messages Move to DLQ After Max Retries")
-    void testMessagesMoveToDLQAfterMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @org.junit.jupiter.api.Timeout(60)
+    void testMessagesMoveToDLQAfterMaxRetries(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Messages Move to DLQ After Max Retries ===");
         logger.info("This test verifies that poison messages are moved to DLQ after max retries");
-        
+
         String topicName = "dlq-maxretries-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         // Create producer and consumer
         MessageProducer<String> producer = outboxFactory.createProducer(topicName, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(topicName, String.class);
         activeProducers.add(producer);
         activeConsumers.add(consumer);
-        
+
         // Track retry attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(4); // Initial + 3 retries (actual behavior)
+        io.vertx.core.Promise<Void> retriesDone = io.vertx.core.Promise.promise();
 
-        // Subscribe with handler that always fails
+        // Subscribe with handler that always fails; signal when initial + 3 retries are exhausted.
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
             logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
-            checkpoint.flag();
+            if (attempt >= 4) {
+                retriesDone.tryComplete();
+            }
             return Future.failedFuture(
                 new RuntimeException("Simulated persistent failure - poison message"));
         });
@@ -205,35 +209,29 @@ class OutboxDeadLetterQueueSpringBootTest {
         String poisonMessage = "poison-message-" + UUID.randomUUID();
         producer.send(poisonMessage).onFailure(testContext::failNow);
 
-        // Wait for all retry attempts
-        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
-        assertTrue(completed, "Should attempt initial + 3 retries");
+        retriesDone.future()
+            .compose(v -> vertx.timer(2000))
+            .compose(v -> manager.getDeadLetterQueueManager()
+                .getDeadLetterMessages(topicName, 10, 0))
+            .onComplete(testContext.succeeding(dlqMessages -> testContext.verify(() -> {
+                logger.info("📊 DLQ Results:");
+                logger.info("  Total attempts: {}", attemptCount.get());
+                logger.info("  Messages in DLQ: {}", dlqMessages.size());
 
-        // Give time for DLQ movement
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
+                assertEquals(4, attemptCount.get(), "Should have exactly 4 attempts (initial + 3 retries)");
+                assertFalse(dlqMessages.isEmpty(), "DLQ should contain the poison message");
 
-        // Verify message moved to DLQ
-            List<DeadLetterMessageInfo> dlqMessages = awaitFuture(manager.getDeadLetterQueueManager()
-                .getDeadLetterMessages(topicName, 10, 0), 30, TimeUnit.SECONDS);
+                DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
+                assertEquals(topicName, dlqMessage.topic(), "DLQ message should have correct topic");
+                assertTrue(dlqMessage.failureReason().contains("poison message"),
+                    "DLQ should preserve error information");
+                assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries");
 
-        logger.info("📊 DLQ Results:");
-        logger.info("  Total attempts: {}", attemptCount.get());
-        logger.info("  Messages in DLQ: {}", dlqMessages.size());
-
-        // Assertions
-        assertEquals(4, attemptCount.get(), "Should have exactly 4 attempts (initial + 3 retries)");
-        assertFalse(dlqMessages.isEmpty(), "DLQ should contain the poison message");
-
-        // Verify DLQ message details
-        DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
-        assertEquals(topicName, dlqMessage.topic(), "DLQ message should have correct topic");
-        assertTrue(dlqMessage.failureReason().contains("poison message"),
-            "DLQ should preserve error information");
-        assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries");
-
-        logger.info("DLQ Movement test passed");
-        logger.info("Poison message moved to DLQ after {} attempts", attemptCount.get());
-        logger.info("Error information preserved: {}", dlqMessage.failureReason());
+                logger.info("DLQ Movement test passed");
+                logger.info("Poison message moved to DLQ after {} attempts", attemptCount.get());
+                logger.info("Error information preserved: {}", dlqMessage.failureReason());
+                testContext.completeNow();
+            })));
     }
     
     /**
@@ -248,27 +246,31 @@ class OutboxDeadLetterQueueSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Dead Letter Queue - DLQ Messages Can Be Inspected")
-    void testDLQMessagesCanBeInspected(Vertx vertx, VertxTestContext testContext) throws Exception {
+    @org.junit.jupiter.api.Timeout(90)
+    void testDLQMessagesCanBeInspected(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing DLQ Messages Can Be Inspected ===");
         logger.info("This test verifies that DLQ messages can be queried and inspected");
-        
+
         String topicName = "dlq-inspect-" + UUID.randomUUID().toString().substring(0, 8);
         int messageCount = 3;
-        
+
         // Create producer and consumer
         MessageProducer<String> producer = outboxFactory.createProducer(topicName, String.class);
         MessageConsumer<String> consumer = outboxFactory.createConsumer(topicName, String.class);
         activeProducers.add(producer);
         activeConsumers.add(consumer);
-        
-        // Track processing
+
+        // Track processing — each message: initial + 3 retries
         AtomicInteger processedCount = new AtomicInteger(0);
-        Checkpoint checkpoint = testContext.checkpoint(messageCount * 4); // Each message: initial + 3 retries
+        int expectedTotalAttempts = messageCount * 4;
+        io.vertx.core.Promise<Void> allAttemptsDone = io.vertx.core.Promise.promise();
 
         // Subscribe with handler that always fails
         consumer.subscribe(message -> {
-            processedCount.incrementAndGet();
-            checkpoint.flag();
+            int attempt = processedCount.incrementAndGet();
+            if (attempt >= expectedTotalAttempts) {
+                allAttemptsDone.tryComplete();
+            }
             return Future.failedFuture(
                 new RuntimeException("Test failure for: " + message.getPayload()));
         });
@@ -279,41 +281,35 @@ class OutboxDeadLetterQueueSpringBootTest {
             producer.send("poison-" + i).onFailure(testContext::failNow);
         }
 
-        // Wait for all processing attempts
-        boolean completed = testContext.awaitCompletion(45, TimeUnit.SECONDS);
-        assertTrue(completed, "All messages should be processed and moved to DLQ");
-        
-        // Give time for DLQ movement
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
+        allAttemptsDone.future()
+            .compose(v -> vertx.timer(2000))
+            .compose(v -> manager.getDeadLetterQueueManager()
+                .getDeadLetterMessages(topicName, 10, 0))
+            .onComplete(testContext.succeeding(dlqMessages -> testContext.verify(() -> {
+                logger.info("📊 DLQ Inspection Results:");
+                logger.info("  Total processing attempts: {}", processedCount.get());
+                logger.info("  Messages in DLQ: {}", dlqMessages.size());
 
-        // Retrieve and inspect DLQ messages
-            List<DeadLetterMessageInfo> dlqMessages = awaitFuture(manager.getDeadLetterQueueManager()
-                .getDeadLetterMessages(topicName, 10, 0), 30, TimeUnit.SECONDS);
+                assertEquals(messageCount, dlqMessages.size(),
+                    "DLQ should contain all " + messageCount + " poison messages");
 
-        logger.info("📊 DLQ Inspection Results:");
-        logger.info("  Total processing attempts: {}", processedCount.get());
-        logger.info("  Messages in DLQ: {}", dlqMessages.size());
+                for (int i = 0; i < dlqMessages.size(); i++) {
+                    DeadLetterMessageInfo dlqMsg = dlqMessages.get(i);
+                    logger.info("  DLQ Message {}: topic={}, retries={}, error={}",
+                        i + 1, dlqMsg.topic(), dlqMsg.retryCount(),
+                        dlqMsg.failureReason().substring(0, Math.min(50, dlqMsg.failureReason().length())));
 
-        // Assertions
-        assertEquals(messageCount, dlqMessages.size(),
-            "DLQ should contain all " + messageCount + " poison messages");
+                    assertEquals(topicName, dlqMsg.topic(), "DLQ message should have correct topic");
+                    assertEquals(3, dlqMsg.retryCount(), "DLQ message should show 3 retries");
+                    assertNotNull(dlqMsg.failureReason(), "DLQ message should have error information");
+                    assertNotNull(dlqMsg.failedAt(), "DLQ message should have timestamp");
+                }
 
-        // Verify each DLQ message
-        for (int i = 0; i < dlqMessages.size(); i++) {
-            DeadLetterMessageInfo dlqMsg = dlqMessages.get(i);
-            logger.info("  DLQ Message {}: topic={}, retries={}, error={}",
-                i + 1, dlqMsg.topic(), dlqMsg.retryCount(),
-                dlqMsg.failureReason().substring(0, Math.min(50, dlqMsg.failureReason().length())));
-
-            assertEquals(topicName, dlqMsg.topic(), "DLQ message should have correct topic");
-            assertEquals(3, dlqMsg.retryCount(), "DLQ message should show 3 retries");
-            assertNotNull(dlqMsg.failureReason(), "DLQ message should have error information");
-            assertNotNull(dlqMsg.failedAt(), "DLQ message should have timestamp");
-        }
-        
-        logger.info("DLQ Inspection test passed");
-        logger.info("All {} poison messages successfully moved to DLQ", messageCount);
-        logger.info("Error information preserved for debugging");
+                logger.info("DLQ Inspection test passed");
+                logger.info("All {} poison messages successfully moved to DLQ", messageCount);
+                logger.info("Error information preserved for debugging");
+                testContext.completeNow();
+            })));
     }
 }
 

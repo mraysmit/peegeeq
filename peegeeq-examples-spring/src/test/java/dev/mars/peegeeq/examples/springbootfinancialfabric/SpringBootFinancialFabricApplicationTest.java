@@ -25,9 +25,10 @@ import dev.mars.peegeeq.examples.springbootfinancialfabric.events.*;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -67,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(VertxExtension.class)
 public class SpringBootFinancialFabricApplicationTest {
     
     private static final Logger log = LoggerFactory.getLogger(SpringBootFinancialFabricApplicationTest.class);
@@ -138,12 +140,13 @@ public class SpringBootFinancialFabricApplicationTest {
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
+    static void tearDown(VertxTestContext testContext) {
         log.info("🧹 Cleaning up Financial Fabric Test resources");
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
-        log.info("Financial Fabric Test cleanup complete");
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
     
     @Test

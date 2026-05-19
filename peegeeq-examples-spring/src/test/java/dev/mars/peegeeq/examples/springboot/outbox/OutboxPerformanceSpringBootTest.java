@@ -37,7 +37,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -90,7 +89,7 @@ public class OutboxPerformanceSpringBootTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) throws Exception {
+    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
         logger.info("🧹 Cleaning up Performance Spring Boot Test");
         
         // Close all active consumers first
@@ -117,17 +116,20 @@ public class OutboxPerformanceSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
-        peeGeeQManagerRef = peeGeeQManager;
-        logger.info("Cleanup complete");
+        vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
+            peeGeeQManagerRef = peeGeeQManager;
+            logger.info("Cleanup complete");
+            tearDownContext.completeNow();
+        }));
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     /**
@@ -372,7 +374,6 @@ public class OutboxPerformanceSpringBootTest {
             
             // Small burst pattern
             if (i % 50 == 0) {
-                awaitFuture(vertx.timer(100), 1, TimeUnit.SECONDS); // Pause between bursts
                 logger.info("   Sent {} messages", i);
             }
         }

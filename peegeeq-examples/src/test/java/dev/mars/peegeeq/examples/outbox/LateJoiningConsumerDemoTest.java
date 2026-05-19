@@ -53,10 +53,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 
 import io.vertx.junit5.VertxTestContext;
 import static org.junit.jupiter.api.Assertions.*;
@@ -172,74 +169,81 @@ class LateJoiningConsumerDemoTest {
      * for new orders, not historical ones.</p>
      */
     @Test
-    void testFromNowConsumer() throws Exception {
+    void testFromNowConsumer(VertxTestContext testContext) throws InterruptedException {
         logger.info("\n=== DEMO 1: FROM_NOW Consumer (Standard Pattern) ===\n");
 
         String topic = "orders.events";
         String emailGroup = "email-service";
 
-        // Step 1: Create PUB_SUB topic
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
-        logger.info("✓ Topic created successfully");
 
-        // Step 2: Publish 10 historical messages BEFORE subscription
-        logger.info("\nStep 2: Publishing 10 historical messages (before subscription)");
         List<Long> historicalMessageIds = new ArrayList<>();
-        for (int i = 1; i <= 10; i++) {
-            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
-                .put("orderId", "ORDER-" + i)
-                .put("amount", 100.0 + i)
-                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
-            historicalMessageIds.add(messageId);
-        }
-        logger.info("✓ Published {} historical messages", historicalMessageIds.size());
-
-        // Step 3: Subscribe email service using FROM_NOW (default)
-        logger.info("\nStep 3: Subscribing '{}' using FROM_NOW (default)", emailGroup);
-        SubscriptionOptions fromNowOptions = SubscriptionOptions.defaults(); // FROM_NOW is default
-        awaitFuture(subscriptionManager.subscribe(topic, emailGroup, fromNowOptions), 30, TimeUnit.SECONDS);
-        logger.info("✓ Subscription created with FROM_NOW");
-
-        // Step 4: Publish 5 new messages AFTER subscription
-        logger.info("\nStep 4: Publishing 5 new messages (after subscription)");
         List<Long> newMessageIds = new ArrayList<>();
-        for (int i = 11; i <= 15; i++) {
-            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
-                .put("orderId", "ORDER-" + i)
-                .put("amount", 100.0 + i)
-                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
-            newMessageIds.add(messageId);
-        }
-        logger.info("✓ Published {} new messages", newMessageIds.size());
 
-        // Step 5: Fetch messages for email service
-        logger.info("\nStep 5: Fetching messages for '{}'", emailGroup);
-        var messages = awaitFuture(fetcher.fetchMessages(topic, emailGroup, 20), 30, TimeUnit.SECONDS);
-
-        logger.info("✓ Fetched {} messages", messages.size());
-
-        // Step 6: Verify only new messages are received (not historical)
-        logger.info("\nStep 6: Verifying FROM_NOW behavior");
-        assertEquals(5, messages.size(), "FROM_NOW should only receive messages published after subscription");
-
-        for (var msg : messages) {
-            assertTrue(newMessageIds.contains(msg.getId()),
-                "Message ID " + msg.getId() + " should be from new messages");
-            assertFalse(historicalMessageIds.contains(msg.getId()),
-                "Message ID " + msg.getId() + " should NOT be from historical messages");
-        }
-
-        logger.info("✓ Verified: FROM_NOW consumer only received {} new messages (ignored {} historical)",
-            messages.size(), historicalMessageIds.size());
-
-        logger.info("\n=== DEMO 1 COMPLETE: FROM_NOW Pattern ===\n");
-        logger.info("Key Takeaway: FROM_NOW consumers ignore historical messages and only process new ones.");
+        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                logger.info("Step 2: Publishing 10 historical messages (before subscription)");
+                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                for (int i = 1; i <= 10; i++) {
+                    final int idx = i;
+                    chain = chain.compose(unused ->
+                        insertMessage(topic, new JsonObject()
+                            .put("orderId", "ORDER-" + idx)
+                            .put("amount", 100.0 + idx)
+                            .put("status", "CREATED"))
+                            .onSuccess(historicalMessageIds::add)
+                            .mapEmpty());
+                }
+                return chain;
+            })
+            .compose(v -> {
+                logger.info("✓ Published {} historical messages", historicalMessageIds.size());
+                logger.info("Step 3: Subscribing '{}' using FROM_NOW (default)", emailGroup);
+                return subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults());
+            })
+            .compose(v -> {
+                logger.info("✓ Subscription created with FROM_NOW");
+                logger.info("Step 4: Publishing 5 new messages (after subscription)");
+                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                for (int i = 11; i <= 15; i++) {
+                    final int idx = i;
+                    chain = chain.compose(unused ->
+                        insertMessage(topic, new JsonObject()
+                            .put("orderId", "ORDER-" + idx)
+                            .put("amount", 100.0 + idx)
+                            .put("status", "CREATED"))
+                            .onSuccess(newMessageIds::add)
+                            .mapEmpty());
+                }
+                return chain;
+            })
+            .compose(v -> {
+                logger.info("✓ Published {} new messages", newMessageIds.size());
+                logger.info("Step 5: Fetching messages for '{}'", emailGroup);
+                return fetcher.fetchMessages(topic, emailGroup, 20);
+            })
+            .onSuccess(messages -> testContext.verify(() -> {
+                logger.info("✓ Fetched {} messages", messages.size());
+                assertEquals(5, messages.size(), "FROM_NOW should only receive messages published after subscription");
+                for (var msg : messages) {
+                    assertTrue(newMessageIds.contains(msg.getId()),
+                        "Message ID " + msg.getId() + " should be from new messages");
+                    assertFalse(historicalMessageIds.contains(msg.getId()),
+                        "Message ID " + msg.getId() + " should NOT be from historical messages");
+                }
+                logger.info("✓ Verified: FROM_NOW consumer only received {} new messages (ignored {} historical)",
+                    messages.size(), historicalMessageIds.size());
+                logger.info("\n=== DEMO 1 COMPLETE: FROM_NOW Pattern ===\n");
+                logger.info("Key Takeaway: FROM_NOW consumers ignore historical messages and only process new ones.");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }
 
     /**
@@ -252,70 +256,71 @@ class LateJoiningConsumerDemoTest {
      * build reports from complete historical data.</p>
      */
     @Test
-    void testFromBeginningConsumer() throws Exception {
+    void testFromBeginningConsumer(VertxTestContext testContext) throws InterruptedException {
         logger.info("\n=== DEMO 2: FROM_BEGINNING Consumer (Late-Joining with Backfill) ===\n");
 
         String topic = "orders.analytics";
         String emailGroup = "email-service";
         String analyticsGroup = "analytics-service";
 
-        // Step 1: Create PUB_SUB topic
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
-        logger.info("✓ Topic created successfully");
-
-        // Step 2: Subscribe email service using FROM_NOW
-        logger.info("\nStep 2: Subscribing '{}' using FROM_NOW", emailGroup);
-        awaitFuture(subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults()), 30, TimeUnit.SECONDS);
-        logger.info("✓ Email service subscribed");
-
-        // Step 3: Publish 20 messages (email service will receive all of these)
-        logger.info("\nStep 3: Publishing 20 messages");
-        List<Long> allMessageIds = new ArrayList<>();
-        for (int i = 1; i <= 20; i++) {
-            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
-                .put("orderId", "ORDER-" + i)
-                .put("amount", 100.0 + i)
-                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
-            allMessageIds.add(messageId);
-        }
-        logger.info("✓ Published {} messages", allMessageIds.size());
-
-        // Step 4: Late-joining analytics service subscribes using FROM_BEGINNING
-        logger.info("\nStep 4: Late-joining '{}' subscribes using FROM_BEGINNING", analyticsGroup);
         SubscriptionOptions fromBeginningOptions = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
-        awaitFuture(subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions), 30, TimeUnit.SECONDS);
-        logger.info("✓ Analytics service subscribed with FROM_BEGINNING");
 
-        // Step 5: Fetch messages for analytics service
-        logger.info("\nStep 5: Fetching messages for '{}'", analyticsGroup);
-        var analyticsMessages = awaitFuture(fetcher.fetchMessages(topic, analyticsGroup, 25), 30, TimeUnit.SECONDS);
+        List<Long> allMessageIds = new ArrayList<>();
 
-        logger.info("✓ Fetched {} messages for analytics", analyticsMessages.size());
-
-        // Step 6: Verify analytics service received ALL historical messages
-        logger.info("\nStep 6: Verifying FROM_BEGINNING behavior");
-        assertEquals(20, analyticsMessages.size(),
-            "FROM_BEGINNING should receive ALL messages including historical");
-
-        for (Long expectedId : allMessageIds) {
-            boolean found = analyticsMessages.stream()
-                .anyMatch(msg -> msg.getId().equals(expectedId));
-            assertTrue(found, "Analytics should have received message ID " + expectedId);
-        }
-
-        logger.info("✓ Verified: FROM_BEGINNING consumer received ALL {} historical messages",
-            analyticsMessages.size());
-
-        logger.info("\n=== DEMO 2 COMPLETE: FROM_BEGINNING Pattern ===\n");
-        logger.info("Key Takeaway: FROM_BEGINNING consumers backfill ALL historical messages from topic start.");
+        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                logger.info("Step 2: Subscribing '{}' using FROM_NOW", emailGroup);
+                return subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults());
+            })
+            .compose(v -> {
+                logger.info("Step 3: Publishing 20 messages");
+                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                for (int i = 1; i <= 20; i++) {
+                    final int idx = i;
+                    chain = chain.compose(unused ->
+                        insertMessage(topic, new JsonObject()
+                            .put("orderId", "ORDER-" + idx)
+                            .put("amount", 100.0 + idx)
+                            .put("status", "CREATED"))
+                            .onSuccess(allMessageIds::add)
+                            .mapEmpty());
+                }
+                return chain;
+            })
+            .compose(v -> {
+                logger.info("✓ Published {} messages", allMessageIds.size());
+                logger.info("Step 4: Late-joining '{}' subscribes using FROM_BEGINNING", analyticsGroup);
+                return subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions);
+            })
+            .compose(v -> {
+                logger.info("Step 5: Fetching messages for '{}'", analyticsGroup);
+                return fetcher.fetchMessages(topic, analyticsGroup, 25);
+            })
+            .onSuccess(analyticsMessages -> testContext.verify(() -> {
+                logger.info("✓ Fetched {} messages for analytics", analyticsMessages.size());
+                assertEquals(20, analyticsMessages.size(),
+                    "FROM_BEGINNING should receive ALL messages including historical");
+                for (Long expectedId : allMessageIds) {
+                    boolean found = analyticsMessages.stream()
+                        .anyMatch(msg -> msg.getId().equals(expectedId));
+                    assertTrue(found, "Analytics should have received message ID " + expectedId);
+                }
+                logger.info("✓ Verified: FROM_BEGINNING consumer received ALL {} historical messages",
+                    analyticsMessages.size());
+                logger.info("\n=== DEMO 2 COMPLETE: FROM_BEGINNING Pattern ===\n");
+                logger.info("Key Takeaway: FROM_BEGINNING consumers backfill ALL historical messages from topic start.");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Test should complete within 60 seconds");
     }
 
     /**
@@ -328,78 +333,81 @@ class LateJoiningConsumerDemoTest {
      * messages from a specific timestamp after a system failure.</p>
      */
     @Test
-    void testFromTimestampConsumer(Vertx vertx) throws Exception {
+    void testFromTimestampConsumer(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("\n=== DEMO 3: FROM_TIMESTAMP Consumer (Time-Based Replay) ===\n");
 
         String topic = "orders.replay";
         String replayGroup = "disaster-recovery-service";
 
-        // Step 1: Create PUB_SUB topic
-        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
-        awaitFuture(topicConfigService.createTopic(topicConfig), 30, TimeUnit.SECONDS);
-        logger.info("✓ Topic created successfully");
 
-        // Step 2: Publish 10 messages in the past
-        logger.info("\nStep 2: Publishing 10 messages (simulating past events)");
         List<Long> pastMessageIds = new ArrayList<>();
-        for (int i = 1; i <= 10; i++) {
-            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
-                .put("orderId", "ORDER-" + i)
-                .put("amount", 100.0 + i)
-                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
-            pastMessageIds.add(messageId);
-        }
-        logger.info("✓ Published {} past messages", pastMessageIds.size());
 
-        // Step 3: Record replay timestamp (1 hour ago)
-        Instant replayTimestamp = Instant.now().minus(1, ChronoUnit.HOURS);
-        logger.info("\nStep 3: Recording replay timestamp: {}", replayTimestamp);
-
-        // Step 4: Publish 10 more messages after replay timestamp
-        logger.info("\nStep 4: Publishing 10 messages after replay timestamp");
-        new CountDownLatch(1).await(100, TimeUnit.MILLISECONDS);
-        List<Long> recentMessageIds = new ArrayList<>();;
-        for (int i = 11; i <= 20; i++) {
-            Long messageId = awaitFuture(insertMessage(topic, new JsonObject()
-                .put("orderId", "ORDER-" + i)
-                .put("amount", 100.0 + i)
-                .put("status", "CREATED")), 30, TimeUnit.SECONDS);
-            recentMessageIds.add(messageId);
-        }
-        logger.info("✓ Published {} recent messages", recentMessageIds.size());
-
-        // Step 5: Subscribe using FROM_TIMESTAMP (replay from 1 hour ago)
-        logger.info("\nStep 5: Subscribing '{}' using FROM_TIMESTAMP", replayGroup);
-        SubscriptionOptions fromTimestampOptions = SubscriptionOptions.builder()
-            .startFromTimestamp(replayTimestamp)
-            .build();
-        awaitFuture(subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions), 30, TimeUnit.SECONDS);
-        logger.info("✓ Disaster recovery service subscribed with FROM_TIMESTAMP: {}", replayTimestamp);
-
-        // Step 6: Fetch messages for replay service
-        logger.info("\nStep 6: Fetching messages for '{}'", replayGroup);
-        var replayMessages = awaitFuture(fetcher.fetchMessages(topic, replayGroup, 25), 30, TimeUnit.SECONDS);
-
-        logger.info("✓ Fetched {} messages for replay", replayMessages.size());
-
-        // Step 7: Verify replay service received messages from timestamp onwards
-        logger.info("\nStep 7: Verifying FROM_TIMESTAMP behavior");
-
-        // Note: In this demo, all messages are recent due to test timing constraints
-        // In production, messages would be filtered by created_at >= replayTimestamp
-        assertTrue(replayMessages.size() >= 10,
-            "FROM_TIMESTAMP should receive messages created at or after the timestamp");
-
-        logger.info("✓ Verified: FROM_TIMESTAMP consumer received {} messages from timestamp onwards",
-            replayMessages.size());
-
-        logger.info("\n=== DEMO 3 COMPLETE: FROM_TIMESTAMP Pattern ===\n");
-        logger.info("Key Takeaway: FROM_TIMESTAMP consumers replay messages from a specific point in time.");
+        logger.info("Step 1: Creating PUB_SUB topic '{}'", topic);
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                logger.info("Step 2: Publishing 10 messages (simulating past events)");
+                io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                for (int i = 1; i <= 10; i++) {
+                    final int idx = i;
+                    chain = chain.compose(unused ->
+                        insertMessage(topic, new JsonObject()
+                            .put("orderId", "ORDER-" + idx)
+                            .put("amount", 100.0 + idx)
+                            .put("status", "CREATED"))
+                            .onSuccess(pastMessageIds::add)
+                            .mapEmpty());
+                }
+                return chain;
+            })
+            .compose(v -> {
+                logger.info("✓ Published {} past messages", pastMessageIds.size());
+                Instant replayTimestamp = Instant.now().minus(1, ChronoUnit.HOURS);
+                logger.info("Step 3: Recording replay timestamp: {}", replayTimestamp);
+                SubscriptionOptions fromTimestampOptions = SubscriptionOptions.builder()
+                    .startFromTimestamp(replayTimestamp)
+                    .build();
+                logger.info("Step 4: Publishing 10 messages after replay timestamp");
+                return vertx.timer(100)
+                    .compose(unused -> {
+                        io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+                        for (int i = 11; i <= 20; i++) {
+                            final int idx = i;
+                            chain = chain.compose(unu ->
+                                insertMessage(topic, new JsonObject()
+                                    .put("orderId", "ORDER-" + idx)
+                                    .put("amount", 100.0 + idx)
+                                    .put("status", "CREATED"))
+                                    .mapEmpty());
+                        }
+                        return chain;
+                    })
+                    .compose(unused -> {
+                        logger.info("Step 5: Subscribing '{}' using FROM_TIMESTAMP", replayGroup);
+                        return subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions);
+                    });
+            })
+            .compose(v -> {
+                logger.info("Step 6: Fetching messages for '{}'", replayGroup);
+                return fetcher.fetchMessages(topic, replayGroup, 25);
+            })
+            .onSuccess(replayMessages -> testContext.verify(() -> {
+                logger.info("✓ Fetched {} messages for replay", replayMessages.size());
+                logger.info("Step 7: Verifying FROM_TIMESTAMP behavior");
+                assertTrue(replayMessages.size() >= 10,
+                    "FROM_TIMESTAMP should receive messages created at or after the timestamp");
+                logger.info("✓ Verified: FROM_TIMESTAMP consumer received {} messages from timestamp onwards",
+                    replayMessages.size());
+                logger.info("\n=== DEMO 3 COMPLETE: FROM_TIMESTAMP Pattern ===\n");
+                logger.info("Key Takeaway: FROM_TIMESTAMP consumers replay messages from a specific point in time.");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
     }
 
     // Helper Methods

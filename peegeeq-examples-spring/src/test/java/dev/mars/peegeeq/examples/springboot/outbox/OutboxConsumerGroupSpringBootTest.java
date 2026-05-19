@@ -48,7 +48,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -114,22 +113,26 @@ class OutboxConsumerGroupSpringBootTest {
     }
     
     @AfterEach
-    void tearDown(Vertx vertx) throws Exception {
+    void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
         logger.info("🧹 Cleaning up Consumer Group Spring Boot Test");
         
-        // Close all active consumer groups first (critical for connection cleanup)
+        // Chain close operations reactively for each consumer group
+        Future<Void> closeGroups = Future.succeededFuture();
         for (ConsumerGroup<?> group : activeConsumerGroups) {
-            try {
-                awaitFuture(group.stop(), 5, TimeUnit.SECONDS);
-                awaitFuture(group.close(), 5, TimeUnit.SECONDS);
-                logger.info("Closed consumer group: {}", group.getGroupName());
-            } catch (Exception e) {
-                logger.error("⚠️ Error closing consumer group: {}", e.getMessage());
-            }
+            closeGroups = closeGroups.compose(v ->
+                group.closeAsync()
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.error("⚠️ Error closing consumer group: {}", ar.cause().getMessage());
+                        } else {
+                            logger.info("Closed consumer group: {}", group.getGroupName());
+                        }
+                        return Future.succeededFuture();
+                    }));
         }
         activeConsumerGroups.clear();
         
-        // Close all active producers
+        // Close all active producers (sync)
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
@@ -142,17 +145,21 @@ class OutboxConsumerGroupSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
-        peeGeeQManagerRef = peeGeeQManager;
-        logger.info("Cleanup complete");
+        closeGroups.compose(v -> vertx.timer(2000))
+            .onComplete(tearDownContext.succeeding(v -> {
+                peeGeeQManagerRef = peeGeeQManager;
+                logger.info("Cleanup complete");
+                tearDownContext.completeNow();
+            }));
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     /**

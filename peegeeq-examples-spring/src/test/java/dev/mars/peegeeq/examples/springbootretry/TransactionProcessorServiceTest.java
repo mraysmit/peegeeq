@@ -28,6 +28,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
@@ -49,10 +50,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Map;
-
-import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
 import static org.junit.jupiter.api.Assertions.*;
 
 import org.junit.jupiter.api.AfterAll;
@@ -96,7 +93,7 @@ public class TransactionProcessorServiceTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         log.info("=== Setting up application-specific tables ===");
 
         // Create transactions table for this specific test
@@ -114,16 +111,17 @@ public class TransactionProcessorServiceTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
+        databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createTransactionsTable).execute()
                     .map(v -> {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }), 30, TimeUnit.SECONDS);
-
-        log.info("=== Application-specific schema setup complete ===");
+            }).onComplete(setupContext.succeeding(v -> {
+                log.info("=== Application-specific schema setup complete ===");
+                setupContext.completeNow();
+            }));
     }
 
     @Autowired
@@ -151,42 +149,44 @@ public class TransactionProcessorServiceTest {
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
-        log.info("🧹 Cleaning up Transaction Processor Service Test resources");
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.close(), 5, TimeUnit.SECONDS);
+    static void tearDown(VertxTestContext testContext) {
+        log.info("\uD83E\uDDF9 Cleaning up Transaction Processor Service Test resources");
+        if (peeGeeQManagerRef == null) {
+            log.info("Transaction Processor Service Test cleanup complete");
+            testContext.completeNow();
+            return;
         }
-        log.info("Transaction Processor Service Test cleanup complete");
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeeding(v -> {
+            log.info("Transaction Processor Service Test cleanup complete");
+            testContext.completeNow();
+        }));
     }
 
     @Test
-    public void testSuccessfulTransactionProcessing(Vertx vertx) throws Exception {
+    public void testSuccessfulTransactionProcessing(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Successful Transaction Processing ===");
         
         // Send a transaction event that should succeed
         TransactionEvent event = new TransactionEvent(
             "TXN-001", "ACC-001", new BigDecimal("500.00"), "DEBIT", null
         );
-        awaitFuture(producer.send(event), 30, TimeUnit.SECONDS);
-
-        // Wait for processing
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-
-        // Verify transaction was stored in database
-        boolean transactionExists = awaitFuture(databaseService.getConnectionProvider()
-            .withTransaction("peegeeq-main", connection -> {
-                return connection.preparedQuery("SELECT COUNT(*) FROM transactions WHERE id = $1")
-                    .execute(io.vertx.sqlclient.Tuple.of("TXN-001"))
-                    .map(rows -> {
-                        Row row = rows.iterator().next();
-                        return row.getLong(0) > 0;
-                    });
-            }), 30, TimeUnit.SECONDS);
-        
-        assertTrue(transactionExists, "Transaction should be stored in database");
-        assertTrue(processorService.getTransactionsProcessed() > 0, "Transactions processed count should increase");
-        
-        log.info("Successful Transaction Processing test passed");
+        producer.send(event)
+            .compose(v -> vertx.timer(2000))
+            .compose(v -> databaseService.getConnectionProvider()
+                .withTransaction("peegeeq-main", connection -> {
+                    return connection.preparedQuery("SELECT COUNT(*) FROM transactions WHERE id = $1")
+                        .execute(io.vertx.sqlclient.Tuple.of("TXN-001"))
+                        .map(rows -> {
+                            Row row = rows.iterator().next();
+                            return row.getLong(0) > 0;
+                        });
+                }))
+            .onComplete(testContext.succeeding(transactionExists -> testContext.verify(() -> {
+                assertTrue(transactionExists, "Transaction should be stored in database");
+                assertTrue(processorService.getTransactionsProcessed() > 0, "Transactions processed count should increase");
+                log.info("Successful Transaction Processing test passed");
+                testContext.completeNow();
+            })));
     }
     
     @Test

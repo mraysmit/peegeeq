@@ -55,9 +55,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
-
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import io.vertx.junit5.VertxTestContext;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -190,12 +188,13 @@ public class SpringBootPriorityApplicationTest {
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
+    static void tearDown(VertxTestContext testContext) {
         log.info("🧹 Cleaning up Spring Boot Priority Test resources");
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
-        log.info("Spring Boot Priority Test cleanup complete");
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Test
@@ -207,7 +206,8 @@ public class SpringBootPriorityApplicationTest {
     
     @SuppressWarnings("null")
     @Test
-    void testSendCriticalTrade(Vertx vertx) throws Exception {
+    @org.junit.jupiter.api.Timeout(30)
+    void testSendCriticalTrade(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Send Critical Trade ===");
         
         TradeProducerController.TradeRequest request = new TradeProducerController.TradeRequest();
@@ -225,18 +225,18 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("CRITICAL", response.getBody().get("priority"));
         assertEquals("FAIL", response.getBody().get("status"));
         
-        // Wait for processing
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-        
-        // Verify producer metrics
-        assertTrue(producerService.getCriticalSent() > 0, "Critical messages should be sent");
-        
-        log.info("Send Critical Trade test passed");
+        // Wait for processing then verify
+        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            assertTrue(producerService.getCriticalSent() > 0, "Critical messages should be sent");
+            log.info("Send Critical Trade test passed");
+            testContext.completeNow();
+        })));
     }
     
     @SuppressWarnings("null")
     @Test
-    void testSendHighPriorityTrade(Vertx vertx) throws Exception {
+    @org.junit.jupiter.api.Timeout(30)
+    void testSendHighPriorityTrade(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Send High Priority Trade ===");
         
         TradeProducerController.TradeRequest request = new TradeProducerController.TradeRequest();
@@ -253,18 +253,18 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("HIGH", response.getBody().get("priority"));
         assertEquals("AMEND", response.getBody().get("status"));
         
-        // Wait for processing
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-        
-        // Verify producer metrics
-        assertTrue(producerService.getHighSent() > 0, "High priority messages should be sent");
-        
-        log.info("Send High Priority Trade test passed");
+        // Wait for processing then verify
+        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            assertTrue(producerService.getHighSent() > 0, "High priority messages should be sent");
+            log.info("Send High Priority Trade test passed");
+            testContext.completeNow();
+        })));
     }
     
     @SuppressWarnings("null")
     @Test
-    void testSendNormalPriorityTrade(Vertx vertx) throws Exception {
+    @org.junit.jupiter.api.Timeout(30)
+    void testSendNormalPriorityTrade(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Send Normal Priority Trade ===");
         
         TradeProducerController.TradeRequest request = new TradeProducerController.TradeRequest();
@@ -281,13 +281,12 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("NORMAL", response.getBody().get("priority"));
         assertEquals("NEW", response.getBody().get("status"));
         
-        // Wait for processing
-        awaitFuture(vertx.timer(2000), 3, TimeUnit.SECONDS);
-        
-        // Verify producer metrics
-        assertTrue(producerService.getNormalSent() > 0, "Normal priority messages should be sent");
-        
-        log.info("Send Normal Priority Trade test passed");
+        // Wait for processing then verify
+        vertx.timer(2000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            assertTrue(producerService.getNormalSent() > 0, "Normal priority messages should be sent");
+            log.info("Send Normal Priority Trade test passed");
+            testContext.completeNow();
+        })));
     }
     
     @SuppressWarnings("null")
@@ -329,7 +328,8 @@ public class SpringBootPriorityApplicationTest {
     }
     
     @Test
-    void testConsumerMetrics(Vertx vertx) throws Exception {
+    @org.junit.jupiter.api.Timeout(30)
+    void testConsumerMetrics(Vertx vertx, VertxTestContext testContext) {
         log.info("=== Testing Consumer Metrics ===");
 
         // Send messages of different priorities
@@ -337,46 +337,40 @@ public class SpringBootPriorityApplicationTest {
         sendTestTrade("TRADE-TEST-002", "amendment");
         sendTestTrade("TRADE-TEST-003", "confirmation");
 
-        // Wait for processing
-        awaitFuture(vertx.timer(3000), 4, TimeUnit.SECONDS);
+        // Wait for processing then verify
+        vertx.timer(3000).onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            long totalProcessed = 0;
+            long totalFiltered = 0;
 
-        // Verify total messages processed across all consumers
-        // Note: In outbox pattern with competing consumers, each message is processed by ONE consumer
-        // The consumers compete for messages, so we verify total processing, not individual consumer counts
-        long totalProcessed = 0;
-        long totalFiltered = 0;
+            if (allTradesConsumer != null) {
+                totalProcessed += allTradesConsumer.getMessagesProcessed();
+                log.info("All-trades consumer processed: {}", allTradesConsumer.getMessagesProcessed());
+            }
 
-        if (allTradesConsumer != null) {
-            totalProcessed += allTradesConsumer.getMessagesProcessed();
-            log.info("All-trades consumer processed: {}", allTradesConsumer.getMessagesProcessed());
-        }
+            if (criticalConsumer != null) {
+                totalProcessed += criticalConsumer.getMessagesProcessed();
+                totalFiltered += criticalConsumer.getMessagesFiltered();
+                log.info("Critical consumer processed: {}, filtered: {}",
+                    criticalConsumer.getCriticalProcessed(), criticalConsumer.getMessagesFiltered());
+            }
 
-        if (criticalConsumer != null) {
-            totalProcessed += criticalConsumer.getMessagesProcessed();
-            totalFiltered += criticalConsumer.getMessagesFiltered();
-            log.info("Critical consumer processed: {}, filtered: {}",
-                criticalConsumer.getCriticalProcessed(), criticalConsumer.getMessagesFiltered());
-        }
+            if (highPriorityConsumer != null) {
+                totalProcessed += highPriorityConsumer.getMessagesProcessed();
+                totalFiltered += highPriorityConsumer.getMessagesFiltered();
+                long totalHighPriority = highPriorityConsumer.getCriticalProcessed() +
+                                        highPriorityConsumer.getHighProcessed();
+                log.info("High-priority consumer processed: {}, filtered: {}",
+                    totalHighPriority, highPriorityConsumer.getMessagesFiltered());
+            }
 
-        if (highPriorityConsumer != null) {
-            totalProcessed += highPriorityConsumer.getMessagesProcessed();
-            totalFiltered += highPriorityConsumer.getMessagesFiltered();
-            long totalHighPriority = highPriorityConsumer.getCriticalProcessed() +
-                                    highPriorityConsumer.getHighProcessed();
-            log.info("High-priority consumer processed: {}, filtered: {}",
-                totalHighPriority, highPriorityConsumer.getMessagesFiltered());
-        }
-
-        // Verify that messages were processed (competing consumers pattern)
-        assertTrue(totalProcessed >= 3,
-            "At least 3 messages should be processed across all consumers (got: " + totalProcessed + ")");
-
-        // Verify that filtering occurred (some consumers should filter out non-matching priorities)
-        assertTrue(totalFiltered > 0,
-            "Some messages should be filtered by priority-specific consumers (got: " + totalFiltered + ")");
-
-        log.info("Consumer Metrics test passed - Total processed: {}, Total filtered: {}",
-            totalProcessed, totalFiltered);
+            assertTrue(totalProcessed >= 3,
+                "At least 3 messages should be processed across all consumers (got: " + totalProcessed + ")");
+            assertTrue(totalFiltered > 0,
+                "Some messages should be filtered by priority-specific consumers (got: " + totalFiltered + ")");
+            log.info("Consumer Metrics test passed - Total processed: {}, Total filtered: {}",
+                totalProcessed, totalFiltered);
+            testContext.completeNow();
+        })));
     }
     
     private void sendTestTrade(String tradeId, String endpoint) {

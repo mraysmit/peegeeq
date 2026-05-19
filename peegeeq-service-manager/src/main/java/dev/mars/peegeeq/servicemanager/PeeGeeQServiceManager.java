@@ -42,22 +42,30 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQServiceManager.class);
     
     private final int port;
+    private final String consulHost;
+    private final int consulPort;
     private HttpServer server;
     private ConsulClient consulClient;
     private ConsulServiceDiscovery serviceDiscovery;
     private ObjectMapper objectMapper;
-    
-    // Configuration
-    private static final String CONSUL_HOST = System.getProperty("consul.host", "localhost");
-    private static final int CONSUL_PORT = Integer.parseInt(System.getProperty("consul.port", "8500"));
+
+    // Default configuration from system properties
+    private static final String DEFAULT_CONSUL_HOST = System.getProperty("consul.host", "localhost");
+    private static final int DEFAULT_CONSUL_PORT = Integer.parseInt(System.getProperty("consul.port", "8500"));
     private static final String SERVICE_NAME = "peegeeq-service-manager";
-    
+
     public PeeGeeQServiceManager() {
         this(9090);
     }
-    
+
     public PeeGeeQServiceManager(int port) {
+        this(port, DEFAULT_CONSUL_HOST, DEFAULT_CONSUL_PORT);
+    }
+
+    public PeeGeeQServiceManager(int port, String consulHost, int consulPort) {
         this.port = port;
+        this.consulHost = consulHost;
+        this.consulPort = consulPort;
     }
     
     @Override
@@ -132,15 +140,15 @@ public class PeeGeeQServiceManager extends AbstractVerticle {
         
         // Initialize Consul client
         ConsulClientOptions consulOptions = new ConsulClientOptions()
-                .setHost(CONSUL_HOST)
-                .setPort(CONSUL_PORT);
+                .setHost(consulHost)
+                .setPort(consulPort);
         
         consulClient = ConsulClient.create(vertx, consulOptions);
         
         // Initialize service discovery
         serviceDiscovery = new ConsulServiceDiscovery(vertx, consulClient, objectMapper);
         
-        logger.info("Initialized components - Consul: {}:{}", CONSUL_HOST, CONSUL_PORT);
+        logger.info("Initialized components - Consul: {}:{}", consulHost, consulPort);
     }
     
     private Router createRouter() {

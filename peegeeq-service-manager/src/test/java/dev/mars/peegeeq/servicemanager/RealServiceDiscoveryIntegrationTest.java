@@ -183,17 +183,23 @@ class RealServiceDiscoveryIntegrationTest {
     @Test
     void testRealServiceDiscoveryWithHealthyService(Vertx vertx, VertxTestContext testContext) {
         // Start a REAL HTTP server with a health endpoint
-        startHealthyPeeGeeQService(vertx, 8080)
+        startHealthyPeeGeeQService(vertx)
             .compose(server -> {
                 testServers.add(server);
-                
+                final int actualPort = server.actualPort();
+
                 // Register the service with Consul
-                PeeGeeQInstance instance = createTestInstance("real-healthy-service", "localhost", 8080);
-                return serviceDiscovery.registerInstance(instance);
+                PeeGeeQInstance instance = createTestInstance("real-healthy-service", "localhost", actualPort);
+                return serviceDiscovery.registerInstance(instance)
+                    .compose(v -> waitForServiceToBeHealthy("real-healthy-service", 30000))
+                    .compose(v -> serviceDiscovery.discoverInstances())
+                    .map(instances -> new Object[] { instances, actualPort });
             })
-            .compose(v -> waitForServiceToBeHealthy("real-healthy-service", 30000))
-            .compose(v -> serviceDiscovery.discoverInstances())
-            .onComplete(testContext.succeeding(instances -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                @SuppressWarnings("unchecked")
+                List<PeeGeeQInstance> instances = (List<PeeGeeQInstance>) ((Object[]) result)[0];
+                int expectedPort = (int) ((Object[]) result)[1];
+
                 assertNotNull(instances);
                 logger.info("🔍 Discovery returned {} instances", instances.size());
                 if (instances.isEmpty()) {
@@ -203,17 +209,17 @@ class RealServiceDiscoveryIntegrationTest {
                             instances.stream().map(PeeGeeQInstance::getInstanceId).toList());
                 }
                 assertFalse(instances.isEmpty(), "Should discover the healthy service");
-                
+
                 // Find our service
                 PeeGeeQInstance foundInstance = instances.stream()
                         .filter(i -> i.getInstanceId().equals("real-healthy-service"))
                         .findFirst()
                         .orElse(null);
-                
+
                 assertNotNull(foundInstance, "Should find our registered healthy service");
                 assertEquals("localhost", foundInstance.getHost());
-                assertEquals(8080, foundInstance.getPort());
-                
+                assertEquals(expectedPort, foundInstance.getPort());
+
                 logger.info("Successfully discovered healthy service: {}", foundInstance.getInstanceId());
                 testContext.completeNow();
             })));
@@ -222,12 +228,12 @@ class RealServiceDiscoveryIntegrationTest {
     @Test
     void testRealServiceDiscoveryWithUnhealthyService(Vertx vertx, VertxTestContext testContext) {
         // Start a REAL HTTP server that returns 500 for health checks
-        startUnhealthyPeeGeeQService(vertx, 8081)
+        startUnhealthyPeeGeeQService(vertx)
             .compose(server -> {
                 testServers.add(server);
                 
                 // Register the service with Consul
-                PeeGeeQInstance instance = createTestInstance("real-unhealthy-service", "localhost", 8081, "test-unhealthy");
+                PeeGeeQInstance instance = createTestInstance("real-unhealthy-service", "localhost", server.actualPort(), "test-unhealthy");
                 return serviceDiscovery.registerInstance(instance);
             })
             .compose(v -> {
@@ -252,17 +258,17 @@ class RealServiceDiscoveryIntegrationTest {
     @Test
     void testRealServiceDiscoveryWithMixedHealth(Vertx vertx, VertxTestContext testContext) {
         // Start both healthy and unhealthy services
-        startHealthyPeeGeeQService(vertx, 8082)
+        startHealthyPeeGeeQService(vertx)
             .compose(healthyServer -> {
                 testServers.add(healthyServer);
-                return startUnhealthyPeeGeeQService(vertx, 8083);
+                return startUnhealthyPeeGeeQService(vertx);
             })
             .compose(unhealthyServer -> {
                 testServers.add(unhealthyServer);
                 
                 // Register both services
-                PeeGeeQInstance healthyInstance = createTestInstance("mixed-healthy", "localhost", 8082, "test");
-                PeeGeeQInstance unhealthyInstance = createTestInstance("mixed-unhealthy", "localhost", 8083, "test-unhealthy");
+                PeeGeeQInstance healthyInstance = createTestInstance("mixed-healthy", "localhost", testServers.get(0).actualPort(), "test");
+                PeeGeeQInstance unhealthyInstance = createTestInstance("mixed-unhealthy", "localhost", unhealthyServer.actualPort(), "test-unhealthy");
                 
                 return serviceDiscovery.registerInstance(healthyInstance)
                         .compose(v -> serviceDiscovery.registerInstance(unhealthyInstance));
@@ -294,10 +300,10 @@ class RealServiceDiscoveryIntegrationTest {
         logger.info("🧪 Testing Consul failure and recovery scenarios");
 
         // First, register a service normally
-        startHealthyPeeGeeQService(vertx, 8093)
+        startHealthyPeeGeeQService(vertx)
             .compose(server -> {
                 testServers.add(server);
-                PeeGeeQInstance instance = createTestInstance("failure-test-service", "localhost", 8093);
+                PeeGeeQInstance instance = createTestInstance("failure-test-service", "localhost", server.actualPort());
                 return serviceDiscovery.registerInstance(instance);
             })
             .compose(v -> waitForServiceToBeHealthy("failure-test-service", 30000))
@@ -353,10 +359,12 @@ class RealServiceDiscoveryIntegrationTest {
                     if (result.failed()) {
                         logger.info("Error handling working - invalid registration rejected: {}",
                                 result.cause().getMessage());
+                        assertInstanceOf(IllegalArgumentException.class, result.cause(),
+                                "Invalid instance should fail with IllegalArgumentException");
                         promise.complete();
                     } else {
-                        logger.warn("⚠️ Expected registration to fail but it succeeded");
-                        promise.complete(); // Still complete the test
+                        promise.fail(new AssertionError(
+                            "Expected invalid registration to fail but it succeeded"));
                     }
                 });
 
@@ -367,85 +375,61 @@ class RealServiceDiscoveryIntegrationTest {
 
     // Helper methods for creating REAL HTTP servers
     
-    private Future<HttpServer> startHealthyPeeGeeQService(Vertx vertx, int port) {
-        Promise<HttpServer> promise = Promise.promise();
-        
+    private Future<HttpServer> startHealthyPeeGeeQService(Vertx vertx) {
         Router router = Router.router(vertx);
-        
+
         // Health endpoint that returns 200 OK
         router.get("/health").handler(ctx -> {
             JsonObject health = new JsonObject()
                     .put("status", "UP")
                     .put("timestamp", System.currentTimeMillis())
-                    .put("service", "peegeeq-test")
-                    .put("port", port);
-            
+                    .put("service", "peegeeq-test");
+
             ctx.response()
                     .putHeader("Content-Type", "application/json")
                     .end(health.encode());
         });
-        
+
         // Basic info endpoint
         router.get("/info").handler(ctx -> {
             JsonObject info = new JsonObject()
                     .put("service", "peegeeq-test")
-                    .put("version", "1.0.0")
-                    .put("port", port);
+                    .put("version", "1.0.0");
 
             ctx.response()
                     .putHeader("Content-Type", "application/json")
                     .end(info.encode());
         });
 
-        
-        vertx.createHttpServer()
+        return vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, "0.0.0.0")
-                .onSuccess(server -> {
-                    logger.info("Started healthy test service on port {}", port);
-                    promise.complete(server);
-                })
-                .onFailure(throwable -> {
-                    logger.error("Failed to start test service on port {}", port, throwable);
-                    promise.fail(throwable);
-                });
-        
-        return promise.future();
+                .listen(0, "0.0.0.0")
+                .onSuccess(server -> logger.info("Started healthy test service on port {}", server.actualPort()))
+                .onFailure(throwable -> logger.error("Failed to start healthy test service", throwable));
     }
 
-    private Future<HttpServer> startUnhealthyPeeGeeQService(Vertx vertx, int port) {
-        Promise<HttpServer> promise = Promise.promise();
-        
+    private Future<HttpServer> startUnhealthyPeeGeeQService(Vertx vertx) {
         Router router = Router.router(vertx);
-        
+
         // Health endpoint that returns 500 Internal Server Error
         router.get("/health").handler(ctx -> {
             JsonObject error = new JsonObject()
                     .put("status", "DOWN")
                     .put("error", "Database connection failed")
                     .put("timestamp", System.currentTimeMillis())
-                    .put("service", "peegeeq-test")
-                    .put("port", port);
-            
+                    .put("service", "peegeeq-test");
+
             ctx.response()
                     .setStatusCode(500)
                     .putHeader("Content-Type", "application/json")
                     .end(error.encode());
         });
-        
-        vertx.createHttpServer()
+
+        return vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port, "0.0.0.0")
-                .onSuccess(server -> {
-                    logger.info("Started unhealthy test service on port {}", port);
-                    promise.complete(server);
-                })
-                .onFailure(throwable -> {
-                    logger.error("Failed to start test service on port {}", port, throwable);
-                    promise.fail(throwable);
-                });
-        
-        return promise.future();
+                .listen(0, "0.0.0.0")
+                .onSuccess(server -> logger.info("Started unhealthy test service on port {}", server.actualPort()))
+                .onFailure(throwable -> logger.error("Failed to start unhealthy test service", throwable));
     }
 
     private Future<Void> waitForHealthCheck(long milliseconds) {

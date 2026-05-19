@@ -42,11 +42,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import io.vertx.core.Future;
-
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
-import static dev.mars.peegeeq.test.util.FutureTestHelper.awaitFuture;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -79,6 +79,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class TransactionalConsistencyTest {
     
     private static final Logger logger = LoggerFactory.getLogger(TransactionalConsistencyTest.class);
@@ -98,10 +99,12 @@ class TransactionalConsistencyTest {
     }
 
     @AfterAll
-    static void closeManager() throws Exception {
-        if (peeGeeQManagerRef != null) {
-            awaitFuture(peeGeeQManagerRef.closeReactive(), 30, TimeUnit.SECONDS);
+    static void closeManager(VertxTestContext testContext) {
+        if (peeGeeQManagerRef == null) {
+            testContext.completeNow();
+            return;
         }
+        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
     }
 
     @Container
@@ -122,7 +125,7 @@ class TransactionalConsistencyTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext setupContext) {
         logger.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
@@ -150,7 +153,7 @@ class TransactionalConsistencyTest {
             """;
 
         // Execute application-specific schema creation
-        awaitFuture(databaseService.getConnectionProvider()
+        databaseService.getConnectionProvider()
             .withTransaction("peegeeq-main", connection -> {
                 return connection.query(createOrdersTable).execute()
                     .compose(v -> connection.query(createOrderItemsTable).execute())
@@ -158,9 +161,10 @@ class TransactionalConsistencyTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }), 30, TimeUnit.SECONDS);
-
-        logger.info("=== Application-specific schema setup complete ===");
+            }).onComplete(setupContext.succeeding(v -> {
+                logger.info("=== Application-specific schema setup complete ===");
+                setupContext.completeNow();
+            }));
     }
 
     /**
@@ -168,20 +172,20 @@ class TransactionalConsistencyTest {
      * This proves that when everything succeeds, all operations are committed together.
      */
     @Test
-    void testSuccessfulTransactionCommitsBothDatabaseAndOutbox() throws Exception {
+    void testSuccessfulTransactionCommitsBothDatabaseAndOutbox(VertxTestContext testContext) {
         logger.info("=== Testing Successful Transaction Commits Both Database and Outbox ===");
         logger.info("This test proves that successful operations commit database and outbox together");
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = awaitFuture(orderService.createOrderWithMultipleEvents(request), 30, TimeUnit.SECONDS);
-
-        assertNotNull(orderId, "Order ID should not be null for successful transaction");
-        assertFalse(orderId.isEmpty(), "Order ID should not be empty for successful transaction");
-        
-        logger.info("TRANSACTION SUCCESS: Order {} created and committed with all events", orderId);
-        logger.info("Database record and outbox events committed together");
-        logger.info("Successful transaction consistency test passed");
+        orderService.createOrderWithMultipleEvents(request).onComplete(testContext.succeeding(orderId -> testContext.verify(() -> {
+            assertNotNull(orderId, "Order ID should not be null for successful transaction");
+            assertFalse(orderId.isEmpty(), "Order ID should not be empty for successful transaction");
+            logger.info("TRANSACTION SUCCESS: Order {} created and committed with all events", orderId);
+            logger.info("Database record and outbox events committed together");
+            logger.info("Successful transaction consistency test passed");
+            testContext.completeNow();
+        })));
     }
     
     /**
@@ -189,7 +193,7 @@ class TransactionalConsistencyTest {
      * This proves that when business logic fails, no partial state is left behind.
      */
     @Test
-    void testBusinessValidationFailureRollsBackBothDatabaseAndOutbox() {
+    void testBusinessValidationFailureRollsBackBothDatabaseAndOutbox(VertxTestContext testContext) {
         logger.info("=== Testing Business Validation Failure Rolls Back Both Database and Outbox ===");
         logger.info("This test proves that business validation failures trigger complete rollback");
         
@@ -202,17 +206,18 @@ class TransactionalConsistencyTest {
             )
         );
         
-        Exception exception = assertThrows(Exception.class, () -> {
-            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
-        });
-
-        assertTrue(exception.getMessage().contains("Order amount exceeds maximum limit") ||
-                  exception.getCause().getMessage().contains("Order amount exceeds maximum limit"),
-                  "Exception should mention amount limit violation");
-        
-        logger.info("❌ TRANSACTION ROLLBACK: Business validation failed as expected");
-        logger.info("Both database record and outbox event rolled back together");
-        logger.info("Business validation rollback consistency test passed");
+        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Expected a failure");
+            Throwable cause = ar.cause();
+            boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Order amount exceeds maximum limit")) ||
+                               (cause.getCause() != null && cause.getCause().getMessage() != null &&
+                                cause.getCause().getMessage().contains("Order amount exceeds maximum limit"));
+            assertTrue(msgMatch, "Exception should mention amount limit violation");
+            logger.info("❌ TRANSACTION ROLLBACK: Business validation failed as expected");
+            logger.info("Both database record and outbox event rolled back together");
+            logger.info("Business validation rollback consistency test passed");
+            testContext.completeNow();
+        }));
     }
     
     /**
@@ -220,7 +225,7 @@ class TransactionalConsistencyTest {
      * This proves that customer validation failures trigger complete rollback.
      */
     @Test
-    void testInvalidCustomerValidationRollsBackBothDatabaseAndOutbox() {
+    void testInvalidCustomerValidationRollsBackBothDatabaseAndOutbox(VertxTestContext testContext) {
         logger.info("=== Testing Invalid Customer Validation Rolls Back Both Database and Outbox ===");
         logger.info("This test proves that customer validation failures trigger complete rollback");
         
@@ -234,17 +239,18 @@ class TransactionalConsistencyTest {
             )
         );
         
-        Exception exception = assertThrows(Exception.class, () -> {
-            awaitFuture(orderService.createOrderWithBusinessValidation(request), 30, TimeUnit.SECONDS);
-        });
-
-        assertTrue(exception.getMessage().contains("Invalid customer ID") ||
-                  exception.getCause().getMessage().contains("Invalid customer ID"),
-                  "Exception should mention invalid customer ID");
-        
-        logger.info("❌ TRANSACTION ROLLBACK: Customer validation failed as expected");
-        logger.info("Both database record and outbox event rolled back together");
-        logger.info("Customer validation rollback consistency test passed");
+        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Expected a failure");
+            Throwable cause = ar.cause();
+            boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Invalid customer ID")) ||
+                               (cause.getCause() != null && cause.getCause().getMessage() != null &&
+                                cause.getCause().getMessage().contains("Invalid customer ID"));
+            assertTrue(msgMatch, "Exception should mention invalid customer ID");
+            logger.info("❌ TRANSACTION ROLLBACK: Customer validation failed as expected");
+            logger.info("Both database record and outbox event rolled back together");
+            logger.info("Customer validation rollback consistency test passed");
+            testContext.completeNow();
+        }));
     }
     
     /**
@@ -252,7 +258,7 @@ class TransactionalConsistencyTest {
      * This proves that database-level failures trigger complete rollback.
      */
     @Test
-    void testDatabaseConstraintViolationRollsBackBothDatabaseAndOutbox() {
+    void testDatabaseConstraintViolationRollsBackBothDatabaseAndOutbox(VertxTestContext testContext) {
         logger.info("=== Testing Database Constraint Violation Rolls Back Both Database and Outbox ===");
         logger.info("This test proves that database constraint violations trigger complete rollback");
         
@@ -266,17 +272,18 @@ class TransactionalConsistencyTest {
             )
         );
         
-        Exception exception = assertThrows(Exception.class, () -> {
-            awaitFuture(orderService.createOrderWithDatabaseConstraints(request), 30, TimeUnit.SECONDS);
-        });
-
-        assertTrue(exception.getMessage().contains("Database constraint violation") ||
-                  exception.getCause().getMessage().contains("Database constraint violation"),
-                  "Exception should mention database constraint violation");
-        
-        logger.info("❌ TRANSACTION ROLLBACK: Database constraint violation failed as expected");
-        logger.info("Both database record and outbox event rolled back together");
-        logger.info("Database constraint rollback consistency test passed");
+        orderService.createOrderWithDatabaseConstraints(request).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Expected a failure");
+            Throwable cause = ar.cause();
+            boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Database constraint violation")) ||
+                               (cause.getCause() != null && cause.getCause().getMessage() != null &&
+                                cause.getCause().getMessage().contains("Database constraint violation"));
+            assertTrue(msgMatch, "Exception should mention database constraint violation");
+            logger.info("❌ TRANSACTION ROLLBACK: Database constraint violation failed as expected");
+            logger.info("Both database record and outbox event rolled back together");
+            logger.info("Database constraint rollback consistency test passed");
+            testContext.completeNow();
+        }));
     }
     
     /**
@@ -284,19 +291,19 @@ class TransactionalConsistencyTest {
      * This proves that when multiple events are published, they all succeed or all fail together.
      */
     @Test
-    void testMultipleEventsHandledAtomically() throws Exception {
+    void testMultipleEventsHandledAtomically(VertxTestContext testContext) {
         logger.info("=== Testing Multiple Events Handled Atomically ===");
         logger.info("This test proves that multiple events are committed or rolled back together");
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        String orderId = awaitFuture(orderService.createOrderWithMultipleEvents(request), 30, TimeUnit.SECONDS);
-
-        assertNotNull(orderId, "Order ID should not be null when multiple events succeed");
-        assertFalse(orderId.isEmpty(), "Order ID should not be empty when multiple events succeed");
-        
-        logger.info("TRANSACTION SUCCESS: Order {} and all multiple events committed together", orderId);
-        logger.info("Multiple events atomicity test passed");
+        orderService.createOrderWithMultipleEvents(request).onComplete(testContext.succeeding(orderId -> testContext.verify(() -> {
+            assertNotNull(orderId, "Order ID should not be null when multiple events succeed");
+            assertFalse(orderId.isEmpty(), "Order ID should not be empty when multiple events succeed");
+            logger.info("TRANSACTION SUCCESS: Order {} and all multiple events committed together", orderId);
+            logger.info("Multiple events atomicity test passed");
+            testContext.completeNow();
+        })));
     }
     
     /**
@@ -304,21 +311,16 @@ class TransactionalConsistencyTest {
      * This is a comprehensive test that verifies the core promise of the outbox pattern.
      */
     @Test
-    void testComprehensiveTransactionalConsistency() throws Exception {
+    void testComprehensiveTransactionalConsistency(VertxTestContext testContext) {
         logger.info("=== Testing Comprehensive Transactional Consistency ===");
         logger.info("This comprehensive test verifies the core promise of the transactional outbox pattern:");
         logger.info("- Database operations and outbox events are ALWAYS consistent");
         logger.info("- No partial state is ever left behind");
         logger.info("- ACID properties are maintained across all scenarios");
         
-        // Test 1: Successful scenario
         logger.info(">> Test 1: Successful transaction scenario");
         CreateOrderRequest successRequest = createValidOrderRequest();
-        String successOrderId = awaitFuture(orderService.createOrder(successRequest), 30, TimeUnit.SECONDS);
-        assertNotNull(successOrderId);
-        logger.info("Success scenario: Database and outbox committed together");
-        
-        // Test 2: Business validation failure scenario
+
         logger.info(">> Test 2: Business validation failure scenario");
         CreateOrderRequest businessFailRequest = new CreateOrderRequest(
             "test-customer-" + System.currentTimeMillis(),
@@ -327,10 +329,7 @@ class TransactionalConsistencyTest {
                 new OrderItem("item-1", "Very Expensive Item", 1, new BigDecimal("20000"))
             )
         );
-        assertThrows(Exception.class, () -> awaitFuture(orderService.createOrderWithBusinessValidation(businessFailRequest), 30, TimeUnit.SECONDS));
-        logger.info("Business failure scenario: Database and outbox rolled back together");
-        
-        // Test 3: Database constraint failure scenario
+
         logger.info(">> Test 3: Database constraint failure scenario");
         CreateOrderRequest constraintFailRequest = new CreateOrderRequest(
             "DUPLICATE_ORDER",
@@ -340,14 +339,36 @@ class TransactionalConsistencyTest {
                 new OrderItem("item-2", "Test Item 2", 1, new BigDecimal("39.99"))
             )
         );
-        assertThrows(Exception.class, () -> awaitFuture(orderService.createOrderWithDatabaseConstraints(constraintFailRequest), 30, TimeUnit.SECONDS));
-        logger.info("Constraint failure scenario: Database and outbox rolled back together");
-        
-        logger.info("🎉 COMPREHENSIVE TRANSACTIONAL CONSISTENCY VERIFIED!");
-        logger.info("The PeeGeeQ transactional outbox pattern maintains ACID properties");
-        logger.info("Database operations and outbox events are always consistent");
-        logger.info("No partial state is ever left behind in any scenario");
-        logger.info("Comprehensive transactional consistency test passed");
+
+        orderService.createOrder(successRequest)
+            .compose(successOrderId -> {
+                assertNotNull(successOrderId);
+                logger.info("Success scenario: Database and outbox committed together");
+                return orderService.createOrderWithBusinessValidation(businessFailRequest)
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.info("Business failure scenario: Database and outbox rolled back together");
+                            return Future.succeededFuture();
+                        }
+                        return Future.failedFuture("Expected business validation failure but got success");
+                    });
+            })
+            .compose(v -> orderService.createOrderWithDatabaseConstraints(constraintFailRequest)
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.info("Constraint failure scenario: Database and outbox rolled back together");
+                        return Future.succeededFuture();
+                    }
+                    return Future.failedFuture("Expected database constraint failure but got success");
+                }))
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("🎉 COMPREHENSIVE TRANSACTIONAL CONSISTENCY VERIFIED!");
+                logger.info("The PeeGeeQ transactional outbox pattern maintains ACID properties");
+                logger.info("Database operations and outbox events are always consistent");
+                logger.info("No partial state is ever left behind in any scenario");
+                logger.info("Comprehensive transactional consistency test passed");
+                testContext.completeNow();
+            })));
     }
     
     /**
