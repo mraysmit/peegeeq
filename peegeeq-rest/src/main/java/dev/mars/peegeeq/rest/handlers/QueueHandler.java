@@ -99,52 +99,43 @@ public class QueueHandler {
 
                     // Send the message
                     return sendMessageWithProducer(producer, messageRequest, ctx)
-                        .onComplete(ar -> {
-                            // Always close the producer
+                        .eventually(() -> {
                             try {
                                 producer.close();
                             } catch (Exception e) {
                                 logger.warn("Error closing producer: {}", e.getMessage());
                             }
+                            return Future.succeededFuture();
                         });
                 })
-                .onSuccess(messageId -> {
-                    // Set correlation ID in MDC for logging
+                .map(messageId -> {
                     TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, messageId);
                     TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
-
-                    // Return enhanced success response with metadata
                     JsonObject response = new JsonObject()
                             .put("message", "Message sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
                             .put("messageId", messageId)
-                            .put("correlationId", messageId) // messageId is the correlationId
+                            .put("correlationId", messageId)
                             .put("timestamp", System.currentTimeMillis())
                             .put("messageType", messageRequest.detectMessageType())
                             .put("priority", messageRequest.getPriority())
                             .put("delaySeconds", messageRequest.getDelaySeconds());
-
-                    // Add message group if present
                     if (messageRequest.getMessageGroup() != null) {
                         response.put("messageGroup", messageRequest.getMessageGroup());
                     }
-
-                    // Add custom headers count if present
                     if (messageRequest.getHeaders() != null) {
                         response.put("customHeadersCount", messageRequest.getHeaders().size());
                     }
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-
                     logger.info("Message sent successfully to queue {} in setup {} with ID: {} (type: {})",
                         queueName, setupId, messageId, messageRequest.detectMessageType());
+                    return response;
                 })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("Setup not found for queue operation: {} (setup: {})",
@@ -152,11 +143,8 @@ public class QueueHandler {
                     } else {
                         logger.error("Error sending message to queue: " + queueName, throwable);
                     }
-
-                    // Determine appropriate HTTP status code based on error type
-                    int statusCode = 500;
+                    int statusCode = 503;
                     String errorMessage = "Failed to send message to queue '" + queueName + "' in setup '" + setupId + "': " + throwable.getMessage();
-
                     if (cause instanceof RuntimeException && cause.getMessage() != null) {
                         if (cause.getMessage().contains("Setup not found")) {
                             statusCode = 404;
@@ -169,12 +157,11 @@ public class QueueHandler {
                             errorMessage = "Setup is not active: " + setupId;
                         }
                     }
-
                     sendError(ctx, statusCode, errorMessage);
                 })
-                .onComplete(ar -> {
-                    // Clear MDC after request completes
+                .eventually(() -> {
                     TraceContextUtil.clearTraceMDC();
+                    return Future.succeededFuture();
                 });
 
         } catch (Exception e) {
@@ -250,22 +237,21 @@ public class QueueHandler {
                         .map(cf -> futures.stream()
                             .map(Future::result)
                             .collect(Collectors.toList()))
-                        .onComplete(ar -> {
-                            // Always close the producer
+                        .eventually(() -> {
                             try {
                                 producer.close();
                             } catch (Exception e) {
                                 logger.warn("Error closing producer: {}", e.getMessage());
                             }
+                            return Future.succeededFuture();
                         });
                 })
-                .onSuccess(messageIds -> {
-                    // Count successful and failed messages
+                .map(messageIds -> {
                     long successCount = messageIds.stream().filter(id -> !id.startsWith("FAILED:")).count();
                     long failureCount = messageIds.size() - successCount;
-
-                    // Return success response
-                    JsonObject response = new JsonObject()
+                    logger.info("Batch processed: {} successful, {} failed for queue {} in setup {}",
+                        successCount, failureCount, queueName, setupId);
+                    return new JsonObject()
                             .put("message", "Batch of " + successCount + "/" + messageIds.size() + " messages sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
@@ -273,23 +259,21 @@ public class QueueHandler {
                             .put("successfulMessages", successCount)
                             .put("failedMessages", failureCount)
                             .put("messageIds", messageIds);
-
-                    int statusCode = failureCount > 0 ? 207 : 200; // 207 Multi-Status if some failed
+                })
+                .onSuccess(response -> {
+                    int statusCode = response.getLong("failedMessages") > 0 ? 207 : 200;
                     ctx.response()
                             .setStatusCode(statusCode)
                             .putHeader("content-type", "application/json")
                             .end(response.encode());
-
-                    logger.info("Batch processed: {} successful, {} failed for queue {} in setup {}",
-                        successCount, failureCount, queueName, setupId);
                 })
                 .onFailure(throwable -> {
                     logger.error("Error sending batch messages to queue: " + queueName, throwable);
-                    sendError(ctx, 500, "Failed to send batch messages: " + throwable.getMessage());
+                    sendError(ctx, 503, "Failed to send batch messages: " + throwable.getMessage());
                 })
-                .onComplete(ar -> {
-                    // Clear MDC after request completes
+                .eventually(() -> {
                     TraceContextUtil.clearTraceMDC();
+                    return Future.succeededFuture();
                 });
 
         } catch (Exception e) {
@@ -320,80 +304,64 @@ public class QueueHandler {
         logger.info("Getting stats for queue {} in setup: {}", queueName, setupId);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    // Get real stats from the queue factory
-                    String implementationType = queueFactory.getImplementationType();
-
-                    // Compose health check + stats query reactively (no blocking)
-                    queueFactory.isHealthy()
-                        .compose(isHealthy -> queueFactory.getStats(queueName)
-                            .map(stats -> new Object[]{isHealthy, stats}))
-                        .onSuccess(pair -> {
-                            try {
-                                boolean isHealthy = (boolean) pair[0];
-                                var stats = (dev.mars.peegeeq.api.messaging.QueueStats) pair[1];
-                                // Build response with real statistics
-                                JsonObject response = new JsonObject()
-                                    .put("queueName", queueName)
-                                    .put("setupId", setupId)
-                                    .put("implementationType", implementationType)
-                                    .put("healthy", isHealthy)
-                                    .put("totalMessages", stats.getTotalMessages())
-                                    .put("pendingMessages", stats.getPendingMessages())
-                                    .put("processedMessages", stats.getProcessedMessages())
-                                    .put("inFlightMessages", stats.getInFlightMessages())
-                                    .put("deadLetteredMessages", stats.getDeadLetteredMessages())
-                                    .put("messagesPerSecond", stats.getMessagesPerSecond())
-                                    .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
-                                    .put("successRatePercent", stats.getSuccessRatePercent())
-                                    .put("timestamp", System.currentTimeMillis());
-
-                                // Add optional timing fields if available
-                                if (stats.getCreatedAt() != null) {
-                                    response.put("firstMessageAt", stats.getCreatedAt().toString());
-                                }
-                                if (stats.getLastMessageAt() != null) {
-                                    response.put("lastMessageAt", stats.getLastMessageAt().toString());
-                                }
-
-                                ctx.response()
-                                        .setStatusCode(200)
-                                        .putHeader("content-type", "application/json")
-                                        .end(response.encode());
-
-                                logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
-                                           queueName, implementationType, isHealthy,
-                                           stats.getTotalMessages(), stats.getPendingMessages());
-                            } catch (Exception e) {
-                                logger.error("Error serializing queue stats", e);
-                                sendError(ctx, 500, "Internal server error");
-                            }
-                        })
-                        .onFailure(e -> {
-                            logger.error("Error getting async queue stats for {}", queueName, e);
-                            sendError(ctx, 500, "Failed to get queue stats: " + e.getMessage());
-                        });
+                    return Future.succeededFuture(queueFactory);
                 })
+                .compose(queueFactory -> {
+                    String implementationType = queueFactory.getImplementationType();
+                    return queueFactory.isHealthy()
+                            .compose(isHealthy -> queueFactory.getStats(queueName)
+                                    .map(stats -> {
+                                        JsonObject response = new JsonObject()
+                                                .put("queueName", queueName)
+                                                .put("setupId", setupId)
+                                                .put("implementationType", implementationType)
+                                                .put("healthy", isHealthy)
+                                                .put("totalMessages", stats.getTotalMessages())
+                                                .put("pendingMessages", stats.getPendingMessages())
+                                                .put("processedMessages", stats.getProcessedMessages())
+                                                .put("inFlightMessages", stats.getInFlightMessages())
+                                                .put("deadLetteredMessages", stats.getDeadLetteredMessages())
+                                                .put("messagesPerSecond", stats.getMessagesPerSecond())
+                                                .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
+                                                .put("successRatePercent", stats.getSuccessRatePercent())
+                                                .put("timestamp", System.currentTimeMillis());
+                                        if (stats.getCreatedAt() != null) {
+                                            response.put("firstMessageAt", stats.getCreatedAt().toString());
+                                        }
+                                        if (stats.getLastMessageAt() != null) {
+                                            response.put("lastMessageAt", stats.getLastMessageAt().toString());
+                                        }
+                                        logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
+                                                queueName, implementationType, isHealthy,
+                                                stats.getTotalMessages(), stats.getPendingMessages());
+                                        return response;
+                                    }));
+                })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (isSetupNotFoundError(cause)) {
-                        logger.debug("Setup not found for queue stats: {} (setup: {})",
-                                   queueName, setupId);
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
                     } else {
-                        logger.error("Error getting queue stats: " + queueName, throwable);
+                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                        if (isSetupNotFoundError(cause)) {
+                            logger.debug("Setup not found for queue stats: {} (setup: {})", queueName, setupId);
+                            sendError(ctx, 404, "Queue not found");
+                        } else {
+                            logger.error("Error getting queue stats for {}: {}", queueName, throwable.getMessage(), throwable);
+                            sendError(ctx, 503, "Failed to get queue stats: " + throwable.getMessage());
+                        }
                     }
-                    sendError(ctx, 404, "Queue not found");
                 });
     }
     
@@ -534,8 +502,6 @@ public class QueueHandler {
                 .end(error.encode());
     }
 
-    // ===== PHASE 3: MESSAGE CONSUMPTION METHODS =====
-    // REMOVED: Polling methods removed as per remediation plan Phase 1.2
     // The API now enforces webhook-based consumption only.
 
     /**
@@ -613,35 +579,23 @@ public class QueueHandler {
                 return "Unknown";
             }
 
-            // Try to detect type from payload structure
-            if (payload instanceof Map) {
-                Map<String, Object> payloadMap = (Map<String, Object>) payload;
+            if (payload instanceof Map<?, ?> payloadMap) {
+                // Return the actual value, not a generic label
+                Object mt = payloadMap.get("messageType");
+                if (mt != null) return mt.toString();
 
-                // Look for common type indicators
-                if (payloadMap.containsKey("eventType")) {
-                    return "Event";
-                } else if (payloadMap.containsKey("commandType")) {
-                    return "Command";
-                } else if (payloadMap.containsKey("orderId")) {
-                    return "Order";
-                } else if (payloadMap.containsKey("userId")) {
-                    return "User";
-                } else if (payloadMap.containsKey("messageType")) {
-                    Object type = payloadMap.get("messageType");
-                    return type != null ? type.toString() : "Unknown";
-                }
-            }
+                Object et = payloadMap.get("eventType");
+                if (et != null) return et.toString();
 
-            // Default based on payload type
-            if (payload instanceof String) {
-                return "Text";
-            } else if (payload instanceof Number) {
-                return "Numeric";
-            } else if (payload instanceof Map) {
+                Object ct = payloadMap.get("commandType");
+                if (ct != null) return ct.toString();
+
                 return "Object";
-            } else if (payload instanceof java.util.List) {
-                return "Array";
             }
+
+            if (payload instanceof String) return "Text";
+            if (payload instanceof Number) return "Numeric";
+            if (payload instanceof java.util.List) return "Array";
 
             return "Unknown";
         }

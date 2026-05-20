@@ -10,9 +10,6 @@ We created a new `outbox` package to demonstrate the infrastructure capabilities
 - **[VertxTransactionParticipationExample.java](../../peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/outbox/VertxTransactionParticipationExample.java)**: Shows how to weave the outbox into a manually managed Vert.x `SqlConnection` without breaking the transaction boundary.
 - **[VertxBatchOutboxExample.java](../../peegeeq-examples/src/main/java/dev/mars/peegeeq/examples/outbox/VertxBatchOutboxExample.java)**: Demonstrates batch operations processing multiple orders and tying them to a single atomic commit.
 
-> [!TIP]
-> The outbox examples heavily utilize `CompletableFuture` APIs over pure Vert.x `Future`s, as recommended in the documentation to maximize interoperability with standard Java code (like Spring Boot).
-
 ## 2. Financial Services Event Catalogue
 
 We expanded the `fundscustody` example to cover all the domains outlined in the `PEEGEEQ_FINANCIAL_SERVICES_EVENT_CATALOGUE.md`.
