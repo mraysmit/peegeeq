@@ -75,29 +75,31 @@ public class DeadLetterRequeueIntegrationTest {
     void setupServer(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Dead Letter Requeue Integration Test ===");
 
-        // Initialize database schema with DLQ tables
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, 
-            SchemaComponent.OUTBOX, 
-            SchemaComponent.DEAD_LETTER_QUEUE);
-
         setupId = "dlq-test-" + System.currentTimeMillis();
 
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
-        vertx.deployVerticle(server)
-            .compose(id -> {
-                deploymentId = id;
-                logger.info("REST server deployed with ID: {}", deploymentId);
-                webClient = WebClient.create(vertx);
-                return createSetupWithQueue(vertx);
-            })
-            .onSuccess(v -> {
-                logger.info("Test setup complete");
-                testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+        // Schema init is blocking (Flyway/JDBC) — must run on a worker thread, not the event loop.
+        vertx.executeBlocking(() -> {
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE);
+            return null;
+        })
+        .compose(v -> vertx.deployVerticle(server))
+        .compose(id -> {
+            deploymentId = id;
+            logger.info("REST server deployed with ID: {}", deploymentId);
+            webClient = WebClient.create(vertx);
+            return createSetupWithQueue(vertx);
+        })
+        .onSuccess(v -> {
+            logger.info("Test setup complete");
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     private Future<Void> createSetupWithQueue(Vertx vertx) {

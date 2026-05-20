@@ -96,7 +96,7 @@ public class SubscriptionLifecycleIntegrationTest {
                 webClient = WebClient.create(vertx);
                 return createSetupWithQueue(vertx);
             })
-            .compose(v -> applyFanoutSchema())
+            .compose(v -> applyFanoutSchema(vertx))
             .compose(v -> createSubscription(vertx))
             .onSuccess(v -> {
                 logger.info("Test setup complete with subscription created");
@@ -110,8 +110,9 @@ public class SubscriptionLifecycleIntegrationTest {
      * This must be done AFTER the REST API creates the database because the REST API
      * drops and recreates the database, removing any previously applied schema.
      */
-    private Future<Void> applyFanoutSchema() {
-        try {
+    // Schema init is blocking (Flyway/JDBC) — delegated to a worker thread via executeBlocking.
+    private Future<Void> applyFanoutSchema(Vertx vertx) {
+        return vertx.executeBlocking(() -> {
             logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);
             String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
                 postgres.getHost(), postgres.getMappedPort(5432), newDbName);
@@ -119,11 +120,8 @@ public class SubscriptionLifecycleIntegrationTest {
                 postgres.getUsername(), postgres.getPassword(),
                 SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
             logger.info("Consumer Group Fanout schema applied successfully");
-            return Future.succeededFuture();
-        } catch (Exception e) {
-            logger.error("Failed to apply fanout schema", e);
-            return Future.failedFuture(e);
-        }
+            return null;
+        });
     }
 
     private Future<Void> createSetupWithQueue(Vertx vertx) {
