@@ -35,14 +35,18 @@ dev.mars.peegeeq.examples.fundscustody/
 │   └── Currency.java                 // Enum: USD, EUR, GBP
 ├── events/
 │   ├── TradeEvent.java               // Event payload (record)
-│   └── TradeCancelledEvent.java      // Cancellation event (record)
+│   ├── TradeCancelledEvent.java      // Cancellation event (record)
+│   ├── TreasuryEvent.java            // Cash Movement and Liquidity (records)
+│   └── OperationalEvent.java         // Exceptions and Manual Repairs (records)
 ├── model/
 │   ├── TradeRequest.java             // DTO for trade requests
 │   ├── CancellationRequest.java      // DTO for cancellation requests
 │   └── PositionSnapshot.java         // DTO for position snapshots
 └── service/
     ├── TradeService.java             // Trade lifecycle management
-    └── PositionService.java          // Position calculation & queries
+    ├── PositionService.java          // Position calculation & queries
+    ├── TreasuryService.java          // Cash movement & liquidity
+    └── ExceptionManagementService.java // Operational exceptions & repairs
 ```
 
 ## Key Concepts

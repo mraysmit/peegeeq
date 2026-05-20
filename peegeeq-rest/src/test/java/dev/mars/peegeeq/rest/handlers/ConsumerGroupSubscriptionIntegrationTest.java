@@ -122,32 +122,27 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
                     .sendJsonObject(setupRequest)
-                    .onSuccess(response -> {
+                    .compose(response -> {
                         if (response.statusCode() == 200 || response.statusCode() == 201) {
                             logger.info("Database setup created: {}", setupId);
-
-                            // Now apply the Consumer Group Fanout schema to the newly created database
-                            // This is required because the REST API only creates base schema, not fanout tables
-                            // Note: OUTBOX component must be applied first as CONSUMER_GROUP_FANOUT depends on it
-                            try {
+                            String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
+                                postgres.getHost(), postgres.getMappedPort(5432), newDbName);
+                            // Schema init is blocking (Flyway/JDBC) — must run on a worker thread.
+                            return vertx.executeBlocking(() -> {
                                 logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);
-                                String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
-                                    postgres.getHost(), postgres.getMappedPort(5432), newDbName);
                                 PeeGeeQTestSchemaInitializer.initializeSchema(jdbcUrl,
                                     postgres.getUsername(), postgres.getPassword(),
                                     SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
                                 logger.info("Consumer Group Fanout schema applied successfully");
-                                testContext.completeNow();
-                            } catch (Exception e) {
-                                logger.error("Failed to apply fanout schema", e);
-                                testContext.failNow(e);
-                            }
+                                return null;
+                            });
                         } else {
                             logger.error("Failed to create setup: {} - {}",
                                       response.statusCode(), response.bodyAsString());
-                            testContext.failNow(new Exception("Failed to create setup: " + response.statusCode()));
+                            return Future.failedFuture(new Exception("Failed to create setup: " + response.statusCode()));
                         }
                     })
+                    .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);

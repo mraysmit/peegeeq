@@ -545,6 +545,41 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                     .end(meterRegistry.scrape());
         });
 
+        // Global failure handler: catches any unhandled exception from any route handler.
+        // Without this, Vert.x logs ERROR "Unhandled exception in router" and returns plain-text 500.
+        router.route().failureHandler(ctx -> {
+            int status = ctx.statusCode() > 0 ? ctx.statusCode() : 500;
+            Throwable failure = ctx.failure();
+            String message = failure != null ? failure.getMessage() : "Internal Server Error";
+
+            // An actual escaped Throwable means a handler has a bug — log at ERROR with stack trace.
+            // A bare ctx.fail(statusCode) with no cause is intentional flow — log at WARN/DEBUG.
+            if (failure != null) {
+                logger.error("Unhandled exception in route [{} {}] status={}",
+                        ctx.request().method(), ctx.request().path(), status, failure);
+            } else if (status >= 500) {
+                logger.warn("Request failed [{} {}] status={}",
+                        ctx.request().method(), ctx.request().path(), status);
+            } else {
+                logger.debug("Request rejected [{} {}] status={}",
+                        ctx.request().method(), ctx.request().path(), status);
+            }
+
+            // Guard: if a handler partially wrote the response before throwing,
+            // attempting to write again would throw IllegalStateException.
+            if (ctx.response().ended()) {
+                return;
+            }
+
+            ctx.response()
+                    .setStatusCode(status)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject()
+                            .put("error", message)
+                            .put("timestamp", System.currentTimeMillis())
+                            .encode());
+        });
+
         return router;
     }
 

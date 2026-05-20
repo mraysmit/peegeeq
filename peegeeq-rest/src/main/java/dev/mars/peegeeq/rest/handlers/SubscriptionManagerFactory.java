@@ -59,7 +59,7 @@ public class SubscriptionManagerFactory {
             // Get the subscription service from the setup service
             SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
             if (subscriptionService == null) {
-                logger.error("Setup not found in cache! setupId={}", setupId);
+                logger.warn("Setup not found in cache! setupId={}", setupId);
                 throw new IllegalStateException("Setup not found or not ready: " + setupId);
             }
 
