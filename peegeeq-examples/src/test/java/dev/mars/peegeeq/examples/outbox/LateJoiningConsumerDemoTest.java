@@ -150,7 +150,7 @@ class LateJoiningConsumerDemoTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
         (connectionManager != null ? connectionManager.close() : io.vertx.core.Future.<Void>succeededFuture())
             .transform(ar -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())

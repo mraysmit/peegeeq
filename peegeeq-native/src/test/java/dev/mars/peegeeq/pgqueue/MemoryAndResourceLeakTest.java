@@ -335,7 +335,7 @@ class MemoryAndResourceLeakTest {
                 processed = false;
             }
             if (!processed) {
-                logger.warn("Consumer {} timed out waiting for messages", consumerId);
+                logger.info("Consumer {} timed out waiting for messages", consumerId);
             }
 
             // Close consumer
