@@ -14,6 +14,9 @@ on:
       - 'peegeeq-rest/**'
       - '.github/workflows/ui-tests.yml'
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   ui-tests:
     name: Comprehensive UI Testing
@@ -44,10 +47,10 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Set up Node.js 18
+    - name: Set up Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
         cache: 'npm'
         cache-dependency-path: peegeeq-management-ui/package-lock.json
 
@@ -127,7 +130,7 @@ jobs:
       run: npm run test:e2e:visual
 
     - name: Upload test results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: always()
       with:
         name: test-results
@@ -137,7 +140,7 @@ jobs:
         retention-days: 30
 
     - name: Upload screenshots
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: failure()
       with:
         name: screenshots
@@ -165,10 +168,10 @@ jobs:
       with:
         fetch-depth: 0
 
-    - name: Set up Node.js 18
+    - name: Set up Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
         cache: 'npm'
         cache-dependency-path: peegeeq-management-ui/package-lock.json
 
@@ -185,7 +188,7 @@ jobs:
       run: npm run test:e2e:visual
 
     - name: Upload visual diff artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: failure()
       with:
         name: visual-regression-diffs
@@ -200,10 +203,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Node.js 18
+    - name: Set up Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
 
     - name: Install Lighthouse CI
       run: npm install -g @lhci/cli@0.12.x
@@ -236,10 +239,10 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Set up Node.js 18
+    - name: Set up Node.js 22
       uses: actions/setup-node@v4
       with:
-        node-version: '18'
+        node-version: '22'
         cache: 'npm'
         cache-dependency-path: peegeeq-management-ui/package-lock.json
 
