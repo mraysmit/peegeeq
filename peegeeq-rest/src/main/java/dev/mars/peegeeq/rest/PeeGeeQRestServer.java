@@ -552,11 +552,16 @@ public class PeeGeeQRestServer extends AbstractVerticle {
             Throwable failure = ctx.failure();
             String message = failure != null ? failure.getMessage() : "Internal Server Error";
 
-            // An actual escaped Throwable means a handler has a bug — log at ERROR with stack trace.
-            // A bare ctx.fail(statusCode) with no cause is intentional flow — log at WARN/DEBUG.
-            if (failure != null) {
+            // Throwable + 5xx = handler bug — ERROR with full stack trace.
+            // Throwable + 4xx = expected rejection with cause (e.g. not found) — DEBUG, no stack trace.
+            // No throwable + 5xx = explicit ctx.fail(5xx) with no cause — WARN.
+            // No throwable + 4xx = explicit ctx.fail(4xx) — DEBUG.
+            if (failure != null && status >= 500) {
                 logger.error("Unhandled exception in route [{} {}] status={}",
                         ctx.request().method(), ctx.request().path(), status, failure);
+            } else if (failure != null) {
+                logger.debug("Request rejected [{} {}] status={}: {}",
+                        ctx.request().method(), ctx.request().path(), status, failure.getMessage());
             } else if (status >= 500) {
                 logger.warn("Request failed [{} {}] status={}",
                         ctx.request().method(), ctx.request().path(), status);
