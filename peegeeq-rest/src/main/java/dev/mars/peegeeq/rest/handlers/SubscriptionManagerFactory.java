@@ -18,6 +18,7 @@ package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import io.vertx.ext.web.handler.HttpException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,7 +51,7 @@ public class SubscriptionManagerFactory {
      *
      * @param setupId The setup ID
      * @return SubscriptionService instance for this setup
-     * @throws IllegalStateException if setup not found or not ready
+     * @throws HttpException 404 if setup not found or not ready
      */
     public SubscriptionService getManager(String setupId) {
         logger.info("SubscriptionManagerFactory.getManager called with setupId: {}", setupId);
@@ -60,7 +61,7 @@ public class SubscriptionManagerFactory {
             SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
             if (subscriptionService == null) {
                 logger.warn("Setup not found in cache! setupId={}", setupId);
-                throw new IllegalStateException("Setup not found or not ready: " + setupId);
+                throw new HttpException(404, "Setup not found or not ready: " + setupId);
             }
 
             logger.info("Created SubscriptionService for setup: {}", setupId);
