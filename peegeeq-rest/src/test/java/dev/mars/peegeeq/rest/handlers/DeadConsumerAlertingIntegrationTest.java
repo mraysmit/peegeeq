@@ -90,9 +90,6 @@ public class DeadConsumerAlertingIntegrationTest {
     void setupServer(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Dead Consumer Alerting Integration Test ===");
 
-        // Initialize full schema directly on the container's default database
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-
         setupId = "alerting-test-setup";
 
         // Create PeeGeeQManager directly so we have access to subscription services
@@ -100,44 +97,49 @@ public class DeadConsumerAlertingIntegrationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("alerting-test", props);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        peeGeeQManager.start()
-            .compose(v -> {
-                // Create a test DatabaseSetupService that delegates to our manager
-                setupService = new TestDatabaseSetupService(setupId, peeGeeQManager);
+        // Schema init is blocking (Flyway/JDBC) — must run on a worker thread, not the event loop.
+        vertx.executeBlocking(() -> {
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+            return null;
+        })
+        .compose(v -> peeGeeQManager.start())
+        .compose(v -> {
+            // Create a test DatabaseSetupService that delegates to our manager
+            setupService = new TestDatabaseSetupService(setupId, peeGeeQManager);
 
-                RestServerConfig testConfig = new RestServerConfig(TEST_PORT,
-                    RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
-                server = new PeeGeeQRestServer(testConfig, setupService);
-                return vertx.deployVerticle(server);
-            })
-            .compose(id -> {
-                deploymentId = id;
-                logger.info("REST server deployed with ID: {}", deploymentId);
-                webClient = WebClient.create(vertx);
+            RestServerConfig testConfig = new RestServerConfig(TEST_PORT,
+                RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
+            server = new PeeGeeQRestServer(testConfig, setupService);
+            return vertx.deployVerticle(server);
+        })
+        .compose(id -> {
+            deploymentId = id;
+            logger.info("REST server deployed with ID: {}", deploymentId);
+            webClient = WebClient.create(vertx);
 
-                // Create subscriptions directly using the manager's subscription service
-                SubscriptionService subscriptionService = peeGeeQManager.createSubscriptionService();
+            // Create subscriptions directly using the manager's subscription service
+            SubscriptionService subscriptionService = peeGeeQManager.createSubscriptionService();
 
-                SubscriptionOptions healthyOptions = SubscriptionOptions.builder()
-                    .heartbeatIntervalSeconds(60)
-                    .heartbeatTimeoutSeconds(120)
-                    .build();
+            SubscriptionOptions healthyOptions = SubscriptionOptions.builder()
+                .heartbeatIntervalSeconds(60)
+                .heartbeatTimeoutSeconds(120)
+                .build();
 
-                SubscriptionOptions deadOptions = SubscriptionOptions.builder()
-                    .heartbeatIntervalSeconds(1)
-                    .heartbeatTimeoutSeconds(2)
-                    .deadAfterMisses(1)
-                    .build();
+            SubscriptionOptions deadOptions = SubscriptionOptions.builder()
+                .heartbeatIntervalSeconds(1)
+                .heartbeatTimeoutSeconds(2)
+                .deadAfterMisses(1)
+                .build();
 
-                return subscriptionService.subscribe(TOPIC_NAME, HEALTHY_GROUP, healthyOptions)
-                    .compose(ignored -> subscriptionService.subscribe(TOPIC_NAME, DEAD_GROUP, deadOptions));
-            })
-            .compose(v -> makeGroupDead(vertx))
-            .onSuccess(v -> {
-                logger.info("Test setup complete with healthy and dead subscriptions");
-                testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            return subscriptionService.subscribe(TOPIC_NAME, HEALTHY_GROUP, healthyOptions)
+                .compose(ignored -> subscriptionService.subscribe(TOPIC_NAME, DEAD_GROUP, deadOptions));
+        })
+        .compose(v -> makeGroupDead(vertx))
+        .onSuccess(v -> {
+            logger.info("Test setup complete with healthy and dead subscriptions");
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     /**

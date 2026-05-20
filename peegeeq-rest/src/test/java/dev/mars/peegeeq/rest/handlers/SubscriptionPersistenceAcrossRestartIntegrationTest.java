@@ -130,11 +130,19 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     void closeManagedVertx(VertxTestContext testContext) {
         // VertxExtension supplies the VertxTestContext to @AfterAll via its ParameterResolver
         // (works because this class is @TestInstance(PER_CLASS) so @AfterAll is non-static).
+        //
+        // IMPORTANT: do NOT chain testContext.completeNow() after managedVertx.close().
+        // managedVertx.close() shuts down its own event loops, so the onSuccess callback
+        // would be dispatched on a dead event loop and would never fire, causing a 30-second
+        // @AfterAll timeout. Instead: close the pool (event loop still alive), then fire
+        // managedVertx.close() as a non-awaited side effect, then complete the context.
         Future<Void> closeChain = (verifyPool != null ? verifyPool.close() : Future.succeededFuture());
         closeChain
-            .compose(v -> managedVertx != null ? managedVertx.close() : Future.<Void>succeededFuture())
             .onSuccess(v -> {
-                logger.info("✓ Managed Vertx instance closed");
+                if (managedVertx != null) {
+                    managedVertx.close(); // fire-and-forget: event loop cleanup, not awaited
+                }
+                logger.info("✓ Managed Vertx instance closing");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);

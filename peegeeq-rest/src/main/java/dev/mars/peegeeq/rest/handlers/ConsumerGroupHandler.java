@@ -755,7 +755,7 @@ public class ConsumerGroupHandler {
         
         // Use topic naming convention: setupId-queueName
         String topic = setupId + "-" + queueName;
-        
+
         // Get SubscriptionService for this setup
         SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
 
@@ -871,7 +871,7 @@ public class ConsumerGroupHandler {
         
         // Use topic naming convention: setupId-queueName
         String topic = setupId + "-" + queueName;
-        
+
         // Get SubscriptionService for this setup
         SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
 
