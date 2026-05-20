@@ -97,7 +97,7 @@ public class ConsumerGroupHandler {
             this.lastActivity = System.currentTimeMillis();
         }
     }
-    
+
     /**
      * Creates a new consumer group.
      * POST /api/v1/queues/{setupId}/{queueName}/consumer-groups
@@ -119,159 +119,113 @@ public class ConsumerGroupHandler {
 
         logger.info("Creating consumer group for queue {} in setup {}", queueName, setupId);
 
+        final JsonObject requestBody;
         try {
-            JsonObject requestBody = ctx.body().asJsonObject();
-            String groupName = requestBody.getString("groupName");
-
-            if (groupName == null || groupName.trim().isEmpty()) {
-                sendError(ctx, 400, "Consumer group name is required");
-                return;
-            }
-
-            String groupKey = createGroupKey(setupId, queueName, groupName);
-
-            if (consumerGroups.containsKey(groupKey)) {
-                sendError(ctx, 409, "Consumer group already exists: " + groupName);
-                return;
-            }
-
-            // Parse optional subscription options from request
-            SubscriptionOptions subscriptionOptions = null;
-            if (requestBody.containsKey("subscriptionOptions")) {
-                try {
-                    subscriptionOptions = parseSubscriptionOptions(requestBody.getJsonObject("subscriptionOptions"));
-                    logger.info("Consumer group '{}' will be created with subscription options: {}",
-                               groupName, subscriptionOptions);
-                } catch (Exception e) {
-                    sendError(ctx, 400, "Invalid subscription options: " + e.getMessage());
-                    return;
-                }
-            }
-
-            // Parse optional group filter from request
-            Predicate<Message<Object>> groupFilter = null;
-            if (requestBody.containsKey("groupFilter")) {
-                try {
-                    groupFilter = parseMessageFilter(requestBody.getJsonObject("groupFilter"));
-                    logger.info("Consumer group '{}' will be created with group filter: {}",
-                               groupName, requestBody.getJsonObject("groupFilter").encode());
-                } catch (Exception e) {
-                    sendError(ctx, 400, "Invalid group filter: " + e.getMessage());
-                    return;
-                }
-            }
-
-            // Capture options for use in async callback
-            final SubscriptionOptions finalSubscriptionOptions = subscriptionOptions;
-            final Predicate<Message<Object>> finalGroupFilter = groupFilter;
-
-            // Validate setup and queue exist, then create real consumer group
-            setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
-                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
-                    }
-
-                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
-                    if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
-                    }
-
-                    try {
-                        // Create real consumer group via QueueFactory
-                        // Using Object.class as the payload type for generic REST API usage
-                        ConsumerGroup<Object> realConsumerGroup = (ConsumerGroup<Object>)
-                            queueFactory.createConsumerGroup(groupName, queueName, Object.class);
-
-                        // Apply group filter if provided
-                        if (finalGroupFilter != null) {
-                            realConsumerGroup.setGroupFilter(finalGroupFilter);
-                            logger.info("Applied group filter to consumer group '{}'", groupName);
-                        }
-
-                        // If subscription options provided, create subscription before starting
-                        if (finalSubscriptionOptions != null) {
-                            String topic = setupId + "-" + queueName;
-                            logger.info("Creating subscription for group '{}' on topic '{}' with options: {}",
-                                       groupName, topic, finalSubscriptionOptions);
-
-                            try {
-                                SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
-                                subscriptionService.subscribe(topic, groupName, finalSubscriptionOptions)
-                                    .onSuccess(v -> logger.info("Subscription created successfully for group '{}' on topic '{}'",
-                                           groupName, topic))
-                                    .onFailure(e -> {
-                                        logger.error("Failed to create subscription for group '{}': {}", groupName, e.getMessage());
-                                        // Don't fail the consumer group creation - subscription can be set later
-                                        logger.warn("Consumer group '{}' created without subscription options due to error", groupName);
-                                    });
-                            } catch (Exception e) {
-                                logger.error("Failed to create subscription for group '{}': {}", groupName, e.getMessage());
-                                // Don't fail the consumer group creation - subscription can be set later
-                                logger.warn("Consumer group '{}' created without subscription options due to error", groupName);
-                            }
-                        }
-
-                        // Store the real consumer group
-                        consumerGroups.put(groupKey, realConsumerGroup);
-
-                        // Create and store metadata for REST API responses
-                        ConsumerGroupMetadata metadata = new ConsumerGroupMetadata(groupName, setupId, queueName);
-
-                        // Apply configuration from request
-                        if (requestBody.containsKey("maxMembers")) {
-                            metadata.maxMembers = Math.max(1, Math.min(100, requestBody.getInteger("maxMembers", 10)));
-                        }
-
-                        if (requestBody.containsKey("loadBalancingStrategy")) {
-                            String strategy = requestBody.getString("loadBalancingStrategy", "ROUND_ROBIN");
-                            metadata.loadBalancingStrategy = LoadBalancingStrategy.valueOf(strategy);
-                        }
-
-                        if (requestBody.containsKey("sessionTimeout")) {
-                            long timeout = requestBody.getLong("sessionTimeout", 30000L);
-                            metadata.sessionTimeout = Math.max(5000L, Math.min(300000L, timeout));
-                        }
-
-                        consumerGroupMetadata.put(groupKey, metadata);
-
-                        JsonObject response = new JsonObject()
-                            .put("message", "Consumer group created successfully")
-                            .put("groupName", groupName)
-                            .put("setupId", setupId)
-                            .put("queueName", queueName)
-                            .put("groupId", groupKey) // Use groupKey as ID
-                            .put("maxMembers", metadata.maxMembers)
-                            .put("loadBalancingStrategy", metadata.loadBalancingStrategy.name())
-                            .put("sessionTimeout", metadata.sessionTimeout)
-                            .put("implementationType", queueFactory.getImplementationType())
-                            .put("subscriptionConfigured", finalSubscriptionOptions != null)
-                            .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                            .setStatusCode(201)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-
-                        logger.info("Consumer group created via QueueFactory: {} for queue {} in setup {} (type: {})",
-                                   groupName, queueName, setupId, queueFactory.getImplementationType());
-
-                    } catch (Exception e) {
-                        logger.error("Failed to create consumer group via QueueFactory: {}", e.getMessage(), e);
-                        sendError(ctx, 500, "Failed to create consumer group: " + e.getMessage());
-                    }
-                })
-                .onFailure(throwable -> {
-                    logger.error("Error creating consumer group {}: {}", groupName, throwable.getMessage(), throwable);
-                    sendError(ctx, 500, "Failed to create consumer group: " + throwable.getMessage());
-                });
-
+            requestBody = ctx.body().asJsonObject();
         } catch (Exception e) {
             logger.error("Error processing create consumer group request: {}", e.getMessage(), e);
             sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            return;
         }
+
+        final String groupName = requestBody.getString("groupName");
+        if (groupName == null || groupName.trim().isEmpty()) {
+            sendError(ctx, 400, "Consumer group name is required");
+            return;
+        }
+
+        final String groupKey = createGroupKey(setupId, queueName, groupName);
+        if (consumerGroups.containsKey(groupKey)) {
+            sendError(ctx, 409, "Consumer group already exists: " + groupName);
+            return;
+        }
+
+        final SubscriptionOptions finalSubscriptionOptions;
+        final Predicate<Message<Object>> finalGroupFilter;
+        try {
+            finalSubscriptionOptions = requestBody.containsKey("subscriptionOptions")
+                ? parseSubscriptionOptions(requestBody.getJsonObject("subscriptionOptions"))
+                : null;
+            finalGroupFilter = requestBody.containsKey("groupFilter")
+                ? parseMessageFilter(requestBody.getJsonObject("groupFilter"))
+                : null;
+        } catch (Exception e) {
+            sendError(ctx, 400, "Invalid request options: " + e.getMessage());
+            return;
+        }
+
+        setupService.getSetupResult(setupId)
+            .compose(setupResult -> {
+                if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                    return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
+                }
+                QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                if (queueFactory == null) {
+                    return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
+                }
+                return Future.succeededFuture(queueFactory);
+            })
+            .compose(queueFactory -> {
+                ConsumerGroup<Object> realConsumerGroup = (ConsumerGroup<Object>)
+                    queueFactory.createConsumerGroup(groupName, queueName, Object.class);
+                if (finalGroupFilter != null) {
+                    realConsumerGroup.setGroupFilter(finalGroupFilter);
+                    logger.info("Applied group filter to consumer group '{}'", groupName);
+                }
+                if (finalSubscriptionOptions != null) {
+                    String topic = setupId + "-" + queueName;
+                    logger.info("Creating subscription for group '{}' on topic '{}' with options: {}",
+                               groupName, topic, finalSubscriptionOptions);
+                    try {
+                        subscriptionManagerFactory.getManager(setupId)
+                            .subscribe(topic, groupName, finalSubscriptionOptions)
+                            .onSuccess(v -> logger.info("Subscription created for group '{}' on topic '{}'", groupName, topic))
+                            .onFailure(e -> logger.warn("Consumer group '{}' created without subscription: {}", groupName, e.getMessage()));
+                    } catch (Exception e) {
+                        logger.warn("Consumer group '{}' created without subscription: {}", groupName, e.getMessage());
+                    }
+                }
+                consumerGroups.put(groupKey, realConsumerGroup);
+                ConsumerGroupMetadata metadata = new ConsumerGroupMetadata(groupName, setupId, queueName);
+                if (requestBody.containsKey("maxMembers")) {
+                    metadata.maxMembers = Math.max(1, Math.min(100, requestBody.getInteger("maxMembers", 10)));
+                }
+                if (requestBody.containsKey("loadBalancingStrategy")) {
+                    metadata.loadBalancingStrategy = LoadBalancingStrategy.valueOf(
+                        requestBody.getString("loadBalancingStrategy", "ROUND_ROBIN"));
+                }
+                if (requestBody.containsKey("sessionTimeout")) {
+                    long timeout = requestBody.getLong("sessionTimeout", 30000L);
+                    metadata.sessionTimeout = Math.max(5000L, Math.min(300000L, timeout));
+                }
+                consumerGroupMetadata.put(groupKey, metadata);
+                logger.info("Consumer group created via QueueFactory: {} for queue {} in setup {} (type: {})",
+                           groupName, queueName, setupId, queueFactory.getImplementationType());
+                return Future.succeededFuture(new JsonObject()
+                    .put("message", "Consumer group created successfully")
+                    .put("groupName", groupName)
+                    .put("setupId", setupId)
+                    .put("queueName", queueName)
+                    .put("groupId", groupKey)
+                    .put("maxMembers", metadata.maxMembers)
+                    .put("loadBalancingStrategy", metadata.loadBalancingStrategy.name())
+                    .put("sessionTimeout", metadata.sessionTimeout)
+                    .put("implementationType", queueFactory.getImplementationType())
+                    .put("subscriptionConfigured", finalSubscriptionOptions != null)
+                    .put("timestamp", System.currentTimeMillis()));
+            })
+            .onSuccess(response -> ctx.response()
+                .setStatusCode(201)
+                .putHeader("content-type", "application/json")
+                .end(response.encode()))
+            .onFailure(throwable -> {
+                if (throwable instanceof ResponseException re) {
+                    sendError(ctx, re.statusCode, re.getMessage());
+                } else {
+                    logger.error("Error creating consumer group {}: {}", groupName, throwable.getMessage(), throwable);
+                    sendError(ctx, 503, "Failed to create consumer group: " + throwable.getMessage());
+                }
+            });
     }
     
     /**
@@ -713,26 +667,23 @@ public class ConsumerGroupHandler {
 
             // Subscribe via SubscriptionService (database-backed)
             subscriptionService.subscribe(topic, groupName, options)
-                .onSuccess(v -> {
+                .map(v -> {
                     logger.info("Successfully updated subscription options for group '{}' on topic '{}'", groupName, topic);
-                    
-                    // Return success response
-                    JsonObject response = new JsonObject()
+                    return new JsonObject()
                         .put("setupId", setupId)
                         .put("queueName", queueName)
                         .put("groupName", groupName)
                         .put("subscriptionOptions", toJsonObject(options))
                         .put("message", "Subscription options updated successfully")
                         .put("timestamp", System.currentTimeMillis());
-                    
-                    ctx.response()
-                        .setStatusCode(200)
-                        .putHeader("Content-Type", "application/json")
-                        .end(response.encode());
                 })
+                .onSuccess(response -> ctx.response()
+                    .setStatusCode(200)
+                    .putHeader("Content-Type", "application/json")
+                    .end(response.encode()))
                 .onFailure(throwable -> {
                     logger.error("Failed to update subscription options in database", throwable);
-                    sendError(ctx, 500, "Failed to update subscription: " + throwable.getMessage());
+                    sendError(ctx, 503, "Failed to update subscription: " + throwable.getMessage());
                 });
                 
         } catch (IllegalArgumentException e) {
@@ -740,7 +691,7 @@ public class ConsumerGroupHandler {
             sendError(ctx, 400, "Invalid subscription options: " + e.getMessage());
         } catch (Exception e) {
             logger.error("Failed to update subscription options for consumer group '{}'", groupName, e);
-            sendError(ctx, 500, "Internal server error: " + e.getMessage());
+            sendError(ctx, 503, "Internal server error: " + e.getMessage());
         }
     }
     
@@ -761,31 +712,19 @@ public class ConsumerGroupHandler {
 
         // Fetch from SubscriptionService (database-backed)
         subscriptionService.getSubscription(topic, groupName)
-            .onSuccess(subscriptionInfo -> {
+            .compose(subscriptionInfo -> {
                 if (subscriptionInfo == null) {
-                    // If subscription not found, return defaults
                     logger.debug("Subscription not found for group '{}' on topic '{}', returning defaults", groupName, topic);
-                    SubscriptionOptions options = SubscriptionOptions.defaults();
-
-                    JsonObject response = new JsonObject()
+                    return Future.succeededFuture(new JsonObject()
                         .put("setupId", setupId)
                         .put("queueName", queueName)
                         .put("groupName", groupName)
                         .put("status", "NOT_CONFIGURED")
-                        .put("subscriptionOptions", toJsonObject(options))
-                        .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                        .setStatusCode(200)
-                        .putHeader("Content-Type", "application/json")
-                        .end(response.encode());
-                    return;
+                        .put("subscriptionOptions", toJsonObject(SubscriptionOptions.defaults()))
+                        .put("timestamp", System.currentTimeMillis()));
                 }
-
-                // Convert SubscriptionInfo to SubscriptionOptions
                 SubscriptionOptions options = subscriptionInfoToOptions(subscriptionInfo);
-
-                JsonObject response = new JsonObject()
+                return Future.succeededFuture(new JsonObject()
                     .put("setupId", setupId)
                     .put("queueName", queueName)
                     .put("groupName", groupName)
@@ -793,30 +732,15 @@ public class ConsumerGroupHandler {
                     .put("subscriptionOptions", toJsonObject(options))
                     .put("lastHeartbeat", subscriptionInfo.lastHeartbeatAt() != null ? subscriptionInfo.lastHeartbeatAt().toString() : null)
                     .put("createdAt", subscriptionInfo.subscribedAt().toString())
-                    .put("timestamp", System.currentTimeMillis());
-
-                ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("Content-Type", "application/json")
-                    .end(response.encode());
+                    .put("timestamp", System.currentTimeMillis()));
             })
+            .onSuccess(response -> ctx.response()
+                .setStatusCode(200)
+                .putHeader("Content-Type", "application/json")
+                .end(response.encode()))
             .onFailure(throwable -> {
-                // If subscription not found, return defaults
-                logger.debug("Subscription not found for group '{}' on topic '{}', returning defaults", groupName, topic);
-                SubscriptionOptions options = SubscriptionOptions.defaults();
-                
-                JsonObject response = new JsonObject()
-                    .put("setupId", setupId)
-                    .put("queueName", queueName)
-                    .put("groupName", groupName)
-                    .put("status", "NOT_CONFIGURED")
-                    .put("subscriptionOptions", toJsonObject(options))
-                    .put("timestamp", System.currentTimeMillis());
-                
-                ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("Content-Type", "application/json")
-                    .end(response.encode());
+                logger.error("Failed to get subscription options for group '{}' on topic '{}'", groupName, topic, throwable);
+                sendError(ctx, 503, "Failed to get subscription options: " + throwable.getMessage());
             });
     }
     

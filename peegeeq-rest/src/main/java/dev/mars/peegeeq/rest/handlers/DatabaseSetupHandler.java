@@ -83,28 +83,27 @@ public class DatabaseSetupHandler {
                         request.getEventStores().size());
 
                 setupService.createCompleteSetup(request)
-                        .onSuccess(result -> {
+                        .map(result -> {
                             try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
                                 logger.debug("REST HANDLER: Received completion from createCompleteSetup for setupId={}",
                                         request.getSetupId());
-                                JsonObject response = new JsonObject()
+                                return new JsonObject()
                                         .put("setupId", result.getSetupId())
                                         .put("status", result.getStatus().name())
                                         .put("queueCount", result.getQueueFactories().size())
                                         .put("eventStoreCount", result.getEventStores().size())
                                         .put("message", "Database setup created successfully");
-
-                                ctx.response()
-                                        .setStatusCode(201)
-                                        .putHeader("Content-Type", "application/json")
-                                        .end(response.encode());
-
-                                logger.info("Database setup created successfully: {}", request.getSetupId());
                             }
+                        })
+                        .onSuccess(response -> {
+                            ctx.response()
+                                    .setStatusCode(201)
+                                    .putHeader("Content-Type", "application/json")
+                                    .end(response.encode());
+                            logger.info("Database setup created successfully: {}", request.getSetupId());
                         })
                         .onFailure(throwable -> {
                             try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
-                                // Check if this is an expected database creation conflict (no stack trace)
                                 Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                                 if (isDatabaseCreationConflictError(cause)) {
                                     logger.debug(
@@ -114,16 +113,16 @@ public class DatabaseSetupHandler {
                                     logger.error("Error creating database setup: " + request.getSetupId(), throwable);
                                 }
 
-                                int statusCode = 500;
+                                int statusCode = 503;
                                 String errorMessage = "Failed to create setup '" + request.getSetupId() + "': "
                                         + throwable.getMessage();
 
                                 if (cause.getMessage() != null) {
                                     if (cause.getMessage().contains("already exists")) {
-                                        statusCode = 409; // Conflict
+                                        statusCode = 409;
                                         errorMessage = "Setup already exists: " + request.getSetupId();
                                     } else if (cause.getMessage().contains("invalid")) {
-                                        statusCode = 400; // Bad Request
+                                        statusCode = 400;
                                     }
                                 }
 
@@ -143,7 +142,7 @@ public class DatabaseSetupHandler {
                 } else {
                     logger.error("Error parsing create setup request", e);
                 }
-                sendError(ctx, 500, "Error processing request: " + e.getMessage());
+                sendError(ctx, 400, "Error processing request: " + e.getMessage());
             }
         }
     }
@@ -167,7 +166,7 @@ public class DatabaseSetupHandler {
                 })
                 .onFailure(err -> {
                     logger.error("Failed to delete database setup: {}", setupId, err);
-                    sendError(ctx, 500, "Failed to delete setup: " + err.getMessage());
+                    sendError(ctx, 503, "Failed to delete setup: " + err.getMessage());
                 });
     }
 
@@ -188,19 +187,22 @@ public class DatabaseSetupHandler {
         logger.debug("Getting status for setup: {}", setupId);
 
         setupService.getSetupStatus(setupId)
-                .onSuccess(status -> {
-                    JsonObject response = new JsonObject()
-                            .put("setupId", setupId)
-                            .put("status", status.name());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("Content-Type", "application/json")
-                            .end(response.encode());
-                })
+                .map(status -> new JsonObject()
+                        .put("setupId", setupId)
+                        .put("status", status.name()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("Content-Type", "application/json")
+                        .end(response.encode()))
                 .onFailure(err -> {
-                    logger.debug("Setup not found: {}", setupId);
-                    sendError(ctx, 404, "Setup not found: " + setupId);
+                    Throwable cause = err.getCause() != null ? err.getCause() : err;
+                    if (isSetupNotFoundError(cause)) {
+                        logger.debug("Setup not found: {}", setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else {
+                        logger.error("Failed to get setup status: {}", setupId, err);
+                        sendError(ctx, 503, "Failed to get setup status: " + err.getMessage());
+                    }
                 });
     }
 
@@ -214,30 +216,28 @@ public class DatabaseSetupHandler {
         logger.debug("Getting details for setup: {}", setupId);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(result -> {
-                    JsonObject response = new JsonObject()
-                            .put("setupId", result.getSetupId())
-                            .put("status", result.getStatus().name())
-                            .put("queueFactories", new JsonArray(new ArrayList<>(result.getQueueFactories().keySet())))
-                            .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet())));
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("Content-Type", "application/json")
-                            .end(response.encode());
-                })
+                .map(result -> new JsonObject()
+                        .put("setupId", result.getSetupId())
+                        .put("status", result.getStatus().name())
+                        .put("queueFactories", new JsonArray(new ArrayList<>(result.getQueueFactories().keySet())))
+                        .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet()))))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("Content-Type", "application/json")
+                        .end(response.encode()))
                 .onFailure(err -> {
-                    // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("🚫 EXPECTED: Setup not found: {}", setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
                     } else if (isTestScenario(setupId, err)) {
                         logger.info("🧪 EXPECTED TEST ERROR - Error getting setup details: {} - {}",
                                 setupId, err.getMessage());
+                        sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
                         logger.error("Error getting setup details: " + setupId, err);
+                        sendError(ctx, 503, "Failed to get setup details: " + err.getMessage());
                     }
-                    sendError(ctx, 404, "Setup not found: " + setupId);
                 });
     }
 
@@ -246,51 +246,47 @@ public class DatabaseSetupHandler {
      * POST /api/v1/setups/:setupId/queues
      */
     public void addQueue(RoutingContext ctx) {
+        final JsonObject body;
+        final String setupId;
+        final QueueConfig queueConfig;
         try {
-            JsonObject body = ctx.body().asJsonObject();
-            String setupId = ConfigParser.getSetupId(ctx.pathParam("setupId"), body);
-            QueueConfig queueConfig = ConfigParser.parseQueueConfig(body);
-
-            logger.info("Adding queue {} to setup: {}", queueConfig.getQueueName(), setupId);
-
-            setupService.addQueue(setupId, queueConfig)
-                    .onSuccess(v -> {
-                        JsonObject response = new JsonObject()
-                                .put("message", "Queue '" + queueConfig.getQueueName()
-                                        + "' added successfully to setup '" + setupId + "'")
-                                .put("queueName", queueConfig.getQueueName())
-                                .put("setupId", setupId);
-
-                        ctx.response()
-                                .setStatusCode(201)
-                                .putHeader("Content-Type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Queue added successfully: {} to setup {}", queueConfig.getQueueName(), setupId);
-                    })
-                    .onFailure(err -> {
-                        logger.error("Failed to add queue '{}' to setup: {}", queueConfig.getQueueName(), setupId, err);
-
-                        int statusCode = 500;
-                        String errorMessage = "Failed to add queue '" + queueConfig.getQueueName()
-                                + "': " + err.getMessage();
-
-                        Throwable cause = err.getCause() != null ? err.getCause() : err;
-                        if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
-                            statusCode = 404;
-                            errorMessage = "Setup not found: " + setupId;
-                        }
-
-                        sendError(ctx, statusCode, errorMessage);
-                    });
-
+            body = ctx.body().asJsonObject();
+            setupId = ConfigParser.getSetupId(ctx.pathParam("setupId"), body);
+            queueConfig = ConfigParser.parseQueueConfig(body);
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid queue configuration: {}", e.getMessage());
             sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            return;
         } catch (Exception e) {
             logger.error("Error parsing add queue request", e);
             sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+            return;
         }
+
+        logger.info("Adding queue {} to setup: {}", queueConfig.getQueueName(), setupId);
+
+        setupService.addQueue(setupId, queueConfig)
+                .map(v -> new JsonObject()
+                        .put("message", "Queue '" + queueConfig.getQueueName()
+                                + "' added successfully to setup '" + setupId + "'")
+                        .put("queueName", queueConfig.getQueueName())
+                        .put("setupId", setupId))
+                .onSuccess(response -> {
+                    ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("Content-Type", "application/json")
+                            .end(response.encode());
+                    logger.info("Queue added successfully: {} to setup {}", queueConfig.getQueueName(), setupId);
+                })
+                .onFailure(err -> {
+                    logger.error("Failed to add queue '{}' to setup: {}", queueConfig.getQueueName(), setupId, err);
+                    Throwable cause = err.getCause() != null ? err.getCause() : err;
+                    if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else {
+                        sendError(ctx, 503, "Failed to add queue '" + queueConfig.getQueueName() + "': " + err.getMessage());
+                    }
+                });
     }
 
     /**
@@ -298,53 +294,49 @@ public class DatabaseSetupHandler {
      * POST /api/v1/setups/:setupId/eventstores
      */
     public void addEventStore(RoutingContext ctx) {
+        final JsonObject body;
+        final String setupId;
+        final EventStoreConfig eventStoreConfig;
         try {
-            JsonObject body = ctx.body().asJsonObject();
-            String setupId = ConfigParser.getSetupId(ctx.pathParam("setupId"), body);
-            EventStoreConfig eventStoreConfig = ConfigParser.parseEventStoreConfig(body);
-
-            logger.info("Adding event store {} to setup: {}", eventStoreConfig.getEventStoreName(), setupId);
-
-            setupService.addEventStore(setupId, eventStoreConfig)
-                    .onSuccess(v -> {
-                        JsonObject response = new JsonObject()
-                                .put("message", "Event store '" + eventStoreConfig.getEventStoreName()
-                                        + "' added successfully to setup '" + setupId + "'")
-                                .put("eventStoreName", eventStoreConfig.getEventStoreName())
-                                .put("setupId", setupId);
-
-                        ctx.response()
-                                .setStatusCode(201)
-                                .putHeader("Content-Type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Event store added successfully: {} to setup {}",
-                                eventStoreConfig.getEventStoreName(), setupId);
-                    })
-                    .onFailure(err -> {
-                        logger.error("Failed to add event store '{}' to setup: {}",
-                                eventStoreConfig.getEventStoreName(), setupId, err);
-
-                        int statusCode = 500;
-                        String errorMessage = "Failed to add event store '" + eventStoreConfig.getEventStoreName()
-                                + "': " + err.getMessage();
-
-                        Throwable cause = err.getCause() != null ? err.getCause() : err;
-                        if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
-                            statusCode = 404;
-                            errorMessage = "Setup not found: " + setupId;
-                        }
-
-                        sendError(ctx, statusCode, errorMessage);
-                    });
-
+            body = ctx.body().asJsonObject();
+            setupId = ConfigParser.getSetupId(ctx.pathParam("setupId"), body);
+            eventStoreConfig = ConfigParser.parseEventStoreConfig(body);
         } catch (IllegalArgumentException e) {
             logger.warn("Invalid event store configuration: {}", e.getMessage());
             sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            return;
         } catch (Exception e) {
             logger.error("Error parsing add event store request", e);
             sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+            return;
         }
+
+        logger.info("Adding event store {} to setup: {}", eventStoreConfig.getEventStoreName(), setupId);
+
+        setupService.addEventStore(setupId, eventStoreConfig)
+                .map(v -> new JsonObject()
+                        .put("message", "Event store '" + eventStoreConfig.getEventStoreName()
+                                + "' added successfully to setup '" + setupId + "'")
+                        .put("eventStoreName", eventStoreConfig.getEventStoreName())
+                        .put("setupId", setupId))
+                .onSuccess(response -> {
+                    ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("Content-Type", "application/json")
+                            .end(response.encode());
+                    logger.info("Event store added successfully: {} to setup {}",
+                            eventStoreConfig.getEventStoreName(), setupId);
+                })
+                .onFailure(err -> {
+                    logger.error("Failed to add event store '{}' to setup: {}",
+                            eventStoreConfig.getEventStoreName(), setupId, err);
+                    Throwable cause = err.getCause() != null ? err.getCause() : err;
+                    if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else {
+                        sendError(ctx, 503, "Failed to add event store '" + eventStoreConfig.getEventStoreName() + "': " + err.getMessage());
+                    }
+                });
     }
 
     /**
@@ -355,19 +347,16 @@ public class DatabaseSetupHandler {
         logger.debug("Listing all active setups");
 
         setupService.getAllActiveSetupIds()
-                .onSuccess(setupIds -> {
-                    JsonObject response = new JsonObject()
-                            .put("count", setupIds.size())
-                            .put("setupIds", new JsonArray(new ArrayList<>(setupIds)));
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("Content-Type", "application/json")
-                            .end(response.encode());
-                })
+                .map(setupIds -> new JsonObject()
+                        .put("count", setupIds.size())
+                        .put("setupIds", new JsonArray(new ArrayList<>(setupIds))))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("Content-Type", "application/json")
+                        .end(response.encode()))
                 .onFailure(err -> {
                     logger.error("Failed to list setups", err);
-                    sendError(ctx, 500, "Failed to list setups: " + err.getMessage());
+                    sendError(ctx, 503, "Failed to list setups: " + err.getMessage());
                 });
     }
 
@@ -402,24 +391,21 @@ public class DatabaseSetupHandler {
                         return arr;
                     });
                 })
-                .onSuccess(queuesArray -> {
-                    JsonObject response = new JsonObject()
-                            .put("setupId", setupId)
-                            .put("count", queuesArray.size())
-                            .put("queues", queuesArray);
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("Content-Type", "application/json")
-                            .end(response.encode());
-                })
+                .map(queuesArray -> new JsonObject()
+                        .put("setupId", setupId)
+                        .put("count", queuesArray.size())
+                        .put("queues", queuesArray))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("Content-Type", "application/json")
+                        .end(response.encode()))
                 .onFailure(err -> {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
                         logger.error("Failed to list queues for setup: {}", setupId, err);
-                        sendError(ctx, 500, "Failed to list queues: " + err.getMessage());
+                        sendError(ctx, 503, "Failed to list queues: " + err.getMessage());
                     }
                 });
     }
@@ -434,32 +420,27 @@ public class DatabaseSetupHandler {
         logger.debug("Listing event stores for setup: {}", setupId);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(result -> {
+                .map(result -> {
                     JsonArray eventStoresArray = new JsonArray();
                     for (var entry : result.getEventStores().entrySet()) {
-                        String storeName = entry.getKey();
-                        JsonObject storeInfo = new JsonObject()
-                                .put("eventStoreName", storeName);
-                        eventStoresArray.add(storeInfo);
+                        eventStoresArray.add(new JsonObject().put("eventStoreName", entry.getKey()));
                     }
-
-                    JsonObject response = new JsonObject()
+                    return new JsonObject()
                             .put("setupId", setupId)
                             .put("count", eventStoresArray.size())
                             .put("eventStores", eventStoresArray);
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("Content-Type", "application/json")
-                            .end(response.encode());
                 })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("Content-Type", "application/json")
+                        .end(response.encode()))
                 .onFailure(err -> {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
                         logger.error("Failed to list event stores for setup: {}", setupId, err);
-                        sendError(ctx, 500, "Failed to list event stores: " + err.getMessage());
+                        sendError(ctx, 503, "Failed to list event stores: " + err.getMessage());
                     }
                 });
     }

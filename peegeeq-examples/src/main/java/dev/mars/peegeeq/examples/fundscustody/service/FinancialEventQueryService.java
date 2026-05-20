@@ -10,7 +10,25 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Service demonstrating advanced Bi-temporal queries.
+ * Example demonstrating how to query a bi-temporal event store to answer the distinct
+ * business questions that arise in financial operations and regulatory reporting.
+ *
+ * <p><b>Problem 1 — Regulatory reconstruction:</b> A regulator asks "Reconstruct your
+ * end-of-day positions as they were calculated yesterday." The system must reproduce the
+ * read-model exactly as it stood at that timestamp, not the current corrected view.
+ * Solved by filtering on Transaction Time (the system recording horizon).
+ * See {@link #getEventsAsOfSystemTime}.
+ *
+ * <p><b>Problem 2 — Business period analysis:</b> An operations team asks "Show all cash
+ * movements that were effective during January." This filters on the business date the
+ * event actually occurred, regardless of when it was recorded or later corrected.
+ * Solved by filtering on Valid Time (the business effective date).
+ * See {@link #getEventsValidDuring}.
+ *
+ * <p><b>Problem 3 — Correction audit trail:</b> A compliance officer asks "Show every
+ * version of this trade, including the original erroneous record." By default the store
+ * returns only the current effective view; this query opts in to also return superseded events.
+ * See {@link #getAuditTrail}.
  */
 public class FinancialEventQueryService {
     
