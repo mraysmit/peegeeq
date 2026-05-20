@@ -44,7 +44,7 @@ public class ConsumerAlertHandler {
         }
 
         service.listDeadSubscriptions()
-            .onSuccess(deadSubscriptions -> {
+            .map(deadSubscriptions -> {
                 JsonArray deadArray = new JsonArray();
                 for (SubscriptionInfo info : deadSubscriptions) {
                     JsonObject sub = new JsonObject()
@@ -60,16 +60,16 @@ public class ConsumerAlertHandler {
                     }
                     deadArray.add(sub);
                 }
-                JsonObject result = new JsonObject()
+                return new JsonObject()
                     .put("deadSubscriptions", deadArray)
                     .put("totalDead", deadArray.size());
-                ctx.response()
-                    .putHeader("Content-Type", "application/json")
-                    .end(result.encode());
             })
+            .onSuccess(result -> ctx.response()
+                .putHeader("Content-Type", "application/json")
+                .end(result.encode()))
             .onFailure(error -> {
                 logger.error("Failed to list dead subscriptions for setup: {}", setupId, error);
-                ErrorResponse.send(ctx, 500,
+                ErrorResponse.send(ctx, 503,
                     PeeGeeQError.of(PeeGeeQErrorCodes.SUBSCRIPTION_ALERTS_FAILED,
                         "Failed to list dead subscriptions: " + error.getMessage()));
             });
@@ -96,7 +96,7 @@ public class ConsumerAlertHandler {
             })
             .onFailure(error -> {
                 logger.error("Failed to get health summary for setup: {}", setupId, error);
-                ErrorResponse.send(ctx, 500,
+                ErrorResponse.send(ctx, 503,
                     PeeGeeQError.of(PeeGeeQErrorCodes.SUBSCRIPTION_ALERTS_FAILED,
                         "Failed to get subscription health summary: " + error.getMessage()));
             });
@@ -123,7 +123,7 @@ public class ConsumerAlertHandler {
             })
             .onFailure(error -> {
                 logger.error("Failed to get blocked message stats for setup: {}", setupId, error);
-                ErrorResponse.send(ctx, 500,
+                ErrorResponse.send(ctx, 503,
                     PeeGeeQError.of(PeeGeeQErrorCodes.SUBSCRIPTION_ALERTS_FAILED,
                         "Failed to get blocked message stats: " + error.getMessage()));
             });

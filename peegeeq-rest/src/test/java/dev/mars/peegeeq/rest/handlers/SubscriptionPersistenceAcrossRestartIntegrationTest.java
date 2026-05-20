@@ -381,7 +381,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     setupId, QUEUE_NAME, GROUP_NAME);
 
                 logger.info("Attempting to retrieve subscription after restart: {}", path);
-                logger.info("EXPECTED: 500 error because setup cache is empty after restart");
+                logger.info("EXPECTED: 404 because setup cache is empty after restart");
 
                 return webClient.get(TEST_PORT, "localhost", path)
                     .send()
@@ -392,9 +392,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                         logger.info("Response status: {}", statusCode);
                         logger.info("Response body: {}", body);
 
-                        if (statusCode == 500) {
+                        if (statusCode == 404) {
                             // This is the EXPECTED behavior - setup cache is lost after restart
-                            logger.info("✓ CONFIRMED: REST API returns 500 after restart (setup cache lost)");
+                            logger.info("✓ CONFIRMED: REST API returns 404 after restart (setup cache lost)");
                             logger.info("  This demonstrates the known architectural limitation:");
                             logger.info("  - Subscription data IS persisted in database (verified in test03)");
                             logger.info("  - But REST API cannot access it because setup cache is in-memory");

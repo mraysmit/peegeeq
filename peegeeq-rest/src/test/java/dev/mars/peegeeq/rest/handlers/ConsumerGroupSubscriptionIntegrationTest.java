@@ -1241,6 +1241,29 @@ public class ConsumerGroupSubscriptionIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    @Test
+    @Order(13)
+    @DisplayName("POST subscription options for non-existent setup returns 404 with JSON error body")
+    void testPostSubscriptionOptionsNonExistentSetup(VertxTestContext testContext) {
+        logger.info("=== Test 13: POST subscription options with nonexistent setup ===");
+
+        String path = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
+                "nonexistent-setup-" + System.currentTimeMillis(), QUEUE_NAME, "some-group");
+
+        webClient.post(TEST_PORT, "localhost", path)
+                .sendJsonObject(new JsonObject().put("startPosition", "FROM_NOW"))
+                .onSuccess(response -> testContext.verify(() -> {
+                    logger.info("Response status: {} body: {}", response.statusCode(), response.bodyAsString());
+                    assertEquals(404, response.statusCode(),
+                            "Expected 404 for nonexistent setup, got: " + response.statusCode()
+                            + " - " + response.bodyAsString());
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body.getString("error"), "Response must contain 'error' field");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
     /**
      * Helper method to extract event data from SSE stream.
      */

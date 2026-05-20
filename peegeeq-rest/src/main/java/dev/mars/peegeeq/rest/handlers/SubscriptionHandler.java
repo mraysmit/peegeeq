@@ -76,18 +76,19 @@ public class SubscriptionHandler {
         }
 
         service.listSubscriptions(topic)
-            .onSuccess(subscriptions -> {
+            .map(subscriptions -> {
                 JsonArray result = new JsonArray();
                 for (SubscriptionInfo info : subscriptions) {
                     result.add(subscriptionToJson(info));
                 }
-                ctx.response()
-                    .putHeader("Content-Type", "application/json")
-                    .end(result.encode());
+                return result;
             })
+            .onSuccess(result -> ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode()))
             .onFailure(error -> {
                 logger.error("Failed to list subscriptions for topic: {}", topic, error);
-                sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to list subscriptions: " + error.getMessage());
+                sendError(ctx, 503, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to list subscriptions: " + error.getMessage());
             });
     }
 
@@ -144,47 +145,34 @@ public class SubscriptionHandler {
         service.getSubscription(topic, groupName)
             .compose(existing -> {
                 if (existing != null && existing.state() == SubscriptionState.ACTIVE) {
-                    return Future.failedFuture(new IllegalStateException("CONFLICT"));
+                    return Future.failedFuture(new ResponseException(409, "CONFLICT"));
                 }
                 return service.subscribe(topic, groupName, options);
             })
-            .onSuccess(v -> {
-                // Fetch the created subscription to return full details
-                service.getSubscription(topic, groupName)
-                    .onSuccess(info -> {
-                        JsonObject result = new JsonObject()
-                            .put("success", true)
-                            .put("topic", topic)
-                            .put("groupName", groupName)
-                            .put("action", "subscribed");
-                        if (info != null) {
-                            result.put("subscription", subscriptionToJson(info));
-                        }
-                        ctx.response()
-                            .setStatusCode(201)
-                            .putHeader("Content-Type", "application/json")
-                            .end(result.encode());
-                    })
-                    .onFailure(fetchError -> {
-                        // Subscription was created but we couldn't fetch it still return 201
-                        JsonObject result = new JsonObject()
-                            .put("success", true)
-                            .put("topic", topic)
-                            .put("groupName", groupName)
-                            .put("action", "subscribed");
-                        ctx.response()
-                            .setStatusCode(201)
-                            .putHeader("Content-Type", "application/json")
-                            .end(result.encode());
-                    });
+            .compose(v -> service.getSubscription(topic, groupName)
+                    .transform(ar -> Future.succeededFuture(ar.succeeded() ? ar.result() : null)))
+            .map(info -> {
+                JsonObject result = new JsonObject()
+                    .put("success", true)
+                    .put("topic", topic)
+                    .put("groupName", groupName)
+                    .put("action", "subscribed");
+                if (info != null) {
+                    result.put("subscription", subscriptionToJson(info));
+                }
+                return result;
             })
+            .onSuccess(result -> ctx.response()
+                    .setStatusCode(201)
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode()))
             .onFailure(error -> {
-                if (error instanceof IllegalStateException && "CONFLICT".equals(error.getMessage())) {
+                if (error instanceof ResponseException re && re.statusCode == 409) {
                     sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_ALREADY_EXISTS,
                              "Subscription already exists for topic '" + topic + "' and group '" + groupName + "'");
                 } else {
                     logger.error("Failed to create subscription: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_CREATE_FAILED,
+                    sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_CREATE_FAILED,
                              "Failed to create subscription: " + error.getMessage());
                 }
             });
@@ -208,18 +196,23 @@ public class SubscriptionHandler {
         }
 
         service.getSubscription(topic, groupName)
-            .onSuccess(info -> {
+            .compose(info -> {
                 if (info == null) {
+                    return Future.failedFuture(new ResponseException(404, "not-found"));
+                }
+                return Future.succeededFuture(info);
+            })
+            .map(info -> subscriptionToJson(info))
+            .onSuccess(json -> ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(json.encode()))
+            .onFailure(error -> {
+                if (error instanceof ResponseException re && re.statusCode == 404) {
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
-                    ctx.response()
-                        .putHeader("Content-Type", "application/json")
-                        .end(subscriptionToJson(info).encode());
+                    logger.error("Failed to get subscription: {}/{}", topic, groupName, error);
+                    sendError(ctx, 503, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to get subscription: " + error.getMessage());
                 }
-            })
-            .onFailure(error -> {
-                logger.error("Failed to get subscription: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR, "Failed to get subscription: " + error.getMessage());
             });
     }
     
@@ -257,7 +250,7 @@ public class SubscriptionHandler {
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
                     logger.error("Failed to pause subscription: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_PAUSE_FAILED, "Failed to pause subscription: " + error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_PAUSE_FAILED, "Failed to pause subscription: " + error.getMessage());
                 }
             });
     }
@@ -296,7 +289,7 @@ public class SubscriptionHandler {
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
                     logger.error("Failed to resume subscription: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_RESUME_FAILED, "Failed to resume subscription: " + error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_RESUME_FAILED, "Failed to resume subscription: " + error.getMessage());
                 }
             });
     }
@@ -335,7 +328,7 @@ public class SubscriptionHandler {
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
                     logger.error("Failed to update heartbeat: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_HEARTBEAT_FAILED, "Failed to update heartbeat: " + error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_HEARTBEAT_FAILED, "Failed to update heartbeat: " + error.getMessage());
                 }
             });
     }
@@ -374,7 +367,7 @@ public class SubscriptionHandler {
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
                     logger.error("Failed to cancel subscription: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.SUBSCRIPTION_CANCEL_FAILED, "Failed to cancel subscription: " + error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.SUBSCRIPTION_CANCEL_FAILED, "Failed to cancel subscription: " + error.getMessage());
                 }
             });
     }
@@ -401,8 +394,7 @@ public class SubscriptionHandler {
         }
 
         service.forceRemoveConsumerGroup(topic, groupName)
-            .onSuccess(result -> {
-                JsonObject json = new JsonObject()
+            .map(result -> new JsonObject()
                     .put("success", true)
                     .put("topic", result.topic())
                     .put("groupName", result.groupName())
@@ -411,11 +403,10 @@ public class SubscriptionHandler {
                     .put("messagesDecremented", result.messagesDecremented())
                     .put("orphanRowsRemoved", result.orphanRowsRemoved())
                     .put("messagesAutoCompleted", result.messagesAutoCompleted())
-                    .put("totalActions", result.totalActions());
-                ctx.response()
+                    .put("totalActions", result.totalActions()))
+            .onSuccess(json -> ctx.response()
                     .putHeader("Content-Type", "application/json")
-                    .end(json.encode());
-            })
+                    .end(json.encode()))
             .onFailure(error -> {
                 if (isSubscriptionNotFoundError(error) ||
                         (error instanceof IllegalArgumentException && error.getMessage() != null
@@ -426,7 +417,7 @@ public class SubscriptionHandler {
                             error.getMessage());
                 } else {
                     logger.error("Failed to force-remove consumer group: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.FORCE_REMOVE_FAILED,
+                    sendError(ctx, 503, PeeGeeQErrorCodes.FORCE_REMOVE_FAILED,
                             "Failed to force-remove consumer group: " + error.getMessage());
                 }
             });
@@ -486,7 +477,7 @@ public class SubscriptionHandler {
                              error.getMessage());
                 } else {
                     logger.error("Failed to start backfill: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.BACKFILL_START_FAILED,
+                    sendError(ctx, 503, PeeGeeQErrorCodes.BACKFILL_START_FAILED,
                              "Failed to start backfill: " + error.getMessage());
                 }
             });
@@ -512,17 +503,17 @@ public class SubscriptionHandler {
         }
 
         service.getSubscription(topic, groupName)
-            .onSuccess(info -> {
+            .compose(info -> {
                 if (info == null) {
-                    sendSubscriptionNotFoundError(ctx, topic, groupName);
-                    return;
+                    return Future.failedFuture(new ResponseException(404, "not-found"));
                 }
-
+                return Future.succeededFuture(info);
+            })
+            .map(info -> {
                 JsonObject progress = new JsonObject()
                     .put("topic", info.topic())
                     .put("groupName", info.groupName())
                     .put("backfillStatus", info.backfillStatus());
-
                 if (info.backfillProcessedMessages() != null) {
                     progress.put("processedMessages", info.backfillProcessedMessages());
                 }
@@ -543,15 +534,19 @@ public class SubscriptionHandler {
                     double percent = (info.backfillProcessedMessages() * 100.0) / info.backfillTotalMessages();
                     progress.put("percentComplete", Math.round(percent * 10.0) / 10.0);
                 }
-
-                ctx.response()
-                    .putHeader("Content-Type", "application/json")
-                    .end(progress.encode());
+                return progress;
             })
+            .onSuccess(progress -> ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(progress.encode()))
             .onFailure(error -> {
-                logger.error("Failed to get backfill progress: {}/{}", topic, groupName, error);
-                sendError(ctx, 500, PeeGeeQErrorCodes.INTERNAL_ERROR,
-                         "Failed to get backfill progress: " + error.getMessage());
+                if (error instanceof ResponseException re && re.statusCode == 404) {
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else {
+                    logger.error("Failed to get backfill progress: {}/{}", topic, groupName, error);
+                    sendError(ctx, 503, PeeGeeQErrorCodes.INTERNAL_ERROR,
+                             "Failed to get backfill progress: " + error.getMessage());
+                }
             });
     }
 
@@ -591,7 +586,7 @@ public class SubscriptionHandler {
                     sendSubscriptionNotFoundError(ctx, topic, groupName);
                 } else {
                     logger.error("Failed to cancel backfill: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.BACKFILL_CANCEL_FAILED,
+                    sendError(ctx, 503, PeeGeeQErrorCodes.BACKFILL_CANCEL_FAILED,
                              "Failed to cancel backfill: " + error.getMessage());
                 }
             });
@@ -625,7 +620,7 @@ public class SubscriptionHandler {
         String instanceId = body.getString("instanceId");
 
         service.joinPartitionedGroup(topic, groupName, instanceId)
-            .onSuccess(assignments -> {
+            .map(assignments -> {
                 JsonArray result = new JsonArray();
                 for (PartitionAssignmentInfo a : assignments) {
                     result.add(new JsonObject()
@@ -635,16 +630,17 @@ public class SubscriptionHandler {
                             .put("instanceId", a.instanceId())
                             .put("generation", a.generation()));
                 }
-                ctx.response()
-                    .putHeader("Content-Type", "application/json")
-                    .end(result.encode());
+                return result;
             })
+            .onSuccess(result -> ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode()))
             .onFailure(error -> {
                 if (error instanceof IllegalArgumentException) {
                     sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
                 } else {
                     logger.error("Failed to join partitioned group: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_JOIN_FAILED, error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.PARTITION_JOIN_FAILED, error.getMessage());
                 }
             });
     }
@@ -688,7 +684,7 @@ public class SubscriptionHandler {
                     sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
                 } else {
                     logger.error("Failed to leave partitioned group: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_LEAVE_FAILED, error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.PARTITION_LEAVE_FAILED, error.getMessage());
                 }
             });
     }
@@ -716,7 +712,7 @@ public class SubscriptionHandler {
         }
 
         service.getPartitionAssignments(topic, groupName, instanceId)
-            .onSuccess(assignments -> {
+            .map(assignments -> {
                 JsonArray result = new JsonArray();
                 for (PartitionAssignmentInfo a : assignments) {
                     result.add(new JsonObject()
@@ -726,16 +722,17 @@ public class SubscriptionHandler {
                             .put("instanceId", a.instanceId())
                             .put("generation", a.generation()));
                 }
-                ctx.response()
-                    .putHeader("Content-Type", "application/json")
-                    .end(result.encode());
+                return result;
             })
+            .onSuccess(result -> ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode()))
             .onFailure(error -> {
                 if (error instanceof IllegalArgumentException) {
                     sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
                 } else {
                     logger.error("Failed to get partition assignments: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_ASSIGNMENT_FAILED, error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.PARTITION_ASSIGNMENT_FAILED, error.getMessage());
                 }
             });
     }
@@ -783,7 +780,7 @@ public class SubscriptionHandler {
                     sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
                 } else {
                     logger.error("Failed to fetch partitioned messages: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_FETCH_FAILED, error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.PARTITION_FETCH_FAILED, error.getMessage());
                 }
             });
     }
@@ -820,23 +817,21 @@ public class SubscriptionHandler {
         }
 
         service.commitOffset(topic, groupName, partitionKey, offset, generation)
-            .onSuccess(committed -> {
-                JsonObject result = new JsonObject()
+            .map(committed -> new JsonObject()
                     .put("committed", committed)
                     .put("topic", topic)
                     .put("groupName", groupName)
                     .put("partitionKey", partitionKey)
-                    .put("offset", offset);
-                ctx.response()
+                    .put("offset", offset))
+            .onSuccess(result -> ctx.response()
                     .putHeader("Content-Type", "application/json")
-                    .end(result.encode());
-            })
+                    .end(result.encode()))
             .onFailure(error -> {
                 if (error instanceof IllegalArgumentException) {
                     sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
                 } else {
                     logger.error("Failed to commit offset: {}/{}", topic, groupName, error);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_COMMIT_FAILED, error.getMessage());
+                    sendError(ctx, 503, PeeGeeQErrorCodes.PARTITION_COMMIT_FAILED, error.getMessage());
                 }
             });
     }

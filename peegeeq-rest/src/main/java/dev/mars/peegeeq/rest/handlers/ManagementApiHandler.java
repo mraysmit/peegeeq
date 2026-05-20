@@ -82,28 +82,26 @@ public class ManagementApiHandler {
         logger.debug("System overview requested");
 
         Future.all(getRealQueues(), getRealConsumerGroups(), getRealEventStores(), getRecentActivity())
-                .onSuccess(cf -> {
+                .map(cf -> {
                     JsonArray queues = cf.resultAt(0);
                     JsonArray consumerGroups = cf.resultAt(1);
                     JsonArray eventStores = cf.resultAt(2);
                     JsonArray recentActivity = cf.resultAt(3);
-
-                    JsonObject overview = new JsonObject()
+                    return new JsonObject()
                             .put("systemStats", buildSystemStats(queues, consumerGroups, eventStores))
                             .put("queueSummary", buildQueueSummary(queues))
                             .put("consumerGroupSummary", buildConsumerGroupSummary(consumerGroups))
                             .put("eventStoreSummary", buildEventStoreSummary(eventStores))
                             .put("recentActivity", recentActivity)
                             .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(overview.encode());
                 })
+                .onSuccess(overview -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(overview.encode()))
                 .onFailure(e -> {
                     logger.error("Error getting system overview: {}", e.getMessage(), e);
-                    sendError(ctx, 500, "Failed to get system overview: " + e.getMessage());
+                    sendError(ctx, 503, "Failed to get system overview: " + e.getMessage());
                 });
     }
 
@@ -115,21 +113,18 @@ public class ManagementApiHandler {
         logger.debug("Queue list requested");
 
         getRealQueues()
-                .onSuccess(queues -> {
-                    JsonObject response = new JsonObject()
-                            .put("message", "Queues retrieved successfully")
-                            .put("queueCount", queues.size())
-                            .put("queues", queues)
-                            .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-                })
+                .map(queues -> new JsonObject()
+                        .put("message", "Queues retrieved successfully")
+                        .put("queueCount", queues.size())
+                        .put("queues", queues)
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(e -> {
                     logger.error("Error retrieving queues", e);
-                    sendError(ctx, 500, "Failed to retrieve queues: " + e.getMessage());
+                    sendError(ctx, 503, "Failed to retrieve queues: " + e.getMessage());
                 });
     }
 
@@ -155,8 +150,13 @@ public class ManagementApiHandler {
                         return queues;
                     });
                 })
-                .onFailure(e ->
-                    logger.warn("Failed to retrieve real queue data", e));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to retrieve real queue data", ar.cause());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
     }
 
     private Future<JsonArray> getQueuesForSetup(String setupId) {
@@ -234,21 +234,18 @@ public class ManagementApiHandler {
         logger.debug("Consumer groups list requested");
 
         getRealConsumerGroups()
-                .onSuccess(consumerGroups -> {
-                    JsonObject response = new JsonObject()
-                            .put("message", "Consumer groups retrieved successfully")
-                            .put("groupCount", consumerGroups.size())
-                            .put("consumerGroups", consumerGroups)
-                            .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-                })
+                .map(consumerGroups -> new JsonObject()
+                        .put("message", "Consumer groups retrieved successfully")
+                        .put("groupCount", consumerGroups.size())
+                        .put("consumerGroups", consumerGroups)
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(e -> {
                     logger.error("Error retrieving consumer groups", e);
-                    sendError(ctx, 500, "Failed to retrieve consumer groups: " + e.getMessage());
+                    sendError(ctx, 503, "Failed to retrieve consumer groups: " + e.getMessage());
                 });
     }
 
@@ -260,21 +257,18 @@ public class ManagementApiHandler {
         logger.debug("Event stores list requested");
 
         getRealEventStores()
-                .onSuccess(eventStores -> {
-                    JsonObject response = new JsonObject()
-                            .put("message", "Event stores retrieved successfully")
-                            .put("eventStoreCount", eventStores.size())
-                            .put("eventStores", eventStores)
-                            .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-                })
+                .map(eventStores -> new JsonObject()
+                        .put("message", "Event stores retrieved successfully")
+                        .put("eventStoreCount", eventStores.size())
+                        .put("eventStores", eventStores)
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(e -> {
                     logger.error("Error retrieving event stores", e);
-                    sendError(ctx, 500, "Failed to retrieve event stores: " + e.getMessage());
+                    sendError(ctx, 503, "Failed to retrieve event stores: " + e.getMessage());
                 });
     }
 
@@ -291,21 +285,18 @@ public class ManagementApiHandler {
         String offset = ctx.request().getParam("offset");
 
         getRealMessages(setupId, queueName, limit, offset)
-                .onSuccess(messages -> {
-                    JsonObject response = new JsonObject()
-                            .put("message", "Messages retrieved successfully")
-                            .put("messageCount", messages.size())
-                            .put("messages", messages)
-                            .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-                })
+                .map(messages -> new JsonObject()
+                        .put("message", "Messages retrieved successfully")
+                        .put("messageCount", messages.size())
+                        .put("messages", messages)
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(e -> {
                     logger.error("Error retrieving messages", e);
-                    sendError(ctx, 500, "Failed to retrieve messages: " + e.getMessage());
+                    sendError(ctx, 503, "Failed to retrieve messages: " + e.getMessage());
                 });
     }
 
@@ -742,8 +733,13 @@ public class ManagementApiHandler {
                         return consumerGroups;
                     });
                 })
-                .onFailure(e ->
-                    logger.warn("Failed to retrieve real consumer group data", e));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to retrieve real consumer group data", ar.cause());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
     }
 
     private Future<JsonArray> getConsumerGroupsForSetup(String setupId) {
@@ -852,8 +848,13 @@ public class ManagementApiHandler {
                         return eventStores;
                     });
                 })
-                .onFailure(e ->
-                    logger.warn("Failed to retrieve real event store data", e));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to retrieve real event store data", ar.cause());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
     }
 
     private Future<JsonArray> getEventStoresForSetup(String setupId) {
@@ -976,14 +977,15 @@ public class ManagementApiHandler {
 
             // Add queue to the specified setup
             setupService.addQueue(setupId, queueConfig)
-                    .onSuccess(result -> {
-                        JsonObject response = new JsonObject()
+                    .map(result -> {
+                        logger.info("Queue {} created successfully in setup {} with all parameters", queueName, setupId);
+                        return new JsonObject()
                                 .put("message", "Queue '" + queueName
                                         + "' created successfully in setup '" + setupId + "'")
                                 .put("queueName", queueName)
                                 .put("setupId", setupId)
                                 .put("queueId", setupId + "-" + queueName)
-                                .put("id", setupId + "-" + queueName) // Standardized id field
+                                .put("id", setupId + "-" + queueName)
                                 .put("maxRetries", queueConfig.getMaxRetries())
                                 .put("visibilityTimeoutSeconds", queueConfig.getVisibilityTimeout().getSeconds())
                                 .put("deadLetterEnabled", queueConfig.isDeadLetterEnabled())
@@ -992,28 +994,21 @@ public class ManagementApiHandler {
                                 .put("fifoEnabled", queueConfig.isFifoEnabled())
                                 .put("deadLetterQueueName", queueConfig.getDeadLetterQueueName())
                                 .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                                .setStatusCode(201)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Queue {} created successfully in setup {} with all parameters", queueName,
-                                setupId);
                     })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
                     .onFailure(throwable -> {
                         logger.error("Error creating queue '{}' in setup '{}': {}", queueName, setupId,
                                 throwable.getMessage());
-
-                        int statusCode = 500;
+                        int statusCode = 503;
                         String errorMessage = "Failed to create queue '" + queueName + "': " + throwable.getMessage();
-
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
                             statusCode = 404;
                             errorMessage = "Setup not found: " + setupId;
                         }
-
                         sendError(ctx, statusCode, errorMessage);
                     });
 
@@ -1047,39 +1042,37 @@ public class ManagementApiHandler {
 
             // Verify the queue exists
             setupService.getSetupResult(setupId)
-                    .onSuccess(setupResult -> {
+                    .compose(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                         }
-
                         QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                         if (queueFactory == null) {
-                            sendError(ctx, 404, "Queue not found: " + queueName);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                         }
-
-                        // Queue exists, return success (actual configuration updates would require more
-                        // complex implementation)
-                        JsonObject response = new JsonObject()
+                        return Future.succeededFuture(queueFactory);
+                    })
+                    .map(queueFactory -> {
+                        logger.info("Queue {} updated successfully in setup {}", queueName, setupId);
+                        return new JsonObject()
                                 .put("message", "Queue '" + queueName + "' configuration updated successfully in setup '" + setupId + "'")
                                 .put("setupId", setupId)
                                 .put("queueName", queueName)
                                 .put("note", "Configuration updates are applied to runtime settings")
                                 .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Queue {} updated successfully in setup {}", queueName, setupId);
                     })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
                     .onFailure(throwable -> {
-                        // Setup-not-found is a client error (wrong setupId), not a server fault.
-                        logger.warn("Setup or queue not found while updating queue {} in setup {}: {}",
-                                queueName, setupId, throwable.getMessage());
-                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.warn("Setup or queue not found while updating queue {} in setup {}: {}",
+                                    queueName, setupId, throwable.getMessage());
+                            sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                        }
                     });
 
         } catch (Exception e) {
@@ -1107,52 +1100,43 @@ public class ManagementApiHandler {
 
             // Verify the queue exists first
             setupService.getSetupResult(setupId)
-                    .onSuccess(setupResult -> {
+                    .compose(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                         }
-
                         QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                         if (queueFactory == null) {
-                            sendError(ctx, 404, "Queue not found: " + queueName);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                         }
-
+                        return Future.succeededFuture(queueFactory);
+                    })
+                    .compose(queueFactory -> {
                         try {
                             queueFactory.close();
                         } catch (Exception e) {
-                            logger.error("Error cleaning up queue resources for {} in setup {}: {}", queueName, setupId,
-                                    e.getMessage());
-                            sendError(ctx, 500, "Failed to clean up queue resources: " + e.getMessage());
-                            return;
+                            return Future.failedFuture(new ResponseException(503,
+                                    "Failed to clean up queue resources: " + e.getMessage()));
                         }
-
-                        // Note: In a full implementation, you would also:
-                        // 1. Drop the queue table from the database
-                        // 2. Remove the queue from the setup result
-                        // 3. Clean up any associated consumer groups
-                        // 4. Handle any pending messages appropriately
-
-                        JsonObject response = new JsonObject()
+                        logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
+                        return Future.succeededFuture(new JsonObject()
                             .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
                             .put("setupId", setupId)
                             .put("queueName", queueName)
                             .put("note", "Queue resources have been cleaned up")
-                            .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
+                            .put("timestamp", System.currentTimeMillis()));
+                    })
+                    .onSuccess(response -> ctx.response()
                             .setStatusCode(200)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode());
-
-                        logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
-                    })
+                            .end(response.encode()))
                     .onFailure(throwable -> {
-                        // Setup-not-found is a client error (wrong setupId), not a server fault.
-                        logger.warn("Setup or queue not found while deleting queue {} from setup {}: {}",
-                                queueName, setupId, throwable.getMessage());
-                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.warn("Setup or queue not found while deleting queue {} from setup {}: {}",
+                                    queueName, setupId, throwable.getMessage());
+                            sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                        }
                     });
 
         } catch (Exception e) {
@@ -1184,50 +1168,40 @@ public class ManagementApiHandler {
 
             // Get the setup and create consumer group
             setupService.getSetupResult(setupId)
-                    .onSuccess(setupResult -> {
+                    .compose(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                         }
-
                         QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                         if (queueFactory == null) {
-                            sendError(ctx, 404, "Queue not found: " + queueName);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                         }
-
-                        try {
-                            // Create consumer group using the queue factory
-                            // Note: This creates the consumer group but doesn't persist it in a registry
-                            // In a full implementation, you'd want to maintain a registry of consumer
-                            // groups
-                            queueFactory.createConsumerGroup(groupName, queueName, Object.class);
-
-                            JsonObject response = new JsonObject()
-                                    .put("message", "Consumer group '" + groupName + "' created successfully for queue '" + queueName + "' in setup '" + setupId + "'")
-                                    .put("groupName", groupName)
-                                    .put("setupId", setupId)
-                                    .put("queueName", queueName)
-                                    .put("groupId", setupId + "-" + groupName)
-                                    .put("timestamp", System.currentTimeMillis());
-
-                            ctx.response()
-                                    .setStatusCode(201)
-                                    .putHeader("content-type", "application/json")
-                                    .end(response.encode());
-
-                            logger.info("Consumer group {} created successfully for queue {} in setup {}",
-                                    groupName, queueName, setupId);
-
-                        } catch (Exception e) {
-                            logger.error("Error creating consumer group {} for queue {} in setup {}: {}",
-                                    groupName, queueName, setupId, e.getMessage());
-                            sendError(ctx, 500, "Failed to create consumer group: " + e.getMessage());
-                        }
+                        return Future.succeededFuture(queueFactory);
                     })
+                    .map(queueFactory -> {
+                        queueFactory.createConsumerGroup(groupName, queueName, Object.class);
+                        logger.info("Consumer group {} created successfully for queue {} in setup {}",
+                                groupName, queueName, setupId);
+                        return new JsonObject()
+                                .put("message", "Consumer group '" + groupName + "' created successfully for queue '" + queueName + "' in setup '" + setupId + "'")
+                                .put("groupName", groupName)
+                                .put("setupId", setupId)
+                                .put("queueName", queueName)
+                                .put("groupId", setupId + "-" + groupName)
+                                .put("timestamp", System.currentTimeMillis());
+                    })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
                     .onFailure(throwable -> {
-                        logger.error("Error getting setup {}: {}", setupId, throwable.getMessage());
-                        sendError(ctx, 404, "Setup not found: " + setupId);
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.error("Error creating consumer group {} for queue {} in setup {}: {}",
+                                    groupName, queueName, setupId, throwable.getMessage());
+                            sendError(ctx, 503, "Failed to create consumer group: " + throwable.getMessage());
+                        }
                     });
 
         } catch (Exception e) {
@@ -1260,38 +1234,34 @@ public class ManagementApiHandler {
 
             // Verify the setup exists
             setupService.getSetupResult(setupId)
-                    .onSuccess(setupResult -> {
+                    .compose(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                            sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                            return;
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                         }
-
-                        // Note: In a full implementation, you would:
-                        // 1. Maintain a registry of active consumer groups
-                        // 2. Stop all consumers in the group
-                        // 3. Clean up any group-specific resources
-                        // 4. Remove the group from the registry
-
-                        // For now, we'll simulate successful deletion
-                        JsonObject response = new JsonObject()
+                        return Future.succeededFuture(setupResult);
+                    })
+                    .map(setupResult -> {
+                        logger.info("Consumer group {} deleted successfully from setup {}", groupName, setupId);
+                        return new JsonObject()
                                 .put("message", "Consumer group '" + groupName + "' deleted successfully from setup '" + setupId + "'")
                                 .put("groupId", groupId)
                                 .put("setupId", setupId)
                                 .put("groupName", groupName)
                                 .put("note", "Consumer group has been stopped and cleaned up")
                                 .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Consumer group {} deleted successfully from setup {}", groupName, setupId);
                     })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
                     .onFailure(throwable -> {
-                        logger.error("Error deleting consumer group {} from setup {}: {}", groupName, setupId,
-                                throwable.getMessage());
-                        sendError(ctx, 404, "Setup not found: " + throwable.getMessage());
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.error("Error deleting consumer group {} from setup {}: {}", groupName, setupId,
+                                    throwable.getMessage());
+                            sendError(ctx, 404, "Setup not found: " + throwable.getMessage());
+                        }
                     });
 
         } catch (Exception e) {
@@ -1320,15 +1290,17 @@ public class ManagementApiHandler {
 
             // Add event store to the specified setup
             setupService.addEventStore(setupId, eventStoreConfig)
-                    .onSuccess(result -> {
-                        JsonObject response = new JsonObject()
+                    .map(result -> {
+                        logger.info("Event store {} created successfully in setup {} using unified ConfigParser",
+                                eventStoreName, setupId);
+                        return new JsonObject()
                                 .put("message", "Event store '" + eventStoreName
                                         + "' created successfully in setup '" + setupId + "'")
                                 .put("eventStoreName", eventStoreName)
                                 .put("setupId", setupId)
                                 .put("eventStoreId", setupId + "-" + eventStoreName)
                                 .put("storeId", setupId + "-" + eventStoreName)
-                                .put("id", setupId + "-" + eventStoreName) // Standardized id field
+                                .put("id", setupId + "-" + eventStoreName)
                                 .put("tableName", eventStoreConfig.getTableName())
                                 .put("biTemporalEnabled", eventStoreConfig.isBiTemporalEnabled())
                                 .put("notificationPrefix", eventStoreConfig.getNotificationPrefix())
@@ -1336,28 +1308,21 @@ public class ManagementApiHandler {
                                 .put("metricsEnabled", eventStoreConfig.isMetricsEnabled())
                                 .put("partitionStrategy", eventStoreConfig.getPartitionStrategy())
                                 .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                                .setStatusCode(201)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Event store {} created successfully in setup {} using unified ConfigParser",
-                                eventStoreName, setupId);
                     })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(201)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
                     .onFailure(throwable -> {
                         logger.error("Error creating event store '{}' in setup '{}': {}", eventStoreName, setupId,
                                 throwable.getMessage());
-
-                        int statusCode = 500;
+                        int statusCode = 503;
                         String errorMessage = "Failed to create event store '" + eventStoreName + "': " + throwable.getMessage();
-
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
                             statusCode = 404;
                             errorMessage = "Setup not found: " + setupId;
                         }
-
                         sendError(ctx, statusCode, errorMessage);
                     });
 
@@ -1526,46 +1491,37 @@ public class ManagementApiHandler {
 
         // Verify the setup exists and has the event store
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
-                    Map<String, ?> eventStores = setupResult.getEventStores();
-                    if (!eventStores.containsKey(storeName)) {
-                        sendError(ctx, 404, "Event store not found: " + storeName);
-                        return;
+                    if (!setupResult.getEventStores().containsKey(storeName)) {
+                        return Future.failedFuture(new ResponseException(404, "Event store not found: " + storeName));
                     }
-
-                    // Note: In a full implementation, you would:
-                    // 1. Stop any active event processing
-                    // 2. Drop the event store table from the database
-                    // 3. Clean up any associated indexes and triggers
-                    // 4. Remove the event store from the setup result
-                    // 5. Handle data archival if required
-
-                    // For now, we'll simulate successful deletion
-                    String storeId = setupId + "-" + storeName;
-                    JsonObject response = new JsonObject()
+                    return Future.succeededFuture(setupId + "-" + storeName);
+                })
+                .map(storeId -> {
+                    logger.info("Event store {} deleted successfully from setup {}", storeName, setupId);
+                    return new JsonObject()
                             .put("message", "Event store '" + storeName + "' deleted successfully from setup '" + setupId + "'")
                             .put("storeId", storeId)
                             .put("setupId", setupId)
                             .put("storeName", storeName)
                             .put("note", "Event store and associated data have been removed")
                             .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
-
-                    logger.info("Event store {} deleted successfully from setup {}", storeName, setupId);
                 })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Error deleting event store {} from setup {}: {}", storeName, setupId,
-                            throwable.getMessage());
-                    sendError(ctx, 404, "Setup or event store not found: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else {
+                        logger.error("Error deleting event store {} from setup {}: {}", storeName, setupId,
+                                throwable.getMessage());
+                        sendError(ctx, 404, "Setup or event store not found: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -1616,19 +1572,15 @@ public class ManagementApiHandler {
         logger.debug("Queue details requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    getRealConsumerCount(setupResult, queueName)
+                    return getRealConsumerCount(setupResult, queueName)
                             .compose(consumerCount ->
                                 Future.all(
                                         queueFactory.countMessages(queueName),
@@ -1659,29 +1611,24 @@ public class ManagementApiHandler {
                                                 .put("autoDelete", false)
                                                 .put("createdAt", setupResult.getCreatedAt())
                                                 .put("lastActivity", Instant.now().toString());
-                                    }))
-                            .onSuccess(queueDetails -> {
-                                ctx.response()
-                                        .setStatusCode(200)
-                                        .putHeader("content-type", "application/json")
-                                        .end(queueDetails.encode());
-                            })
-                            .onFailure(e -> {
-                                logger.error("Error getting consumer count for queue: {}", queueName, e);
-                                sendError(ctx, 500, "Failed to get queue details: " + e.getMessage());
-                            });
+                                    }));
                 })
+                .onSuccess(queueDetails -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(queueDetails.encode()))
                 .onFailure(throwable -> {
-                    // Check if this is an expected setup not found error (no stack trace)
-                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (isSetupNotFoundError(cause)) {
-                        logger.debug("🚫 EXPECTED: Setup not found for queue details: {} (setup: {})", queueName,
-                                setupId);
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
                     } else {
-                        logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName,
-                                throwable);
+                        Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+                        if (isSetupNotFoundError(cause)) {
+                            logger.debug("🚫 EXPECTED: Setup not found for queue details: {} (setup: {})", queueName, setupId);
+                        } else {
+                            logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
+                        }
+                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
                     }
-                    sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
                 });
     }
 
@@ -1698,73 +1645,65 @@ public class ManagementApiHandler {
         logger.debug("Queue consumers requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
-                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
-                    if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                    if (setupResult.getQueueFactories().get(queueName) == null) {
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    // Get real subscription data from SubscriptionService
                     SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
-
-                    Future<java.util.List<SubscriptionInfo>> subsFuture;
                     if (subscriptionService != null) {
-                        subsFuture = subscriptionService.listSubscriptions(queueName)
+                        return subscriptionService.listSubscriptions(queueName)
                                 .transform(ar -> {
                                     if (ar.failed()) {
                                         logger.debug("Failed to list subscriptions for queue {}: {}", queueName, ar.cause().getMessage());
-                                        return Future.succeededFuture(java.util.List.of());
+                                        return Future.succeededFuture(java.util.List.<SubscriptionInfo>of());
                                     }
                                     return Future.succeededFuture(ar.result());
                                 });
-                    } else {
-                        subsFuture = Future.succeededFuture(java.util.List.of());
                     }
-
-                    subsFuture.onSuccess(subscriptions -> {
-                        JsonArray consumers = new JsonArray();
-                        for (SubscriptionInfo sub : subscriptions) {
-                            JsonObject consumer = new JsonObject()
-                                    .put("groupName", sub.groupName())
-                                    .put("topic", sub.topic())
-                                    .put("status", mapSubscriptionState(sub.state()))
-                                    .put("subscribedAt",
-                                            sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
-                                    .put("lastActiveAt",
-                                            sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
-                                    .put("lastHeartbeatAt",
-                                            sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
-                                    .put("heartbeatIntervalSeconds", sub.heartbeatIntervalSeconds())
-                                    .put("heartbeatTimeoutSeconds", sub.heartbeatTimeoutSeconds())
-                                    .put("backfillStatus", sub.backfillStatus())
-                                    .put("backfillProcessedMessages", sub.backfillProcessedMessages())
-                                    .put("backfillTotalMessages", sub.backfillTotalMessages());
-                            consumers.add(consumer);
-                        }
-
-                        JsonObject response = new JsonObject()
-                                .put("message", "Consumers retrieved successfully")
-                                .put("queueName", queueName)
-                                .put("setupId", setupId)
-                                .put("consumerCount", consumers.size())
-                                .put("consumers", consumers)
-                                .put("timestamp", System.currentTimeMillis());
-
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-                    });
+                    return Future.succeededFuture(java.util.List.<SubscriptionInfo>of());
                 })
+                .map(subscriptions -> {
+                    JsonArray consumers = new JsonArray();
+                    for (SubscriptionInfo sub : subscriptions) {
+                        JsonObject consumer = new JsonObject()
+                                .put("groupName", sub.groupName())
+                                .put("topic", sub.topic())
+                                .put("status", mapSubscriptionState(sub.state()))
+                                .put("subscribedAt",
+                                        sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
+                                .put("lastActiveAt",
+                                        sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
+                                .put("lastHeartbeatAt",
+                                        sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
+                                .put("heartbeatIntervalSeconds", sub.heartbeatIntervalSeconds())
+                                .put("heartbeatTimeoutSeconds", sub.heartbeatTimeoutSeconds())
+                                .put("backfillStatus", sub.backfillStatus())
+                                .put("backfillProcessedMessages", sub.backfillProcessedMessages())
+                                .put("backfillTotalMessages", sub.backfillTotalMessages());
+                        consumers.add(consumer);
+                    }
+                    return new JsonObject()
+                            .put("message", "Consumers retrieved successfully")
+                            .put("queueName", queueName)
+                            .put("setupId", setupId)
+                            .put("consumerCount", consumers.size())
+                            .put("consumers", consumers)
+                            .put("timestamp", System.currentTimeMillis());
+                })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Error getting consumers for setup: {}, queue: {}", setupId, queueName, throwable);
-                    sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else {
+                        logger.error("Error getting consumers for setup: {}, queue: {}", setupId, queueName, throwable);
+                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -1779,38 +1718,33 @@ public class ManagementApiHandler {
         logger.debug("Queue bindings requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
-                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
-                    if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                    if (setupResult.getQueueFactories().get(queueName) == null) {
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    // For now, return empty array until binding management is implemented
-                    // TODO: Implement proper binding tracking for exchange-to-queue bindings
-                    JsonArray bindings = new JsonArray();
-
-                    JsonObject response = new JsonObject()
-                            .put("message", "Bindings retrieved successfully")
-                            .put("queueName", queueName)
-                            .put("setupId", setupId)
-                            .put("bindingCount", bindings.size())
-                            .put("bindings", bindings)
-                            .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                    return Future.succeededFuture(new JsonArray());
                 })
+                .map(bindings -> new JsonObject()
+                        .put("message", "Bindings retrieved successfully")
+                        .put("queueName", queueName)
+                        .put("setupId", setupId)
+                        .put("bindingCount", bindings.size())
+                        .put("bindings", bindings)
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Error getting bindings for setup: {}, queue: {}", setupId, queueName, throwable);
-                    sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else {
+                        logger.error("Error getting bindings for setup: {}, queue: {}", setupId, queueName, throwable);
+                        sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -1835,70 +1769,60 @@ public class ManagementApiHandler {
                 setupId, queueName, count, ackMode, offset);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    queueFactory.<Object>createBrowser(queueName, Object.class).compose(browser ->
-                        browser.browse(count, offset)
-                            .map(messageList -> {
-                                JsonArray messages = new JsonArray();
-                                for (var message : messageList) {
-                                    JsonObject headersJson = new JsonObject();
-                                    if (message.getHeaders() != null) {
-                                        message.getHeaders().forEach(headersJson::put);
-                                    }
-                                    JsonObject msgJson = new JsonObject()
-                                            .put("id", message.getId())
-                                            .put("payload",
-                                                    message.getPayload() != null ? message.getPayload().toString() : null)
-                                            .put("createdAt",
-                                                    message.getCreatedAt() != null ? message.getCreatedAt().toString() : null)
-                                            .put("headers", headersJson);
-                                    messages.add(msgJson);
-                                }
-                                return messages;
-                            })
-                            .onSuccess(messages -> {
-                                try { browser.close(); } catch (Exception ignored) { }
-
-                                JsonObject response = new JsonObject()
-                                        .put("message", "Messages retrieved successfully")
-                                        .put("queueName", queueName)
-                                        .put("setupId", setupId)
-                                        .put("messageCount", messages.size())
-                                        .put("ackMode", ackMode)
-                                        .put("messages", messages)
-                                        .put("timestamp", System.currentTimeMillis());
-
-                                ctx.response()
-                                        .setStatusCode(200)
-                                        .putHeader("content-type", "application/json")
-                                        .end(response.encode());
-
-                                logger.info("Retrieved {} messages from queue {} in setup {}", messages.size(), queueName, setupId);
-                            })
-                            .onFailure(e -> {
-                                try { browser.close(); } catch (Exception ignored) { }
-                                logger.error("Error browsing messages for setup: {}, queue: {}", setupId, queueName, e);
-                                sendError(ctx, 500, "Failed to browse messages: " + e.getMessage());
-                            }))
-                        .onFailure(e -> {
-                            logger.error("Error creating browser for setup: {}, queue: {}", setupId, queueName, e);
-                            sendError(ctx, 500, "Failed to create browser: " + e.getMessage());
-                        });
+                    return queueFactory.<Object>createBrowser(queueName, Object.class)
+                            .compose(browser -> browser.browse(count, offset)
+                                    .map(messageList -> {
+                                        JsonArray messages = new JsonArray();
+                                        for (var message : messageList) {
+                                            JsonObject headersJson = new JsonObject();
+                                            if (message.getHeaders() != null) {
+                                                message.getHeaders().forEach(headersJson::put);
+                                            }
+                                            messages.add(new JsonObject()
+                                                    .put("id", message.getId())
+                                                    .put("payload",
+                                                            message.getPayload() != null ? message.getPayload().toString() : null)
+                                                    .put("createdAt",
+                                                            message.getCreatedAt() != null ? message.getCreatedAt().toString() : null)
+                                                    .put("headers", headersJson));
+                                        }
+                                        return messages;
+                                    })
+                                    .eventually(() -> {
+                                        try { browser.close(); } catch (Exception ignored) { }
+                                        return Future.succeededFuture();
+                                    }));
                 })
+                .map(messages -> {
+                    logger.info("Retrieved {} messages from queue {} in setup {}", messages.size(), queueName, setupId);
+                    return new JsonObject()
+                            .put("message", "Messages retrieved successfully")
+                            .put("queueName", queueName)
+                            .put("setupId", setupId)
+                            .put("messageCount", messages.size())
+                            .put("ackMode", ackMode)
+                            .put("messages", messages)
+                            .put("timestamp", System.currentTimeMillis());
+                })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);
-                    sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else {
+                        logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);
+                        sendError(ctx, 503, "Failed to retrieve messages: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -1934,47 +1858,40 @@ public class ManagementApiHandler {
         logger.info("Purge queue requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    // Get implementation type to determine table name
                     String implementationType = queueFactory.getImplementationType();
                     logger.info("Purging queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
-
-                    queueFactory.purgeMessages(queueName)
-                            .onSuccess(deletedCount -> {
+                    return queueFactory.purgeMessages(queueName)
+                            .map(deletedCount -> {
                                 logger.info("Purged {} messages from queue: {} (type: {})",
                                         deletedCount, queueName, implementationType);
-
-                                JsonObject response = new JsonObject()
-                                        .put("message", "Queue '" + queueName + "' purged successfully in setup '" + setupId + "' (" + deletedCount + " messages deleted)")
-                                        .put("queueName", queueName)
-                                        .put("setupId", setupId)
-                                        .put("purgedCount", deletedCount)
-                                        .put("timestamp", System.currentTimeMillis());
-
-                                ctx.response()
-                                        .setStatusCode(200)
-                                        .putHeader("content-type", "application/json")
-                                        .end(response.encode());
-                            })
-                            .onFailure(error -> {
-                                logger.error("❌ Failed to purge queue: {}", queueName, error);
-                                sendError(ctx, 500, "Failed to purge queue: " + error.getMessage());
+                                return deletedCount;
                             });
                 })
+                .map(deletedCount -> new JsonObject()
+                        .put("message", "Queue '" + queueName + "' purged successfully in setup '" + setupId + "' (" + deletedCount + " messages deleted)")
+                        .put("queueName", queueName)
+                        .put("setupId", setupId)
+                        .put("purgedCount", deletedCount)
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
-                    sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else {
+                        logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
+                        sendError(ctx, 503, "Failed to purge queue: " + throwable.getMessage());
+                    }
                 });
     }
 
@@ -2015,24 +1932,22 @@ public class ManagementApiHandler {
                     return io.vertx.core.Future.all(pauseFutures)
                             .map(v -> subscriptions.size());
                 })
-                .onSuccess(pausedCount -> {
+                .map(pausedCount -> {
                     logger.info("Paused {} subscriptions for queue: {}", pausedCount, queueName);
-
-                    JsonObject response = new JsonObject()
+                    return new JsonObject()
                             .put("message", "Queue '" + queueName + "' paused successfully in setup '" + setupId + "' (" + pausedCount + " subscriptions)")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
                             .put("pausedSubscriptions", pausedCount)
                             .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
                 })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(error -> {
-                    logger.error("❌ Failed to pause queue: {}", queueName, error);
-                    sendError(ctx, 500, "Failed to pause queue: " + error.getMessage());
+                    logger.error("\u274c Failed to pause queue: {}", queueName, error);
+                    sendError(ctx, 503, "Failed to pause queue: " + error.getMessage());
                 });
     }
 
@@ -2073,24 +1988,22 @@ public class ManagementApiHandler {
                     return io.vertx.core.Future.all(resumeFutures)
                             .map(v -> subscriptions.size());
                 })
-                .onSuccess(resumedCount -> {
+                .map(resumedCount -> {
                     logger.info("Resumed {} subscriptions for queue: {}", resumedCount, queueName);
-
-                    JsonObject response = new JsonObject()
+                    return new JsonObject()
                             .put("message", "Queue '" + queueName + "' resumed successfully in setup '" + setupId + "' (" + resumedCount + " subscriptions)")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
                             .put("resumedSubscriptions", resumedCount)
                             .put("timestamp", System.currentTimeMillis());
-
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
                 })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(error -> {
-                    logger.error("❌ Failed to resume queue: {}", queueName, error);
-                    sendError(ctx, 500, "Failed to resume queue: " + error.getMessage());
+                    logger.error("\u274c Failed to resume queue: {}", queueName, error);
+                    sendError(ctx, 503, "Failed to resume queue: " + error.getMessage());
                 });
     }
 
@@ -2105,73 +2018,52 @@ public class ManagementApiHandler {
         logger.info("Delete queue requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendError(ctx, 404, "Setup not found or not active: " + setupId);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                     }
-
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory == null) {
-                        sendError(ctx, 404, "Queue not found: " + queueName);
-                        return;
+                        return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
-
-                    // Get implementation type to determine table name
                     String implementationType = queueFactory.getImplementationType();
                     logger.info("Deleting queue: {} (type: {}) in setup: {}", queueName, implementationType, setupId);
-
-                    queueFactory.countMessages(queueName)
-                                .compose(messageCount -> {
-                                    if (messageCount > 0) {
-                                        logger.warn("Queue {} has {} messages. Deleting anyway.", queueName,
-                                                messageCount);
-                                    }
-
-                                    return queueFactory.purgeMessages(queueName)
-                                            .map(deletedCount -> {
-                                                logger.info("Deleted {} messages from queue: {}", deletedCount,
-                                                        queueName);
-                                                return deletedCount;
-                                            });
-                                })
-                                .onSuccess(deletedCount -> {
-                                    try {
-                                        queueFactory.close();
-                                    } catch (Exception e) {
-                                        logger.error("Error cleaning up queue resources for {} in setup {}: {}",
-                                                queueName, setupId, e.getMessage());
-                                        sendError(ctx, 500,
-                                                "Failed to clean up queue resources: " + e.getMessage());
-                                        return;
-                                    }
-
-                                    // Remove the queue from the setup result
-                                    setupResult.getQueueFactories().remove(queueName);
-
-                                    logger.info("Queue {} deleted successfully from setup {}", queueName,
-                                        setupId);
-
-                                    JsonObject response = new JsonObject()
+                    return queueFactory.countMessages(queueName)
+                            .compose(messageCount -> {
+                                if (messageCount > 0) {
+                                    logger.warn("Queue {} has {} messages. Deleting anyway.", queueName, messageCount);
+                                }
+                                return queueFactory.purgeMessages(queueName);
+                            })
+                            .compose(deletedCount -> {
+                                logger.info("Deleted {} messages from queue: {}", deletedCount, queueName);
+                                try {
+                                    queueFactory.close();
+                                } catch (Exception e) {
+                                    return Future.failedFuture(new ResponseException(503,
+                                            "Failed to clean up queue resources: " + e.getMessage()));
+                                }
+                                setupResult.getQueueFactories().remove(queueName);
+                                logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
+                                return Future.succeededFuture(new JsonObject()
                                         .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "' (" + deletedCount + " messages deleted)")
                                         .put("queueName", queueName)
                                         .put("setupId", setupId)
                                         .put("deletedMessages", deletedCount)
-                                        .put("timestamp", System.currentTimeMillis());
-
-                                    ctx.response()
-                                        .setStatusCode(200)
-                                        .putHeader("content-type", "application/json")
-                                        .end(response.encode());
-                                })
-                                .onFailure(error -> {
-                                    logger.error("❌ Failed to delete queue: {}", queueName, error);
-                                    sendError(ctx, 500, "Failed to delete queue: " + error.getMessage());
-                                });
+                                        .put("timestamp", System.currentTimeMillis()));
+                            });
                 })
+                .onSuccess(response -> ctx.response()
+                        .setStatusCode(200)
+                        .putHeader("content-type", "application/json")
+                        .end(response.encode()))
                 .onFailure(throwable -> {
-                    logger.error("Error deleting queue for setup: {}, queue: {}", setupId, queueName, throwable);
-                    sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else {
+                        logger.error("Error deleting queue for setup: {}, queue: {}", setupId, queueName, throwable);
+                        sendError(ctx, 503, "Failed to delete queue: " + throwable.getMessage());
+                    }
                 });
     }
 

@@ -143,7 +143,7 @@ public class WebhookSubscriptionHandler {
                         sendSetupInactiveError(ctx, setupId);
                     } else {
                         logger.error("Error creating webhook subscription for queue: " + queueName, throwable);
-                        sendError(ctx, 500, PeeGeeQErrorCodes.WEBHOOK_CREATE_FAILED, "Failed to create subscription: " + message);
+                        sendError(ctx, 503, PeeGeeQErrorCodes.WEBHOOK_CREATE_FAILED, "Failed to create subscription: " + message);
                     }
                 });
 

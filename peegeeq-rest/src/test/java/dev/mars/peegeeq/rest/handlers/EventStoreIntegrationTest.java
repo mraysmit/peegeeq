@@ -605,8 +605,8 @@ public class EventStoreIntegrationTest {
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Non-existent store response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    assertEquals(500, response.statusCode(), 
-                            "Should return 500 for non-existent event store");
+                    assertEquals(404, response.statusCode(), 
+                            "Should return 404 for non-existent event store");
 
                     JsonObject responseBody = response.bodyAsJsonObject();
                     assertNotNull(responseBody, "Response body should not be null");
@@ -691,8 +691,8 @@ public class EventStoreIntegrationTest {
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Non-existent store stats response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    assertEquals(500, response.statusCode(), 
-                            "Should return 500 for non-existent event store");
+                    assertEquals(404, response.statusCode(), 
+                            "Should return 404 for non-existent event store");
 
                     JsonObject responseBody = response.bodyAsJsonObject();
                     assertNotNull(responseBody, "Response body should not be null");
@@ -720,8 +720,8 @@ public class EventStoreIntegrationTest {
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Invalid setup ID response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    assertEquals(500, response.statusCode(), 
-                            "Should return 500 for invalid setup ID");
+                    assertEquals(404, response.statusCode(), 
+                            "Should return 404 for invalid setup ID");
 
                     JsonObject responseBody = response.bodyAsJsonObject();
                     assertNotNull(responseBody, "Response body should not be null");
@@ -1621,9 +1621,9 @@ public class EventStoreIntegrationTest {
                         assertNotNull(subscriptions);
                         logger.info("Found {} subscriptions", subscriptions.size());
                         testContext.completeNow();
-                    } else if (response.statusCode() == 404 || response.statusCode() == 500) {
-                        // 404: Setup not found, 500: Table doesn't exist (no queues created)
-                        // Both are acceptable for this test since we only create event stores
+                    } else if (response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
+                        // 404: Setup not found, 503: Table doesn't exist (no queues created)
+                        // All are acceptable for this test since we only create event stores
                         testContext.completeNow();
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
@@ -1640,9 +1640,9 @@ public class EventStoreIntegrationTest {
                 .onSuccess(response -> {
                     logger.info("Subscription get response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    if (response.statusCode() == 404 || response.statusCode() == 500) {
-                        // 404: Subscription doesn't exist, 500: Table doesn't exist
-                        // Both are acceptable for this test
+                    if (response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
+                        // 404: Subscription doesn't exist, 503: Table doesn't exist
+                        // All are acceptable for this test
                         testContext.completeNow();
                     } else if (response.statusCode() == 200) {
                         // Unexpected but acceptable if subscription exists
@@ -1662,9 +1662,9 @@ public class EventStoreIntegrationTest {
                 .onSuccess(response -> {
                     logger.info("Subscription pause response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    // Either 200 (success), 404 (not found), or 500 (error) are acceptable
+                    // Either 200 (success), 404 (not found), or 503 (error) are acceptable
                     // depending on whether the subscription exists
-                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500) {
+                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
                         testContext.completeNow();
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
@@ -1681,8 +1681,8 @@ public class EventStoreIntegrationTest {
                 .onSuccess(response -> {
                     logger.info("Subscription resume response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    // Either 200 (success), 404 (not found), or 500 (error) are acceptable
-                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500) {
+                    // Either 200 (success), 404 (not found), or 503 (error) are acceptable
+                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
                         testContext.completeNow();
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
@@ -1699,8 +1699,8 @@ public class EventStoreIntegrationTest {
                 .onSuccess(response -> {
                     logger.info("Subscription heartbeat response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    // Either 200 (success), 404 (not found), or 500 (error) are acceptable
-                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500) {
+                    // Either 200 (success), 404 (not found), or 503 (error) are acceptable
+                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
                         testContext.completeNow();
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
@@ -1717,8 +1717,8 @@ public class EventStoreIntegrationTest {
                 .onSuccess(response -> {
                     logger.info("Subscription cancel response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    // Either 200 (success), 404 (not found), or 500 (error) are acceptable
-                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500) {
+                    // Either 200 (success), 404 (not found), or 503 (error) are acceptable
+                    if (response.statusCode() == 200 || response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
                         testContext.completeNow();
                     } else {
                         testContext.failNow(new AssertionError("Unexpected status: " + response.statusCode()));
@@ -1744,7 +1744,7 @@ public class EventStoreIntegrationTest {
                         assertTrue(health.containsKey("status"));
                         assertTrue(health.containsKey("timestamp"));
                         testContext.completeNow();
-                    } else if (response.statusCode() == 404 || response.statusCode() == 500) {
+                    } else if (response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
                         // Setup not found or health service not available
                         testContext.completeNow();
                     } else {
@@ -1767,7 +1767,7 @@ public class EventStoreIntegrationTest {
                         assertNotNull(components);
                         logger.info("Found {} health components", components.size());
                         testContext.completeNow();
-                    } else if (response.statusCode() == 404 || response.statusCode() == 500) {
+                    } else if (response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
                         // Setup not found or health service not available
                         testContext.completeNow();
                     } else {
@@ -1785,8 +1785,8 @@ public class EventStoreIntegrationTest {
                 .onSuccess(response -> {
                     logger.info("Health component response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    if (response.statusCode() == 404 || response.statusCode() == 500) {
-                        // 404: Component not found, 500: Health service not available
+                    if (response.statusCode() == 404 || response.statusCode() == 500 || response.statusCode() == 503) {
+                        // 404: Component not found, 503: Health service not available
                         testContext.completeNow();
                     } else if (response.statusCode() == 200) {
                         // Unexpected but acceptable if component exists
@@ -1938,7 +1938,7 @@ public class EventStoreIntegrationTest {
                         logger.info("Inverted range query response: {} - {}", queryResponse.statusCode(), queryResponse.bodyAsString());
 
                         // Server validates that start time cannot be after end time — returns error response
-                        assertTrue(queryResponse.statusCode() == 400 || queryResponse.statusCode() == 500,
+                        assertTrue(queryResponse.statusCode() >= 400,
                                 "Inverted time range should return a 4xx or 5xx error, got: " + queryResponse.statusCode());
 
                         logger.info("Inverted valid time range correctly rejected with status {}", queryResponse.statusCode());
