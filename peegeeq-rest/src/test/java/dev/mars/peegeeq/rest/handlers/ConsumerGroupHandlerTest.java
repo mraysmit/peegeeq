@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.messaging.LoadBalancingStrategy;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
