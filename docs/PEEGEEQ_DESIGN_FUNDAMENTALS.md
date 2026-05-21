@@ -1,26 +1,74 @@
-# PostgreSQL as a Job Queue: Useful Pattern, Dangerous Default
+# PostgreSQL as a Transactional Message Queue: Architecture, Failure Modes, and Safe Implementation
 
-PostgreSQL is often used as a job queue. That is not automatically wrong. In many systems it is a pragmatic, robust choice: you already have Postgres, it is durable, transactional, observable, backed up, and operationally familiar. If a job must be created atomically with business data, using the same database can be cleaner than introducing a separate broker.
+Version: 1.1  
+Date: May 11, 2025  
+Author: Mark Andrew Ray-Smith Cityline Ltd
 
-But there is a trap.
 
-A database table that behaves like a queue is not the same workload as ordinary business data. A queue is usually hot, write-heavy, short-lived, and highly concurrent. Rows are inserted, claimed, updated, retried, completed, and often deleted. That access pattern pushes directly against PostgreSQL’s MVCC, row locking, WAL, indexing, and vacuum machinery.
-
-The issue is not that PostgreSQL is weak. The issue is that a naïve queue design asks PostgreSQL to perform a large amount of relational database work for what is logically “give the next worker a unit of work.”
-
-Richard Yen’s article makes this point through the common `SELECT ... FOR UPDATE SKIP LOCKED` job-queue pattern and warns about bloat, lock-management overhead, MultiXact SLRU contention, and operational collapse when this pattern is pushed too far. ([richyen.com][1])
-
-The better conclusion is not:
-
-> Do not use Postgres as a queue.
-
-The better conclusion is:
-
-> Do not use a hot mutable status table as a high-concurrency broker and then act surprised when PostgreSQL behaves like a relational database.
+*With Java and Vert.x Implementation Guidelines*
 
 ---
 
-## The Standard Pattern
+PostgreSQL is often used as a job queue that is not automatically the wrong decision. If we already have it running and we know how to operate it then it might  If a job must be created atomically with business data, using the same database is cleaner than introducing a separate broker.
+
+For a specific class of business workflow, PostgreSQL is not merely a convenient queue. It is the correct choice because it provides features such as guarantees that no broker-based alternative can match without significant added complexity.
+
+---
+
+## The Hard Problem: Atomic Business Transactions
+
+Consider this business cycle, common in any event-driven backend:
+
+```
+BEGIN
+  1.  Consume incoming work item   (dequeue / mark claimed)
+  2.  Read and mutate domain tables (business logic)
+  3.  Publish outgoing event        (enqueue result or notification)
+COMMIT
+```
+
+All four operations — claim, domain read, domain write, result publication — must commit atomically. If anything fails, nothing should be visible. No partial state. No orphaned messages. No compensation logic.
+
+This guarantee is impossible when an external broker is the queue. Kafka, RabbitMQ, and SQS do not participate in your PostgreSQL transaction. The moment you acknowledge a Kafka message and your database write subsequently fails, you have split-brain state.
+
+The Transactional Outbox pattern is the standard answer for cross-service distribution, and it is the right answer in that context. But it introduces a CDC pipeline, a broker, and a consumer — all to solve a problem you do not have when producer and consumer share the same transactional boundary.
+
+Saga patterns are the other common answer. They are the right answer when the workflow genuinely spans independent services with independent databases. But a saga is a distributed protocol for handling partial failure. Choosing it for a single-service workflow because the queue happened to be a broker is not architecture — it is unnecessary complexity.
+
+For workflows where the business logic lives in one service with one database, staying inside PostgreSQL gives you stronger guarantees than any broker-based alternative, without sagas, compensating transactions, or eventual consistency.
+
+The better conclusion is not:
+
+> Do not use PostgreSQL as a queue.
+
+The better conclusion is:
+
+> Use PostgreSQL when the queue is part of your transactional data model. Use a broker when the queue is your runtime distribution fabric.
+
+That is a much sharper distinction than small versus large.
+
+---
+
+## When Each Tool Is Right
+
+| Scenario | Right tool |
+| --- | --- |
+| Event must cross a service boundary | Transactional Outbox → Kafka / broker |
+| Same service, same transactional boundary | PostgreSQL queue — this document |
+| Audit / history must survive independently | Append-only PostgreSQL event store |
+| Fan-out to many independent consumers | Kafka / Pulsar |
+| Replay is a requirement | Append-only event store or log |
+| Bounded-context workflow with atomic guarantees | PostgreSQL queue |
+
+---
+
+## The Trap: Why Naive Queue Designs Fail
+
+PostgreSQL is not weak. The problem is that a naïve queue design asks PostgreSQL to do a large amount of relational database work for what is logically "give the next worker a unit of work."
+
+A queue table is a different workload from ordinary business data. It is hot, write-heavy, short-lived, and highly concurrent. Rows are inserted, claimed, updated, retried, completed, and often deleted — sometimes within seconds of creation. That access pattern pushes directly against PostgreSQL's MVCC, row locking, WAL, indexing, and vacuum machinery.
+
+### The Standard Anti-Pattern
 
 The typical table-backed queue starts with something like this:
 
@@ -40,17 +88,16 @@ CREATE INDEX idx_job_queue_pending
     WHERE status = 'pending';
 ```
 
-Workers then claim jobs using `SELECT ... FOR UPDATE SKIP LOCKED`, often wrapped inside an `UPDATE`:
+Workers claim jobs using `SELECT ... FOR UPDATE SKIP LOCKED`:
 
 ```sql
 UPDATE job_queue
-   SET status = 'processing',
+   SET status    = 'processing',
        locked_by = $1,
        locked_at = now(),
-       attempts = attempts + 1
+       attempts  = attempts + 1
  WHERE id = (
-     SELECT id
-       FROM job_queue
+     SELECT id FROM job_queue
       WHERE status = 'pending'
       ORDER BY created_at
       LIMIT 1
@@ -59,523 +106,678 @@ UPDATE job_queue
  RETURNING *;
 ```
 
-The appeal is obvious. Multiple workers can compete for work without blocking on the same row. If one worker has already locked a row, another worker skips it and moves on.
+The appeal is obvious. Multiple workers can compete for work without blocking each other. PostgreSQL explicitly supports `SKIP LOCKED`. But `SKIP LOCKED` avoids waiting — it does not make row locking, visibility checks, index access, WAL generation, or vacuum free.
 
-PostgreSQL explicitly supports `SKIP LOCKED`. The official documentation says selected rows that cannot be immediately locked are skipped. It also warns that this provides an inconsistent view of the data, which is exactly why it is useful for queue-like access but unsuitable for normal relational reads that require a stable, ordered view. ([PostgreSQL][2])
+### The Physical Cost of Mutable State
 
-That distinction matters.
+The classic mutable queue lifecycle is:
 
-`SKIP LOCKED` avoids waiting. It does not make row locking, visibility checks, index access, WAL generation, or vacuum free.
-
----
-
-## Why the Pattern Is Attractive
-
-This design has real advantages:
-
-```text
-one less infrastructure component
-atomic commit with business data
-simple operational model
-easy inspection with SQL
-simple retry and dead-letter modelling
-transactional safety
-familiar backup and recovery
 ```
-
-For internal background jobs, transactional outbox processing, enrichment tasks, report generation, email dispatch, cleanup tasks, or low-contention workflows, this can be entirely reasonable.
-
-The problem starts when the implementation turns into a hot mutable work-distribution fabric.
-
----
-
-## “Small Scale vs Large Scale” Is the Wrong Framing
-
-A lot of discussion around Postgres queues uses language like “small scale” and “large scale.” That is not useful enough.
-
-A queue with 20 workers can be pathological. A queue with 500 workers can be boring. Worker count alone tells you very little. Table size alone tells you very little. Even jobs per second is not enough on its own.
-
-The real issue is **workload shape**.
-
-The question is not:
-
-> Is this small or large?
-
-The question is:
-
-> What physical access pattern does this queue impose on PostgreSQL?
-
-A PostgreSQL-backed queue should be assessed through these dimensions:
-
-| Dimension                    | Why it matters                                                                                                                         |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| **Claim rate**               | How often workers compete to acquire work. High claim frequency means repeated index scans, row-lock checks, and transactions.         |
-| **Job duration**             | Very short jobs increase claim churn. Long jobs increase stale in-flight work and recovery complexity.                                 |
-| **Mutations per job**        | `pending → processing → completed → deleted` is multiple writes for one logical job.                                                   |
-| **Hot index concentration**  | `WHERE status = 'pending' ORDER BY created_at LIMIT 1` pushes all workers toward the same leading index range.                         |
-| **Ordering requirements**    | Strict FIFO concentrates contention. Looser ordering allows batching, sharding, and partitioning.                                      |
-| **Queue depth volatility**   | Spiky queues cause bursts of insert, claim, update, and cleanup activity. Empty queues can cause noisy polling.                        |
-| **Retry behaviour**          | Retries can repeatedly churn the same rows and amplify bloat, WAL, and index updates.                                                  |
-| **Completion model**         | Delete-on-complete, update-on-complete, append-only completion, and offset-based completion have very different physical costs.        |
-| **Consumer topology**        | Competing workers, fan-out consumers, replay consumers, and independent subscribers are different architectures.                       |
-| **Data coupling**            | If queue creation must commit with business state, Postgres is attractive. If not, a broker may be cleaner.                            |
-| **Operational blast radius** | A queue inside the primary OLTP database can interfere with business transactions through WAL, bloat, lock waits, and vacuum pressure. |
-
-So the better framing is:
-
-> Does this workload behave like durable relational state, or like a high-churn broker workload?
-
-That is the line that matters.
-
----
-
-## Where the Standard Pattern Starts to Hurt
-
-The classic mutable queue table usually follows this lifecycle:
-
-```text
 INSERT pending job
 UPDATE row to processing
 UPDATE row to completed
 DELETE row
 ```
 
-or:
+An `UPDATE` in PostgreSQL does not modify a tuple in place. PostgreSQL's MVCC model creates a new row version. Deletes leave dead tuples behind until vacuum cleans them. Indexes accumulate dead entries. A queue table magnifies this because rows are constantly changing state. The queue becomes a machine for producing:
 
-```text
-pending -> processing -> completed -> archived
 ```
-
-Every step has a cost.
-
-An `UPDATE` in PostgreSQL does not modify a tuple in place in the simplistic sense. PostgreSQL’s MVCC model creates new row versions. Deletes also leave dead tuples behind until vacuum can clean them. Indexes also accumulate dead entries. This is normal and correct database behaviour, but a queue table magnifies it because rows are constantly changing state.
-
-The queue table becomes a machine for producing:
-
-```text
 dead tuples
 index churn
 WAL volume
 vacuum pressure
 checkpoint pressure
 visibility-map churn
-hot index-page contention
+hot index-page contention at the leading edge of the pending partial index
 ```
 
-This is why queue tables often become much larger than their live data. You may have megabytes of active jobs and gigabytes of table and index footprint.
+The SQL stays simple. The physical workload is not.
 
-The misleading thing is that the SQL remains simple. The physical workload is not simple.
+### The Failure Mode Is Non-Linear
+
+```
+workers increase  →  throughput improves
+                  →  then flattens
+                  →  latency spikes
+                  →  wait events rise
+                  →  vacuum falls behind
+                  →  throughput collapses
+```
+
+This is why "just add workers" can make a PostgreSQL queue significantly worse, not better.
+
+### Workload Shape, Not Scale
+
+A common but unhelpful framing is small scale versus large scale. A queue with 20 workers can be pathological. A queue with 500 workers can be stable. Worker count alone tells you almost nothing. The real question is what physical access pattern the queue imposes on PostgreSQL.
+
+| Dimension | Why it matters | Warning signal |
+| --- | --- | --- |
+| **Claim rate** | High frequency means repeated index scans and lock checks | Hundreds of single-row claims per second |
+| **Job duration** | Very short jobs increase claim churn | Sub-second jobs at high volume |
+| **Mutations per job** | Each status change is a write plus a dead tuple | More than two status transitions |
+| **Hot index concentration** | All workers compete at the same index leading edge | `ORDER BY created_at LIMIT 1` globally |
+| **Retry behaviour** | Retries churn the same rows, amplifying bloat | Unbounded retries |
+| **Completion model** | DELETE-on-complete is the most expensive pattern | Row-by-row delete at high rate |
+| **Consumer topology** | Many competing workers versus fan-out are different architectures | Unlimited competing worker pool |
+| **Data coupling** | If queue commits with business state, Postgres fits naturally | External broker when decoupled |
+| **Blast radius** | A queue inside the primary OLTP database affects business transactions | Shared primary database |
 
 ---
 
-## The Locking and MultiXact Problem
+## Safe Schema Design
 
-`SKIP LOCKED` reduces blocking, but it does not eliminate lock machinery.
+The root cause of most PostgreSQL queue problems is a single mutable status table that tries to be queue, audit log, retry tracker, dead-letter store, and dashboard source at the same time. These are separate concerns with different physical access patterns.
 
-PostgreSQL has several row-level lock modes, including `FOR UPDATE`, `FOR NO KEY UPDATE`, `FOR SHARE`, and `FOR KEY SHARE`. Row-level locks are held until transaction end or savepoint rollback, and they interact with other writers and lockers of the same row. ([PostgreSQL][3])
-
-Under concurrent queue consumption, workers repeatedly inspect candidate rows. Even when rows are skipped, PostgreSQL still has to check visibility and lock state. If many workers converge on the same hot region of the queue, the database can spend more time coordinating access than delivering useful work.
-
-This is where MultiXact can become relevant. AWS describes MultiXact wait events as occurring when sessions retrieve the list of transactions that refer to a given row, with waits such as `LWLock:MultiXactMemberSLRU` and `LWLock:MultiXactOffsetSLRU` indicating pressure around MultiXact state. ([AWS Documentation][4])
-
-The point is not that every Postgres queue will hit MultiXact waits. The point is that a hot competing-consumer design can push PostgreSQL into internal coordination paths that are invisible if you only look at application-level queue throughput.
-
-The failure mode can be non-linear:
-
-```text
-workers increase
-throughput improves
-then flattens
-then latency spikes
-then wait events rise
-then vacuum falls behind
-then throughput collapses
-```
-
-This is why “just add workers” can make a Postgres queue worse.
-
----
-
-## Bloat Is the Practical Warning Sign
-
-Before you see exotic wait events, you will often see bloat.
-
-Typical symptoms:
-
-```text
-queue table grows far beyond live row count
-pending-job partial index grows unexpectedly
-autovacuum runs frequently but cannot keep up
-old jobs remain visible as dead tuples
-claim queries become slower or noisier
-WAL generation rises
-replication lag increases
-checkpoints become more expensive
-```
-
-A partial index such as this is useful:
+### Separate Append-Only Tables from Operational Claim State
 
 ```sql
-CREATE INDEX idx_job_queue_pending
-    ON job_queue (created_at)
-    WHERE status = 'pending';
+-- Incoming work: append only, never updated after insert
+CREATE TABLE job_inbox (
+    id          bigserial PRIMARY KEY,
+    queue       text NOT NULL,
+    payload     jsonb NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Operational claim state: small, hot, short-lived
+-- Only in-flight rows exist here. Completed jobs have no row.
+CREATE TABLE job_claim (
+    job_id      bigint PRIMARY KEY REFERENCES job_inbox(id),
+    worker_id   text NOT NULL,
+    claimed_at  timestamptz NOT NULL DEFAULT now(),
+    expires_at  timestamptz NOT NULL,
+    attempts    integer NOT NULL DEFAULT 1
+);
+
+-- Completion record: append only
+CREATE TABLE job_result (
+    id          bigserial PRIMARY KEY,
+    job_id      bigint NOT NULL REFERENCES job_inbox(id),
+    status      text NOT NULL,   -- 'completed' | 'failed' | 'dead'
+    result      jsonb,
+    worker_id   text NOT NULL,
+    finished_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Prevents double-completion on retry
+ALTER TABLE job_result
+    ADD CONSTRAINT uq_job_result_job_id UNIQUE (job_id);
+
+-- Terminal failures, for inspection and re-drive
+CREATE TABLE job_dead_letter (
+    id           bigserial PRIMARY KEY,
+    job_id       bigint NOT NULL,
+    queue        text NOT NULL,
+    payload      jsonb NOT NULL,
+    failure      text,
+    attempts     integer NOT NULL,
+    last_attempt timestamptz NOT NULL
+);
 ```
 
-But it also means every job that enters or leaves `pending` affects that index. If jobs rapidly transition out of `pending`, the partial index itself becomes a churn point.
+`job_claim` stays small at all times because only in-flight rows exist in it. Vacuum has almost nothing to do on the hottest table. The inbox and result tables are append-only, which is the cheapest workload for PostgreSQL's MVCC model.
 
-This is the core problem with the mutable status-table model: every logical state transition becomes physical database churn.
-
----
-
-## The Real Decision Model
-
-Do not use this decision model:
-
-```text
-small queue -> Postgres
-large queue -> Kafka or Redis
-```
-
-Use this instead:
-
-| Workload shape                                                 |         PostgreSQL fit | Better design direction                                     |
-| -------------------------------------------------------------- | ---------------------: | ----------------------------------------------------------- |
-| Job creation must commit atomically with business data         |                 Strong | Transactional outbox or append-only job/event table         |
-| Jobs are moderate duration and claim frequency is controlled   |                   Good | `SKIP LOCKED` can be acceptable                             |
-| Jobs are extremely short and workers constantly claim new work |                   Weak | Batch claiming, sharding, or external broker                |
-| Completion requires repeated status updates and deletes        |                   Weak | Append-only completion, partition rotation, or offset model |
-| Strict FIFO across all workers is required                     |                   Weak | Reconsider requirement or use a broker/log                  |
-| Loose ordering is acceptable                                   |                 Better | Partition by queue, shard, tenant, or aggregate             |
-| Multiple independent consumers need the same events            | Poor for mutable queue | Event log, Kafka/Pulsar, or append-only event store         |
-| Replay is a first-class requirement                            | Poor for mutable queue | Append-only event store or broker with retention            |
-| Queue load can spike unpredictably                             |                  Risky | Backpressure, admission control, broker, or isolation       |
-| Queue shares the primary OLTP database                         |                  Risky | Separate database/schema, resource isolation, or broker     |
-| Duplicate processing is tolerable                              |                 Easier | Idempotent workers and simpler claim semantics              |
-| Duplicate processing is unacceptable                           |                 Harder | Idempotency keys, dedupe table, transactional completion    |
-
-The key distinction is this:
-
-> PostgreSQL is a strong choice when the queue is part of the transactional data model. It is a weaker choice when the queue is the runtime distribution fabric.
-
----
-
-## Better Postgres-Based Designs
-
-If you want to stay inside PostgreSQL, there are better and worse ways to do it.
-
-### 1. Prefer batching over single-row claiming
-
-Single-row claiming is often the worst possible unit of work.
-
-Bad shape:
-
-```text
-claim 1 job
-commit
-process 1 job
-update/delete 1 job
-repeat
-```
-
-Better shape:
-
-```text
-claim a batch
-commit
-process the batch
-record completion in bulk
-```
-
-Batching reduces transaction count, index probes, round trips, WAL overhead, and repeated lock acquisition.
-
-A simple batch-claim pattern may look like this:
+### Indexes
 
 ```sql
-WITH claimed AS (
-    SELECT id
-      FROM job_queue
-     WHERE status = 'pending'
-     ORDER BY created_at
-     LIMIT 100
-     FOR UPDATE SKIP LOCKED
+-- Claim query: find unclaimed, unfinished jobs in arrival order
+CREATE INDEX idx_inbox_queue_created
+    ON job_inbox (queue, created_at);
+
+-- Lease expiry sweep
+CREATE INDEX idx_claim_expiry
+    ON job_claim (expires_at);
+```
+
+---
+
+## Claim Mechanics: Leases, Not Status Updates
+
+The most important design decision is replacing mutable status transitions with expiry-based leases.
+
+### Why Leases Eliminate the UPDATE Storm
+
+Status-update queues require: `INSERT (pending) → UPDATE (processing) → UPDATE (completed) → DELETE`. Every row is touched multiple times. Each touch generates a dead tuple and WAL.
+
+Lease-based claiming works differently:
+
+```
+Claim    = INSERT into job_claim        (one append)
+Complete = DELETE from job_claim        (one delete)
+         + INSERT into job_result       (one append)
+
+The inbox row is NEVER modified.
+The claim row is NEVER updated — it is either present or deleted.
+```
+
+Crash recovery is automatic. Expired claims are reclaimed by the next claim cycle. No explicit failed state to write.
+
+### Batch Claim SQL
+
+Single-row claiming is the worst possible unit of work. Always claim in batches.
+
+```sql
+WITH candidates AS (
+    SELECT i.id
+    FROM   job_inbox i
+    WHERE  NOT EXISTS (
+               SELECT 1 FROM job_claim c WHERE c.job_id = i.id
+           )
+    AND    NOT EXISTS (
+               SELECT 1 FROM job_result r WHERE r.job_id = i.id
+           )
+    AND    i.queue = $4
+    ORDER BY i.created_at
+    LIMIT    $1                         -- batch size
+    FOR UPDATE OF i SKIP LOCKED
 )
-UPDATE job_queue q
-   SET status = 'processing',
-       locked_by = $1,
-       locked_at = now(),
-       attempts = attempts + 1
-  FROM claimed
- WHERE q.id = claimed.id
- RETURNING q.*;
+INSERT INTO job_claim (job_id, worker_id, claimed_at, expires_at, attempts)
+SELECT
+    id,
+    $2,                                 -- worker_id
+    now(),
+    now() + ($3 * INTERVAL '1 second'), -- lease duration in seconds
+    1
+FROM candidates
+RETURNING job_id;
 ```
 
-This still has MVCC cost, but it pays the cost in larger units.
+### Lease Expiry and Automatic Recovery
+
+```sql
+-- Return timed-out jobs to the available pool.
+-- Run at the start of each claim cycle, or on a separate periodic task.
+DELETE FROM job_claim
+WHERE  expires_at < now()
+RETURNING job_id;  -- log these
+```
+
+A crashed worker needs no intervention. The lease expires and the next claim cycle picks up the work.
 
 ---
 
-### 2. Avoid unnecessary status transitions
+## The Full Atomic Business Transaction
 
-This is a common anti-pattern:
+This is the architecture's central guarantee: claim, domain mutation, and result publication all commit in one transaction. Either everything succeeds or nothing is visible.
 
-```text
+### The Transaction Pattern
+
+```
+BEGIN
+
+  -- Step 1: Claim a batch
+  INSERT INTO job_claim ... RETURNING job_id;
+
+  -- Step 2: Fetch payloads
+  SELECT * FROM job_inbox WHERE id = ANY($claimedIds);
+
+  -- Step 3: Domain business logic
+  --   reads from domain tables
+  --   writes to domain tables
+  --   all within this same transaction
+
+  -- Step 4: Record completion
+  INSERT INTO job_result (job_id, status, result, worker_id, finished_at)
+  VALUES ($jobId, 'completed', $result, $workerId, now());
+
+  -- Step 5: Release the claim
+  DELETE FROM job_claim WHERE job_id = ANY($claimedIds);
+
+COMMIT
+
+-- If anything above fails, the transaction rolls back.
+-- The claim expires naturally and the job re-enters the pool.
+-- Domain state is untouched. No partial state is visible anywhere.
+```
+
+### Java / Vert.x Implementation
+
+Using the Vert.x reactive PostgreSQL client (`io.vertx:vertx-pg-client`):
+
+```java
+pgPool.withTransaction(conn -> {
+
+    // Step 1: Claim a batch
+    return conn.preparedQuery(CLAIM_SQL)
+        .execute(Tuple.of(batchSize, workerId, leaseSeconds, queueName))
+        .flatMap(claimedRows -> {
+
+            if (claimedRows.size() == 0) {
+                return Future.succeededFuture();  // nothing to do
+            }
+
+            List<Long> jobIds = StreamSupport
+                .stream(claimedRows.spliterator(), false)
+                .map(r -> r.getLong("job_id"))
+                .toList();
+
+            // Step 2: Fetch payloads
+            return conn.preparedQuery(FETCH_SQL)
+                .execute(Tuple.of(jobIds.toArray()))
+                .flatMap(payloadRows -> {
+
+                    // Step 3: Domain logic — all inside this transaction
+                    return processDomainLogic(conn, payloadRows)
+                        .flatMap(results -> {
+
+                            // Step 4: Write completion
+                            return writeResults(conn, results)
+                                .flatMap(v ->
+
+                                    // Step 5: Release claims
+                                    conn.preparedQuery(RELEASE_SQL)
+                                        .execute(Tuple.of(jobIds.toArray()))
+                                );
+                        });
+                });
+        });
+
+    // Transaction rolls back on any failure.
+    // Lease expires and job re-enters the pool.
+});
+```
+
+### Idempotent Completion with Deduplication
+
+Even with atomic transactions, retries happen — network timeouts, process restarts, lease expiry on a slow job. Domain logic must be idempotent. The unique constraint on `job_result` is the deduplication mechanism:
+
+```java
+private Future<Void> writeResults(SqlConnection conn, List<JobResult> results) {
+    return conn.preparedQuery(INSERT_RESULT_SQL)
+        .execute(buildTuple(results))
+        .mapEmpty()
+        .recover(err -> {
+            if (isUniqueViolation(err)) {
+                // Already completed in a previous attempt. Safe to ignore.
+                return Future.succeededFuture();
+            }
+            return Future.failedFuture(err);
+        });
+}
+
+private boolean isUniqueViolation(Throwable err) {
+    // PostgreSQL SQLSTATE 23505 = unique_violation
+    return err instanceof PgException pge
+        && "23505".equals(pge.getSqlState());
+}
+```
+
+---
+
+## Vert.x Concurrency: The Most Critical Rule
+
+Vert.x makes it easy to accidentally create unbounded concurrent database operations. Each verticle instance independently polling and claiming is the exact anti-pattern that produces the non-linear failure mode described above.
+
+### Single Claim Coordinator Per Node
+
+Use one periodic claim loop per node, not one per verticle instance:
+
+```java
+public class QueueWorkerVerticle extends AbstractVerticle {
+
+    private final AtomicBoolean claimInProgress = new AtomicBoolean(false);
+    private long timerId;
+
+    @Override
+    public void start() {
+        timerId = vertx.setPeriodic(pollIntervalMs, id -> {
+            if (claimInProgress.compareAndSet(false, true)) {
+                claimAndProcess()
+                    .onComplete(v -> claimInProgress.set(false));
+            }
+            // If a cycle is already running, skip this tick.
+        });
+    }
+
+    @Override
+    public void stop() {
+        vertx.cancelTimer(timerId);
+    }
+}
+```
+
+### LISTEN/NOTIFY for Wake-Up
+
+`LISTEN/NOTIFY` removes polling overhead. The durable state stays in the table; `NOTIFY` is purely a wake-up signal. It must never be treated as the queue itself — a lost notification means a delayed job, not a lost job.
+
+On the producer side, after inserting into `job_inbox`:
+
+```sql
+NOTIFY job_available;
+```
+
+On the consumer side, using the Vert.x `PgSubscriber`:
+
+```java
+PgSubscriber subscriber = PgSubscriber.subscriber(vertx, connectOptions);
+
+subscriber.connect()
+    .onSuccess(v -> {
+        subscriber.channel("job_available")
+            .handler(notification -> {
+                if (claimInProgress.compareAndSet(false, true)) {
+                    claimAndProcess()
+                        .onComplete(done -> claimInProgress.set(false));
+                }
+            });
+    });
+
+// Fallback sweep — notifications can be lost during connection drops.
+vertx.setPeriodic(30_000, id -> {
+    if (claimInProgress.compareAndSet(false, true)) {
+        claimAndProcess()
+            .onComplete(done -> claimInProgress.set(false));
+    }
+});
+```
+
+The periodic fallback is not optional. Notifications can be lost during connection drops, and the sweep guarantees jobs are eventually picked up regardless.
+
+### Bounded Concurrency
+
+Bound how many jobs are in-flight at once. The ceiling is enforced at claim time by the batch size:
+
+```java
+private static final int MAX_CONCURRENT_JOBS = 10;  // tune per workload
+
+private Future<Void> claimAndProcess() {
+    return pgPool.withTransaction(conn ->
+        conn.preparedQuery(BATCH_CLAIM_SQL)
+            .execute(Tuple.of(MAX_CONCURRENT_JOBS, workerId, leaseSeconds, queueName))
+            .flatMap(rows -> {
+                List<Long> ids = toList(rows);
+                if (ids.isEmpty()) return Future.succeededFuture();
+                return processBatch(conn, ids);
+            })
+    );
+}
+```
+
+---
+
+## Dead-Letter Handling
+
+Jobs that fail repeatedly must move to a dead-letter table, not retry forever. Unbounded retries amplify bloat and can mask bugs indefinitely.
+
+```java
+private Future<Void> handleJobFailure(
+        SqlConnection conn, long jobId, String payload,
+        String queue, Throwable error, int attempts) {
+
+    if (attempts >= maxAttempts) {
+        // Terminal failure: write to dead letter and release the claim.
+        return conn.preparedQuery(INSERT_DLQ_SQL)
+            .execute(Tuple.of(
+                jobId, queue, payload,
+                error.getMessage(), attempts, OffsetDateTime.now()
+            ))
+            .flatMap(v ->
+                conn.preparedQuery("DELETE FROM job_claim WHERE job_id = $1")
+                    .execute(Tuple.of(jobId))
+            )
+            .mapEmpty();
+    }
+
+    // Transient failure: let the lease expire for automatic retry.
+    // Do not update the claim row — just let the transaction roll back.
+    return Future.failedFuture(error);
+}
+```
+
+Dead-letter rows must be queryable with plain SQL, re-driveable manually by reinserting into `job_inbox`, and alerted on. They are not failures to hide.
+
+---
+
+## Partitioning for Long-Lived Queues
+
+A queue table must not grow without bound. As `job_inbox` grows, claim queries slow down even with good indexes. Partitioning lets you archive or drop old data without row-by-row vacuum.
+
+### Time-Window Partitioning
+
+```sql
+CREATE TABLE job_inbox (
+    id         bigserial,
+    queue      text NOT NULL,
+    payload    jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+) PARTITION BY RANGE (created_at);
+
+CREATE TABLE job_inbox_2026_05
+    PARTITION OF job_inbox
+    FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+
+CREATE TABLE job_inbox_2026_06
+    PARTITION OF job_inbox
+    FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
+
+-- Archiving is a DDL operation, not a vacuum operation.
+ALTER TABLE job_inbox DETACH PARTITION job_inbox_2026_04;
+-- Then DROP or move to cold storage.
+```
+
+### Queue-Name Partitioning
+
+If multiple queues share one database, partition by queue name so one busy queue cannot slow down another:
+
+```sql
+CREATE TABLE job_inbox (
+    id         bigserial,
+    queue      text NOT NULL,
+    payload    jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+) PARTITION BY LIST (queue);
+
+CREATE TABLE job_inbox_payments
+    PARTITION OF job_inbox FOR VALUES IN ('payments');
+
+CREATE TABLE job_inbox_notifications
+    PARTITION OF job_inbox FOR VALUES IN ('notifications');
+```
+
+---
+
+## Broader Design Patterns
+
+### Prefer Append-Only State Over Status Machines
+
+A common anti-pattern is modelling every lifecycle stage as a status update:
+
+```
 pending -> picked -> processing -> retrying -> completed -> archived
 ```
 
-Every transition is an update. If those states are mainly for observability or audit, an append-only event model may be better:
+Every transition is an update. If those states exist mainly for observability or audit, an append-only event log is better:
 
-```text
+```
 job.created
 job.claimed
-job.started
 job.completed
 job.failed
 job.retried
 ```
 
-That turns mutation into append. PostgreSQL is generally happier with append-heavy workloads than with hot-row mutation and deletion.
+Appends are cheap. Hot-row mutation and deletion are not.
 
----
+### Separate Durable History from Operational Work State
 
-### 3. Separate durable history from operational work state
+One table should not serve as queue, audit log, retry tracker, dead-letter store, and reporting source at the same time. A cleaner split:
 
-Do not force one table to be:
-
-```text
-queue
-audit log
-retry state
-dead-letter store
-dashboard source
-historical archive
+```
+job_inbox          append-only, authoritative record of what arrived
+job_claim          current lease state only — stays small
+job_result         append-only, authoritative record of what completed
+job_dead_letter    terminal failures
 ```
 
-Those are different concerns.
+### Use LISTEN/NOTIFY as Wake-Up Only
 
-A cleaner design is often:
+`LISTEN/NOTIFY` reduces polling. But it is a coordination hint, not a delivery guarantee. The durable truth must stay in a table.
 
-```text
-job_event          append-only history
-job_work_item      current operational claim state
-job_dead_letter    failed terminal work
-consumer_offset    progress per consumer/group
 ```
-
-This allows the hot operational table to stay small while preserving history elsewhere.
-
----
-
-### 4. Partition aggressively
-
-A queue table should not become immortal.
-
-Partitioning gives you a way to drop, detach, archive, or truncate old data instead of relying entirely on row-by-row vacuum cleanup.
-
-Partitioning options include:
-
-```text
-by time window
-by queue name
-by tenant
-by shard key
-by aggregate hash
-by lifecycle state
-```
-
-For example:
-
-```text
-job_queue_2026_05_09_10
-job_queue_2026_05_09_11
-job_queue_2026_05_09_12
-```
-
-or:
-
-```text
-job_queue_shard_00
-job_queue_shard_01
-job_queue_shard_02
-...
-```
-
-The aim is to avoid one global hot table and one global hot pending index.
-
----
-
-### 5. Use `LISTEN/NOTIFY` as wake-up, not durability
-
-`LISTEN/NOTIFY` can reduce polling. That is useful.
-
-But it should not be treated as the durable queue. The durable truth still needs to be in a table.
-
-Good shape:
-
-```text
 insert durable job row
 commit transaction
 notify workers
 workers read durable state
 ```
 
-Bad shape:
-
-```text
-notify is the queue
-worker assumes notification is durable
-lost notification means lost job
-```
-
-PostgreSQL also has wait events related to NOTIFY internals, including `NotifyQueue`, `NotifySLRU`, and related SLRU/cache waits, so it should still be treated as a coordination mechanism, not a high-throughput broker replacement. ([AWS Documentation][5])
+A notification can be lost. The job cannot be.
 
 ---
 
-### 6. Consider advisory locks carefully
+## Monitoring
 
-Advisory locks can avoid some row-level lock and tuple-update patterns because the lock is application-defined rather than directly tied to updating the row.
+Monitor the database, not just job throughput. By the time throughput drops, the database may already be suffering from bloat, WAL pressure, or vacuum lag.
 
-That can help, but it shifts responsibility into the application.
+### Application-Level Metrics
 
-You must be clear about:
+| Metric | What it tells you |
+| --- | --- |
+| `oldest_pending_age_ms` | Is the queue draining? A rising value means workers are falling behind. |
+| `claim_latency_p99` | How long does the claim transaction take? Rising p99 signals DB pressure. |
+| `processing_latency_p99` | How long does domain logic take? Use this to set lease durations. |
+| `lease_expiry_rate` | Are jobs timing out before completion? The most important early warning. Non-zero and growing is a problem. |
+| `dead_letter_rate` | Are jobs failing terminally? Should be zero in a healthy system. |
+| `retry_rate` | Are failures transient or systematic? |
+| `transaction_rollback_rate` | Is domain logic failing atomically? Rollbacks are expected; spikes are not. |
+| `duplicate_completion_rate` | How often is idempotency deduplication firing? Should be low. |
 
-```text
-connection ownership
-session lifecycle
-transaction scope
-crash recovery
-timeout handling
-lock release
-idempotency
-duplicate execution
-visibility of in-flight work
-```
-
-Advisory locks are not simpler. They are a different trade-off.
-
----
-
-## When to Use a Broker or Log
-
-Use a broker or log when the queue is no longer a database-adjacent implementation detail.
-
-PostgreSQL is usually not the best final destination for:
-
-```text
-high-frequency dispatch
-large fan-out
-many independent consumer groups
-strict replay semantics
-long retention with reprocessing
-very low-latency work distribution
-massive burst absorption
-cross-service event distribution
-```
-
-A rough model:
-
-| Requirement                                 | Better fit                         |
-| ------------------------------------------- | ---------------------------------- |
-| Transactional handoff from relational state | PostgreSQL outbox                  |
-| Internal jobs with controlled claim rate    | PostgreSQL queue                   |
-| Durable audit/history                       | Append-only PostgreSQL event store |
-| Fast competing-consumer dispatch            | Redis Streams, RabbitMQ, SQS, etc. |
-| Replayable distributed event stream         | Kafka, Pulsar, Redpanda, etc.      |
-| Multiple independent subscribers            | Kafka/Pulsar-style log             |
-| Simple local background task                | PostgreSQL table may be enough     |
-
-The choice should follow semantics, not fashion.
-
-Kafka is not automatically better. Redis is not automatically better. PostgreSQL is not automatically good enough. The workload decides.
-
----
-
-## Production Checklist for PostgreSQL Queues
-
-If you run a PostgreSQL-backed queue, monitor it like a serious database workload, not like a convenient implementation detail.
-
-Track table health:
+### PostgreSQL Table Health
 
 ```sql
-SELECT relname,
-       n_live_tup,
-       n_dead_tup,
-       vacuum_count,
-       autovacuum_count
+SELECT
+    relname,
+    n_live_tup                                          AS live_rows,
+    n_dead_tup                                          AS dead_rows,
+    round(
+        n_dead_tup::numeric /
+        NULLIF(n_live_tup + n_dead_tup, 0) * 100, 1
+    )                                                   AS dead_pct,
+    vacuum_count,
+    autovacuum_count,
+    last_autovacuum
 FROM pg_stat_user_tables
-WHERE relname LIKE '%queue%';
+WHERE relname LIKE '%job%'
+ORDER BY n_dead_tup DESC;
 ```
 
-Track wait events:
+### Wait Events
 
 ```sql
-SELECT wait_event_type,
-       wait_event,
-       count(*)
+SELECT
+    wait_event_type,
+    wait_event,
+    count(*) AS sessions
 FROM pg_stat_activity
 WHERE wait_event IS NOT NULL
 GROUP BY wait_event_type, wait_event
-ORDER BY count(*) DESC;
+ORDER BY sessions DESC;
 ```
 
-Watch for:
+| Wait event | Likely cause |
+| --- | --- |
+| `LWLock:MultiXactMemberSLRU` | Too many competing workers on hot rows. Reduce worker count or claim rate. |
+| `LWLock:MultiXactOffsetSLRU` | Same root cause as above. |
+| `LWLock:WALWrite` | WAL volume too high. Reduce mutation rate; increase `checkpoint_completion_target`. |
+| `Lock:tuple` | Row-level lock contention. Workers converging on the same rows. |
+| `Lock:transactionid` | High concurrent transaction count or transaction ID pressure. |
+| `IO:SLRURead` | SLRU cache misses. Usually accompanies MultiXact pressure. |
 
-```text
-LWLock:MultiXactMemberSLRU
-LWLock:MultiXactOffsetSLRU
-LWLock:ProcArray
-LWLock:WALWrite
-Lock:tuple
-Lock:transactionid
-IO:SLRURead
+---
+
+## The Real Decision Model
+
+Do not use this model:
+
+```
+small queue -> Postgres
+large queue -> Kafka or Redis
 ```
 
-PostgreSQL’s own monitoring documentation includes wait events for MultiXact SLRU access, including `MultiXactMemberSLRU` and `MultiXactOffsetSLRU`. ([PostgreSQL][6])
+Use workload shape instead:
 
-Also monitor application-level queue health:
+| Workload characteristic | PostgreSQL fit | Design direction |
+| --- | --- | --- |
+| Job must commit atomically with domain state | Strong | This architecture — lease-based queue |
+| Controlled claim rate, moderate job duration | Good | `SKIP LOCKED` with batch claiming |
+| Very high frequency, sub-second jobs | Weak | External broker or Redis Streams |
+| Many independent consumers / fan-out | Poor | Kafka / Pulsar |
+| Replay is a requirement | Poor | Append-only event store or log |
+| Strict global FIFO required | Weak | Reconsider the requirement or use a broker |
+| Multiple status transitions per job | Weak | Append-only events instead of status mutations |
+| Queue shares the primary OLTP database | Risky | Separate schema, dedicated connection pool, resource isolation |
+| Burst / spike handling | Risky | Backpressure, admission control, or broker |
+| Duplicate processing is tolerable | Easier | Idempotent workers and simpler claim semantics |
+| Duplicate processing is unacceptable | Harder | Idempotency keys and deduplication table |
 
-```text
-oldest pending job age
-claim latency
-completion latency
-queue depth
-retry count
-dead-letter count
-jobs claimed per second
-jobs completed per second
-jobs failed per second
-time in processing state
-worker idle time
-duplicate execution count
+---
+
+## Production Checklist
+
+**Schema**
+
+```
+append-only job_inbox — never updated after insert
+lease-based job_claim — insert on claim, delete on complete, never update
+append-only job_result — unique constraint on job_id for idempotency
+dedicated job_dead_letter table
+partitioned job_inbox by time window or queue name
+index on (queue, created_at) for claim queries
+index on (expires_at) for lease expiry sweep
 ```
 
-And database-level cost:
+**Claim mechanics**
 
-```text
-WAL generation rate
-replication lag
-autovacuum duration
-index size
-table size
-dead tuple ratio
-checkpoint frequency
-buffer cache hit ratio
-CPU consumed by queue queries
+```
+batch claiming — never single-row
+expiry-based leases — no status update, no UPDATE storm
+automatic lease recovery via periodic expiry DELETE
+attempt counter increment on re-claim
+dead-letter after maxAttempts — never unbounded retry
 ```
 
-The biggest mistake is only monitoring job throughput. By the time throughput drops, the database may already be suffering from bloat, WAL pressure, lock waits, or vacuum lag.
+**Vert.x concurrency**
+
+```
+single claim coordinator per node (AtomicBoolean guard)
+LISTEN/NOTIFY for primary wake-up
+periodic fallback sweep for missed notifications
+MAX_CONCURRENT_JOBS ceiling enforced at claim time
+no unbounded verticle-per-job patterns
+```
+
+**Transactional integrity**
+
+```
+entire business cycle in one pgPool.withTransaction()
+idempotent domain logic throughout
+unique constraint deduplication on job_result
+PgException SQLSTATE 23505 handled as idempotent success
+```
+
+**Monitoring**
+
+```
+lease_expiry_rate alerted — leading indicator of problems
+dead_letter_rate alerted — should be zero in steady state
+n_dead_tup / n_live_tup ratio on queue tables watched
+MultiXactMemberSLRU and WALWrite wait events watched
+replication lag tracked if read replicas are present
+checkpoint frequency and duration tracked
+```
 
 ---
 
 ## My View
 
-My view is blunt: **`SKIP LOCKED` is a useful coordination primitive, not a queue architecture.**
+My view is blunt: **`SKIP LOCKED` is a coordination primitive, not a queue architecture.**
 
-It solves one narrow problem:
+It solves one problem:
 
 > Do not block this worker if another worker already locked the row.
 
 It does not solve:
 
-```text
+```
 MVCC churn
 dead tuple cleanup
 index bloat
@@ -586,14 +788,14 @@ visibility checks
 MultiXact pressure
 vacuum lag
 replication lag
-operational blast radius
+blast radius on the primary database
 ```
 
 That does not make `SKIP LOCKED` bad. It means it should be used with discipline.
 
-The worst design is the one that looks deceptively simple:
+The worst design is the one that looks simple:
 
-```text
+```
 one global queue table
 one pending partial index
 many workers
@@ -606,111 +808,25 @@ repeat forever
 
 That is not a durable architecture. That is a future incident.
 
-The better design is usually one of these:
+The correct design for a transactional business workflow is:
 
-```text
-transactional outbox + external broker
-append-only event table + consumer offsets
-partitioned work table + batch claiming
-LISTEN/NOTIFY wake-up + durable table
-sharded queues + bounded workers
+```
+append-only job_inbox
+lease-based job_claim (insert on claim, delete on complete)
+append-only job_result with unique deduplication constraint
+single claim coordinator per node
+LISTEN/NOTIFY wake-up backed by durable table state
+batch claiming with bounded concurrency
+idempotent domain logic
+dead-letter handling from day one
+partitioned tables — no immortal queue
 ```
 
 The strongest rule is:
 
-> Use PostgreSQL when the queue is part of your transactional data model. Use a broker or log when the queue is your runtime distribution fabric.
+> Use PostgreSQL when the queue is part of your transactional data model. Use a broker when the queue is your runtime distribution fabric.
 
-That is a much sharper distinction than small versus large.
-
----
-
-## Specific View for PeeGeeQ-Style Systems
-
-For a PostgreSQL-backed queue/event-store design, the lesson is not “avoid Postgres.” The lesson is to avoid making the core design depend on a hot mutable status table.
-
-A PeeGeeQ-style system should lean into PostgreSQL’s strengths:
-
-```text
-durable append
-transactional consistency
-queryability
-auditability
-bitemporal history
-operational simplicity
-```
-
-The strongest direction is:
-
-```text
-append-only event store
-transactional outbox
-consumer offsets
-batch reads
-partitioned event/work tables
-bounded concurrency
-backpressure
-dead-letter handling
-LISTEN/NOTIFY as wake-up only
-```
-
-The risky direction is:
-
-```text
-high-frequency polling
-single-row claim transactions
-mutable status-machine rows
-large competing-worker pools
-DELETE-heavy completion
-unbounded retries
-one global hot pending index
-```
-
-For PeeGeeQ specifically, I would keep the distinction very explicit:
-
-| Concern                           | Preferred model                 |
-| --------------------------------- | ------------------------------- |
-| Durable event history             | Append-only event store         |
-| Transactional message publication | Outbox                          |
-| Work dispatch                     | Batch claim or broker bridge    |
-| Real-time wake-up                 | LISTEN/NOTIFY                   |
-| Replay                            | Event store or external log     |
-| Dead letters                      | Dedicated DLQ table             |
-| Consumer progress                 | Explicit offsets/checkpoints    |
-| High-throughput fan-out           | External broker/log if required |
-
-PostgreSQL should provide the durable transactional core. It should not be forced to impersonate Kafka, RabbitMQ, or Redis Streams unless the workload shape genuinely fits.
-
----
-
-## Final Position
-
-PostgreSQL as a queue should not be judged by vague labels like “small scale” or “large scale.” That framing is too blunt to be useful.
-
-A PostgreSQL-backed queue is a good fit when:
-
-```text
-jobs are tied to relational state
-claim frequency is controlled
-workers can claim in batches
-ordering can be relaxed or partitioned
-completion does not require excessive mutation
-history is append-only or partitioned
-operational impact is isolated
-```
-
-It becomes a poor fit when:
-
-```text
-many workers repeatedly scan the same pending index
-jobs are claimed one at a time at high frequency
-the same rows are updated through several lifecycle states
-completed work is deleted row by row
-retry storms churn the same table
-the queue shares the primary OLTP database
-multiple consumers need replay or fan-out
-```
-
-`SELECT ... FOR UPDATE SKIP LOCKED` is useful, but it is not magic. It avoids waiting on locked rows, but PostgreSQL still has to manage row visibility, row locks, transaction state, WAL, indexes, dead tuples, and vacuum.
+For workflows where incoming event, domain mutation, and outgoing completion must commit atomically, PostgreSQL is not a compromise. It is the only option that actually provides the guarantee. Every broker-based alternative requires a saga, an outbox, or a consistency gap at the point where the message system meets the database.
 
 The real question is not:
 
@@ -720,13 +836,6 @@ Of course it can.
 
 The real question is:
 
-> Does this queue’s workload shape match PostgreSQL’s strengths, or are we using a relational database as a high-churn broker because it was convenient?
+> Does this queue's workload shape match PostgreSQL's strengths — durable, transactional, append-friendly — or are we using a relational database as a high-churn broker because it was convenient?
 
 That is the engineering decision.
-
-[1]: https://richyen.com/postgres/2026/05/04/postgres_job_queue.html?utm_source=chatgpt.com "Potential Consequences of Using Postgres as a Job Queue"
-[2]: https://www.postgresql.org/docs/current/sql-select.html?utm_source=chatgpt.com "PostgreSQL: Documentation: 18: SELECT"
-[3]: https://www.postgresql.org/docs/current/explicit-locking.html?utm_source=chatgpt.com "Documentation: 18: 13.3. Explicit Locking"
-[4]: https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/apg-waits.lwlockmultixact.html?utm_source=chatgpt.com "LWLock:MultiXact - Amazon Aurora"
-[5]: https://docs.aws.amazon.com/AmazonRDS/latest/AuroraUserGuide/AuroraPostgreSQL.Reference.Waitevents.html?utm_source=chatgpt.com "Amazon Aurora PostgreSQL wait events"
-[6]: https://www.postgresql.org/docs/current/monitoring-stats.html?utm_source=chatgpt.com "Documentation: 18: 27.2. The Cumulative Statistics System"

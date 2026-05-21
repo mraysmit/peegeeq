@@ -81,7 +81,18 @@ public class TemporalRange {
     public static TemporalRange from(Instant start) {
         return new TemporalRange(start, null, true, true);
     }
-    
+
+    /**
+     * Creates an inclusive temporal range between two points in time.
+     *
+     * @param start The start time
+     * @param end The end time
+     * @return A new inclusive temporal range
+     */
+    public static TemporalRange between(Instant start, Instant end) {
+        return new TemporalRange(start, end, true, true);
+    }
+
     /**
      * Creates a temporal range up to a specific point in time.
      *
