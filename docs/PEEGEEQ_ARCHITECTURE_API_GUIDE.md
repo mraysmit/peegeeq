@@ -51,6 +51,7 @@ graph TB
     subgraph "Client Applications"
         APP[Your Application<br/>Producer/Consumer Code]
         WEB[Web Applications<br/>HTTP Clients]
+        RESTCLIENT[peegeeq-rest-client<br/>Java REST Client<br/>Vert.x WebClient<br/>SSE Streaming]
         SERVICES[Microservices<br/>Distributed Systems]
         ADMIN[System Administrators<br/>DevOps Teams<br/>Developers]
     end
@@ -65,7 +66,11 @@ graph TB
     end
 
     subgraph "PeeGeeQ API Layer"
-        API[peegeeq-api<br/>MessageProducer&lt;T&gt;<br/>MessageConsumer&lt;T&gt;<br/>QueueFactory<br/>EventStore&lt;T&gt;<br/>DatabaseService<br/>QueueFactoryProvider<br/>ConsumerGroup&lt;T&gt;]
+        API[peegeeq-api<br/>MessageProducer&lt;T&gt;<br/>MessageConsumer&lt;T&gt;<br/>QueueFactory<br/>EventStore&lt;T&gt;<br/>DatabaseService<br/>QueueFactoryProvider<br/>ConsumerGroup&lt;T&gt;<br/>LoadBalancingStrategy]
+    end
+
+    subgraph "Composition Layer"
+        RUNTIME[peegeeq-runtime<br/>PeeGeeQRuntime<br/>PeeGeeQContext<br/>Service Composition]
     end
 
     subgraph "Implementation Layer"
@@ -80,6 +85,7 @@ graph TB
 
     subgraph "External Services"
         CONSUL[HashiCorp Consul<br/>Service Discovery<br/>Health Checks<br/>Configuration]
+        SIDECAR[peegeeq-pg-sidecar<br/>HAProxy Health Check<br/>PostgreSQL Primary Check<br/>/primary endpoint]
     end
 
     subgraph "PostgreSQL Database"
@@ -88,6 +94,7 @@ graph TB
 
     APP --> API
     WEB --> REST
+    RESTCLIENT --> REST
     SERVICES --> SM
     ADMIN --> UI
 
@@ -95,6 +102,11 @@ graph TB
     SM --> CONSUL
     SM --> API
     REST --> API
+
+    API --> RUNTIME
+    RUNTIME --> NATIVE
+    RUNTIME --> OUTBOX
+    RUNTIME --> BITEMPORAL
 
     API --> NATIVE
     API --> OUTBOX
@@ -104,6 +116,7 @@ graph TB
     OUTBOX --> DB
     BITEMPORAL --> DB
     DB --> POSTGRES
+    SIDECAR --> POSTGRES
 ```
 
 ### Core Design Principles
@@ -117,11 +130,15 @@ graph TB
 
 ## Module Structure
 
-PeeGeeQ consists of 9 core modules organized in a layered architecture:
+PeeGeeQ consists of 19 modules organized into the following groups:
 
-### 1. peegeeq-api (Core Interfaces)
+---
 
-**Purpose**: Defines core contracts and interfaces
+### Group 1: API & Contract Layer
+
+#### peegeeq-api (Core Interfaces)
+
+**Purpose**: Defines all core contracts and interfaces — the boundary every other module depends on
 **Key Components**:
 - `MessageProducer<T>` - Message publishing interface
 - `MessageConsumer<T>` - Message consumption interface
@@ -130,8 +147,49 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 - `BiTemporalEvent<T>` - Bi-temporal event abstraction
 - `DatabaseService` - Database operations interface
 - `QueueFactoryProvider` - Factory provider interface
+- `ConsumerGroup<T>` - Consumer group interface
+- `LoadBalancingStrategy` - Consumer group load balancing strategies (ROUND_ROBIN, RANGE, STICKY, RANDOM)
 
-### 2. peegeeq-db (Database Management)
+---
+
+### Group 2: Implementation Layer
+
+#### peegeeq-native (High-Performance Implementation)
+
+**Purpose**: Real-time LISTEN/NOTIFY based messaging
+**Key Components**:
+- `PgNativeQueueFactory` - Factory for native queues
+- `PgNativeQueueProducer<T>` - High-performance message producer
+- `PgNativeQueueConsumer<T>` - Real-time message consumer
+- `PgConnectionProvider` - Optimized connection management
+
+**Performance**: 10,000+ msg/sec, <10ms latency
+
+#### peegeeq-outbox (Transactional Implementation)
+
+**Purpose**: Transactional outbox pattern implementation
+**Key Components**:
+- `OutboxFactory` - Factory for outbox queues
+- `OutboxProducer<T>` - Transactional message producer
+- `OutboxConsumer<T>` - Polling-based message consumer
+- `StuckMessageRecoveryManager` - Automatic recovery of stuck messages
+
+**Performance**: 5,000+ msg/sec, ACID compliance
+
+#### peegeeq-bitemporal (Event Store)
+
+**Purpose**: Bi-temporal event sourcing capabilities
+**Key Components**:
+- `BiTemporalEventStore<T>` - Main event store interface
+- `PgBiTemporalEventStore<T>` - PostgreSQL implementation
+- `BiTemporalEvent<T>` - Event with temporal metadata
+- `EventQuery` - Query builder for temporal queries
+
+---
+
+### Group 3: Database & Infrastructure Layer
+
+#### peegeeq-db (Database Management)
 
 **Purpose**: Database infrastructure and management
 **Key Components**:
@@ -145,38 +203,40 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 - `DeadLetterQueueManager` - Failed message handling
 - `StuckMessageRecoveryManager` - Automatic recovery of stuck messages
 
-### 3. peegeeq-native (High-Performance Implementation)
+#### peegeeq-migrations (Database Migrations)
 
-**Purpose**: Real-time LISTEN/NOTIFY based messaging
+**Purpose**: Standalone Flyway migration scripts; not bundled with the application runtime
 **Key Components**:
-- `PgNativeQueueFactory` - Factory for native queues
-- `PgNativeQueueProducer<T>` - High-performance message producer
-- `PgNativeQueueConsumer<T>` - Real-time message consumer
-- `PgConnectionProvider` - Optimized connection management
+- `RunMigrations` - CLI runner for applying schema migrations outside the application lifecycle
+- Flyway SQL scripts for all PeeGeeQ schema objects
 
-**Performance**: 10,000+ msg/sec, <10ms latency
+#### peegeeq-pg-sidecar (HAProxy Health Sidecar)
 
-### 4. peegeeq-outbox (Transactional Implementation)
-
-**Purpose**: Transactional outbox pattern implementation
+**Purpose**: Lightweight HTTP sidecar for PostgreSQL high-availability setups
 **Key Components**:
-- `OutboxFactory` - Factory for outbox queues
-- `OutboxProducer<T>` - Transactional message producer
-- `OutboxConsumer<T>` - Polling-based message consumer
-- `StuckMessageRecoveryManager` - Automatic recovery of stuck messages
+- `PgPrimaryCheckVerticle` - Vert.x HTTP server exposing `/primary` health endpoint
+- `PgPrimaryCheckMain` - Entry point; returns HTTP 200 when PostgreSQL node is write-primary, HTTP 503 for replicas
 
-**Performance**: 5,000+ msg/sec, ACID compliance
+**Integration**: Consumed by HAProxy to route writes exclusively to the primary PostgreSQL node
 
-### 5. peegeeq-bitemporal (Event Store)
+---
 
-**Purpose**: Bi-temporal event sourcing capabilities
+### Group 4: Runtime & Composition Layer
+
+#### peegeeq-runtime (Service Composition)
+
+**Purpose**: Wires all PeeGeeQ implementation modules into a single runnable context
 **Key Components**:
-- `BiTemporalEventStore<T>` - Main event store interface
-- `PgBiTemporalEventStore<T>` - PostgreSQL implementation
-- `BiTemporalEvent<T>` - Event with temporal metadata
-- `EventQuery` - Query builder for temporal queries
+- `PeeGeeQRuntime` - Main composition entry point; starts and stops all subsystems
+- `PeeGeeQContext` - Runtime context providing access to all services
+- `RuntimeDatabaseSetupService` - Setup service backed by the full runtime stack
+- `RuntimeConfig` - Unified configuration for the composed runtime
 
-### 6. peegeeq-rest (HTTP API)
+---
+
+### Group 5: Service & HTTP Layer
+
+#### peegeeq-rest (HTTP REST API)
 
 **Purpose**: HTTP REST API server
 **Key Components**:
@@ -189,18 +249,38 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 - `ConsumerGroupHandler` - Consumer group management
 - `ManagementApiHandler` - Management API operations
 
-### 7. peegeeq-service-manager (Service Discovery)
+#### peegeeq-rest-client (Java REST Client)
 
-**Purpose**: Service discovery and federation
+**Purpose**: Type-safe Java client for the PeeGeeQ REST API, built on Vert.x WebClient
+**Key Components**:
+- `PeeGeeQRestClient` - Primary client interface with reactive `Future<T>` methods
+- `PeeGeeQClient` - High-level client facade
+- `SSEReadStream` - Server-Sent Events streaming support
+- 25 DTO and exception classes covering the full REST API surface
+
+#### peegeeq-openapi (OpenAPI Specification)
+
+**Purpose**: OpenAPI 3.0 specification and Maven-driven REST client code generation
+**Key Components**:
+- `peegeeq-api.yaml` - Complete OpenAPI 3.0 REST API specification
+- Maven code-generation configuration (no production Java sources)
+
+#### peegeeq-service-manager (Service Discovery)
+
+**Purpose**: Service discovery, federation, and load balancing across multiple PeeGeeQ instances
 **Key Components**:
 - `PeeGeeQServiceManager` - Main service manager
 - `ConsulServiceDiscovery` - Consul integration
 - `FederatedManagementHandler` - Multi-instance coordination
-- `LoadBalancingStrategy` - Request routing
+- `LoadBalancingStrategy` - Request routing (ROUND_ROBIN, RANDOM, FIRST_AVAILABLE)
 - `LoadBalancer` - Load balancing implementation
 - `ConnectionRouter` - Connection routing
 
-### 8. peegeeq-management-ui (Management Console)
+---
+
+### Group 6: Management Layer
+
+#### peegeeq-management-ui (Management Console)
 
 **Purpose**: Web-based administration interface for PeeGeeQ system management
 **Key Components**:
@@ -216,7 +296,11 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 **Technology Stack**: React 18 + TypeScript + Ant Design + Vite
 **Integration**: Served by PeeGeeQ REST server with management API endpoints
 
-### 9. peegeeq-examples (Demonstrations)
+---
+
+### Group 7: Example Applications
+
+#### peegeeq-examples (Demonstrations)
 
 **Purpose**: Comprehensive example applications and demonstrations covering all PeeGeeQ features
 
@@ -228,7 +312,7 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 - `RestApiExample` - HTTP interface usage
 - `ServiceDiscoveryExample` - Multi-instance deployment
 
-**Advanced Examples (Enhanced)**:
+**Advanced Examples**:
 - `MessagePriorityExample` - Priority-based message processing with real-world scenarios
 - `EnhancedErrorHandlingExample` - Retry strategies, circuit breakers, poison message handling
 - `SecurityConfigurationExample` - SSL/TLS, certificate management, compliance features
@@ -241,9 +325,51 @@ PeeGeeQ consists of 9 core modules organized in a layered architecture:
 - `NativeVsOutboxComparisonExample` - Performance comparison and use case guidance
 - `AdvancedConfigurationExample` - Production configuration patterns
 - `MultiConfigurationExample` - Multi-environment setup
-- `SimpleConsumerGroupTest` - Basic consumer group testing
 
 **Coverage**: 95-98% of PeeGeeQ functionality with production-ready patterns
+
+#### peegeeq-examples-spring (Spring Boot Examples)
+
+**Purpose**: Spring Boot integration examples demonstrating PeeGeeQ with Spring patterns
+**Key Components**:
+- Spring Boot applications for reactive outbox, bitemporal events, and retry patterns
+- `OrderService`, `ProductService` - Domain service examples with transactional outbox
+- Spring repositories, configuration classes, and integration tests (~140 source files)
+
+---
+
+### Group 8: Testing & Quality
+
+#### peegeeq-test-support (Shared Test Infrastructure)
+
+**Purpose**: Reusable test infrastructure library shared across integration and performance tests
+**Key Components**:
+- `PeeGeeQTestContainerFactory` - TestContainers setup with consistent PostgreSQL configuration
+- `PeeGeeQTestSchemaInitializer` - Automated schema and fixture initialisation
+- `PerformanceMetricsCollector` - Metrics capture during test runs
+- `HardwareProfiler` - Hardware resource monitoring for performance baselines
+
+#### peegeeq-performance-test-harness (Performance Testing)
+
+**Purpose**: Comprehensive performance test suites for all queue implementations
+**Key Components**:
+- `PerformanceTestHarness` - Test orchestrator
+- `PerformanceTestRunner` - Configurable runner for throughput and latency benchmarks
+- Separate test suites for native queue, outbox, bitemporal, and database operations
+
+#### peegeeq-integration-tests (End-to-End Tests)
+
+**Purpose**: End-to-end integration smoke tests combining REST server, REST client, and test-support
+**Key Components**:
+- Test-only module (no production sources)
+- Combines `peegeeq-rest`, `peegeeq-rest-client`, and `peegeeq-test-support` for full-stack smoke tests
+
+#### peegeeq-coverage-report (Code Coverage Aggregation)
+
+**Purpose**: Aggregated JaCoCo code coverage report across all modules
+**Key Components**:
+- POM-only module; no production code
+- Collects and aggregates coverage from all other modules into a single report
 
 ## Core API Reference
 
@@ -255,22 +381,22 @@ public interface MessageProducer<T> extends AutoCloseable {
     /**
      * Send a message with the given payload
      */
-    CompletableFuture<Void> send(T payload);
+    Future<Void> send(T payload);
 
     /**
      * Send a message with the given payload and headers
      */
-    CompletableFuture<Void> send(T payload, Map<String, String> headers);
+    Future<Void> send(T payload, Map<String, String> headers);
 
     /**
      * Send a message with the given payload, headers, and correlation ID
      */
-    CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId);
+    Future<Void> send(T payload, Map<String, String> headers, String correlationId);
 
     /**
      * Send a message with the given payload, headers, correlation ID, and message group
      */
-    CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
+    Future<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
 
     /**
      * Close the producer and release resources
@@ -280,24 +406,15 @@ public interface MessageProducer<T> extends AutoCloseable {
 }
 ```
 
-**Design Note: Why CompletableFuture?**
-
-All `MessageProducer` methods return `CompletableFuture<Void>` rather than Vert.x `Future<Void>`. This is a deliberate design choice for interoperability:
-
-- **Interoperability**: `CompletableFuture` is the Java standard and works seamlessly in both Spring Boot and Vert.x applications
-- **Familiar API**: Most Java developers already know `CompletableFuture` methods
-- **Simplicity**: Avoids doubling the API surface area with separate `Future`-returning methods
-- **No Performance Penalty**: Works directly in Vert.x handlers without conversion overhead
-
-For Vert.x developers composing with other `Future` operations, conversion is trivial and only needed in specific scenarios (see [PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md](PEEGEEQ_TRANSACTIONAL_OUTBOX_PATTERNS_GUIDE.md#why-completablefuture-instead-of-vertx-future) for details).
-
 #### MessageConsumer<T>
 ```java
 public interface MessageConsumer<T> extends AutoCloseable {
     /**
-     * Subscribe to messages with the given handler
+     * Subscribe to messages with the given handler.
+     * Returns a Future that completes when the subscription is fully established
+     * (LISTEN channel acknowledged for native mode, timer scheduled for polling mode).
      */
-    void subscribe(MessageHandler<T> handler);
+    Future<Void> subscribe(MessageHandler<T> handler);
 
     /**
      * Unsubscribe from message processing
@@ -426,75 +543,47 @@ public interface QueueFactory extends AutoCloseable {
 ```java
 /**
  * Database operations using Vert.x 5.x reactive patterns.
- * External API uses CompletableFuture for non-Vert.x consumers.
+ * Extends VertxProvider, PoolProvider, and ConnectOptionsProvider for clean
+ * access to the underlying Vert.x instance, connection pool, and connect options.
  */
-public interface DatabaseService extends AutoCloseable {
-    /**
-     * Initializes the database service
-     */
-    CompletableFuture<Void> initialize();
+public interface DatabaseService extends AutoCloseable,
+        VertxProvider, PoolProvider, ConnectOptionsProvider {
 
-    /**
-     * Starts the database service
-     */
-    CompletableFuture<Void> start();
+    /** Initialises the database service. */
+    Future<Void> initialize();
 
-    /**
-     * Stops the database service
-     */
-    CompletableFuture<Void> stop();
+    /** Starts the database service. */
+    Future<Void> start();
 
-    /**
-     * Reactive convenience method for initialize()
-     * For Vert.x consumers who prefer Future-based APIs
-     */
-    default Future<Void> initializeReactive() {
-        return Future.fromCompletionStage(initialize());
-    }
+    /** Stops the database service. */
+    Future<Void> stop();
 
-    /**
-     * Reactive convenience method for start()
-     */
-    default Future<Void> startReactive() {
-        return Future.fromCompletionStage(start());
-    }
-
-    /**
-     * Reactive convenience method for stop()
-     */
-    default Future<Void> stopReactive() {
-        return Future.fromCompletionStage(stop());
-    }
-
-    /**
-     * Check if the service is running
-     */
+    /** Returns true if the service is currently running. */
     boolean isRunning();
 
-    /**
-     * Check if the database is healthy
-     */
+    /** Returns true if the database is reachable and healthy. */
     boolean isHealthy();
 
-    /**
-     * Get the connection provider for database operations
-     */
+    /** Returns the connection provider for reactive database operations. */
     ConnectionProvider getConnectionProvider();
 
-    /**
-     * Get the metrics provider for monitoring
-     */
+    /** Returns the metrics provider for monitoring. */
     MetricsProvider getMetricsProvider();
 
     /**
-     * Run database migrations
+     * Returns the subscription service for consumer group subscription management.
+     * @since 1.1.0
      */
-    CompletableFuture<Void> runMigrations();
+    SubscriptionService getSubscriptionService();
 
-    /**
-     * Perform a health check
-     */
-    CompletableFuture<Boolean> performHealthCheck();
+    /** Runs database migrations if needed. */
+    Future<Void> runMigrations();
+
+    /** Performs a health check on the database. */
+    Future<Boolean> performHealthCheck();
+
+    @Override
+    void close() throws Exception;
 }
 ```
 
@@ -1125,16 +1214,16 @@ AsyncFilterRetryManager retryManager = new AsyncFilterRetryManager(
 
 ##### Execute Filter with Retry
 ```java
-public <T> CompletableFuture<FilterResult> executeFilterWithRetry(
+public <T> Future<FilterResult> executeFilterWithRetry(
     Message<T> message,
     Predicate<Message<T>> filter,
     FilterCircuitBreaker circuitBreaker)
 
 // Example usage
-CompletableFuture<FilterResult> result = retryManager.executeFilterWithRetry(
+Future<FilterResult> result = retryManager.executeFilterWithRetry(
     message, filter, circuitBreaker);
 
-result.thenAccept(filterResult -> {
+result.onSuccess(filterResult -> {
     switch (filterResult.getStatus()) {
         case ACCEPTED:
             processMessage(message);
@@ -1223,7 +1312,7 @@ DeadLetterQueueManager dlqManager = new DeadLetterQueueManager(config);
 
 ##### Send to Dead Letter Queue
 ```java
-public <T> CompletableFuture<Void> sendToDeadLetter(
+public <T> Future<Void> sendToDeadLetter(
     Message<T> originalMessage,
     String filterId,
     String reason,
@@ -1239,11 +1328,12 @@ dlqManager.sendToDeadLetter(
     3,
     ErrorClassification.PERMANENT,
     originalException
-).thenRun(() -> {
+)
+.onSuccess(v -> {
     logger.info("Message {} sent to dead letter queue", message.getId());
-}).exceptionally(throwable -> {
+})
+.onFailure(throwable -> {
     logger.error("Failed to send message to DLQ: {}", throwable.getMessage());
-    return null;
 });
 ```
 
@@ -1380,8 +1470,8 @@ consumer.subscribe(message -> {
     // Process message
     processOrder(message.getPayload());
     
-    // Return completion future
-    return CompletableFuture.completedFuture(null);
+    // Return a succeeded future to acknowledge the message
+    return Future.succeededFuture();
 });
 ```
 
@@ -1402,7 +1492,9 @@ connectionProvider.getPool().withTransaction(conn -> {
             return conn.preparedQuery("UPDATE inventory SET quantity = quantity - $1 WHERE product_id = $2")
                 .execute(Tuple.of(quantity, productId));
         });
-}).toCompletionStage().toCompletableFuture();
+})
+.onSuccess(result -> log.info("Transaction committed"))
+.onFailure(err -> log.error("Transaction failed", err));
 ```
 
 ### Circuit Breaker Pattern
@@ -1654,7 +1746,7 @@ peegeeq-management-ui/
 
 #### **REST API Integration Pattern**
 - **HTTP Endpoints**: RESTful API for message operations
-- **Async Processing**: Non-blocking message sending with CompletableFuture
+- **Async Processing**: Non-blocking message sending with Vert.x `Future<T>`
 - **Error Handling**: Structured error responses and exception mapping
 - **Content Negotiation**: JSON request/response format
 
