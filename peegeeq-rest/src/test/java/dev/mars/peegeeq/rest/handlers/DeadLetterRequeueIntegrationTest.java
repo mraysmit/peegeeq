@@ -288,7 +288,6 @@ public class DeadLetterRequeueIntegrationTest {
                         assertTrue(result.containsKey("messagesDeleted"));
                         logger.info("Cleanup result: {}", result.encode());
                     }
-                    }
                 });
                 testContext.completeNow();
             })

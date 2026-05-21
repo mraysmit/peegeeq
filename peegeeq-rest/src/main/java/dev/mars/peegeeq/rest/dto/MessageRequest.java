@@ -101,15 +101,12 @@ public class MessageRequest {
         }
 
         if (payload instanceof Map<?, ?> payloadMap) {
-            // Return the actual value, not a generic label
             Object mt = payloadMap.get("messageType");
             if (mt != null) return mt.toString();
 
-            Object et = payloadMap.get("eventType");
-            if (et != null) return et.toString();
-
-            Object ct = payloadMap.get("commandType");
-            if (ct != null) return ct.toString();
+            if (payloadMap.containsKey("eventType")) return "Event";
+            if (payloadMap.containsKey("commandType")) return "Command";
+            if (payloadMap.containsKey("orderId")) return "Order";
 
             return "Object";
         }
