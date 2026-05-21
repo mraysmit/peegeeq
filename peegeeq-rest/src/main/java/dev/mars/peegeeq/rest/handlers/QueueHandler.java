@@ -24,13 +24,14 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.rest.dto.BatchMessageRequest;
+import dev.mars.peegeeq.rest.dto.MessageRequest;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 
 import java.util.HashMap;
 import java.util.List;
@@ -111,6 +112,7 @@ public class QueueHandler {
                 .map(messageId -> {
                     TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, messageId);
                     TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
+                    String detectedType = messageRequest.detectMessageType();
                     JsonObject response = new JsonObject()
                             .put("message", "Message sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
                             .put("queueName", queueName)
@@ -118,7 +120,7 @@ public class QueueHandler {
                             .put("messageId", messageId)
                             .put("correlationId", messageId)
                             .put("timestamp", System.currentTimeMillis())
-                            .put("messageType", messageRequest.detectMessageType())
+                            .put("messageType", detectedType)
                             .put("priority", messageRequest.getPriority())
                             .put("delaySeconds", messageRequest.getDelaySeconds());
                     if (messageRequest.getMessageGroup() != null) {
@@ -128,7 +130,7 @@ public class QueueHandler {
                         response.put("customHeadersCount", messageRequest.getHeaders().size());
                     }
                     logger.info("Message sent successfully to queue {} in setup {} with ID: {} (type: {})",
-                        queueName, setupId, messageId, messageRequest.detectMessageType());
+                        queueName, setupId, messageId, detectedType);
                     return response;
                 })
                 .onSuccess(response -> ctx.response()
@@ -136,28 +138,15 @@ public class QueueHandler {
                         .putHeader("content-type", "application/json")
                         .end(response.encode()))
                 .onFailure(throwable -> {
-                    Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
-                    if (isSetupNotFoundError(cause)) {
-                        logger.debug("Setup not found for queue operation: {} (setup: {})",
-                                   queueName, setupId);
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else if (isSetupNotFoundError(throwable)) {
+                        logger.debug("Setup not found for queue operation: {} (setup: {})", queueName, setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
-                        logger.error("Error sending message to queue: " + queueName, throwable);
+                        logger.error("Error sending message to queue: {}", queueName, throwable);
+                        sendError(ctx, 503, "Failed to send message to queue '" + queueName + "' in setup '" + setupId + "': " + throwable.getMessage());
                     }
-                    int statusCode = 503;
-                    String errorMessage = "Failed to send message to queue '" + queueName + "' in setup '" + setupId + "': " + throwable.getMessage();
-                    if (cause instanceof RuntimeException && cause.getMessage() != null) {
-                        if (cause.getMessage().contains("Setup not found")) {
-                            statusCode = 404;
-                            errorMessage = "Setup not found: " + setupId;
-                        } else if (cause.getMessage().contains("not found")) {
-                            statusCode = 404;
-                            errorMessage = "Queue not found: " + queueName;
-                        } else if (cause.getMessage().contains("not active")) {
-                            statusCode = 400;
-                            errorMessage = "Setup is not active: " + setupId;
-                        }
-                    }
-                    sendError(ctx, statusCode, errorMessage);
                 })
                 .eventually(() -> {
                     TraceContextUtil.clearTraceMDC();
@@ -268,8 +257,15 @@ public class QueueHandler {
                             .end(response.encode());
                 })
                 .onFailure(throwable -> {
-                    logger.error("Error sending batch messages to queue: " + queueName, throwable);
-                    sendError(ctx, 503, "Failed to send batch messages: " + throwable.getMessage());
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else if (isSetupNotFoundError(throwable)) {
+                        logger.debug("Setup not found for batch queue operation: {} (setup: {})", queueName, setupId);
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else {
+                        logger.error("Error sending batch messages to queue: {}", queueName, throwable);
+                        sendError(ctx, 503, "Failed to send batch messages: " + throwable.getMessage());
+                    }
                 })
                 .eventually(() -> {
                     TraceContextUtil.clearTraceMDC();
@@ -385,17 +381,15 @@ public class QueueHandler {
      */
     Future<QueueFactory> getQueueFactory(String setupId, String queueName) {
         return setupService.getSetupResult(setupId)
-            .map(setupResult -> {
+            .compose(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                    throw new IllegalStateException("Setup " + setupId + " is not active");
+                    return Future.failedFuture(new ResponseException(400, "Setup is not active: " + setupId));
                 }
-
                 QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                 if (queueFactory == null) {
-                    throw new IllegalArgumentException("Queue " + queueName + " not found in setup " + setupId);
+                    return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                 }
-
-                return queueFactory;
+                return Future.succeededFuture(queueFactory);
             });
     }
 
@@ -446,9 +440,12 @@ public class QueueHandler {
         String detectedType = request.detectMessageType();
         headers.put("messageType", detectedType);
 
-        // Add payload size for monitoring
-        String payloadStr = request.getPayload().toString();
-        headers.put("payloadSize", String.valueOf(payloadStr.length()));
+        // Add approximate JSON payload size for monitoring
+        try {
+            headers.put("payloadSize", String.valueOf(objectMapper.writeValueAsString(request.getPayload()).length()));
+        } catch (Exception e) {
+            headers.put("payloadSize", "unknown");
+        }
 
         // Add timestamp
         headers.put("timestamp", String.valueOf(System.currentTimeMillis()));
@@ -502,147 +499,6 @@ public class QueueHandler {
                 .end(error.encode());
     }
 
-    // The API now enforces webhook-based consumption only.
-
-    /**
-     * Request object for sending messages.
-     */
-    public static class MessageRequest {
-        private Object payload;
-        private Map<String, String> headers;
-        private Integer priority;
-        private Long delaySeconds;
-        private String messageType; // Optional: specify expected type
-        private String correlationId; // Optional: for distributed tracing
-        private String messageGroup; // Optional: for ordered processing within a partition
-
-        // Getters and setters
-        public Object getPayload() { return payload; }
-        public void setPayload(Object payload) { this.payload = payload; }
-
-        public Map<String, String> getHeaders() { return headers; }
-        public void setHeaders(Map<String, String> headers) { this.headers = headers; }
-
-        public Integer getPriority() { return priority; }
-        public void setPriority(Integer priority) { this.priority = priority; }
-
-        public Long getDelaySeconds() { return delaySeconds; }
-        public void setDelaySeconds(Long delaySeconds) { this.delaySeconds = delaySeconds; }
-
-        public String getMessageType() { return messageType; }
-        public void setMessageType(String messageType) { this.messageType = messageType; }
-
-        public String getCorrelationId() { return correlationId; }
-        public void setCorrelationId(String correlationId) { this.correlationId = correlationId; }
-
-        public String getMessageGroup() { return messageGroup; }
-        public void setMessageGroup(String messageGroup) { this.messageGroup = messageGroup; }
-
-        /**
-         * Validates the message request.
-         * @throws IllegalArgumentException if validation fails
-         */
-        public void validate() {
-            if (payload == null) {
-                throw new IllegalArgumentException("Message payload is required");
-            }
-            if (priority != null && (priority < 1 || priority > 10)) {
-                throw new IllegalArgumentException("Priority must be between 1 and 10");
-            }
-            if (delaySeconds != null && delaySeconds < 0) {
-                throw new IllegalArgumentException("Delay seconds cannot be negative");
-            }
-
-            // Validate headers if present
-            if (headers != null) {
-                for (Map.Entry<String, String> entry : headers.entrySet()) {
-                    if (entry.getKey() == null || entry.getKey().trim().isEmpty()) {
-                        throw new IllegalArgumentException("Header keys cannot be null or empty");
-                    }
-                    if (entry.getValue() == null) {
-                        throw new IllegalArgumentException("Header values cannot be null");
-                    }
-                }
-            }
-        }
-
-        /**
-         * Detects the message type based on payload content.
-         * @return detected message type or "Unknown" if cannot be determined
-         */
-        public String detectMessageType() {
-            if (messageType != null && !messageType.trim().isEmpty()) {
-                return messageType;
-            }
-
-            if (payload == null) {
-                return "Unknown";
-            }
-
-            if (payload instanceof Map<?, ?> payloadMap) {
-                // Return the actual value, not a generic label
-                Object mt = payloadMap.get("messageType");
-                if (mt != null) return mt.toString();
-
-                Object et = payloadMap.get("eventType");
-                if (et != null) return et.toString();
-
-                Object ct = payloadMap.get("commandType");
-                if (ct != null) return ct.toString();
-
-                return "Object";
-            }
-
-            if (payload instanceof String) return "Text";
-            if (payload instanceof Number) return "Numeric";
-            if (payload instanceof java.util.List) return "Array";
-
-            return "Unknown";
-        }
-    }
-
-    /**
-     * Request object for sending multiple messages in a batch.
-     */
-    public static class BatchMessageRequest {
-        private List<MessageRequest> messages;
-        private boolean failOnError = true; // If true, stop processing on first error
-        private int maxBatchSize = 100; // Maximum number of messages in a batch
-
-        // Getters and setters
-        public List<MessageRequest> getMessages() { return messages; }
-        public void setMessages(List<MessageRequest> messages) { this.messages = messages; }
-
-        public boolean isFailOnError() { return failOnError; }
-        public void setFailOnError(boolean failOnError) { this.failOnError = failOnError; }
-
-        public int getMaxBatchSize() { return maxBatchSize; }
-        public void setMaxBatchSize(int maxBatchSize) { this.maxBatchSize = maxBatchSize; }
-
-        /**
-         * Validates the batch message request.
-         * @throws IllegalArgumentException if validation fails
-         */
-        public void validate() {
-            if (messages == null || messages.isEmpty()) {
-                throw new IllegalArgumentException("Batch must contain at least one message");
-            }
-
-            if (messages.size() > maxBatchSize) {
-                throw new IllegalArgumentException("Batch size exceeds maximum allowed: " + maxBatchSize);
-            }
-
-            // Validate each message in the batch
-            for (int i = 0; i < messages.size(); i++) {
-                try {
-                    messages.get(i).validate();
-                } catch (IllegalArgumentException e) {
-                    throw new IllegalArgumentException("Message at index " + i + " is invalid: " + e.getMessage());
-                }
-            }
-        }
-    }
-
     /**
      * Check if this is a setup not found error (expected, no stack trace needed).
      */
@@ -651,25 +507,4 @@ public class QueueHandler {
                throwable.getClass().getSimpleName().equals("SetupNotFoundException");
     }
 
-    /**
-     * Queue statistics response object.
-     */
-    public static class QueueStats {
-        private final String queueName;
-        private final long totalMessages;
-        private final long pendingMessages;
-        private final long processedMessages;
-        
-        public QueueStats(String queueName, long totalMessages, long pendingMessages, long processedMessages) {
-            this.queueName = queueName;
-            this.totalMessages = totalMessages;
-            this.pendingMessages = pendingMessages;
-            this.processedMessages = processedMessages;
-        }
-        
-        public String getQueueName() { return queueName; }
-        public long getTotalMessages() { return totalMessages; }
-        public long getPendingMessages() { return pendingMessages; }
-        public long getProcessedMessages() { return processedMessages; }
-    }
 }

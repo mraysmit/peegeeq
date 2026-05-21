@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
+import dev.mars.peegeeq.api.messaging.LoadBalancingStrategy;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageFilter;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
@@ -58,44 +59,11 @@ public class ConsumerGroupHandler {
      */
     private final Map<String, ConsumerGroup<Object>> consumerGroups = new ConcurrentHashMap<>();
 
-    /**
-     * Stores metadata about consumer groups for REST API responses.
-     * Key format: "setupId:queueName:groupName"
-     */
-    private final Map<String, ConsumerGroupMetadata> consumerGroupMetadata = new ConcurrentHashMap<>();
-
     private final AtomicLong memberIdCounter = new AtomicLong(0);
 
     public ConsumerGroupHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, SubscriptionManagerFactory subscriptionManagerFactory) {
         this.setupService = setupService;
         this.subscriptionManagerFactory = subscriptionManagerFactory;
-    }
-
-    /**
-     * Metadata for consumer groups to support REST API responses.
-     * Stores additional information not available from the ConsumerGroup interface.
-     */
-    private static class ConsumerGroupMetadata {
-        final String groupName;
-        final String setupId;
-        final String queueName;
-        final long createdAt;
-        volatile long lastActivity;
-        volatile int maxMembers = 10;
-        volatile LoadBalancingStrategy loadBalancingStrategy = LoadBalancingStrategy.ROUND_ROBIN;
-        volatile long sessionTimeout = 30000L;
-
-        ConsumerGroupMetadata(String groupName, String setupId, String queueName) {
-            this.groupName = groupName;
-            this.setupId = setupId;
-            this.queueName = queueName;
-            this.createdAt = System.currentTimeMillis();
-            this.lastActivity = this.createdAt;
-        }
-
-        void updateActivity() {
-            this.lastActivity = System.currentTimeMillis();
-        }
     }
 
     /**
@@ -186,19 +154,6 @@ public class ConsumerGroupHandler {
                     }
                 }
                 consumerGroups.put(groupKey, realConsumerGroup);
-                ConsumerGroupMetadata metadata = new ConsumerGroupMetadata(groupName, setupId, queueName);
-                if (requestBody.containsKey("maxMembers")) {
-                    metadata.maxMembers = Math.max(1, Math.min(100, requestBody.getInteger("maxMembers", 10)));
-                }
-                if (requestBody.containsKey("loadBalancingStrategy")) {
-                    metadata.loadBalancingStrategy = LoadBalancingStrategy.valueOf(
-                        requestBody.getString("loadBalancingStrategy", "ROUND_ROBIN"));
-                }
-                if (requestBody.containsKey("sessionTimeout")) {
-                    long timeout = requestBody.getLong("sessionTimeout", 30000L);
-                    metadata.sessionTimeout = Math.max(5000L, Math.min(300000L, timeout));
-                }
-                consumerGroupMetadata.put(groupKey, metadata);
                 logger.info("Consumer group created via QueueFactory: {} for queue {} in setup {} (type: {})",
                            groupName, queueName, setupId, queueFactory.getImplementationType());
                 return Future.succeededFuture(new JsonObject()
@@ -207,9 +162,9 @@ public class ConsumerGroupHandler {
                     .put("setupId", setupId)
                     .put("queueName", queueName)
                     .put("groupId", groupKey)
-                    .put("maxMembers", metadata.maxMembers)
-                    .put("loadBalancingStrategy", metadata.loadBalancingStrategy.name())
-                    .put("sessionTimeout", metadata.sessionTimeout)
+                    .put("maxMembers", realConsumerGroup.getMaxMembers())
+                    .put("loadBalancingStrategy", realConsumerGroup.getLoadBalancingStrategy().name())
+                    .put("sessionTimeout", realConsumerGroup.getSessionTimeout())
                     .put("implementationType", queueFactory.getImplementationType())
                     .put("subscriptionConfigured", finalSubscriptionOptions != null)
                     .put("timestamp", System.currentTimeMillis()));
@@ -248,34 +203,34 @@ public class ConsumerGroupHandler {
             .forEach(entry -> {
                 String groupKey = entry.getKey();
                 ConsumerGroup<Object> realGroup = entry.getValue();
-                ConsumerGroupMetadata metadata = consumerGroupMetadata.get(groupKey);
+
+                ConsumerGroupStats stats = null;
+                try {
+                    stats = realGroup.getStats();
+                } catch (Exception e) {
+                    logger.debug("Could not get stats for consumer group {}: {}", groupKey, e.getMessage());
+                }
 
                 JsonObject groupInfo = new JsonObject()
                     .put("groupName", realGroup.getGroupName())
                     .put("groupId", groupKey)
-                    .put("setupId", metadata != null ? metadata.setupId : setupId)
-                    .put("queueName", metadata != null ? metadata.queueName : queueName)
+                    .put("setupId", setupId)
+                    .put("queueName", queueName)
                     .put("topic", realGroup.getTopic())
                     .put("memberCount", realGroup.getActiveConsumerCount())
                     .put("consumerIds", new JsonArray(realGroup.getConsumerIds().stream().toList()))
                     .put("isActive", realGroup.isActive())
-                    .put("maxMembers", metadata != null ? metadata.maxMembers : 10)
-                    .put("loadBalancingStrategy", metadata != null ? metadata.loadBalancingStrategy.name() : "ROUND_ROBIN")
-                    .put("sessionTimeout", metadata != null ? metadata.sessionTimeout : 30000L)
-                    .put("createdAt", metadata != null ? metadata.createdAt : 0L)
-                    .put("lastActivity", metadata != null ? metadata.lastActivity : 0L);
+                    .put("maxMembers", realGroup.getMaxMembers())
+                    .put("loadBalancingStrategy", realGroup.getLoadBalancingStrategy().name())
+                    .put("sessionTimeout", realGroup.getSessionTimeout())
+                    .put("createdAt", stats != null && stats.getCreatedAt() != null ? stats.getCreatedAt().toEpochMilli() : 0L)
+                    .put("lastActivity", stats != null && stats.getLastActiveAt() != null ? stats.getLastActiveAt().toEpochMilli() : 0L);
 
-                // Add stats if available
-                try {
-                    ConsumerGroupStats stats = realGroup.getStats();
-                    if (stats != null) {
-                        groupInfo.put("stats", new JsonObject()
-                            .put("messagesProcessed", stats.getTotalMessagesProcessed())
-                            .put("messagesFiltered", stats.getTotalMessagesFiltered())
-                            .put("messagesFailed", stats.getTotalMessagesFailed()));
-                    }
-                } catch (Exception e) {
-                    logger.debug("Could not get stats for consumer group {}: {}", groupKey, e.getMessage());
+                if (stats != null) {
+                    groupInfo.put("stats", new JsonObject()
+                        .put("messagesProcessed", stats.getTotalMessagesProcessed())
+                        .put("messagesFiltered", stats.getTotalMessagesFiltered())
+                        .put("messagesFailed", stats.getTotalMessagesFailed()));
                 }
 
                 groups.add(groupInfo);
@@ -316,8 +271,6 @@ public class ConsumerGroupHandler {
             return;
         }
 
-        ConsumerGroupMetadata metadata = consumerGroupMetadata.get(groupKey);
-
         // Build member information from real consumer group
         JsonArray members = new JsonArray();
         Set<String> consumerIds = realGroup.getConsumerIds();
@@ -329,36 +282,37 @@ public class ConsumerGroupHandler {
             members.add(memberInfo);
         }
 
+        ConsumerGroupStats stats = null;
+        try {
+            stats = realGroup.getStats();
+        } catch (Exception e) {
+            logger.debug("Could not get stats for consumer group {}: {}", groupKey, e.getMessage());
+        }
+
         JsonObject response = new JsonObject()
             .put("message", "Consumer group retrieved successfully")
             .put("groupName", realGroup.getGroupName())
             .put("groupId", groupKey)
-            .put("setupId", metadata != null ? metadata.setupId : setupId)
-            .put("queueName", metadata != null ? metadata.queueName : queueName)
+            .put("setupId", setupId)
+            .put("queueName", queueName)
             .put("topic", realGroup.getTopic())
             .put("memberCount", realGroup.getActiveConsumerCount())
             .put("consumerIds", new JsonArray(consumerIds.stream().toList()))
             .put("isActive", realGroup.isActive())
-            .put("maxMembers", metadata != null ? metadata.maxMembers : 10)
-            .put("loadBalancingStrategy", metadata != null ? metadata.loadBalancingStrategy.name() : "ROUND_ROBIN")
-            .put("sessionTimeout", metadata != null ? metadata.sessionTimeout : 30000L)
-            .put("createdAt", metadata != null ? metadata.createdAt : 0L)
-            .put("lastActivity", metadata != null ? metadata.lastActivity : 0L)
+            .put("maxMembers", realGroup.getMaxMembers())
+            .put("loadBalancingStrategy", realGroup.getLoadBalancingStrategy().name())
+            .put("sessionTimeout", realGroup.getSessionTimeout())
+            .put("createdAt", stats != null && stats.getCreatedAt() != null ? stats.getCreatedAt().toEpochMilli() : 0L)
+            .put("lastActivity", stats != null && stats.getLastActiveAt() != null ? stats.getLastActiveAt().toEpochMilli() : 0L)
             .put("members", members)
             .put("timestamp", System.currentTimeMillis());
 
-        // Add stats if available
-        try {
-            ConsumerGroupStats stats = realGroup.getStats();
-            if (stats != null) {
-                response.put("stats", new JsonObject()
-                    .put("messagesProcessed", stats.getTotalMessagesProcessed())
-                    .put("messagesFiltered", stats.getTotalMessagesFiltered())
-                    .put("messagesFailed", stats.getTotalMessagesFailed())
-                    .put("averageProcessingTimeMs", stats.getAverageProcessingTimeMs()));
-            }
-        } catch (Exception e) {
-            logger.debug("Could not get stats for consumer group {}: {}", groupKey, e.getMessage());
+        if (stats != null) {
+            response.put("stats", new JsonObject()
+                .put("messagesProcessed", stats.getTotalMessagesProcessed())
+                .put("messagesFiltered", stats.getTotalMessagesFiltered())
+                .put("messagesFailed", stats.getTotalMessagesFailed())
+                .put("averageProcessingTimeMs", stats.getAverageProcessingTimeMs()));
         }
 
         ctx.response()
@@ -410,9 +364,8 @@ public class ConsumerGroupHandler {
                 return;
             }
 
-            ConsumerGroupMetadata metadata = consumerGroupMetadata.get(groupKey);
-            if (metadata != null && realGroup.getActiveConsumerCount() >= metadata.maxMembers) {
-                sendError(ctx, 409, "Consumer group is full (max " + metadata.maxMembers + " members)");
+            if (realGroup.getActiveConsumerCount() >= realGroup.getMaxMembers()) {
+                sendError(ctx, 409, "Consumer group is full (max " + realGroup.getMaxMembers() + " members)");
                 return;
             }
 
@@ -444,11 +397,6 @@ public class ConsumerGroupHandler {
                 member = realGroup.addConsumer(consumerId, placeholderHandler, messageFilter);
             } else {
                 member = realGroup.addConsumer(consumerId, placeholderHandler);
-            }
-
-            // Update metadata
-            if (metadata != null) {
-                metadata.updateActivity();
             }
 
             JsonObject response = new JsonObject()
@@ -512,12 +460,6 @@ public class ConsumerGroupHandler {
             return;
         }
 
-        // Update metadata
-        ConsumerGroupMetadata metadata = consumerGroupMetadata.get(groupKey);
-        if (metadata != null) {
-            metadata.updateActivity();
-        }
-
         JsonObject response = new JsonObject()
             .put("message", "Successfully left consumer group")
             .put("groupName", realGroup.getGroupName())
@@ -548,7 +490,6 @@ public class ConsumerGroupHandler {
 
         String groupKey = createGroupKey(setupId, queueName, groupName);
         ConsumerGroup<Object> realGroup = consumerGroups.remove(groupKey);
-        consumerGroupMetadata.remove(groupKey);
 
         if (realGroup == null) {
             sendError(ctx, 404, "Consumer group not found: " + groupName);

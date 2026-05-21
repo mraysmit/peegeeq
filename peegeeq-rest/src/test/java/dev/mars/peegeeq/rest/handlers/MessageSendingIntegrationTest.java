@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.rest.dto.MessageRequest;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.Tag;
@@ -43,7 +44,7 @@ class MessageSendingIntegrationTest {
             """;
         
         // Parse the JSON into a MessageRequest
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         
         // Verify the parsing worked correctly
         assertNotNull(request.getPayload());
@@ -72,7 +73,7 @@ class MessageSendingIntegrationTest {
             }
             """;
         
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         
         assertEquals("Hello, World!", request.getPayload());
         assertNull(request.getPriority());
@@ -99,7 +100,7 @@ class MessageSendingIntegrationTest {
             }
             """;
 
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
 
         // Should throw validation error for invalid priority
         IllegalArgumentException exception = assertThrows(

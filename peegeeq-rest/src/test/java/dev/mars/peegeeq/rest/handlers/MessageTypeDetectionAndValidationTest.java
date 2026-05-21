@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.rest.dto.BatchMessageRequest;
+import dev.mars.peegeeq.rest.dto.MessageRequest;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -41,7 +43,7 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         assertEquals("Event", request.detectMessageType());
     }
 
@@ -56,7 +58,7 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         assertEquals("Command", request.detectMessageType());
     }
 
@@ -71,7 +73,7 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         assertEquals("Order", request.detectMessageType());
     }
 
@@ -83,7 +85,7 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         assertEquals("Text", request.detectMessageType());
     }
 
@@ -96,13 +98,13 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.MessageRequest request = objectMapper.readValue(jsonInput, QueueHandler.MessageRequest.class);
+        MessageRequest request = objectMapper.readValue(jsonInput, MessageRequest.class);
         assertEquals("CustomType", request.detectMessageType());
     }
 
     @Test
     void testEnhancedValidation_InvalidHeaders() throws Exception {
-        QueueHandler.MessageRequest request = new QueueHandler.MessageRequest();
+        MessageRequest request = new MessageRequest();
         request.setPayload("test");
         
         Map<String, String> invalidHeaders = new HashMap<>();
@@ -119,7 +121,7 @@ class MessageTypeDetectionAndValidationTest {
 
     @Test
     void testEnhancedValidation_NullHeaderValue() throws Exception {
-        QueueHandler.MessageRequest request = new QueueHandler.MessageRequest();
+        MessageRequest request = new MessageRequest();
         request.setPayload("test");
         
         Map<String, String> invalidHeaders = new HashMap<>();
@@ -154,7 +156,7 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.BatchMessageRequest batchRequest = objectMapper.readValue(jsonInput, QueueHandler.BatchMessageRequest.class);
+        BatchMessageRequest batchRequest = objectMapper.readValue(jsonInput, BatchMessageRequest.class);
         
         assertEquals(2, batchRequest.getMessages().size());
         assertTrue(batchRequest.isFailOnError());
@@ -166,7 +168,7 @@ class MessageTypeDetectionAndValidationTest {
 
     @Test
     void testBatchMessageRequest_EmptyBatch() throws Exception {
-        QueueHandler.BatchMessageRequest batchRequest = new QueueHandler.BatchMessageRequest();
+        BatchMessageRequest batchRequest = new BatchMessageRequest();
         batchRequest.setMessages(Arrays.asList()); // Empty list
         
         IllegalArgumentException exception = assertThrows(
@@ -179,15 +181,15 @@ class MessageTypeDetectionAndValidationTest {
 
     @Test
     void testBatchMessageRequest_ExceedsMaxSize() throws Exception {
-        QueueHandler.BatchMessageRequest batchRequest = new QueueHandler.BatchMessageRequest();
+        BatchMessageRequest batchRequest = new BatchMessageRequest();
         batchRequest.setMaxBatchSize(2);
         
         // Create 3 messages (exceeds max of 2)
-        QueueHandler.MessageRequest msg1 = new QueueHandler.MessageRequest();
+        MessageRequest msg1 = new MessageRequest();
         msg1.setPayload("Message 1");
-        QueueHandler.MessageRequest msg2 = new QueueHandler.MessageRequest();
+        MessageRequest msg2 = new MessageRequest();
         msg2.setPayload("Message 2");
-        QueueHandler.MessageRequest msg3 = new QueueHandler.MessageRequest();
+        MessageRequest msg3 = new MessageRequest();
         msg3.setPayload("Message 3");
         
         batchRequest.setMessages(Arrays.asList(msg1, msg2, msg3));
@@ -202,12 +204,12 @@ class MessageTypeDetectionAndValidationTest {
 
     @Test
     void testBatchMessageRequest_InvalidMessageInBatch() throws Exception {
-        QueueHandler.BatchMessageRequest batchRequest = new QueueHandler.BatchMessageRequest();
+        BatchMessageRequest batchRequest = new BatchMessageRequest();
         
-        QueueHandler.MessageRequest validMsg = new QueueHandler.MessageRequest();
+        MessageRequest validMsg = new MessageRequest();
         validMsg.setPayload("Valid message");
         
-        QueueHandler.MessageRequest invalidMsg = new QueueHandler.MessageRequest();
+        MessageRequest invalidMsg = new MessageRequest();
         invalidMsg.setPayload(null); // Invalid - null payload
         
         batchRequest.setMessages(Arrays.asList(validMsg, invalidMsg));
@@ -260,21 +262,21 @@ class MessageTypeDetectionAndValidationTest {
             }
             """;
         
-        QueueHandler.BatchMessageRequest batchRequest = objectMapper.readValue(expectedBatchJson, QueueHandler.BatchMessageRequest.class);
+        BatchMessageRequest batchRequest = objectMapper.readValue(expectedBatchJson, BatchMessageRequest.class);
         
         assertEquals(2, batchRequest.getMessages().size());
         assertFalse(batchRequest.isFailOnError());
         assertEquals(100, batchRequest.getMaxBatchSize());
         
         // Verify first message
-        QueueHandler.MessageRequest firstMsg = batchRequest.getMessages().get(0);
+        MessageRequest firstMsg = batchRequest.getMessages().get(0);
         assertEquals("OrderCreated", firstMsg.getMessageType());
         assertEquals(Integer.valueOf(5), firstMsg.getPriority());
         assertNotNull(firstMsg.getHeaders());
         assertEquals("order-service", firstMsg.getHeaders().get("source"));
         
         // Verify second message
-        QueueHandler.MessageRequest secondMsg = batchRequest.getMessages().get(1);
+        MessageRequest secondMsg = batchRequest.getMessages().get(1);
         assertEquals("OrderCreated", secondMsg.getMessageType());
         assertEquals(Integer.valueOf(3), secondMsg.getPriority());
         assertEquals(Long.valueOf(30), secondMsg.getDelaySeconds());
