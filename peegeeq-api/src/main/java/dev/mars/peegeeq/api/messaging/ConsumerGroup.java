@@ -217,6 +217,45 @@ public interface ConsumerGroup<T> extends AutoCloseable {
     Predicate<Message<T>> getGroupFilter();
     
     /**
+     * Gets the maximum number of members allowed in this consumer group.
+     * <p>
+     * TODO: To be implemented in peegeeq-native and peegeeq-outbox.
+     * Implementations should override this method to enforce the configured limit.
+     * </p>
+     *
+     * @return the maximum number of members; default is 10
+     */
+    default int getMaxMembers() {
+        return 10;
+    }
+
+    /**
+     * Gets the load balancing strategy for distributing messages across members.
+     * <p>
+     * TODO: To be implemented in peegeeq-native and peegeeq-outbox.
+     * Implementations should override this method to reflect the configured strategy.
+     * </p>
+     *
+     * @return the load balancing strategy; default is {@link LoadBalancingStrategy#ROUND_ROBIN}
+     */
+    default LoadBalancingStrategy getLoadBalancingStrategy() {
+        return LoadBalancingStrategy.ROUND_ROBIN;
+    }
+
+    /**
+     * Gets the session timeout in milliseconds after which an inactive member is considered dead.
+     * <p>
+     * TODO: To be implemented in peegeeq-native and peegeeq-outbox.
+     * Implementations should override this method to reflect the configured timeout.
+     * </p>
+     *
+     * @return the session timeout in milliseconds; default is 30000
+     */
+    default long getSessionTimeout() {
+        return 30000L;
+    }
+
+    /**
      * Closes the consumer group and releases all resources.
      */
     @Override
