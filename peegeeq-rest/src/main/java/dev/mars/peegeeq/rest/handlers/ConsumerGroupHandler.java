@@ -496,27 +496,35 @@ public class ConsumerGroupHandler {
             return;
         }
 
-        // Close the real consumer group via ConsumerGroup.close()
-        try {
-            realGroup.close();
-            logger.info("Consumer group {} closed successfully via ConsumerGroup.close()", groupName);
-        } catch (Exception e) {
-            logger.warn("Error closing consumer group {}: {}", groupName, e.getMessage());
-            // Continue with response - group is already removed from our tracking
-        }
-
-        JsonObject response = new JsonObject()
-            .put("message", "Consumer group deleted successfully")
-            .put("groupName", groupName)
-            .put("setupId", setupId)
-            .put("queueName", queueName)
-            .put("timestamp", System.currentTimeMillis());
-
-        ctx.response()
-            .putHeader("content-type", "application/json")
-            .end(response.encode());
-
-        logger.info("Consumer group deleted: {}", groupName);
+        // Close the real consumer group via ConsumerGroup.close() — async, response sent after close completes
+        final long ts = System.currentTimeMillis();
+        realGroup.close()
+            .onSuccess(v -> {
+                logger.info("Consumer group {} closed successfully", groupName);
+                JsonObject response = new JsonObject()
+                    .put("message", "Consumer group deleted successfully")
+                    .put("groupName", groupName)
+                    .put("setupId", setupId)
+                    .put("queueName", queueName)
+                    .put("timestamp", ts);
+                ctx.response()
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+                logger.info("Consumer group deleted: {}", groupName);
+            })
+            .onFailure(err -> {
+                logger.warn("Error closing consumer group {}: {}", groupName, err.getMessage());
+                JsonObject response = new JsonObject()
+                    .put("message", "Consumer group deleted successfully")
+                    .put("groupName", groupName)
+                    .put("setupId", setupId)
+                    .put("queueName", queueName)
+                    .put("timestamp", ts);
+                ctx.response()
+                    .putHeader("content-type", "application/json")
+                    .end(response.encode());
+                logger.info("Consumer group deleted (with close warning): {}", groupName);
+            });
     }
     
     /**
