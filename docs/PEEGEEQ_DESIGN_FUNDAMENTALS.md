@@ -440,6 +440,16 @@ public class QueueWorkerVerticle extends AbstractVerticle {
 
 `LISTEN/NOTIFY` removes polling overhead. The durable state stays in the table; `NOTIFY` is purely a wake-up signal. It must never be treated as the queue itself — a lost notification means a delayed job, not a lost job.
 
+#### PostgreSQL NOTIFY Coalescing Behaviour
+
+PostgreSQL deduplicates pending `NOTIFY` notifications. If the same channel+payload pair is sent multiple times before the client reads its notification queue, **only one delivery occurs**. This is a server-side property that cannot be configured away.
+
+In PeeGeeQ's native queue, every insert to a topic sends the same channel name as the payload. Rapid burst inserts therefore coalesce: 12 inserts may produce only 11 (or fewer) `NOTIFY` deliveries.
+
+The correct mitigation is a **drain-on-completion** pattern: after each message is processed, immediately call `processAvailableMessages()` to fetch any remaining messages regardless of how many NOTIFYs were delivered. This turns `NOTIFY` into "there is at least one message" rather than "there is exactly one message". The periodic fallback sweep (see below) provides a secondary safety net.
+
+> **Design rule**: A `NOTIFY` handler must fetch messages in a loop until the queue is empty, not assume exactly one message per notification.
+
 On the producer side, after inserting into `job_inbox`:
 
 ```sql

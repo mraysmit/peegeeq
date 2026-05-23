@@ -1688,6 +1688,8 @@ peegeeq-management-ui/
 - **Memory Usage**: Low memory footprint with streaming processing
 - **Connection Efficiency**: Connection pooling with optimized pool sizes
 
+> **NOTIFY coalescing caveat**: PostgreSQL deduplicates pending `NOTIFY` notifications on a per-channel-per-payload basis. In burst-insert scenarios, the server may deliver fewer wake-up events than messages inserted. PeeGeeQ mitigates this with a drain-on-completion loop — after each message is processed, the consumer immediately checks for further available messages, ensuring all queued messages are delivered regardless of NOTIFY frequency. For workloads with sustained burst patterns, `HYBRID` consumer mode (LISTEN/NOTIFY plus polling fallback) provides an additional bounded-latency safety net. See the [Ordering Patterns Guide](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md) for consumer mode selection guidance.
+
 ### Outbox Pattern Performance
 
 - **Throughput**: 5,000+ messages/second
