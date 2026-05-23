@@ -35,7 +35,7 @@ import io.vertx.core.Future;
  * 
  * @param <T> The type of message payload
  */
-public interface QueueFactory extends AutoCloseable {
+public interface QueueFactory {
     
     /**
      * Creates a message producer for the specified topic.
@@ -141,7 +141,8 @@ public interface QueueFactory extends AutoCloseable {
 
     /**
      * Closes the factory and releases all resources.
+     *
+     * @return a Future that completes when all resources are released
      */
-    @Override
-    void close() throws Exception;
+    Future<Void> close();
 }

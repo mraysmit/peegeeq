@@ -31,6 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 
@@ -53,6 +55,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 public class PgClientTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PgClientTest.class);
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
@@ -86,7 +90,7 @@ public class PgClientTest {
     @AfterEach
     void tearDown() {
         if (clientFactory != null) {
-            clientFactory.close();
+            clientFactory.close().onFailure(e -> logger.warn("clientFactory.close() failed in tearDown", e));
         }
     }
 

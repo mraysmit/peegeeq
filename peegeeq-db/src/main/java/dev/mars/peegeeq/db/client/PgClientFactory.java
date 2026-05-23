@@ -51,7 +51,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @since 2025-07-13
  * @version 1.0
  */
-public class PgClientFactory implements AutoCloseable {
+public class PgClientFactory {
     private static final Logger logger = LoggerFactory.getLogger(PgClientFactory.class);
 
     private final PgConnectionManager connectionManager;
@@ -298,11 +298,8 @@ public class PgClientFactory implements AutoCloseable {
             .onFailure(err -> logger.warn("PgClientFactory close encountered errors: {}", err.toString()));
     }
 
-    @Override
-    public void close() {
-        closeAsync()
-            .onSuccess(v -> logger.debug("PgClientFactory close() completed"))
-            .onFailure(e -> logger.error("Error closing PgClientFactory", e));
+    public Future<Void> close() {
+        return closeAsync();
     }
 
     private static void validate(String clientId, PgConnectionConfig conn, PgPoolConfig pool) {

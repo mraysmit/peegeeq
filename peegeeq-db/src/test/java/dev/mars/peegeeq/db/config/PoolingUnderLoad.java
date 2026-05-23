@@ -27,6 +27,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import dev.mars.peegeeq.db.PgTestImageConstant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -56,6 +58,8 @@ import org.junit.jupiter.api.Tag;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class PoolingUnderLoad {
+
+    private static final Logger logger = LoggerFactory.getLogger(PoolingUnderLoad.class);
 
     @Container
     private static final PostgreSQLContainer postgres = createPostgresContainer();
@@ -91,7 +95,7 @@ public class PoolingUnderLoad {
     @AfterEach
     void tearDown() throws Exception {
         if (clientFactory != null) {
-            clientFactory.close();
+            clientFactory.close().onFailure(e -> logger.warn("clientFactory.close() failed in tearDown", e));
         }
     }
 

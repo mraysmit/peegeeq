@@ -376,7 +376,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 .compose(messageIds -> {
                     job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 200);
                     job.start();
-                    return waitForDetectionAndReturn(messageIds);
+                    return waitForDetectionAndReturn(topic, messageIds);
                 })
                 .compose(messageIds -> job.stop().compose(v -> {
                     assertTrue(job.getTotalDeadDetected() >= 1,
@@ -609,24 +609,27 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         return future;
     }
 
-    private Future<List<Long>> waitForDetectionAndReturn(List<Long> messageIds) {
-        return waitForDetectionCycles(0, messageIds);
+    private Future<List<Long>> waitForDetectionAndReturn(String topic, List<Long> messageIds) {
+        return waitForDetectionCycles(topic, 0, messageIds);
     }
 
-    private Future<List<Long>> waitForDetectionCycles(int cycle, List<Long> messageIds) {
+    private Future<List<Long>> waitForDetectionCycles(String topic, int cycle, List<Long> messageIds) {
         if (cycle >= 25) {
-            return Future.failedFuture(new RuntimeException("Detection did not complete within timeout"));
+            return Future.failedFuture(new RuntimeException(
+                    "group-b on topic '" + topic + "' was not detected as DEAD within " + (25 * 200) + "ms"));
         }
-
-        if (job.getTotalDeadDetected() >= 1) {
-            // Stop the job to await the in-flight detection+cleanup cycle before returning.
-            // job.stop() waits for the in-flight Future (which includes cleanupAllDeadGroups)
-            // so callers can safely verify message states without racing against cleanup writes.
-            return job.stop().map(v -> messageIds);
-        }
-
-        return manager.getVertx().timer(200)
-                .compose(v -> waitForDetectionCycles(cycle + 1, messageIds));
+        return getSubscriptionStatus(topic, "group-b")
+                .compose(status -> {
+                    if ("DEAD".equals(status)) {
+                        // group-b is DEAD — the detection query has marked it dead.
+                        // Stop the job; stop() awaits inFlightDetection which covers the
+                        // full detection+cleanup chain, so callers can safely verify
+                        // message states without racing against cleanup writes.
+                        return job.stop().map(v -> messageIds);
+                    }
+                    return manager.getVertx().timer(200)
+                            .compose(v -> waitForDetectionCycles(topic, cycle + 1, messageIds));
+                });
     }
 
     private Future<Row> getMessageRow(Long messageId) {

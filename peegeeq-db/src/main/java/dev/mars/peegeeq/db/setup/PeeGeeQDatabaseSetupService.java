@@ -534,30 +534,27 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 return Future.succeededFuture();
             }
 
-            Future<Void> closeResourcesFuture = (setup != null)
-                    ? vertx.<Void>executeBlocking(() -> {
-                        if (setup.getQueueFactories() != null) {
-                            setup.getQueueFactories().values().forEach(factory -> {
-                                try {
-                                    factory.close();
-                                } catch (Exception e) {
-                                    logger.warn("Failed to close queue factory", e);
-                                }
-                            });
-                        }
-
-                        if (setup.getEventStores() != null) {
-                            setup.getEventStores().values().forEach(store -> {
-                                try {
-                                    store.close();
-                                } catch (Exception e) {
-                                    logger.warn("Failed to close event store", e);
-                                }
-                            });
-                        }
-                        return null;
-                    })
-                    : Future.succeededFuture();
+            Future<Void> closeResourcesFuture;
+            if (setup != null) {
+                List<Future<Void>> closes = new ArrayList<>();
+                if (setup.getQueueFactories() != null) {
+                    setup.getQueueFactories().values().forEach(factory ->
+                            closes.add(factory.close()
+                                    .onFailure(e -> logger.warn("Failed to close queue factory", e))
+                                    .transform(ar -> Future.<Void>succeededFuture())));
+                }
+                if (setup.getEventStores() != null) {
+                    setup.getEventStores().values().forEach(store ->
+                            closes.add(store.close()
+                                    .onFailure(e -> logger.warn("Failed to close event store", e))
+                                    .transform(ar -> Future.<Void>succeededFuture())));
+                }
+                closeResourcesFuture = closes.isEmpty()
+                        ? Future.succeededFuture()
+                        : Future.all(closes).mapEmpty();
+            } else {
+                closeResourcesFuture = Future.succeededFuture();
+            }
 
             Future<Void> shutdownFuture;
 

@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "consumer-group-retry-job", mode = ResourceAccessMode.READ_WRITE)
+@ResourceLock(value = "consumer-group-retry-database", mode = ResourceAccessMode.READ_WRITE)
 @Execution(ExecutionMode.SAME_THREAD)
 public class ConsumerGroupRetryJobLifecycleTest {
 

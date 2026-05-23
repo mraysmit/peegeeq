@@ -82,6 +82,8 @@ public class PeeGeeQSelfContainedDemoTest {
         props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         props.setProperty("peegeeq.migration.enabled", "false");
         props.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        props.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", props);
         return new PeeGeeQManager(config, new SimpleMeterRegistry());
     }
