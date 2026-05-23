@@ -76,6 +76,20 @@ The correct fix is to guarantee that messages for the same logical entity are de
 | **Idempotency requirement** | Always recommended | Required at-least-once still applies |
 | **Recommended for** | Metrics, logs, notifications, cache invalidation | Event sourcing, state machines, financial per-account ops |
 
+### PostgreSQL NOTIFY Coalescing and Consumer Mode Selection
+
+PostgreSQL deduplicates pending `NOTIFY` notifications on a per-channel-per-payload basis. Because all inserts to the same PeeGeeQ topic send the same channel name as the payload, **rapid burst inserts will coalesce** — the server may deliver fewer `NOTIFY` events than messages inserted.
+
+The impact depends on the consumer mode you choose:
+
+| Consumer Mode | Coalescing Impact | Mitigation |
+|---|---|---|
+| `LISTEN_NOTIFY_ONLY` | Each NOTIFY triggers a drain loop that fetches all available messages — safe for normal rates | Use for steady, low-to-moderate message rates only |
+| `HYBRID` | Polling fallback catches any messages missed by coalesced NOTIFYs | Preferred for burst-heavy workloads; polling interval bounds worst-case delivery latency |
+| `STANDARD` (polling only) | Completely unaffected — no NOTIFY dependency | Acceptable for latency-tolerant workloads |
+
+**Recommendation**: prefer `HYBRID` mode when your producers emit short bursts of messages to the same topic. The polling fallback provides a bounded-latency safety net regardless of NOTIFY delivery frequency.
+
 ### The partition key is everything
 
 The partition key (`messageGroup`) is the unit of ordering. All messages sharing the same key are guaranteed to be processed sequentially. Messages with different keys run concurrently.
