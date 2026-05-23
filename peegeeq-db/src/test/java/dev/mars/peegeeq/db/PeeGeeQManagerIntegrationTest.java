@@ -92,6 +92,8 @@ public class PeeGeeQManagerIntegrationTest {
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         testProps.setProperty("peegeeq.migration.enabled", "false");
         testProps.setProperty("peegeeq.migration.auto-migrate", "false");
+        testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
         configuration = new PeeGeeQConfiguration("test", testProps);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());

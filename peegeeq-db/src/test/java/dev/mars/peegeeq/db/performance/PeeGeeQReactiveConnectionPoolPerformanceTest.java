@@ -107,6 +107,8 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
         testProps.setProperty("peegeeq.queue.polling-interval", "PT100MS");
         testProps.setProperty("peegeeq.metrics.enabled", "true");
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT5S");
+        testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("performance", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

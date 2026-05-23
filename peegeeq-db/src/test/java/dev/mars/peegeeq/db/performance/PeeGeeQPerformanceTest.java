@@ -129,6 +129,8 @@ class PeeGeeQPerformanceTest {
         // Unlimited wait queue: several tests saturate the pool deliberately; -1 prevents
         // ConnectionPoolTooBusyException. See class-level Javadoc.
         testProps.setProperty("peegeeq.database.pool.max-wait-queue-size", "-1");
+        testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("performance", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

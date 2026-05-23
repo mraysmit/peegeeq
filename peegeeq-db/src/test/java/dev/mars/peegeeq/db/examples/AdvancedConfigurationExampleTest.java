@@ -74,6 +74,8 @@ public class AdvancedConfigurationExampleTest {
         containerProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         containerProps.setProperty("peegeeq.migration.enabled", "false");
         containerProps.setProperty("peegeeq.migration.auto-migrate", "false");
+        containerProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        containerProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
         logger.info("✓ Advanced Configuration Example Test setup completed");
     }
