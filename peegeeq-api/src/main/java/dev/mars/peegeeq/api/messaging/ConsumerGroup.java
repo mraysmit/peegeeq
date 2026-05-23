@@ -31,7 +31,7 @@ import java.util.function.Predicate;
  * @since 2025-07-14
  * @version 1.0
  */
-public interface ConsumerGroup<T> extends AutoCloseable {
+public interface ConsumerGroup<T> {
     
     /**
      * Gets the name of this consumer group.
@@ -134,8 +134,10 @@ public interface ConsumerGroup<T> extends AutoCloseable {
     
     /**
      * Stops the consumer group. All consumers will stop processing messages.
+     *
+     * @return a Future that completes when the group has been stopped
      */
-    void stop();
+    Future<Void> stop();
 
     /**
      * Gracefully stops the consumer group.
@@ -153,8 +155,7 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      * @since 1.2.0
      */
     default Future<Void> stopGracefully() {
-        stop();
-        return Future.succeededFuture();
+        return stop();
     }
     
     /**
@@ -257,27 +258,8 @@ public interface ConsumerGroup<T> extends AutoCloseable {
 
     /**
      * Closes the consumer group and releases all resources.
-     */
-    @Override
-    void close();
-
-    /**
-     * Closes the consumer group asynchronously and returns a Future that completes when cleanup is done.
-     * <p>
-     * The {@code Async} suffix is required because {@code ConsumerGroup<T> extends AutoCloseable}
-     * already provides {@code void close()}, and Java does not allow a {@code Future<Void> close()}
-     * overload with the same parameter list.
-     * </p>
-     * <p>
-     * Implementations that perform real async cleanup (e.g. draining in-flight messages) should
-     * override this method. The default wraps the synchronous {@link #close()} in a succeeded Future.
-     * </p>
      *
      * @return a Future that completes when the consumer group is fully closed
-     * @since 1.3.0
      */
-    default Future<Void> closeAsync() {
-        close();
-        return Future.succeededFuture();
-    }
+    Future<Void> close();
 }

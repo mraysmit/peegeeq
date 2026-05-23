@@ -87,7 +87,7 @@ public class PgClientFactoryTest {
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down PgClientFactory test");
         if (factory != null) {
-            factory.close();
+            factory.close().onFailure(e -> logger.warn("factory.close() failed in tearDown", e));
         }
         if (vertx != null) {
             vertx.close()

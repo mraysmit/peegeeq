@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,24 +48,20 @@ public abstract class PgQueueFactory implements QueueFactory {
     }
     
     @Override
-    public void close() throws Exception {
+    public Future<Void> close() {
         if (!closed) {
             closed = true;
             logger.info("Closing PgQueueFactory of type: {}", getImplementationType());
-            try {
-                closeResources();
-            } catch (Exception e) {
-                logger.error("Error closing PgQueueFactory resources", e);
-                throw e;
-            }
+            return closeResources().onFailure(e -> logger.error("Error closing PgQueueFactory resources", e));
         }
+        return io.vertx.core.Future.succeededFuture();
     }
     
     /**
      * Close implementation-specific resources.
      * Called by close() method.
      */
-    protected abstract void closeResources() throws Exception;
+    protected abstract Future<Void> closeResources();
     
     /**
      * Check if the factory is closed and throw an exception if it is.

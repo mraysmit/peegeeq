@@ -202,8 +202,8 @@ public class PgQueueFactoryProviderCoreTest extends BaseIntegrationTest {
         }
 
         @Override
-        protected void closeResources() throws Exception {
-            // No-op
+        protected io.vertx.core.Future<Void> closeResources() {
+            return io.vertx.core.Future.succeededFuture();
         }
     }
 }
