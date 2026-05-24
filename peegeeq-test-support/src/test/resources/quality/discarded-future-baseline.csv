@@ -6,21 +6,13 @@
 # Note: peegeeq-native entries below are false positives — PgNativeConsumerGroup.close() returns void,
 # not Future<Void>. The guard detects the pattern syntactically without checking the return type.
 path,count
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PartitionedConsumerSafetyIntegrationTest.java,1
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeConsumerGroupLifecycleTest.java,13
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/deadletter/DeadLetterQueueManagerCoverageTest.java,3
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/JsonbConversionValidationTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerFailureHandlingTest.java,3
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupClientIdPropagationTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFaultToleranceTest.java,3
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFilteredMessageStatusTest.java,5
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java,3
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupIntegrationTest.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupReviewFixesTest.java,5
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java,13
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionTest.java,20
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFaultToleranceTest.java,1
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java,2
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupReviewFixesTest.java,4
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java,12
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerNullHandlerTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryConcurrencyTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryResilienceTest.java,1

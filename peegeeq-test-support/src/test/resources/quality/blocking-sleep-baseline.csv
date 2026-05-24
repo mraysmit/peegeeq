@@ -5,4 +5,3 @@
 # Baseline captured: 2026-05-18. Total allowed violations: 7.
 # Note: all violations are Thread.sleep calls inside executeBlocking lambdas (worker-thread context).
 path,count
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MemoryAndResourceLeakTest.java,7
