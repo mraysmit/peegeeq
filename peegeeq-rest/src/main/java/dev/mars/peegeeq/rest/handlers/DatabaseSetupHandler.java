@@ -230,10 +230,6 @@ public class DatabaseSetupHandler {
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("🚫 EXPECTED: Setup not found: {}", setupId);
                         sendError(ctx, 404, "Setup not found: " + setupId);
-                    } else if (isTestScenario(setupId, err)) {
-                        logger.info("🧪 EXPECTED TEST ERROR - Error getting setup details: {} - {}",
-                                setupId, err.getMessage());
-                        sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
                         logger.error("Error getting setup details: " + setupId, err);
                         sendError(ctx, 503, "Failed to get setup details: " + err.getMessage());
@@ -546,25 +542,5 @@ public class DatabaseSetupHandler {
     private boolean isDatabaseCreationConflictError(Throwable throwable) {
         return throwable != null &&
                 throwable.getClass().getSimpleName().equals("DatabaseCreationConflictException");
-    }
-
-    /**
-     * Determines if an error is part of an intentional test scenario
-     */
-    private boolean isTestScenario(String setupId, Throwable throwable) {
-        // Check for test setup IDs
-        if (setupId != null && (setupId.equals("non-existent-setup") || setupId.equals("non-existent")
-                || setupId.startsWith("test-"))) {
-            return true;
-        }
-
-        // Check for test-related error messages
-        String message = throwable.getMessage();
-        if (message != null && (message.contains("Setup not found: non-existent") ||
-                message.contains("INTENTIONAL TEST FAILURE"))) {
-            return true;
-        }
-
-        return false;
     }
 }
