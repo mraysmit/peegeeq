@@ -265,7 +265,7 @@ class AdvancedProducerConsumerGroupTest {
                             assertTrue(activeConsumers >= 2, "At least 2 consumers should process some messages");
                             assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-                            orderGroup.closeAsync().onFailure(testContext::failNow);
+                            orderGroup.close().onFailure(testContext::failNow);
                             testContext.completeNow();
                         } catch (Throwable t) {
                             testContext.failNow(t);
@@ -332,7 +332,7 @@ class AdvancedProducerConsumerGroupTest {
                             assertTrue(activeConsumers >= 1, "At least 1 consumer should process some messages");
                             assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-                            paymentGroup.closeAsync().onFailure(testContext::failNow);
+                            paymentGroup.close().onFailure(testContext::failNow);
                             testContext.completeNow();
                         } catch (Throwable t) {
                             testContext.failNow(t);
@@ -403,7 +403,7 @@ class AdvancedProducerConsumerGroupTest {
                             logger.info("  Audit consumer processed: {}", auditCount.get());
                             logger.info("  Total processed: {}", totalProcessed);
 
-                            analyticsGroup.closeAsync().onFailure(testContext::failNow);
+                            analyticsGroup.close().onFailure(testContext::failNow);
                             testContext.completeNow();
                         } catch (Throwable t) {
                             testContext.failNow(t);
@@ -474,9 +474,9 @@ class AdvancedProducerConsumerGroupTest {
                             assertTrue(paymentProcessedCount.get() > 0, "Payment group should process some messages");
                             assertTrue(analyticsProcessedCount.get() > 0, "Analytics group should process some messages");
 
-                            orderGroup.closeAsync().onFailure(testContext::failNow);
-                            paymentGroup.closeAsync().onFailure(testContext::failNow);
-                            analyticsGroup.closeAsync().onFailure(testContext::failNow);
+                            orderGroup.close().onFailure(testContext::failNow);
+                            paymentGroup.close().onFailure(testContext::failNow);
+                            analyticsGroup.close().onFailure(testContext::failNow);
                             testContext.completeNow();
                         } catch (Throwable t) {
                             testContext.failNow(t);

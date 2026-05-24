@@ -219,7 +219,7 @@ class ConsumerGroupResilienceTest {
                     assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
                     assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
 
-                    orderGroup.closeAsync().onFailure(testContext::failNow);
+                    orderGroup.close().onFailure(testContext::failNow);
                     testContext.completeNow();
                 } catch (Throwable t) {
                     testContext.failNow(t);
@@ -268,7 +268,7 @@ class ConsumerGroupResilienceTest {
 
                 assertTrue(processedCount.get() > 0, "Some messages should be processed");
 
-                testGroup.closeAsync().onFailure(testContext::failNow);
+                testGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             } catch (Throwable th) {
                 testContext.failNow(th);
@@ -320,7 +320,7 @@ class ConsumerGroupResilienceTest {
                     logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
                     logger.info("  Total processed: {}", processedCount.get());
 
-                    monitoringGroup.closeAsync().onFailure(testContext::failNow);
+                    monitoringGroup.close().onFailure(testContext::failNow);
                     testContext.completeNow();
                 } catch (Throwable t) {
                     testContext.failNow(t);

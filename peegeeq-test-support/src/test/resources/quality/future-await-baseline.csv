@@ -24,7 +24,6 @@ peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueShutdownTest.
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PollingOnlyEdgeCaseTest.java,9
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/QueueFactoryConsumerModeTest.java,4
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/RetryableErrorIT.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/AsyncRetryMechanismTest.java,6
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/BatchOperationsWithPropagationExampleTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/MessagePriorityExampleTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/TransactionParticipationAdvancedExampleTest.java,7
@@ -57,8 +56,6 @@ peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxSchemaQuotingTest.jav
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/PerformanceBenchmarkTest.java,8
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/PgNotificationStreamCoreTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ReactiveOutboxProducerTest.java,13
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/resilience/AsyncFilterRetryManagerTest.java,4
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/resilience/FilterRetryManagerTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/StuckMessageRecoveryIntegrationTest.java,16
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ZombieVertxReproA.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ZombieVertxReproB.java,2

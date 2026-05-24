@@ -96,24 +96,19 @@ public class OutboxServerSideFilteringTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext ctx) {
-        logger.info("Tearing down: closing resources and manager");
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("=== Tearing down OutboxServerSideFilteringTest ===");
-        if (outboxFactory != null) {
-            try {
-                outboxFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing outbox factory: {}", e.getMessage());
-            }
-        }
-        if (manager == null) {
-            ctx.completeNow();
-            return;
-        }
-        Future<Void> closeChain = manager.closeReactive()
-            .onFailure(err -> logger.error("Error during manager cleanup", err));
-        closeChain.onSuccess(v -> { logger.info("Outbox server-side filtering test teardown completed"); ctx.completeNow(); });
-        closeChain.onFailure(err -> ctx.completeNow());
+        (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Outbox server-side filtering test teardown completed");
+                ctx.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                ctx.completeNow();
+            });
+        Assertions.assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test

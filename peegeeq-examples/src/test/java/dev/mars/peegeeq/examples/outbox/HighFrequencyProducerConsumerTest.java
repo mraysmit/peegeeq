@@ -297,8 +297,8 @@ class HighFrequencyProducerConsumerTest {
                 assertTrue(avgProcessingTime < 2000,
                     "Average processing time should be under 2 seconds");
 
-                orderGroup.closeAsync().onFailure(testContext::failNow);
-                paymentGroup.closeAsync().onFailure(testContext::failNow);
+                orderGroup.close().onFailure(testContext::failNow);
+                paymentGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             } catch (Throwable t) {
                 testContext.failNow(t);
@@ -400,7 +400,7 @@ class HighFrequencyProducerConsumerTest {
                 assertTrue(categoriesWithMessages >= 3,
                     "At least 3 different filter categories should process messages");
 
-                routingGroup.closeAsync().onFailure(testContext::failNow);
+                routingGroup.close().onFailure(testContext::failNow);
                 testContext.completeNow();
             } catch (Throwable t) {
                 testContext.failNow(t);
