@@ -534,17 +534,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
     
     @Override
-    public void stop() {
+    public Future<Void> stop() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
             // Not active nothing to stop
-            return;
+            return Future.succeededFuture();
         }
-        try {
-            stopInternal().await();
-        } catch (Exception e) {
-            logger.warn("Error while waiting for outbox consumer group '{}' to stop: {}",
-                    groupName, e.getMessage());
-        }
+        return stopInternal()
+                .onFailure(err -> logger.warn("Error stopping outbox consumer group '{}': {}",
+                        groupName, err.getMessage()));
     }
 
     @Override
@@ -719,17 +716,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
     
     @Override
-    public void close() {
-        try {
-            closeAsync().await();
-        } catch (Exception e) {
-            logger.warn("Error while waiting for outbox consumer group '{}' to close: {}",
-                    groupName, e.getMessage());
-        }
-    }
-
-    @Override
-    public Future<Void> closeAsync() {
+    public Future<Void> close() {
         State prev = state.getAndSet(State.CLOSED);
         if (prev == State.CLOSED) {
             return Future.succeededFuture();

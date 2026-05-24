@@ -110,19 +110,13 @@ public class OutboxConsumerErrorHandlingTest {
         if (producer != null) {
             try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
         }
-        if (outboxFactory != null) {
-            try { outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing factory", e); }
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(err -> {
-                logger.warn("Error during manager cleanup: {}", err.getMessage());
-                testContext.completeNow();
-            });
+        Future<Void> closeChain = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeChain
+                .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -171,24 +165,20 @@ public class OutboxConsumerErrorHandlingTest {
     @Test
     void testUnsubscribeDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint processingStarted = testContext.checkpoint();
-        Checkpoint processingCompleted = testContext.checkpoint();
 
         consumer.subscribe(message -> {
         logger.info("Test: unsubscribe during processing");
             processingStarted.flag();
-            // Simulate processing via non-blocking delay
-            return vertx.timer(100).<Void>map(t -> {
-                processingCompleted.flag();
-                return null;
-            });
+            // Simulate async processing via non-blocking delay
+            return vertx.timer(100).<Void>mapEmpty();
         });
 
         producer.send("test-message").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
-            "Processing should start and complete");
+            "Processing should start");
 
-        // Unsubscribe after processing
+        // Unsubscribe while the handler is still in-flight (100ms timer not yet fired)
         consumer.unsubscribe();
 
         // Send another message - should not be processed (fire-and-forget; logged on failure)

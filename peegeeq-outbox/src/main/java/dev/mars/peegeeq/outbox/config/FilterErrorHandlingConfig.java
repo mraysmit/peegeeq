@@ -1,7 +1,6 @@
 package dev.mars.peegeeq.outbox.config;
 
 import java.time.Duration;
-import java.util.Set;
 
 /**
  * Configuration for handling filter errors in consumer groups.
@@ -23,18 +22,6 @@ public class FilterErrorHandlingConfig {
         DEAD_LETTER_IMMEDIATELY
     }
     
-    /**
-     * How to classify filter errors
-     */
-    public enum ErrorClassification {
-        /** Temporary error that should be retried */
-        TRANSIENT,
-        /** Permanent error that should not be retried */
-        PERMANENT,
-        /** Unknown error type - use default strategy */
-        UNKNOWN
-    }
-    
     private final FilterErrorStrategy defaultStrategy;
     private final int maxRetries;
     private final Duration initialRetryDelay;
@@ -47,16 +34,6 @@ public class FilterErrorHandlingConfig {
     private final Duration circuitBreakerTimeout;
     private final int circuitBreakerMinimumRequests;
     
-    // Error classification rules
-    private final Set<String> transientErrorPatterns;
-    private final Set<String> permanentErrorPatterns;
-    private final Set<Class<? extends Exception>> transientExceptionTypes;
-    private final Set<Class<? extends Exception>> permanentExceptionTypes;
-    
-    // Dead letter queue configuration
-    private final boolean deadLetterQueueEnabled;
-    private final String deadLetterQueueTopic;
-    
     private FilterErrorHandlingConfig(Builder builder) {
         this.defaultStrategy = builder.defaultStrategy;
         this.maxRetries = builder.maxRetries;
@@ -67,54 +44,6 @@ public class FilterErrorHandlingConfig {
         this.circuitBreakerFailureThreshold = builder.circuitBreakerFailureThreshold;
         this.circuitBreakerTimeout = builder.circuitBreakerTimeout;
         this.circuitBreakerMinimumRequests = builder.circuitBreakerMinimumRequests;
-        this.transientErrorPatterns = Set.copyOf(builder.transientErrorPatterns);
-        this.permanentErrorPatterns = Set.copyOf(builder.permanentErrorPatterns);
-        this.transientExceptionTypes = Set.copyOf(builder.transientExceptionTypes);
-        this.permanentExceptionTypes = Set.copyOf(builder.permanentExceptionTypes);
-        this.deadLetterQueueEnabled = builder.deadLetterQueueEnabled;
-        this.deadLetterQueueTopic = builder.deadLetterQueueTopic;
-    }
-    
-    /**
-     * Classifies an exception based on configured rules
-     */
-    public ErrorClassification classifyError(Exception exception) {
-        String message = exception.getMessage();
-        Class<? extends Exception> exceptionType = exception.getClass();
-        
-        // Check permanent patterns first (more specific)
-        if (permanentExceptionTypes.contains(exceptionType) ||
-            (message != null && permanentErrorPatterns.stream().anyMatch(message::contains))) {
-            return ErrorClassification.PERMANENT;
-        }
-        
-        // Check transient patterns
-        if (transientExceptionTypes.contains(exceptionType) ||
-            (message != null && transientErrorPatterns.stream().anyMatch(message::contains))) {
-            return ErrorClassification.TRANSIENT;
-        }
-        
-        return ErrorClassification.UNKNOWN;
-    }
-    
-    /**
-     * Determines the strategy to use for a given error classification
-     */
-    public FilterErrorStrategy getStrategyForError(ErrorClassification classification) {
-        return switch (classification) {
-            case TRANSIENT -> {
-                // For transient errors, use the default strategy if it involves retries,
-                // otherwise fall back to RETRY_THEN_REJECT
-                if (defaultStrategy == FilterErrorStrategy.RETRY_THEN_DEAD_LETTER ||
-                    defaultStrategy == FilterErrorStrategy.RETRY_THEN_REJECT) {
-                    yield defaultStrategy;
-                } else {
-                    yield FilterErrorStrategy.RETRY_THEN_REJECT;
-                }
-            }
-            case PERMANENT -> FilterErrorStrategy.REJECT_IMMEDIATELY;
-            case UNKNOWN -> defaultStrategy;
-        };
     }
     
     // Getters
@@ -127,27 +56,12 @@ public class FilterErrorHandlingConfig {
     public int getCircuitBreakerFailureThreshold() { return circuitBreakerFailureThreshold; }
     public Duration getCircuitBreakerTimeout() { return circuitBreakerTimeout; }
     public int getCircuitBreakerMinimumRequests() { return circuitBreakerMinimumRequests; }
-    public boolean isDeadLetterQueueEnabled() { return deadLetterQueueEnabled; }
-    public String getDeadLetterQueueTopic() { return deadLetterQueueTopic; }
     
     /**
      * Creates a default configuration suitable for most use cases
      */
     public static FilterErrorHandlingConfig defaultConfig() {
         return builder().build();
-    }
-    
-    /**
-     * Creates a configuration optimized for testing scenarios
-     */
-    public static FilterErrorHandlingConfig testingConfig() {
-        return builder()
-            .defaultStrategy(FilterErrorStrategy.REJECT_IMMEDIATELY)
-            .maxRetries(0)
-            .circuitBreakerEnabled(false)
-            .addTransientErrorPattern("INTENTIONAL TEST FAILURE")
-            .addTransientErrorPattern("Simulated")
-            .build();
     }
     
     public static Builder builder() {
@@ -164,24 +78,7 @@ public class FilterErrorHandlingConfig {
         private int circuitBreakerFailureThreshold = 5;
         private Duration circuitBreakerTimeout = Duration.ofMinutes(1);
         private int circuitBreakerMinimumRequests = 10;
-        private Set<String> transientErrorPatterns = Set.of(
-            "timeout", "connection", "network", "temporary", "retry"
-        );
-        private Set<String> permanentErrorPatterns = Set.of(
-            "invalid", "malformed", "unauthorized", "forbidden", "not found"
-        );
-        private Set<Class<? extends Exception>> transientExceptionTypes = Set.of(
-            java.net.SocketTimeoutException.class,
-            java.net.ConnectException.class,
-            java.util.concurrent.TimeoutException.class
-        );
-        private Set<Class<? extends Exception>> permanentExceptionTypes = Set.of(
-            IllegalArgumentException.class,
-            SecurityException.class,
-            java.nio.file.NoSuchFileException.class
-        );
-        private boolean deadLetterQueueEnabled = true;
-        private String deadLetterQueueTopic = "filter-errors";
+
         
         public Builder defaultStrategy(FilterErrorStrategy strategy) {
             this.defaultStrategy = strategy;
@@ -225,56 +122,6 @@ public class FilterErrorHandlingConfig {
         
         public Builder circuitBreakerMinimumRequests(int minimum) {
             this.circuitBreakerMinimumRequests = minimum;
-            return this;
-        }
-        
-        public Builder addTransientErrorPattern(String pattern) {
-            this.transientErrorPatterns = Set.copyOf(
-                java.util.stream.Stream.concat(
-                    transientErrorPatterns.stream(),
-                    java.util.stream.Stream.of(pattern)
-                ).collect(java.util.stream.Collectors.toSet())
-            );
-            return this;
-        }
-        
-        public Builder addPermanentErrorPattern(String pattern) {
-            this.permanentErrorPatterns = Set.copyOf(
-                java.util.stream.Stream.concat(
-                    permanentErrorPatterns.stream(),
-                    java.util.stream.Stream.of(pattern)
-                ).collect(java.util.stream.Collectors.toSet())
-            );
-            return this;
-        }
-
-        public Builder addTransientExceptionType(Class<? extends Exception> exceptionType) {
-            this.transientExceptionTypes = Set.copyOf(
-                java.util.stream.Stream.concat(
-                    transientExceptionTypes.stream(),
-                    java.util.stream.Stream.of(exceptionType)
-                ).collect(java.util.stream.Collectors.toSet())
-            );
-            return this;
-        }
-
-        public Builder addPermanentExceptionType(Class<? extends Exception> exceptionType) {
-            this.permanentExceptionTypes = Set.copyOf(
-                java.util.stream.Stream.concat(
-                    permanentExceptionTypes.stream(),
-                    java.util.stream.Stream.of(exceptionType)
-                ).collect(java.util.stream.Collectors.toSet())
-            );
-            return this;
-        }
-        
-        public Builder deadLetterQueueEnabled(boolean enabled) {
-            this.deadLetterQueueEnabled = enabled;
-            return this;
-        }
-        
-        public Builder deadLetterQueueTopic(String topic) {
-            this.deadLetterQueueTopic = topic;
             return this;
         }
         

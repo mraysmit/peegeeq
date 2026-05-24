@@ -103,8 +103,9 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumerGroup != null) {
-            consumerGroup.stop();
-            consumerGroup.close();
+            consumerGroup.stop()
+                .compose(v -> consumerGroup.close())
+                .onFailure(e -> logger.warn("consumerGroup stop/close failed in tearDown", e));
         }
         if (producer != null) {
             producer.close();
@@ -285,7 +286,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
                     10_000, "Group 1 should have filtered the TypeB message"))
             .compose(v -> {
                 // Stop group 1 so it no longer competes for the reset-to-PENDING message
-                consumerGroup.stop();
+                consumerGroup.stop().onFailure(e -> logger.warn("stop() failed in test", e));
                 // Brief pause to let any in-flight reset-to-PENDING operation complete
                 return vertx.timer(500);
             })
@@ -300,8 +301,9 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
                 assertTrue(group2Processed.get() >= 1,
                         "Group 2 should have processed the TypeB message that group 1 filtered");
 
-                consumerGroup2.stop();
-                consumerGroup2.close();
+                consumerGroup2.stop()
+                    .compose(ignored -> consumerGroup2.close())
+                    .onFailure(e -> logger.warn("consumerGroup2 stop/close failed in test", e));
                 testContext.completeNow();
             })));
 

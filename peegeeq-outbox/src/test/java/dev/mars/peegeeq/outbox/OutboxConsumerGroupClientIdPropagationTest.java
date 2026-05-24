@@ -159,7 +159,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         }
         // If underlyingConsumer is null, start() failed before creating it — acceptable
 
-        group.close();
+        group.close().onFailure(e -> logger.warn("group.close() failed in cleanup", e));
     }
 
     // ========================================================================

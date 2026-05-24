@@ -31,7 +31,6 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -173,7 +172,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                         assertFalse(receivedMessages.isEmpty(),
                             "Should process messages from ID 3 onwards");
                     });
-                    group.close();
+                    group.close().onFailure(testContext::failNow);
                     return null;
                 });
             })
@@ -555,31 +554,29 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            Promise<Void> processingGate = Promise.promise();
             AtomicInteger count = new AtomicInteger(0);
 
+            // Use a non-blocking handler. The IllegalStateException on the second
+            // setMessageHandler() call is thrown because a handler is already registered
+            // (members.containsKey), not because a message is actively in-flight.
+            // A blocking processingGate.future() pattern leaves the consumer waiting
+            // for ACK when tearDown runs, which causes the BackpressureManager permit to
+            // never be released until its 30-second timeout, hanging manager.closeReactive().
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
-                return processingGate.future();
+                return Future.succeededFuture();
             });
 
             group.start();
             producer.send("Message")
                 .compose(v -> vertx.timer(500))
                 .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    // Try to set handler again while processing
+                    // The handler was already set above — a second call always throws,
+                    // whether or not a message is currently being processed.
                     assertThrows(IllegalStateException.class, () -> {
                         group.setMessageHandler(msg -> Future.succeededFuture());
                     });
-
-                    processingGate.complete();
                     testContext.completeNow();
-                    // Do NOT call group.close() here: we are on the Vert.x event loop.
-                    // Calling close() from the event loop causes closeAsync().await() to
-                    // throw "Cannot be called on a Vert.x event-loop thread", leaving an
-                    // in-progress closeAsync() that races with manager.closeReactive() in
-                    // tearDown and causes the pool close to hang. The factory.close() in
-                    // tearDown calls group.closeAsync() correctly on the main thread.
                 })));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
