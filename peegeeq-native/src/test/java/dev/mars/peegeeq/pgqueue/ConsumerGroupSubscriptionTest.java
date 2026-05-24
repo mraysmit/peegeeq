@@ -79,15 +79,7 @@ class ConsumerGroupSubscriptionTest {
 
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -189,7 +181,7 @@ class ConsumerGroupSubscriptionTest {
             assertTrue(count.get() >= 1, "Should process messages sent after start");
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         // TODO(consumer-group-start-position): Re-enable once native ConsumerGroup.start(SubscriptionOptions)
@@ -241,7 +233,7 @@ class ConsumerGroupSubscriptionTest {
                 "Should process historical messages, received: " + receivedMessages.size());
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         // TODO(consumer-group-start-position): Re-enable once native ConsumerGroup.start(SubscriptionOptions)
@@ -298,7 +290,7 @@ class ConsumerGroupSubscriptionTest {
                 "Should process messages after timestamp, received: " + receivedMessages.size());
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -316,7 +308,7 @@ class ConsumerGroupSubscriptionTest {
                 "Should throw IllegalArgumentException for null SubscriptionOptions");
 
             // Cleanup
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -337,7 +329,7 @@ class ConsumerGroupSubscriptionTest {
                     group.start(options)
                         .onSuccess(v2 -> testContext.verify(() -> {
                             assertTrue(group.isActive(), "Group should remain active after second start");
-                            group.closeAsync().onFailure(testContext::failNow);
+                            group.close().onFailure(testContext::failNow);
                             testContext.completeNow();
                         }))
                         .onFailure(testContext::failNow);
@@ -354,7 +346,7 @@ class ConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
 
@@ -401,7 +393,7 @@ class ConsumerGroupSubscriptionTest {
             assertTrue(count.get() >= 1);
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -473,7 +465,7 @@ class ConsumerGroupSubscriptionTest {
                 "Consumer list should contain default consumer");
 
             // Cleanup
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -495,7 +487,7 @@ class ConsumerGroupSubscriptionTest {
             assertEquals("test-topic", member.getTopic());
 
             // Cleanup
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -540,7 +532,7 @@ class ConsumerGroupSubscriptionTest {
                 "Received payloads must not contain duplicates; got: " + receivedMessages);
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -559,7 +551,7 @@ class ConsumerGroupSubscriptionTest {
                 "Should throw IllegalStateException when called twice");
 
             // Cleanup
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -576,7 +568,7 @@ class ConsumerGroupSubscriptionTest {
                 "Should throw IllegalArgumentException for null handler");
 
             // Cleanup
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
         }
 
         @Test
@@ -587,7 +579,7 @@ class ConsumerGroupSubscriptionTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.closeAsync().onFailure(e -> fail("group.closeAsync() failed: " + e.getMessage()));
+            group.close().onFailure(e -> fail("close() failed: " + e.getMessage()));
 
             // Act & Assert
             assertThrows(IllegalStateException.class,
@@ -633,7 +625,7 @@ class ConsumerGroupSubscriptionTest {
                 "Received payloads must not contain duplicates; got: " + receivedPayloads);
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         // TODO(consumer-group-start-position): Re-enable once setMessageHandler() + start(options) chain
@@ -678,7 +670,7 @@ class ConsumerGroupSubscriptionTest {
                 "Should process historical messages, got: " + count.get());
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -720,7 +712,7 @@ class ConsumerGroupSubscriptionTest {
             assertTrue(memberStats.isActive());
 
             // Cleanup
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         // TODO(setMessageHandler-thread-safety): Real production race condition, not a test bug.
@@ -786,7 +778,7 @@ class ConsumerGroupSubscriptionTest {
 
             // Cleanup
             executor.shutdown();
-            group.closeAsync().onFailure(e -> logger.warn("group.closeAsync() failed in cleanup", e));
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
     }
 }

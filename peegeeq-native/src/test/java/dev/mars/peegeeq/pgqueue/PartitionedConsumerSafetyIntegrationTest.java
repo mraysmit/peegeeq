@@ -201,7 +201,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     group.start();
 
                     // Immediately close should set state to CLOSED before async callback
-                    group.close();
+                    group.close().onFailure(testContext::failNow);
 
                     // State must be CLOSED immediately after close()
                     assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),

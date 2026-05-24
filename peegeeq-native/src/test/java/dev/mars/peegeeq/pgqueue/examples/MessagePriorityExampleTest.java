@@ -123,17 +123,7 @@ class MessagePriorityExampleTest {
     public static final int PRIORITY_BULK = 0;
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_priority_demo");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

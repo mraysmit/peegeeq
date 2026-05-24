@@ -122,15 +122,7 @@ class ConsumerGroupTest {
 
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

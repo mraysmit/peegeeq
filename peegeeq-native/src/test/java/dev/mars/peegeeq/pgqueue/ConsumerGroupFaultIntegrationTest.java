@@ -220,7 +220,7 @@ class ConsumerGroupFaultIntegrationTest {
                     Vertx vtx = databaseService.getVertx();
                     return vtx.timer(12000).mapEmpty()
                             .map(delayed -> {
-                                group.closeAsync().onFailure(testContext::failNow);
+                                group.close().onFailure(testContext::failNow);
 
                                 logger.info("FAULT 1: totalInvocations={}, processedIds={}, failCount={}",
                                         totalInvocations.get(), processedIds.size(), failCount.get());
@@ -309,7 +309,7 @@ class ConsumerGroupFaultIntegrationTest {
 
                                 logger.info("FAULT 4 PASSED: clean shutdown during active fetch, {} messages processed",
                                         handlerCalls.get());
-                                group.closeAsync().onFailure(testContext::failNow);
+                                group.close().onFailure(testContext::failNow);
                                 return (Void) null;
                             });
                 })
@@ -403,7 +403,7 @@ class ConsumerGroupFaultIntegrationTest {
                                         "Engine should process messages after connection recovery; got " + totalCalls);
 
                                 logger.info("FAULT 2 PASSED: engine recovered after connection termination");
-                                group.closeAsync().onFailure(testContext::failNow);
+                                group.close().onFailure(testContext::failNow);
                                 return (Void) null;
                             });
                 })
@@ -485,7 +485,7 @@ class ConsumerGroupFaultIntegrationTest {
                                         "Only 1 handler invocation expected partition is blocked by hung Future");
 
                                 logger.info("FAULT 3 PASSED: hung handler blocks partition (documented behavior)");
-                                group.closeAsync().onFailure(testContext::failNow);
+                                group.close().onFailure(testContext::failNow);
                                 return (Void) null;
                             });
                 })
@@ -552,7 +552,7 @@ class ConsumerGroupFaultIntegrationTest {
                                 // close() calls engine.stop() which calls leaveGroup()
                                 // leaveGroup may fail due to terminated connections,
                                 // but the .transform() in engine.stop() swallows the error
-                                group.closeAsync().onFailure(testContext::failNow);
+                                group.close().onFailure(testContext::failNow);
 
                                 assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
                                         "Group should be CLOSED even when leaveGroup fails");
