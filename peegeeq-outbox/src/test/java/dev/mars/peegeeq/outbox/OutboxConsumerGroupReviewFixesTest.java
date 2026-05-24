@@ -436,18 +436,18 @@ class OutboxConsumerGroupReviewFixesTest {
         }
 
         @Test
-        @DisplayName("group closeAsync() returns completion future and clears members")
-        void groupCloseAsyncReturnsCompletionFuture() {
+        @DisplayName("group close() returns completion future and clears members")
+        void groupCloseReturnsCompletionFuture() {
             group = createGroup("close-async-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
             group.start();
 
-            Future<Void> result = group.closeAsync();
+            Future<Void> result = group.close();
 
-            assertTrue(result.succeeded(), "closeAsync() should return a completed future in the CORE path");
+            assertTrue(result.succeeded(), "close() should return a completed future in the CORE path");
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
-            assertTrue(group.getConsumerIds().isEmpty(), "closeAsync() should clear members");
+            assertTrue(group.getConsumerIds().isEmpty(), "close() should clear members");
 
             group = null;
         }
@@ -506,7 +506,7 @@ class OutboxConsumerGroupReviewFixesTest {
             group.start();
             assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stop();
+            group.stop().onFailure(e -> fail("stop() failed: " + e.getMessage()));
             assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
 
             // Should be restartable

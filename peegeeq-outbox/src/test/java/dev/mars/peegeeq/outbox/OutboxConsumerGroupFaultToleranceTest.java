@@ -132,8 +132,9 @@ class OutboxConsumerGroupFaultToleranceTest {
     void tearDown() throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (consumerGroup != null) {
-            consumerGroup.stop();
-            consumerGroup.close();
+            consumerGroup.stop()
+                .compose(v -> consumerGroup.close())
+                .onFailure(e -> logger.warn("consumerGroup stop/close failed in tearDown", e));
         }
         if (producer != null) {
             producer.close();

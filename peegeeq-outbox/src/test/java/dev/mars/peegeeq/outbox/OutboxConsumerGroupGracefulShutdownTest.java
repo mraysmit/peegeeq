@@ -46,6 +46,8 @@ import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration tests for {@link OutboxConsumerGroup#stopGracefully()} against a real PostgreSQL container.
@@ -62,6 +64,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @DisplayName("OutboxConsumerGroup \u2014 graceful shutdown")
 class OutboxConsumerGroupGracefulShutdownTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupGracefulShutdownTest.class);
 
     @Container
     @SuppressWarnings("resource")
@@ -196,7 +200,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
         group.start(SubscriptionOptions.builder().build()).await();
         assertTrue(group.isActive());
 
-        group.stop();  // regular sync stop first — does not cancel DB subscription
+        group.stop().onFailure(e -> logger.warn("stop() failed in stopGracefully_afterStop_isNoOp test", e));  // regular stop first — does not cancel DB subscription
         assertFalse(group.isActive());
 
         var future = group.stopGracefully();

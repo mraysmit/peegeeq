@@ -20,9 +20,7 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
-import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
-import dev.mars.peegeeq.outbox.resilience.FilterRetryManager;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
@@ -74,7 +72,6 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     private final FilterErrorHandlingConfig filterErrorConfig;
     private final FilterCircuitBreaker filterCircuitBreaker;
     private final Vertx vertx;
-    private final DeadLetterQueueManager deadLetterQueueManager;
     // Performance tracking
     private final AtomicLong totalProcessingTimeMs = new AtomicLong(0);
     
@@ -134,18 +131,8 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             consumerId + "-filter", filterErrorConfig);
         this.vertx = vertx;
 
-        // Initialize dead letter queue manager if DLQ is enabled
-        if (filterErrorConfig.isDeadLetterQueueEnabled()) {
-            this.deadLetterQueueManager = new DeadLetterQueueManager(filterErrorConfig);
-        } else {
-            this.deadLetterQueueManager = null;
-        }
-
-        new FilterRetryManager(
-            consumerId + "-filter", filterErrorConfig, vertx, deadLetterQueueManager);
-
-        logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling (DLQ enabled: {})",
-            consumerId, groupName, topic, filterErrorConfig.isDeadLetterQueueEnabled());
+        logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}'",
+            consumerId, groupName, topic);
     }
     
     @Override
@@ -287,9 +274,10 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
      * <p><strong>Contract:</strong> The supplied {@code Predicate<Message<T>>} filter is
      * executed synchronously on the calling thread (Vert.x event loop). Filters
      * <em>must</em> be non-blocking and CPU-only. Any I/O or blocking operation inside
-     * a filter will stall the event loop. If async filter evaluation is required, wrap
-     * the filter invocation in {@code vertx.executeBlocking()} before passing it here,
-     * or use {@link AsyncFilterRetryManager} directly for retry-capable async execution.
+     * a filter will stall the event loop.
+     *
+     * <p>If the filter throws an exception, the failure is recorded in the circuit breaker
+     * and the message is rejected (returns {@code false}). The exception is not propagated.
      *
      * @param message The message to check
      * @return true if the message should be processed by this consumer
@@ -322,18 +310,9 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
 
         } catch (Exception e) {
             filterCircuitBreaker.recordFailure();
-
-            // Classify the error and determine strategy
-            FilterErrorHandlingConfig.ErrorClassification classification = filterErrorConfig.classifyError(e);
-            FilterErrorHandlingConfig.FilterErrorStrategy strategy = filterErrorConfig.getStrategyForError(classification);
-
-            logger.info("Message filter failed for consumer '{}' in group '{}', rejecting message {}. " +
-                       "Classification: {}, Strategy: {}, Error: {}",
-                consumerId, groupName, message.getId(), classification, strategy, e.getMessage());
-            logger.debug("Filter exception details for consumer '{}' in group '{}'", consumerId, groupName, e);
-
-            // For now, always reject on filter exceptions (synchronous behavior)
-            // TODO: Implement async retry logic for transient errors
+            logger.debug("Filter threw exception for consumer '{}' in group '{}', message {}. " +
+                       "Treating as rejection. Error: {}",
+                consumerId, groupName, message.getId(), e.getMessage());
             return false;
         }
     }

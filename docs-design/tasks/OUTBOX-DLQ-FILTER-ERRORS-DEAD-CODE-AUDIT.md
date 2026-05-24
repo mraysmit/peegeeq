@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-24  
 **Scope:** `peegeeq-outbox` dead letter queue abstraction, filter-error handling, and test-contamination in production classes  
-**Status:** Analysis complete — no code changes made
+**Status:** Steps 1–7 complete. All tests passing.
 
 ---
 
@@ -292,6 +292,7 @@ Order is mandatory. Do not start a later step before completing the earlier one.
 | 4 | Remove `isIntentionalTest` / `logPrefix` / `logSuffix` from any remaining production files | `peegeeq-outbox` |
 | 5 | Remove `isTestScenario()` from `DatabaseSetupHandler` and fix affected tests | `peegeeq-rest` |
 | 6 | Rewrite filter-related tests to assert the corrected behaviour: filter exception → message eventually reaches `dead_letter_queue` (requires integration test with Testcontainers, following the pattern in `OutboxConsumerCrashRecoveryTest`) | `peegeeq-outbox` |
+| 7 | Fix DLQ SQL in `OutboxConsumer.handleMessageFailureWithRetry()` to use schema-qualified table names, then add a multi-tenant integration test proving DLQ writes go to the correct tenant schema and are isolated from other tenants | `peegeeq-outbox` |
 
 ---
 
@@ -389,9 +390,72 @@ Distinguishes deliberate rejection (`false`) from error (throws). Rejection does
 
 ---
 
-## Verification (after remediation)
+## Verification (after all steps complete)
 
 1. `grep_search` for `LoggingDeadLetterQueue|AsyncFilterRetryManager|isIntentionalTest|isTestScenario|testingConfig|\.otherwise\(|executeBlocking` across all touched files — must return zero matches.
-2. All six test cases above pass.
-3. `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
-4. Confirm `Tests run: 0` does not appear for any test class that should have executed.
+2. `grep_search` for `INSERT INTO dead_letter_queue|UPDATE outbox|INTO outbox` (unqualified) in `OutboxConsumer.java` — must return zero matches after Step 7 fix.
+3. All TC-1 through TC-7c test cases pass.
+4. `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+5. Confirm `Tests run: 0` does not appear for any test class that should have executed.
+
+---
+
+## Step 7 — Multi-tenant DLQ schema isolation
+
+### Problem
+
+`OutboxConsumer.handleMessageFailureWithRetry()` writes to the `dead_letter_queue` table using unqualified SQL:
+
+```java
+String insertSql = """
+    INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, ...)
+    VALUES ('outbox', $1, $2, ...)
+    """;
+...
+String updateSql = "UPDATE outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2";
+```
+
+No schema prefix. The connection's `search_path` determines which schema is used, which may not be the correct tenant schema. For a tenant configured with `peegeeq.database.schema = tenant_abc`, the DLQ write goes to whatever schema is first on the connection's `search_path` — potentially `public` or a different tenant's schema.
+
+The same `resetFilteredMessageToPending()` SQL (`UPDATE outbox SET status = 'PENDING' ...`) and the `SELECT` that precedes the DLQ insert also lack schema qualification.
+
+By contrast, `OutboxFactory` already uses `configuration.getDatabaseConfig().getSchema()` with `quoteIdentifier()` and `.formatted()` for its schema-qualified queries — the correct pattern is established.
+
+### Required fix in `OutboxConsumer`
+
+`OutboxConsumer` must receive the schema name at construction time (via `PeeGeeQConfiguration` or a dedicated `String schemaName` field) and use it in all SQL that references `outbox` or `dead_letter_queue`:
+
+```java
+// Pattern already used in OutboxFactory:
+String schema = configuration.getDatabaseConfig().getSchema();  // e.g. "tenant_abc"
+String insertSql = """
+    INSERT INTO %s.dead_letter_queue (original_table, original_id, topic, payload, ...)
+    VALUES ('outbox', $1, $2, ...)
+    """.formatted(quoteIdentifier(schema));
+String updateSql = "UPDATE %s.outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2"
+    .formatted(quoteIdentifier(schema));
+```
+
+All SQL strings in `OutboxConsumer` that reference `outbox` or `dead_letter_queue` must be audited and schema-qualified.
+
+### Required test cases for Step 7
+
+#### TC-7a — DLQ write goes to the correct tenant schema (not `public`)
+
+**Precondition:** Two tenants configured: `tenant_a` (schema `tenant_a`) and `tenant_b` (schema `tenant_b`). Each has its own `OutboxConsumer` with a filter that always throws. `maxRetries = 1`.  
+**Action:** Insert one message per tenant, run enough poll cycles to exhaust retries.  
+**Assert:**
+- `SELECT COUNT(*) FROM tenant_a.dead_letter_queue WHERE topic = 'tenant-a-topic'` returns `1`
+- `SELECT COUNT(*) FROM tenant_b.dead_letter_queue WHERE topic = 'tenant-b-topic'` returns `1`
+- `SELECT COUNT(*) FROM tenant_a.dead_letter_queue WHERE topic = 'tenant-b-topic'` returns `0` (no cross-tenant bleed)
+- `SELECT COUNT(*) FROM public.dead_letter_queue` returns `0` (no writes to `public`)
+
+#### TC-7b — `outbox` status update goes to the correct tenant schema
+
+**Precondition:** Same two-tenant setup as TC-7a.  
+**Assert:** After retries exhausted, `SELECT status FROM tenant_a.outbox WHERE ...` returns `DEAD_LETTER`. The `tenant_b.outbox` row is unaffected and `tenant_a.dead_letter_queue` contains only tenant_a messages.
+
+#### TC-7c — `resetFilteredMessageToPending` (circuit breaker path) also uses correct schema
+
+**Precondition:** Tenant with schema `tenant_c`. Circuit breaker OPEN. One message in `tenant_c.outbox`.  
+**Assert:** After poll cycle, `SELECT status FROM tenant_c.outbox WHERE id = ?` returns `PENDING` (not from `public.outbox`).
