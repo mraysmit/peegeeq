@@ -41,15 +41,7 @@ import org.slf4j.LoggerFactory;
 public class RetryableErrorIT {
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private static final Logger logger = LoggerFactory.getLogger(RetryableErrorIT.class);
 
@@ -72,12 +64,16 @@ public class RetryableErrorIT {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        if (factory != null) factory.close();
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test

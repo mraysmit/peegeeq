@@ -683,6 +683,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         })
                         .eventually(() -> {
                             TraceContextUtil.clearTraceMDC();
+                            // Drain: after processing each message, check if more messages are available.
+                            // This handles LISTEN/NOTIFY coalescing where multiple rapid inserts may
+                            // result in fewer NOTIFYs than messages (PostgreSQL deduplicates pending NOTIFYs).
+                            processAvailableMessages();
                             return Future.succeededFuture();
                         });
 
@@ -696,6 +700,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 processingInFlight.decrementAndGet();
                 // Clear MDC on synchronous exception
                 TraceContextUtil.clearTraceMDC();
+                // Drain: check if more messages are available after handling this one
+                processAvailableMessages();
             }
 
         } catch (Exception e) {

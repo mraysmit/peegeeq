@@ -82,15 +82,7 @@ class NativeQueueIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeQueueIntegrationTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("native_queue_test");
-        container.withUsername("test_user");
-        container.withPassword("test_pass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -98,14 +90,9 @@ class NativeQueueIntegrationTest {
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Initialize database schema using centralized schema initializer ()
-        logger.info("Initializing database schema for native queue integration tests");
+    void setUp(VertxTestContext testContext) {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
-        logger.info("Database schema initialized successfully using centralized schema initializer");
 
-        // Configure test properties with smaller connection pools to avoid exhaustion
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .property("peegeeq.database.pool.min-size", "2")
@@ -116,172 +103,46 @@ class NativeQueueIntegrationTest {
                 .property("peegeeq.queue.visibility-timeout", "PT30S")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.consumer-group-retry.enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
                 .build();
-
-        // Clear any existing messages BEFORE initializing components
-        clearQueueBeforeSetup();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Initialize native queue components - following provider pattern like working examples
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        queueFactory = provider.createFactory("native", databaseService);
-        producer = queueFactory.createProducer("test-native-topic", String.class);
-        consumer = queueFactory.createConsumer("test-native-topic", String.class);
-
-        // Clear any existing messages AFTER all components are initialized as well
-        clearQueue();
+        manager.start()
+                .compose(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    queueFactory = provider.createFactory("native", databaseService);
+                    producer = queueFactory.createProducer("test-native-topic", String.class);
+                    consumer = queueFactory.createConsumer("test-native-topic", String.class);
+                    return manager.getPool().query("DELETE FROM queue_messages").execute().mapEmpty();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() {
-        logger.info("Tearing down: closing resources and manager");
-        // Close resources in reverse order of creation for proper cleanup
-        if (consumer != null) {
-            try {
-                consumer.close();
-                logger.debug("Consumer closed successfully");
-            } catch (Exception e) {
-                logger.warn("Error closing consumer: {}", e.getMessage());
-            }
-            consumer = null;
-        }
-
-        if (producer != null) {
-            try {
-                producer.close();
-                logger.debug("Producer closed successfully");
-            } catch (Exception e) {
-                logger.warn("Error closing producer: {}", e.getMessage());
-            }
-            producer = null;
-        }
-
-        if (queueFactory != null) {
-            try {
-                queueFactory.close();
-                logger.debug("Queue factory closed successfully");
-            } catch (Exception e) {
-                logger.warn("Error closing queue factory: {}", e.getMessage());
-            }
-            queueFactory = null;
-        }
-
-        // Clear any remaining messages from the queue
-        clearQueue();
-
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-                logger.debug("PeeGeeQ Manager closed successfully");
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ Manager: {}", e.getMessage());
-            }
-            manager = null;
-        }
+    void tearDown(VertxTestContext testContext) {
+        (queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> {
+                    manager = null;
+                    testContext.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.warn("Error during teardown: {}", err.getMessage());
+                    manager = null;
+                    testContext.completeNow();
+                });
     }
 
-    private void clearQueueBeforeSetup() {
-        // Initialize schema using JDBC before starting PeeGeeQManager
-        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             java.sql.Statement stmt = conn.createStatement()) {
 
-            // Create queue_messages table
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS queue_messages (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    lock_id BIGINT,
-                    lock_until TIMESTAMP WITH TIME ZONE,
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                )
-                """);
-
-            // Create outbox table
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS outbox (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    processed_at TIMESTAMP WITH TIME ZONE,
-                    processing_started_at TIMESTAMP WITH TIME ZONE,
-                    status VARCHAR(50) DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    next_retry_at TIMESTAMP WITH TIME ZONE,
-                    version INT DEFAULT 0,
-                    headers JSONB DEFAULT '{}',
-                    error_message TEXT,
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                )
-                """);
-
-            // Create dead_letter_queue table
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                    id BIGSERIAL PRIMARY KEY,
-                    original_table VARCHAR(50) NOT NULL,
-                    original_id BIGINT NOT NULL,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    failure_reason TEXT NOT NULL,
-                    retry_count INT NOT NULL,
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255)
-                )
-                """);
-
-            // Clear existing data ensuring FK dependencies are handled
-            stmt.execute("TRUNCATE TABLE message_processing, queue_messages, outbox, dead_letter_queue CASCADE");
-
-        } catch (Exception e) {
-            logger.error("Failed to initialize schema", e);
-            throw new RuntimeException("Schema initialization failed", e);
-        }
-    }
-
-    private void clearQueue() {
-        try {
-            manager.getDatabaseService().getConnectionProvider()
-                .getReactivePool("peegeeq-main")
-                .compose(pool -> pool.query("DELETE FROM queue_messages").execute())
-                .await();
-        } catch (Exception e) {
-            // Ignore cleanup errors
-        }
-    }
 
     @Test
     void testBasicNativeQueueProducerAndConsumer(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Hello, Native Queue!";
-        
-        // Send a message
-        producer.send(testMessage).await();
-
-        // Consume the message
         Checkpoint received = testContext.checkpoint(1);
         AtomicInteger receivedCount = new AtomicInteger(0);
         List<String> receivedMessages = new ArrayList<>();
@@ -293,7 +154,8 @@ class NativeQueueIntegrationTest {
             return Future.succeededFuture();
         });
 
-        // Wait for message to be received
+        producer.send(testMessage).onFailure(testContext::failNow);
+
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, receivedCount.get());
         assertEquals(testMessage, receivedMessages.get(0));
@@ -308,10 +170,6 @@ class NativeQueueIntegrationTest {
             "source", "native-test"
         );
 
-        // Send message with headers
-        producer.send(testMessage, headers).await();
-
-        // Consume and verify headers
         Checkpoint received = testContext.checkpoint(1);
         List<Message<String>> receivedMessages = new ArrayList<>();
 
@@ -320,6 +178,8 @@ class NativeQueueIntegrationTest {
             received.flag();
             return Future.succeededFuture();
         });
+
+        producer.send(testMessage, headers).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, receivedMessages.size());
@@ -335,24 +195,17 @@ class NativeQueueIntegrationTest {
     void testNativeQueueListenNotify(Vertx vertx, VertxTestContext testContext) throws Exception {
         // This test verifies that LISTEN/NOTIFY works for real-time message delivery
         String testMessage = "Real-time notification test";
-        
         Checkpoint received = testContext.checkpoint(1);
         List<String> receivedMessages = new ArrayList<>();
 
-        // Set up consumer first to ensure it's listening
         consumer.subscribe(message -> {
             receivedMessages.add(message.getPayload());
             received.flag();
             return Future.succeededFuture();
         });
 
-        // Wait a moment for consumer to start listening using Vert.x timer
-        vertx.timer(1000).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
-        // Send message - should trigger immediate notification
-        producer.send(testMessage).await();
-
-        // Should receive message quickly due to LISTEN/NOTIFY
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
         assertEquals(testMessage, receivedMessages.get(0));
     }
@@ -364,10 +217,7 @@ class NativeQueueIntegrationTest {
         Promise<Void> firstAttempt = Promise.promise();
         Promise<Void> secondAttempt = Promise.promise();
 
-        // Send the message
-        producer.send(testMessage).await();
-
-        // Set up consumer that will fail to process (simulating a crash)
+        // Set up consumer before sending so it can immediately pick up the message
         consumer.subscribe(message -> {
             int attempt = processingAttempts.incrementAndGet();
             if (attempt == 1) {
@@ -380,13 +230,14 @@ class NativeQueueIntegrationTest {
             }
         });
 
+        producer.send(testMessage).onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+
         // Wait for first attempt
         firstAttempt.future().await();
 
         // Wait for visibility timeout to expire and message to become available again
-        // This should be longer than the configured visibility timeout
         secondAttempt.future().await();
-        
+
         assertTrue(processingAttempts.get() >= 2);
     }
 
@@ -425,7 +276,7 @@ class NativeQueueIntegrationTest {
 
         // Send multiple messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Message " + i).await();
+            producer.send("Message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed
@@ -440,72 +291,53 @@ class NativeQueueIntegrationTest {
 
         // Clean up additional factories
         for (PgNativeQueueFactory factory : additionalFactories) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                // Ignore
-            }
+            factory.close().onFailure(err -> logger.warn("Factory close error: {}", err.getMessage()));
         }
     }
 
     @Test
-    void testNativeQueueMessageLocking(Vertx vertx) throws Exception {
+    void testNativeQueueMessageLocking(Vertx vertx, VertxTestContext testContext) throws Exception {
         // This test verifies that messages are properly locked during processing
         String testMessage = "Locking test message";
         AtomicInteger processingCount = new AtomicInteger(0);
         Promise<Void> finishProcessing = Promise.promise();
 
-        // Send the message
-        producer.send(testMessage).await();
-
-        // Create two consumers that will try to process the same message
         DatabaseService databaseService2 = new PgDatabaseService(manager);
         PgNativeQueueFactory testQueueFactory = new PgNativeQueueFactory(databaseService2);
         MessageConsumer<String> consumer2 = testQueueFactory.createConsumer("test-native-topic", String.class);
 
-        try {
-            // Set up first consumer with slow processing
-            consumer.subscribe(message -> {
-                processingCount.incrementAndGet();
-                try {
-                    finishProcessing.future().await();
-                } catch (Exception e) {
-                    Thread.currentThread().interrupt();
-                }
-                return Future.succeededFuture();
-            });
+        // First consumer holds the lock until finishProcessing completes
+        consumer.subscribe(message -> {
+            processingCount.incrementAndGet();
+            return finishProcessing.future();
+        });
 
-            // Set up second consumer
-            consumer2.subscribe(message -> {
-                processingCount.incrementAndGet();
-                return Future.succeededFuture();
-            });
+        // Second consumer competes for the same message
+        consumer2.subscribe(message -> {
+            processingCount.incrementAndGet();
+            return Future.succeededFuture();
+        });
 
-            // Wait for one consumer to pick up the message (the other should be blocked by the lock)
-            Promise<Void> oneProcessed = Promise.promise();
-            long pollTimer = vertx.setPeriodic(100, id -> {
-                if (processingCount.get() == 1) {
-                    oneProcessed.tryComplete();
-                }
-            });
-            oneProcessed.future().await();
-            vertx.cancelTimer(pollTimer);
+        long[] timerId = {0L};
+        producer.send(testMessage)
+                .onFailure(testContext::failNow)
+                .onSuccess(v -> {
+                    timerId[0] = vertx.setPeriodic(100, id -> {
+                        if (processingCount.get() >= 1) {
+                            vertx.cancelTimer(timerId[0]);
+                            finishProcessing.tryComplete();
+                            vertx.setTimer(2000, id2 -> {
+                                consumer2.close();
+                                testQueueFactory.close()
+                                        .onFailure(err -> logger.warn("testQueueFactory close: {}", err.getMessage()));
+                                testContext.verify(() -> assertEquals(1, processingCount.get()));
+                                testContext.completeNow();
+                            });
+                        }
+                    });
+                });
 
-            // Allow first consumer to finish
-            finishProcessing.tryComplete();
-
-            // Wait a bit more to ensure no additional processing
-            vertx.timer(2000).await();
-            assertEquals(1, processingCount.get());
-
-        } finally {
-            consumer2.close();
-            try {
-                testQueueFactory.close();
-            } catch (Exception e) {
-                // Ignore
-            }
-        }
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
@@ -571,10 +403,7 @@ class NativeQueueIntegrationTest {
     void testNativeQueueMetricsIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Metrics integration test";
 
-        // Send a message
-        producer.send(testMessage).await();
-
-        // Set up consumer
+        // Subscribe consumer before sending so it receives the message
         Checkpoint received = testContext.checkpoint(1);
         logger.debug("TEST: About to subscribe consumer to topic: test-native-topic");
         consumer.subscribe(message -> {
@@ -583,6 +412,8 @@ class NativeQueueIntegrationTest {
             return Future.succeededFuture();
         });
         logger.debug("TEST: Consumer subscription completed");
+
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Wait for processing
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -654,7 +485,7 @@ class NativeQueueIntegrationTest {
             for (int m = 0; m < messagesPerProducer; m++) {
                 final int messageId = m;
                 String message = "Native-Producer-" + producerId + "-Message-" + messageId;
-                producer.send(message).await();
+                producer.send(message).onFailure(testContext::failNow);
             }
         }
 

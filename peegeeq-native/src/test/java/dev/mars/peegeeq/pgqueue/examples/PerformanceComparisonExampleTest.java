@@ -88,17 +88,7 @@ class PerformanceComparisonExampleTest {
     private static final int MESSAGE_COUNT = 50; // Number of messages to process in each test
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_performance_demo");
-        container.withUsername("postgres");
-        container.withPassword("password");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory nativeFactory;

@@ -402,12 +402,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     @Override
-    public void stop() {
+    public Future<Void> stop() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
             // Not active nothing to stop
-            return;
+            return Future.succeededFuture();
         }
-        stopInternal()
+        return stopInternal()
                 .onFailure(err -> logger.error("Failed to stop consumer group '{}': {}",
                         groupName, err.getMessage()));
     }
@@ -555,10 +555,10 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     @Override
-    public void close() {
+    public Future<Void> close() {
         State prev = state.getAndSet(State.CLOSED);
         if (prev == State.CLOSED) {
-            return; // already closed
+            return Future.succeededFuture(); // already closed
         }
 
         logger.info("Closing consumer group '{}' for topic '{}'", groupName, topic);
@@ -587,6 +587,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         members.clear();
 
         logger.info("Consumer group '{}' closed", groupName);
+        return Future.succeededFuture();
     }
     
     /**

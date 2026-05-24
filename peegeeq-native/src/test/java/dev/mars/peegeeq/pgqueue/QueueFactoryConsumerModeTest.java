@@ -33,6 +33,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -57,15 +58,7 @@ class QueueFactoryConsumerModeTest {
     private static final Logger logger = LoggerFactory.getLogger(QueueFactoryConsumerModeTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_password");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -102,14 +95,16 @@ class QueueFactoryConsumerModeTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         logger.info("Test teardown completed");
     }
 

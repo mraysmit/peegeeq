@@ -182,7 +182,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
                                 return (Void) null;
                             })
-                            .eventually(() -> group.closeAsync());
+                            .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -222,7 +222,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Group should be NEW after stop");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.closeAsync());
+                            .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -256,7 +256,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                             "Group should be ACTIVE via reference counting fallback");
                     return (Void) null;
                 })
-                .eventually(() -> group.closeAsync())
+                .eventually(() -> group.close())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -291,7 +291,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                                         "Group should be ACTIVE in reference counting mode for PUB_SUB topic");
                                 return (Void) null;
                             })
-                            .eventually(() -> group.closeAsync());
+                            .eventually(() -> group.close());
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -328,7 +328,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                     }
                     return Future.<Void>succeededFuture();
                 })
-                .eventually(() -> group.closeAsync())
+                .eventually(() -> group.close())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
