@@ -69,15 +69,7 @@ class PgNativeQueueShutdownTest {
 
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("native_queue_test");
-        container.withUsername("test_user");
-        container.withPassword("test_pass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private PgNativeQueueFactory queueFactory;
@@ -111,21 +103,21 @@ class PgNativeQueueShutdownTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
         try {
-            if (consumer != null) {
-                consumer.close();
-            }
-            if (producer != null) {
-                producer.close();
-            }
-            if (manager != null) {
-                manager.closeReactive().await();
-            }
+            if (consumer != null) consumer.close();
+            if (producer != null) producer.close();
         } catch (Exception e) {
-            // Ignore cleanup errors
+            logger.warn("Error closing consumer/producer during teardown: {}", e.getMessage());
         }
+        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -197,7 +189,7 @@ class PgNativeQueueShutdownTest {
                     vertx.cancelTimer(openCheckId);
 
                     // Now close factory
-                    queueFactory.close();
+                    queueFactory.close().onFailure(testContext::failNow);
 
                     // Wait for consumer to be closed
                     vertx.setPeriodic(100, closeCheckId -> {

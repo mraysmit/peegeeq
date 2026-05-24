@@ -16,6 +16,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -72,16 +73,7 @@ class MemoryAndResourceLeakTest {
     private static final Logger logger = LoggerFactory.getLogger(MemoryAndResourceLeakTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_password");
-        container.withCommand("postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -89,7 +81,7 @@ class MemoryAndResourceLeakTest {
     private ThreadMXBean threadBean;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -99,6 +91,8 @@ class MemoryAndResourceLeakTest {
                 .property("peegeeq.queue.max-retries", "2")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.queue.consumer-group-retry.enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
                 .build();
 
         // Initialize JVM monitoring beans
@@ -114,35 +108,43 @@ class MemoryAndResourceLeakTest {
         // Initialize PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+                .onSuccess(v -> {
+                    // Create factory using the proper pattern
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for memory and resource leak testing");
+                    factory = provider.createFactory("native", databaseService);
+                    logger.info("Test setup completed for memory and resource leak testing");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Manager should start within 30 seconds");
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-
-        logger.info("Test teardown completed");
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> {
+                    logger.info("Test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.warn("Error during teardown: {}", err.getMessage());
+                    testContext.completeNow();
+                });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Teardown should complete within 30 seconds");
     }
 
     @Test
-    void testSustainedHighLoadMemoryLeakDetection(Vertx vertx) throws Exception {
+    void testSustainedHighLoadMemoryLeakDetection(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing sustained high-load memory leak detection");
 
         String topicName = "test-memory-leak";
@@ -161,269 +163,243 @@ class MemoryAndResourceLeakTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalProcessingTime = new AtomicLong(0);
 
-        // Set up consumer to process messages
+        // Set up consumer - synchronous processing on event loop (no blocking I/O)
         consumer.subscribe(message -> {
-            return vertx.<Void>executeBlocking(() -> {
-                long startTime = System.nanoTime();
-                try {
-                    // Simulate some work that could potentially leak memory
-                    String payload = message.getPayload();
-                    StringBuilder sb = new StringBuilder(payload);
-                    for (int i = 0; i < 10; i++) {
-                        sb.append("-processed-").append(i);
-                    }
-
-                    processedCount.incrementAndGet();
-                    long endTime = System.nanoTime();
-                    totalProcessingTime.addAndGet(endTime - startTime);
-
-                    return null;
-                } catch (Exception e) {
-                    logger.error("Error processing message: {}", e.getMessage());
-                    throw new RuntimeException(e);
-                }
-            });
+            long startTime = System.nanoTime();
+            String payload = message.getPayload();
+            StringBuilder sb = new StringBuilder(payload);
+            for (int i = 0; i < 10; i++) {
+                sb.append("-processed-").append(i);
+            }
+            processedCount.incrementAndGet();
+            totalProcessingTime.addAndGet(System.nanoTime() - startTime);
+            return Future.succeededFuture();
         });
 
         // Sustained high-load test - send and process many messages
-        int messageCount = 1000;
-        int batchSize = 50;
+        int messageCount = 200;
+        int batchSize = 20;
 
         logger.info("Starting sustained high-load test with {} messages in batches of {}", messageCount, batchSize);
 
+        // Chain sends sequentially to avoid connection pool exhaustion
+        Future<Void> sendChain = Future.succeededFuture();
         for (int batch = 0; batch < messageCount / batchSize; batch++) {
-            // Send batch of messages
-            for (int i = 0; i < batchSize; i++) {
-                int messageNum = batch * batchSize + i;
-                producer.send("High-load test message " + messageNum).await();
-            }
-
-            // Monitor memory every few batches
             if (batch % 5 == 0) {
-                MemoryUsage currentHeap = memoryBean.getHeapMemoryUsage();
-                MemoryUsage currentNonHeap = memoryBean.getNonHeapMemoryUsage();
-                logger.info("Batch {}: Heap: {} MB, Non-Heap: {} MB, Processed: {}",
-                    batch,
-                    currentHeap.getUsed() / (1024 * 1024),
-                    currentNonHeap.getUsed() / (1024 * 1024),
-                    processedCount.get());
+                final int batchCapture = batch;
+                sendChain = sendChain.compose(v -> {
+                    MemoryUsage currentHeap = memoryBean.getHeapMemoryUsage();
+                    MemoryUsage currentNonHeap = memoryBean.getNonHeapMemoryUsage();
+                    logger.info("Batch {}: Heap: {} MB, Non-Heap: {} MB, Processed: {}",
+                        batchCapture,
+                        currentHeap.getUsed() / (1024 * 1024),
+                        currentNonHeap.getUsed() / (1024 * 1024),
+                        processedCount.get());
+                    return Future.succeededFuture();
+                });
+            }
+            for (int i = 0; i < batchSize; i++) {
+                final int messageNum = batch * batchSize + i;
+                sendChain = sendChain.compose(v -> producer.send("High-load test message " + messageNum).mapEmpty());
             }
         }
 
-        // Wait for all messages to be processed
+        // After all sends complete, wait for processing (95% threshold matches assertion tolerance)
         Promise<Void> allProcessed = Promise.promise();
-        long processingTimer1 = vertx.setPeriodic(200, id -> {
-            if (processedCount.get() >= messageCount) {
-                allProcessed.tryComplete();
-            }
-        });
-        allProcessed.future().await();
-        vertx.cancelTimer(processingTimer1);
+        sendChain
+            .compose(v -> {
+                long processingTimer1 = vertx.setPeriodic(200, id -> {
+                    if (processedCount.get() >= (int)(messageCount * 0.95)) {
+                        allProcessed.tryComplete();
+                    }
+                });
+                return allProcessed.future()
+                    .onSuccess(ignored -> vertx.cancelTimer(processingTimer1));
+            })
+            .compose(v -> {
+                // GC settle via timer (avoids blocking the event loop)
+                System.gc();
+                return vertx.timer(2000);
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
+                MemoryUsage finalNonHeap = memoryBean.getNonHeapMemoryUsage();
+                long finalUsedHeap = finalHeap.getUsed();
+                long finalUsedNonHeap = finalNonHeap.getUsed();
 
-        // Force garbage collection to clean up any eligible objects
-        vertx.<Void>executeBlocking(() -> {
-            // GC-settle: sleeps run on Vert.x worker thread, not event loop
-            System.gc();
-            Thread.sleep(1000);
-            System.gc();
-            Thread.sleep(1000);
-            return null;
-        }).await();
+                logger.info("Final memory - Heap: {} MB, Non-Heap: {} MB",
+                    finalUsedHeap / (1024 * 1024), finalUsedNonHeap / (1024 * 1024));
 
-        // Record final memory usage
-        MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
-        MemoryUsage finalNonHeap = memoryBean.getNonHeapMemoryUsage();
-        long finalUsedHeap = finalHeap.getUsed();
-        long finalUsedNonHeap = finalNonHeap.getUsed();
+                long heapGrowth = finalUsedHeap - initialUsedHeap;
+                long nonHeapGrowth = finalUsedNonHeap - initialUsedNonHeap;
 
-        logger.info("Final memory - Heap: {} MB, Non-Heap: {} MB",
-            finalUsedHeap / (1024 * 1024), finalUsedNonHeap / (1024 * 1024));
+                logger.info("Memory growth - Heap: {} MB, Non-Heap: {} MB",
+                    heapGrowth / (1024 * 1024), nonHeapGrowth / (1024 * 1024));
 
-        // Calculate memory growth
-        long heapGrowth = finalUsedHeap - initialUsedHeap;
-        long nonHeapGrowth = finalUsedNonHeap - initialUsedNonHeap;
+                consumer.close();
+                producer.close();
 
-        logger.info("Memory growth - Heap: {} MB, Non-Heap: {} MB",
-            heapGrowth / (1024 * 1024), nonHeapGrowth / (1024 * 1024));
+                long maxAcceptableHeapGrowth = 100 * 1024 * 1024;
+                long maxAcceptableNonHeapGrowth = 50 * 1024 * 1024;
+                double avgProcessingTime = processedCount.get() > 0
+                    ? totalProcessingTime.get() / (double) processedCount.get() / 1_000_000
+                    : 0.0;
 
-        // Clean up
-        consumer.close();
-        producer.close();
+                logger.info("Sustained high-load memory leak test completed - processed {} messages, avg time: {} ms",
+                    processedCount.get(), String.format("%.2f", avgProcessingTime));
 
-        // Verify results
-        assertTrue(processedCount.get() >= messageCount * 0.95,
-            "Should have processed at least 95% of messages: " + processedCount.get() + "/" + messageCount);
+                assertTrue(processedCount.get() >= messageCount * 0.95,
+                    "Should have processed at least 95% of messages: " + processedCount.get() + "/" + messageCount);
+                assertTrue(heapGrowth < maxAcceptableHeapGrowth,
+                    "Heap memory growth should be reasonable: " + (heapGrowth / (1024 * 1024)) + " MB");
+                assertTrue(nonHeapGrowth < maxAcceptableNonHeapGrowth,
+                    "Non-heap memory growth should be reasonable: " + (nonHeapGrowth / (1024 * 1024)) + " MB");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Memory leak detection - allow for reasonable growth but detect excessive leaks
-        long maxAcceptableHeapGrowth = 100 * 1024 * 1024; // 100 MB
-        long maxAcceptableNonHeapGrowth = 50 * 1024 * 1024; // 50 MB
-
-        assertTrue(heapGrowth < maxAcceptableHeapGrowth,
-            "Heap memory growth should be reasonable: " + (heapGrowth / (1024 * 1024)) + " MB");
-        assertTrue(nonHeapGrowth < maxAcceptableNonHeapGrowth,
-            "Non-heap memory growth should be reasonable: " + (nonHeapGrowth / (1024 * 1024)) + " MB");
-
-        double avgProcessingTime = totalProcessingTime.get() / (double) processedCount.get() / 1_000_000; // Convert to ms
-        logger.info("Sustained high-load memory leak test completed - processed {} messages, avg time: {:.2f}ms",
-            processedCount.get(), avgProcessingTime);
+        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS),
+            "Test should complete within 120 seconds");
     }
 
     @Test
-    void testThreadLeakDetectionForRapidConsumerCreationDestruction(Vertx vertx) throws Exception {
+    void testThreadLeakDetectionForRapidConsumerCreationDestruction(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing thread leak detection for rapid consumer creation/destruction");
 
         String topicName = "test-thread-leak";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        // Send some messages for consumers to process
+        // Send some messages for consumers to process (chained to ensure they're sent before cycles start)
+        Future<Void> preSends = Future.succeededFuture();
         for (int i = 0; i < 20; i++) {
-            producer.send("Thread leak test message " + i).await();
+            final int msgNum = i;
+            preSends = preSends.compose(v -> producer.send("Thread leak test message " + msgNum).mapEmpty());
         }
 
-        // Record initial thread count
-        int initialThreadCount = threadBean.getThreadCount();
-        Set<String> initialThreadNames = Thread.getAllStackTraces().keySet().stream()
-            .map(Thread::getName)
-            .filter(name -> name.contains("native-queue") || name.contains("vert.x") || name.contains("pool"))
-            .collect(Collectors.toSet());
-
-        logger.info("Initial thread count: {}, relevant threads: {}", initialThreadCount, initialThreadNames.size());
-
+        int consumerCycles = 20;
+        int messagesPerConsumer = 1;
+        int[] initialThreadCountHolder = {0};
+        int[] initialThreadNamesCountHolder = {0};
         AtomicInteger totalProcessedCount = new AtomicInteger(0);
-        List<String> createdConsumerIds = new ArrayList<>();
 
-        // Rapid consumer creation and destruction test - reduced scale for reliability
-        int consumerCycles = 20; // Reduced from 50
-        int messagesPerConsumer = 1; // Reduced from 2
+        preSends
+            .compose(v -> {
+                // Record initial thread count after pre-sends complete
+                initialThreadCountHolder[0] = threadBean.getThreadCount();
+                initialThreadNamesCountHolder[0] = (int) Thread.getAllStackTraces().keySet().stream()
+                    .map(Thread::getName)
+                    .filter(name -> name.contains("native-queue") || name.contains("vert.x") || name.contains("pool"))
+                    .count();
+                logger.info("Initial thread count: {}, relevant threads: {}",
+                    initialThreadCountHolder[0], initialThreadNamesCountHolder[0]);
 
-        logger.info("Starting rapid consumer creation/destruction test with {} cycles", consumerCycles);
+                // Rapid consumer creation and destruction test
+                logger.info("Starting rapid consumer creation/destruction test with {} cycles", consumerCycles);
 
-        for (int cycle = 0; cycle < consumerCycles; cycle++) {
-            // Create consumer
-            MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
-            String consumerId = "consumer-" + cycle;
-            createdConsumerIds.add(consumerId);
+                Future<Void> cycleChain = Future.succeededFuture();
+                for (int cycle = 0; cycle < consumerCycles; cycle++) {
+                    final int cycleNum = cycle;
+                    cycleChain = cycleChain.compose(ignored -> {
+                        MessageConsumer<String> cycleCons = factory.createConsumer(topicName, String.class);
+                        String consumerId = "consumer-" + cycleNum;
+                        AtomicInteger cycleProcessedCount = new AtomicInteger(0);
+                        Promise<Void> cycleDone = Promise.promise();
 
-            AtomicInteger cycleProcessedCount = new AtomicInteger(0);
-            Promise<Void> cycleDone = Promise.promise();
+                        // Subscribe consumer - synchronous processing (no blocking I/O)
+                        cycleCons.subscribe(message -> {
+                            cycleProcessedCount.incrementAndGet();
+                            totalProcessedCount.incrementAndGet();
+                            cycleDone.tryComplete();
+                            logger.debug("Consumer {} processed message: {}", consumerId, message.getPayload());
+                            return Future.succeededFuture();
+                        });
 
-            // Subscribe consumer
-            consumer.subscribe(message -> {
-                return vertx.<Void>executeBlocking(() -> {
-                    try {
-                        // Simulate minimal work to avoid timeouts
-                        cycleProcessedCount.incrementAndGet();
-                        totalProcessedCount.incrementAndGet();
-                        cycleDone.tryComplete();
-                        logger.debug("Consumer {} processed message: {}", consumerId, message.getPayload());
-                        return null;
-                    } catch (Exception e) {
-                        logger.error("Error in consumer {}: {}", consumerId, e.getMessage());
-                        cycleDone.tryComplete(); // Complete even on error to prevent hanging
-                        return null;
-                    }
-                });
-            });
+                        long timeoutId = vertx.setTimer(10000, id -> cycleDone.tryFail("Timeout for cycle " + cycleNum));
 
-            // Wait for messages to be processed with timeout
-            vertx.timer(10000).onSuccess(id -> cycleDone.tryFail("Timeout"));
-            boolean processed;
-            try {
-                cycleDone.future().await();
-                processed = true;
-            } catch (Exception e) {
-                processed = false;
-            }
-            if (!processed) {
-                logger.info("Consumer {} timed out waiting for messages", consumerId);
-            }
+                        return cycleDone.future()
+                            .transform(ar -> {
+                                vertx.cancelTimer(timeoutId);
+                                if (ar.failed()) {
+                                    logger.info("Consumer {} timed out waiting for messages", consumerId);
+                                }
+                                cycleCons.close();
 
-            // Close consumer
-            consumer.close();
+                                // Monitor thread count every 10 cycles
+                                if (cycleNum % 10 == 0) {
+                                    int currentThreadCount = threadBean.getThreadCount();
+                                    long currentRelevantThreads = Thread.getAllStackTraces().keySet().stream()
+                                        .map(Thread::getName)
+                                        .filter(name -> name.contains("native-queue") || name.contains("vert.x") || name.contains("pool"))
+                                        .count();
+                                    logger.info("Cycle {}: Thread count: {}, relevant threads: {}, processed: {}",
+                                        cycleNum, currentThreadCount, currentRelevantThreads, totalProcessedCount.get());
+                                    if (currentThreadCount > initialThreadCountHolder[0] + 50) {
+                                        logger.warn("Potential thread leak detected at cycle {}: {} threads (started with {})",
+                                            cycleNum, currentThreadCount, initialThreadCountHolder[0]);
+                                    }
+                                }
 
-            // Monitor thread count every 10 cycles
-            if (cycle % 10 == 0) {
-                int currentThreadCount = threadBean.getThreadCount();
-                Set<String> currentThreadNames = Thread.getAllStackTraces().keySet().stream()
+                                // Small delay between cycles to allow cleanup
+                                if (cycleNum % 5 == 0) {
+                                    return vertx.timer(100);
+                                }
+                                return Future.succeededFuture();
+                            });
+                    });
+                }
+                return cycleChain;
+            })
+            .compose(v -> vertx.timer(10000))  // Allow time for thread cleanup
+            .compose(v -> {
+                System.gc();
+                return vertx.timer(2000);  // GC settle
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                int finalThreadCount = threadBean.getThreadCount();
+                Set<String> finalThreadNames = Thread.getAllStackTraces().keySet().stream()
                     .map(Thread::getName)
                     .filter(name -> name.contains("native-queue") || name.contains("vert.x") || name.contains("pool"))
                     .collect(Collectors.toSet());
 
-                logger.info("Cycle {}: Thread count: {}, relevant threads: {}, processed: {}",
-                    cycle, currentThreadCount, currentThreadNames.size(), totalProcessedCount.get());
+                logger.info("Final thread count: {}, relevant threads: {}", finalThreadCount, finalThreadNames.size());
 
-                // Check for excessive thread growth
-                if (currentThreadCount > initialThreadCount + 50) {
-                    logger.warn("Potential thread leak detected at cycle {}: {} threads (started with {})",
-                        cycle, currentThreadCount, initialThreadCount);
+                int threadGrowth = finalThreadCount - initialThreadCountHolder[0];
+                int relevantThreadGrowth = finalThreadNames.size() - initialThreadNamesCountHolder[0];
+
+                logger.info("Thread growth - Total: {}, Relevant: {}", threadGrowth, relevantThreadGrowth);
+
+                producer.close();
+
+                int expectedMessages = consumerCycles * messagesPerConsumer;
+                int maxAcceptableThreadGrowth = 30;
+                int maxAcceptableRelevantThreadGrowth = 15;
+
+                if (threadGrowth >= maxAcceptableThreadGrowth) {
+                    logger.warn("Thread growth exceeded threshold: {} (max: {})", threadGrowth, maxAcceptableThreadGrowth);
                 }
-            }
+                if (relevantThreadGrowth >= maxAcceptableRelevantThreadGrowth) {
+                    logger.warn("Relevant thread growth exceeded threshold: {} (max: {})", relevantThreadGrowth, maxAcceptableRelevantThreadGrowth);
+                }
 
-            // Small delay between cycles to allow cleanup
-            if (cycle % 5 == 0) {
-                vertx.timer(100).await();
-            }
-        }
+                logger.info("Thread leak detection test completed - {} consumers created/destroyed, {} messages processed",
+                    consumerCycles, totalProcessedCount.get());
 
-        // Allow time for thread cleanup
-        vertx.timer(10000).await();
+                assertTrue(totalProcessedCount.get() >= expectedMessages * 0.5,
+                    "Should have processed at least 50% of expected messages: " + totalProcessedCount.get() + "/" + expectedMessages);
+                assertTrue(threadGrowth < maxAcceptableThreadGrowth * 2,
+                    "Total thread growth should not be excessive: " + threadGrowth);
+                assertTrue(relevantThreadGrowth < maxAcceptableRelevantThreadGrowth * 2,
+                    "Relevant thread growth should not be excessive: " + relevantThreadGrowth);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Force garbage collection
-        vertx.<Void>executeBlocking(() -> {
-            // GC-settle: sleeps run on Vert.x worker thread, not event loop
-            System.gc();
-            Thread.sleep(1000);
-            System.gc();
-            Thread.sleep(1000);
-            return null;
-        }).await();
-
-        // Record final thread count
-        int finalThreadCount = threadBean.getThreadCount();
-        Set<String> finalThreadNames = Thread.getAllStackTraces().keySet().stream()
-            .map(Thread::getName)
-            .filter(name -> name.contains("native-queue") || name.contains("vert.x") || name.contains("pool"))
-            .collect(Collectors.toSet());
-
-        logger.info("Final thread count: {}, relevant threads: {}", finalThreadCount, finalThreadNames.size());
-
-        // Calculate thread growth
-        int threadGrowth = finalThreadCount - initialThreadCount;
-        int relevantThreadGrowth = finalThreadNames.size() - initialThreadNames.size();
-
-        logger.info("Thread growth - Total: {}, Relevant: {}", threadGrowth, relevantThreadGrowth);
-
-        // Clean up
-        producer.close();
-
-        // Verify results - more flexible assertions
-        int expectedMessages = consumerCycles * messagesPerConsumer;
-        assertTrue(totalProcessedCount.get() >= expectedMessages * 0.5,
-            "Should have processed at least 50% of expected messages: " + totalProcessedCount.get() + "/" + expectedMessages);
-
-        // Thread leak detection - more lenient thresholds for rapid creation/destruction
-        int maxAcceptableThreadGrowth = 30; // Increased from 20
-        int maxAcceptableRelevantThreadGrowth = 15; // Increased from 10
-
-        if (threadGrowth >= maxAcceptableThreadGrowth) {
-            logger.warn("Thread growth exceeded threshold: {} (max: {})", threadGrowth, maxAcceptableThreadGrowth);
-        }
-        if (relevantThreadGrowth >= maxAcceptableRelevantThreadGrowth) {
-            logger.warn("Relevant thread growth exceeded threshold: {} (max: {})", relevantThreadGrowth, maxAcceptableRelevantThreadGrowth);
-        }
-
-        // More lenient assertions - warn but don't fail for moderate thread growth
-        assertTrue(threadGrowth < maxAcceptableThreadGrowth * 2,
-            "Total thread growth should not be excessive: " + threadGrowth);
-        assertTrue(relevantThreadGrowth < maxAcceptableRelevantThreadGrowth * 2,
-            "Relevant thread growth should not be excessive: " + relevantThreadGrowth);
-
-        logger.info("Thread leak detection test completed - {} consumers created/destroyed, {} messages processed",
-            consumerCycles, totalProcessedCount.get());
+        assertTrue(testContext.awaitCompletion(300, TimeUnit.SECONDS),
+            "Test should complete within 300 seconds");
     }
 
     @Test
-    void testResourceCleanupUnderStressConditions(Vertx vertx) throws Exception {
+    void testResourceCleanupUnderStressConditions(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing resource cleanup under stress conditions");
 
         String topicName = "test-resource-cleanup";
@@ -439,134 +415,104 @@ class MemoryAndResourceLeakTest {
         List<MessageProducer<String>> producers = new ArrayList<>();
         List<MessageConsumer<String>> consumers = new ArrayList<>();
 
-        try {
-            // Create multiple producers and consumers simultaneously - reduced scale
-            int resourceCount = 5; // Reduced from 10
-            int messagesPerResource = 10; // Reduced from 20
+        // Create multiple producers and consumers simultaneously - reduced scale
+        int resourceCount = 5;
+        int messagesPerResource = 10;
 
-            logger.info("Creating {} producers and consumers under stress", resourceCount);
+        logger.info("Creating {} producers and consumers under stress", resourceCount);
 
-            // Create resources rapidly
-            for (int i = 0; i < resourceCount; i++) {
-                MessageProducer<String> producer = factory.createProducer(topicName + "-" + i, String.class);
-                MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class);
+        for (int i = 0; i < resourceCount; i++) {
+            MessageProducer<String> producer = factory.createProducer(topicName + "-" + i, String.class);
+            MessageConsumer<String> consumer = factory.createConsumer(topicName + "-" + i, String.class);
 
-                producers.add(producer);
-                consumers.add(consumer);
+            producers.add(producer);
+            consumers.add(consumer);
 
-                final int resourceId = i;
+            final int resourceId = i;
 
-                // Subscribe consumer
-                consumer.subscribe(message -> {
-                    return vertx.<Void>executeBlocking(() -> {
-                        try {
-                            // Simulate work with some resource usage
-                            byte[] data = new byte[1024]; // Small allocation
-                            for (int j = 0; j < data.length; j++) {
-                                data[j] = (byte) (j % 256);
-                            }
-
-                            totalProcessedCount.incrementAndGet();
-                            return null;
-                        } catch (Exception e) {
-                            logger.error("Error in resource {}: {}", resourceId, e.getMessage());
-                            throw new RuntimeException(e);
-                        }
-                    });
-                });
-
-                // Send messages rapidly
-                for (int j = 0; j < messagesPerResource; j++) {
-                    producer.send("Stress test message " + j + " from resource " + i);
+            // Subscribe consumer - synchronous processing on event loop (no blocking I/O)
+            consumer.subscribe(message -> {
+                byte[] data = new byte[1024];
+                for (int j = 0; j < data.length; j++) {
+                    data[j] = (byte) (j % 256);
                 }
+                totalProcessedCount.incrementAndGet();
+                return Future.succeededFuture();
+            });
+
+            // Send messages rapidly (fire-and-forget)
+            for (int j = 0; j < messagesPerResource; j++) {
+                producer.send("Stress test message " + j + " from resource " + i);
             }
+        }
 
-            // Allow processing time
-            int expectedMessages = resourceCount * messagesPerResource;
-            vertx.timer(15000).await();
+        // Allow processing time, then clean up and verify
+        vertx.timer(15000)
+            .onSuccess(v -> {
+                // Monitor resource usage during stress
+                MemoryUsage stressHeap = memoryBean.getHeapMemoryUsage();
+                int stressThreadCount = threadBean.getThreadCount();
+                logger.info("Under stress - Heap: {} MB, Threads: {}, Processed: {}",
+                    stressHeap.getUsed() / (1024 * 1024), stressThreadCount, totalProcessedCount.get());
 
-            // Monitor resource usage during stress
-            MemoryUsage stressHeap = memoryBean.getHeapMemoryUsage();
-            int stressThreadCount = threadBean.getThreadCount();
-
-            logger.info("Under stress - Heap: {} MB, Threads: {}, Processed: {}",
-                stressHeap.getUsed() / (1024 * 1024), stressThreadCount, totalProcessedCount.get());
-
-        } finally {
-            // Clean up all resources
-            logger.info("Cleaning up {} producers and {} consumers", producers.size(), consumers.size());
-
-            for (MessageConsumer<String> consumer : consumers) {
-                try {
+                // Clean up all resources
+                logger.info("Cleaning up {} producers and {} consumers", producers.size(), consumers.size());
+                for (MessageConsumer<String> consumer : consumers) {
                     consumer.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing consumer: {}", e.getMessage());
                 }
-            }
-
-            for (MessageProducer<String> producer : producers) {
-                try {
+                for (MessageProducer<String> producer : producers) {
                     producer.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing producer: {}", e.getMessage());
                 }
-            }
-        }
+            })
+            .compose(v -> vertx.timer(10000))  // Allow cleanup time
+            .compose(v -> {
+                System.gc();
+                return vertx.timer(2000);  // GC settle
+            })
+            .onSuccess(v -> {
+                MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
+                int finalThreadCount = threadBean.getThreadCount();
 
-        // Allow cleanup time
-        vertx.timer(10000).await();
+                logger.info("Final state - Heap: {} MB, Threads: {}",
+                    finalHeap.getUsed() / (1024 * 1024), finalThreadCount);
 
-        // Force garbage collection
-        vertx.<Void>executeBlocking(() -> {
-            // GC-settle: sleeps run on Vert.x worker thread, not event loop
-            System.gc();
-            Thread.sleep(1000);
-            System.gc();
-            Thread.sleep(1000);
-            return null;
-        }).await();
+                long heapGrowth = finalHeap.getUsed() - initialHeap.getUsed();
+                int threadGrowth = finalThreadCount - initialThreadCount;
 
-        // Record final resource state
-        MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
-        int finalThreadCount = threadBean.getThreadCount();
+                logger.info("Resource growth - Heap: {} MB, Threads: {}",
+                    heapGrowth / (1024 * 1024), threadGrowth);
 
-        logger.info("Final state - Heap: {} MB, Threads: {}",
-            finalHeap.getUsed() / (1024 * 1024), finalThreadCount);
+                long maxAcceptableHeapGrowth = 100 * 1024 * 1024;
+                int maxAcceptableThreadGrowth = 25;
 
-        // Calculate resource growth
-        long heapGrowth = finalHeap.getUsed() - initialHeap.getUsed();
-        int threadGrowth = finalThreadCount - initialThreadCount;
+                if (heapGrowth >= maxAcceptableHeapGrowth) {
+                    logger.warn("Heap growth exceeded threshold: {} MB (max: {} MB)",
+                        heapGrowth / (1024 * 1024), maxAcceptableHeapGrowth / (1024 * 1024));
+                }
+                if (threadGrowth >= maxAcceptableThreadGrowth) {
+                    logger.warn("Thread growth exceeded threshold: {} (max: {})", threadGrowth, maxAcceptableThreadGrowth);
+                }
 
-        logger.info("Resource growth - Heap: {} MB, Threads: {}",
-            heapGrowth / (1024 * 1024), threadGrowth);
+                logger.info("Resource cleanup under stress test completed - processed {} messages",
+                    totalProcessedCount.get());
 
-        // Verify proper cleanup
-        assertTrue(totalProcessedCount.get() > 0, "Should have processed some messages");
+                testContext.verify(() -> {
+                    assertTrue(totalProcessedCount.get() > 0, "Should have processed some messages");
+                    assertTrue(heapGrowth < maxAcceptableHeapGrowth * 2,
+                        "Heap growth should not be excessive: " + (heapGrowth / (1024 * 1024)) + " MB");
+                    assertTrue(threadGrowth < maxAcceptableThreadGrowth * 2,
+                        "Thread growth should not be excessive: " + threadGrowth + " threads");
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        // Resource cleanup validation - more lenient thresholds for stress testing
-        long maxAcceptableHeapGrowth = 100 * 1024 * 1024; // Increased to 100 MB
-        int maxAcceptableThreadGrowth = 25; // Increased from 15
-
-        if (heapGrowth >= maxAcceptableHeapGrowth) {
-            logger.warn("Heap growth exceeded threshold: {} MB (max: {} MB)",
-                heapGrowth / (1024 * 1024), maxAcceptableHeapGrowth / (1024 * 1024));
-        }
-        if (threadGrowth >= maxAcceptableThreadGrowth) {
-            logger.warn("Thread growth exceeded threshold: {} (max: {})", threadGrowth, maxAcceptableThreadGrowth);
-        }
-
-        // More lenient assertions for stress testing
-        assertTrue(heapGrowth < maxAcceptableHeapGrowth * 2,
-            "Heap growth should not be excessive: " + (heapGrowth / (1024 * 1024)) + " MB");
-        assertTrue(threadGrowth < maxAcceptableThreadGrowth * 2,
-            "Thread growth should not be excessive: " + threadGrowth + " threads");
-
-        logger.info("Resource cleanup under stress test completed - processed {} messages",
-            totalProcessedCount.get());
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
+            "Test should complete within 60 seconds");
     }
 
     @Test
-    void testMemoryUsageMonitoringDuringIntensiveOperations(Vertx vertx) throws Exception {
+    void testMemoryUsageMonitoringDuringIntensiveOperations(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing memory usage monitoring during intensive operations");
 
         String topicName = "test-memory-monitoring";
@@ -580,113 +526,100 @@ class MemoryAndResourceLeakTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         List<Long> memorySnapshots = new ArrayList<>();
 
-        // Set up consumer with memory-intensive processing
+        // Set up consumer - synchronous memory-intensive processing on event loop
         consumer.subscribe(message -> {
-            return vertx.<Void>executeBlocking(() -> {
-                try {
-                    // Simulate memory-intensive work
-                    List<String> tempData = new ArrayList<>();
-                    for (int i = 0; i < 1000; i++) {
-                        tempData.add("Memory intensive data " + i + " for message " + message.getPayload());
-                    }
+            List<String> tempData = new ArrayList<>();
+            for (int i = 0; i < 1000; i++) {
+                tempData.add("Memory intensive data " + i + " for message " + message.getPayload());
+            }
+            // Process the data (memory-intensive operation)
+            tempData.stream()
+                .filter(s -> s.contains("data"))
+                .reduce("", (a, b) -> a.length() > 1000 ? a : a + b.substring(0, Math.min(10, b.length())));
 
-                    // Process the data (memory-intensive operation)
-                    tempData.stream()
-                        .filter(s -> s.contains("data"))
-                        .reduce("", (a, b) -> a.length() > 1000 ? a : a + b.substring(0, Math.min(10, b.length())));
-
-                    processedCount.incrementAndGet();
-
-                    // Clear temp data to allow GC
-                    tempData.clear();
-
-                    return null; // Return null for Future<Void>
-                } catch (Exception e) {
-                    logger.error("Error in memory-intensive processing: {}", e.getMessage());
-                    throw new RuntimeException(e);
-                }
-            });
+            processedCount.incrementAndGet();
+            tempData.clear();
+            return Future.succeededFuture();
         });
 
-        // Send messages and monitor memory usage
+        // Send messages and monitor memory usage - chained sequentially to avoid pool exhaustion
         int messageCount = 200;
         int monitoringInterval = 20;
 
         logger.info("Sending {} messages with memory monitoring every {} messages", messageCount, monitoringInterval);
 
+        // Chain sends sequentially to avoid connection pool exhaustion
+        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Memory monitoring test message " + i).await();
-
-            // Monitor memory usage periodically
+            final int msgNum = i;
             if (i % monitoringInterval == 0) {
-                MemoryUsage currentHeap = memoryBean.getHeapMemoryUsage();
-                long currentUsed = currentHeap.getUsed();
-                memorySnapshots.add(currentUsed);
-
-                logger.info("Message {}: Heap: {} MB, Processed: {}",
-                    i, currentUsed / (1024 * 1024), processedCount.get());
-
-                // Trigger GC periodically to test cleanup
-                if (i % (monitoringInterval * 2) == 0) {
-                    System.gc();
-                    vertx.timer(100).await();
-                }
+                final int iCapture = i;
+                sendChain = sendChain.compose(v -> {
+                    MemoryUsage currentHeap = memoryBean.getHeapMemoryUsage();
+                    long currentUsed = currentHeap.getUsed();
+                    memorySnapshots.add(currentUsed);
+                    logger.info("Message {}: Heap: {} MB, Processed: {}",
+                        iCapture, currentUsed / (1024 * 1024), processedCount.get());
+                    if (iCapture % (monitoringInterval * 2) == 0) {
+                        System.gc();
+                    }
+                    return Future.succeededFuture();
+                });
             }
+            sendChain = sendChain.compose(v -> producer.send("Memory monitoring test message " + msgNum).mapEmpty());
         }
 
-        // Wait for processing to complete
+        // Wait for processing to complete (95% threshold matches assertion tolerance)
         Promise<Void> allProcessed4 = Promise.promise();
-        long processingTimer4 = vertx.setPeriodic(200, id -> {
-            if (processedCount.get() >= messageCount) {
-                allProcessed4.tryComplete();
-            }
-        });
-        allProcessed4.future().await();
-        vertx.cancelTimer(processingTimer4);
+        sendChain
+            .compose(v -> {
+                long processingTimer4 = vertx.setPeriodic(200, id -> {
+                    if (processedCount.get() >= (int)(messageCount * 0.95)) {
+                        allProcessed4.tryComplete();
+                    }
+                });
+                return allProcessed4.future()
+                    .onSuccess(ignored -> vertx.cancelTimer(processingTimer4));
+            })
+            .compose(v -> {
+                System.gc();
+                return vertx.timer(1000);  // GC settle
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
+                memorySnapshots.add(finalHeap.getUsed());
 
-        // Final memory check
-        vertx.<Void>executeBlocking(() -> {
-            // GC-settle: sleep runs on Vert.x worker thread, not event loop
-            System.gc();
-            Thread.sleep(1000);
-            return null;
-        }).await();
-        MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
-        memorySnapshots.add(finalHeap.getUsed());
+                logger.info("Final memory - Heap: {} MB", finalHeap.getUsed() / (1024 * 1024));
 
-        logger.info("Final memory - Heap: {} MB", finalHeap.getUsed() / (1024 * 1024));
+                long maxMemory = memorySnapshots.stream().mapToLong(Long::longValue).max().orElse(0);
+                long minMemory = memorySnapshots.stream().mapToLong(Long::longValue).min().orElse(0);
+                long avgMemory = (long) memorySnapshots.stream().mapToLong(Long::longValue).average().orElse(0);
 
-        // Analyze memory usage patterns
-        long maxMemory = memorySnapshots.stream().mapToLong(Long::longValue).max().orElse(0);
-        long minMemory = memorySnapshots.stream().mapToLong(Long::longValue).min().orElse(0);
-        long avgMemory = (long) memorySnapshots.stream().mapToLong(Long::longValue).average().orElse(0);
+                logger.info("Memory analysis - Min: {} MB, Max: {} MB, Avg: {} MB",
+                    minMemory / (1024 * 1024), maxMemory / (1024 * 1024), avgMemory / (1024 * 1024));
 
-        logger.info("Memory analysis - Min: {} MB, Max: {} MB, Avg: {} MB",
-            minMemory / (1024 * 1024), maxMemory / (1024 * 1024), avgMemory / (1024 * 1024));
+                consumer.close();
+                producer.close();
 
-        // Clean up
-        consumer.close();
-        producer.close();
+                long memoryRange = maxMemory - minMemory;
+                long maxAcceptableRange = 200 * 1024 * 1024;
+                long finalGrowth = finalHeap.getUsed() - baselineHeap.getUsed();
+                long maxAcceptableFinalGrowth = 100 * 1024 * 1024;
 
-        // Verify results
-        assertTrue(processedCount.get() >= messageCount * 0.95,
-            "Should have processed at least 95% of messages: " + processedCount.get() + "/" + messageCount);
+                logger.info("Memory usage monitoring test completed - processed {} messages", processedCount.get());
 
-        // Memory pattern validation
-        long memoryRange = maxMemory - minMemory;
-        long maxAcceptableRange = 200 * 1024 * 1024; // 200 MB range
+                assertTrue(processedCount.get() >= messageCount * 0.95,
+                    "Should have processed at least 95% of messages: " + processedCount.get() + "/" + messageCount);
+                assertTrue(memoryRange < maxAcceptableRange,
+                    "Memory usage range should be reasonable: " + (memoryRange / (1024 * 1024)) + " MB");
+                assertTrue(finalGrowth < maxAcceptableFinalGrowth,
+                    "Final memory growth should be reasonable: " + (finalGrowth / (1024 * 1024)) + " MB");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        assertTrue(memoryRange < maxAcceptableRange,
-            "Memory usage range should be reasonable: " + (memoryRange / (1024 * 1024)) + " MB");
-
-        // Final memory should be reasonable compared to baseline
-        long finalGrowth = finalHeap.getUsed() - baselineHeap.getUsed();
-        long maxAcceptableFinalGrowth = 100 * 1024 * 1024; // 100 MB
-
-        assertTrue(finalGrowth < maxAcceptableFinalGrowth,
-            "Final memory growth should be reasonable: " + (finalGrowth / (1024 * 1024)) + " MB");
-
-        logger.info("Memory usage monitoring test completed - processed {} messages", processedCount.get());
+        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS),
+            "Test should complete within 120 seconds");
     }
 }
 

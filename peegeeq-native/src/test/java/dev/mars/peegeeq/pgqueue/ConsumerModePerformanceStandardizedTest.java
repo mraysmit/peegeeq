@@ -82,12 +82,12 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        CountDownLatch teardownLatch = new CountDownLatch(1);
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> teardownLatch.countDown())
+            .onFailure(err -> { logger.warn("Teardown error: {}", err.getMessage()); teardownLatch.countDown(); });
+        teardownLatch.await(30, TimeUnit.SECONDS);
     }
 
     private void initializeManagerAndFactory() throws Exception {
@@ -99,16 +99,17 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        manager.start()
+            .onSuccess(v -> {
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                factory = provider.createFactory("native", databaseService);
+                startLatch.countDown();
+            })
+            .onFailure(err -> { logger.error("Manager start failed", err); startLatch.countDown(); });
+        startLatch.await(30, TimeUnit.SECONDS);
     }
 
     /**
@@ -151,6 +152,11 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             ConsumerModeTestResult result = runConsumerModeTest(scenario, (testScenario) -> {
                 return measureThroughputMetrics(topicName, testScenario, messageCount, warmupMessages);
             });
+
+            // Fail with the actual error if the operation failed, not a misleading null-metrics assertion
+            if (!result.isSuccess()) {
+                fail("Consumer mode test failed for scenario " + scenario.getScenarioName() + ": " + result.getErrorMessage());
+            }
 
             // Debug logging to verify result metrics
             logger.info("Test result: {}", result);
@@ -217,7 +223,11 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         }
         if (manager != null) {
             try {
-                manager.closeReactive().await();
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive()
+                    .onSuccess(v -> closeLatch.countDown())
+                    .onFailure(err -> closeLatch.countDown());
+                closeLatch.await(30, TimeUnit.SECONDS);
             } catch (Exception ignore) {}
             manager = null;
         }
@@ -230,11 +240,17 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        factory = provider.createFactory("native", databaseService);
+        CountDownLatch startLatch = new CountDownLatch(1);
+        manager.start()
+            .onSuccess(v -> {
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                factory = provider.createFactory("native", databaseService);
+                startLatch.countDown();
+            })
+            .onFailure(err -> { logger.error("Manager start failed in measureThroughputMetrics", err); startLatch.countDown(); });
+        startLatch.await(30, TimeUnit.SECONDS);
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);

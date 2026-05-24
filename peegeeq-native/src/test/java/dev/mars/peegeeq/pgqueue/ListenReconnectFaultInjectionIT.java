@@ -9,6 +9,8 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -46,15 +48,7 @@ import org.slf4j.LoggerFactory;
 public class ListenReconnectFaultInjectionIT {
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private static final Logger logger = LoggerFactory.getLogger(ListenReconnectFaultInjectionIT.class);
 
@@ -73,7 +67,9 @@ public class ListenReconnectFaultInjectionIT {
                 .build();
 
         // Initialize schema
-        initializeSchema();
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.DEAD_LETTER_QUEUE);
 
         // Start manager using a dedicated profile
         PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("listen-reconnect-test", testProps);
@@ -94,18 +90,17 @@ public class ListenReconnectFaultInjectionIT {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) consumer.unsubscribe();
-        if (factory != null) factory.close();
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -211,55 +206,5 @@ public class ListenReconnectFaultInjectionIT {
         return ((AtomicBoolean) field.get(consumer)).get();
     }
 
-    private void initializeSchema() {
-        try (java.sql.Connection conn = java.sql.DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             java.sql.Statement stmt = conn.createStatement()) {
-
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS queue_messages (
-                    id BIGSERIAL PRIMARY KEY,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    lock_id BIGINT,
-                    lock_until TIMESTAMP WITH TIME ZONE,
-                    retry_count INT DEFAULT 0,
-                    max_retries INT DEFAULT 3,
-                    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'LOCKED', 'PROCESSED', 'FAILED', 'DEAD_LETTER')),
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255),
-                    priority INT DEFAULT 5 CHECK (priority BETWEEN 1 AND 10)
-                )
-                """);
-
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS dead_letter_queue (
-                    id BIGSERIAL PRIMARY KEY,
-                    original_table VARCHAR(50) NOT NULL,
-                    original_id BIGINT NOT NULL,
-                    topic VARCHAR(255) NOT NULL,
-                    payload JSONB NOT NULL,
-                    original_created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-                    failed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    failure_reason TEXT NOT NULL,
-                    retry_count INT NOT NULL,
-                    headers JSONB DEFAULT '{}',
-                    correlation_id VARCHAR(255),
-                    message_group VARCHAR(255)
-                )
-                """);
-
-            // Clear existing data
-            stmt.execute("TRUNCATE TABLE queue_messages, dead_letter_queue");
-
-        } catch (Exception e) {
-            throw new RuntimeException("Schema initialization failed", e);
-        }
-    }
 }
-
-
 

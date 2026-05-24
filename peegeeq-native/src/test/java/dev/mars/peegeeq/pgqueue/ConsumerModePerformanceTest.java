@@ -6,107 +6,74 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.performance.SystemInfoCollector;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
-import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-
-import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vertx.core.Future;
-
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-
 import java.util.Properties;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Performance comparison tests for different consumer modes.
- * Tests throughput, latency, and resource usage across LISTEN_NOTIFY_ONLY, POLLING_ONLY, and HYBRID modes.
+ * Tests throughput and latency across LISTEN_NOTIFY_ONLY, POLLING_ONLY, and HYBRID modes.
  */
 @Tag(TestCategories.PERFORMANCE)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-public class ConsumerModePerformanceTest {
+class ConsumerModePerformanceTest {
+
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModePerformanceTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    static final PostgreSQLContainer postgres = PeeGeeQTestContainerFactory.createContainer(BASIC);
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
 
     @BeforeAll
-    static void logSystemInfo() {
+    static void beforeAll() {
         logger.info("=== CONSUMER MODE PERFORMANCE TEST SUITE ===");
-        logger.info("System Information:");
         logger.info(SystemInfoCollector.formatAsSummary());
-        logger.info("=== Starting Performance Tests ===");
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+                postgres,
+                SchemaComponent.NATIVE_QUEUE,
+                SchemaComponent.OUTBOX,
+                SchemaComponent.DEAD_LETTER_QUEUE
+        );
     }
 
     @BeforeEach
-    void setUp() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        logger.info("🔧 Setting up ConsumerModePerformanceTest");
-
-        // Ensure required schema exists before starting PeeGeeQ
-        PeeGeeQTestSchemaInitializer.initializeSchema(
-            postgres,
-            SchemaComponent.NATIVE_QUEUE,
-            SchemaComponent.OUTBOX,
-            SchemaComponent.DEAD_LETTER_QUEUE
-        );
-
-        initializeManagerAndFactory();
-        logger.info("ConsumerModePerformanceTest setup completed");
-    }
-
-    @AfterEach
-    void tearDown() throws Exception {
-        logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-        logger.info("🧹 ConsumerModePerformanceTest teardown completed");
-    }
-
-    private void initializeManagerAndFactory() throws Exception {
-        // Configure test properties using TestContainer pattern (following established patterns)
+    void setUp(VertxTestContext testContext) throws InterruptedException {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
@@ -115,252 +82,252 @@ public class ConsumerModePerformanceTest {
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .build();
 
-        // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
 
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+        manager.start()
+                .onSuccess(v -> testContext.verify(() -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("native", databaseService);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "setUp timed out");
+    }
 
-        factory = provider.createFactory("native", databaseService);
+    @AfterEach
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
+        if (factory != null) {
+            try {
+                factory.close();
+            } catch (Exception e) {
+                logger.warn("factory.close() failed in teardown", e);
+            }
+            factory = null;
+        }
+        if (manager == null) {
+            testContext.completeNow();
+        } else {
+            manager.closeReactive()
+                    .onSuccess(v -> { manager = null; testContext.completeNow(); })
+                    .onFailure(err -> {
+                        logger.error("manager.closeReactive() failed in teardown", err);
+                        manager = null;
+                        testContext.failNow(err);
+                    });
+        }
+        testContext.awaitCompletion(30, TimeUnit.SECONDS);
     }
 
     @Test
-    void testThroughputComparison(Vertx vertx) throws Exception {
-        logger.info("🧪 Testing throughput comparison across consumer modes");
-
-        String topicName = "test-throughput-comparison";
-        int messageCount = 100; // Reasonable number for CI environment
+    void testThroughputComparison(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        String topicBase = "test-throughput-comparison";
+        int messageCount = 100;
         int warmupMessages = 10;
-
-        // Test results storage
         List<PerformanceResult> results = new ArrayList<>();
 
-        // Test each consumer mode
-        ConsumerMode[] modes = {ConsumerMode.LISTEN_NOTIFY_ONLY, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
-        
-        for (ConsumerMode mode : modes) {
-            logger.info("📊 Testing throughput for mode: {}", mode);
-            
-            PerformanceResult result = measureThroughput(topicName + "-" + mode.name().toLowerCase(), 
-                mode, messageCount, warmupMessages, vertx);
-            results.add(result);
-            
-            logger.info("📈 {} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms", 
-                mode, result.throughput, result.averageLatency);
-        }
+        measureThroughput(topicBase + "-listen", ConsumerMode.LISTEN_NOTIFY_ONLY, messageCount, warmupMessages, vertx)
+                .compose(r -> { results.add(r); return measureThroughput(topicBase + "-polling", ConsumerMode.POLLING_ONLY, messageCount, warmupMessages, vertx); })
+                .compose(r -> { results.add(r); return measureThroughput(topicBase + "-hybrid", ConsumerMode.HYBRID, messageCount, warmupMessages, vertx); })
+                .onSuccess(r -> testContext.verify(() -> {
+                    results.add(r);
+                    assertEquals(3, results.size(), "Should have results for all 3 consumer modes");
+                    for (PerformanceResult result : results) {
+                        assertTrue(result.throughput > 5.0,
+                                String.format("Mode %s should have throughput > 5 msg/sec, got %.2f",
+                                        result.mode, result.throughput));
+                        assertTrue(result.averageLatency < 10000,
+                                String.format("Mode %s should have average latency < 10000ms, got %.2f",
+                                        result.mode, result.averageLatency));
+                    }
+                    PerformanceResult hybridResult = results.stream()
+                            .filter(res -> res.mode == ConsumerMode.HYBRID)
+                            .findFirst()
+                            .orElseThrow();
+                    assertTrue(hybridResult.throughput > 7.0,
+                            String.format("HYBRID mode should have good throughput, got %.2f", hybridResult.throughput));
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Validate results
-        assertTrue(results.size() == 3, "Should have results for all 3 consumer modes");
-        
-        // All modes should have reasonable throughput (> 5 msg/sec in test environment)
-        for (PerformanceResult result : results) {
-            assertTrue(result.throughput > 5.0,
-                String.format("Mode %s should have throughput > 5 msg/sec, got %.2f",
-                    result.mode, result.throughput));
-            assertTrue(result.averageLatency < 10000, // 10 seconds max average latency for CI
-                String.format("Mode %s should have average latency < 10000ms, got %.2f",
-                    result.mode, result.averageLatency));
-        }
-
-        // HYBRID mode should generally perform well (not necessarily the fastest due to test environment variability)
-        PerformanceResult hybridResult = results.stream()
-            .filter(r -> r.mode == ConsumerMode.HYBRID)
-            .findFirst()
-            .orElseThrow();
-
-        assertTrue(hybridResult.throughput > 7.0,
-            "HYBRID mode should have good throughput in test environment");
-
-        logger.info("Throughput comparison test completed successfully");
+        assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS), "Throughput comparison test timed out");
     }
 
     @Test
-    void testLatencyComparison(Vertx vertx) throws Exception {
-        logger.info("🧪 Testing latency comparison across consumer modes");
-
-        String topicName = "test-latency-comparison";
-        int messageCount = 50; // Smaller count for latency precision
-
+    void testLatencyComparison(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        String topicBase = "test-latency-comparison";
+        int messageCount = 50;
         List<LatencyResult> results = new ArrayList<>();
-        ConsumerMode[] modes = {ConsumerMode.LISTEN_NOTIFY_ONLY, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
 
-        for (ConsumerMode mode : modes) {
-            logger.info("⏱️ Testing latency for mode: {}", mode);
-            
-            LatencyResult result = measureLatency(topicName + "-" + mode.name().toLowerCase(), mode, messageCount, vertx);
-            results.add(result);
-            
-            logger.info("📊 {} - Min: {:.2f}ms, Max: {:.2f}ms, Avg: {:.2f}ms, P95: {:.2f}ms", 
-                mode, result.minLatency, result.maxLatency, result.averageLatency, result.p95Latency);
-        }
+        measureLatency(topicBase + "-listen", ConsumerMode.LISTEN_NOTIFY_ONLY, messageCount, vertx)
+                .compose(r -> { results.add(r); return measureLatency(topicBase + "-polling", ConsumerMode.POLLING_ONLY, messageCount, vertx); })
+                .compose(r -> { results.add(r); return measureLatency(topicBase + "-hybrid", ConsumerMode.HYBRID, messageCount, vertx); })
+                .onSuccess(r -> testContext.verify(() -> {
+                    results.add(r);
+                    for (LatencyResult result : results) {
+                        assertTrue(result.minLatency >= 0, "Min latency should be non-negative");
+                        assertTrue(result.maxLatency >= result.minLatency, "Max latency should be >= min latency");
+                        assertTrue(result.averageLatency >= result.minLatency, "Average latency should be >= min latency");
+                        assertTrue(result.p95Latency >= result.averageLatency, "P95 latency should be >= average latency");
+                        assertTrue(result.averageLatency < 5000,
+                                String.format("Mode %s average latency should be reasonable, got %.2f ms",
+                                        result.mode, result.averageLatency));
+                    }
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Validate latency results
-        for (LatencyResult result : results) {
-            assertTrue(result.minLatency >= 0, "Min latency should be non-negative");
-            assertTrue(result.maxLatency >= result.minLatency, "Max latency should be >= min latency");
-            assertTrue(result.averageLatency >= result.minLatency, "Average latency should be >= min latency");
-            assertTrue(result.p95Latency >= result.averageLatency, "P95 latency should be >= average latency");
-            
-            // Reasonable bounds for test environment
-            assertTrue(result.averageLatency < 5000, // 5 seconds max average for CI
-                String.format("Mode %s average latency should be reasonable, got %.2f ms",
-                    result.mode, result.averageLatency));
-        }
-
-        logger.info("Latency comparison test completed successfully");
+        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS), "Latency comparison test timed out");
     }
 
-    private PerformanceResult measureThroughput(String topicName, ConsumerMode mode,
-                                              int messageCount, int warmupMessages,
-                                              Vertx vertx) throws Exception {
+    private Future<PerformanceResult> measureThroughput(String topicName, ConsumerMode mode,
+                                                         int messageCount, int warmupMessages,
+                                                         Vertx vertx) {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
-        CountDownLatch allProcessed = new CountDownLatch(messageCount);
-        
-        // Create consumer with specific mode
-        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
-            ConsumerConfig.builder()
-                .mode(mode)
-                .pollingInterval(Duration.ofMillis(100)) // Fast polling
-                .build());
-
         long[] messageSentTimes = new long[messageCount + warmupMessages];
-        
-        // Subscribe and wait for LISTEN to be established before sending.
-        CountDownLatch listenReady = new CountDownLatch(1);
-        consumer.subscribe(message -> {
+        long[] startTimeRef = {0L};
+        Promise<Long> allProcessedSignal = Promise.promise();
+
+        long timerId = vertx.setTimer(90_000, id ->
+                allProcessedSignal.tryFail(new Exception(
+                        "Timed out waiting for " + messageCount + " messages in throughput mode " + mode)));
+
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
+                ConsumerConfig.builder()
+                        .mode(mode)
+                        .pollingInterval(Duration.ofMillis(100))
+                        .build());
+
+        return consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.incrementAndGet();
-            
-            // Skip warmup messages in calculations
             if (index > warmupMessages) {
                 long sendTime = messageSentTimes[index - 1];
-                long latency = receiveTime - sendTime;
-                totalLatency.addAndGet(latency);
-                allProcessed.countDown();
+                totalLatency.addAndGet(receiveTime - sendTime);
+                if (index == messageCount + warmupMessages) {
+                    allProcessedSignal.tryComplete(receiveTime);
+                }
             }
-            
             return Future.succeededFuture();
         })
-        .onSuccess(v -> listenReady.countDown())
-        .onFailure(err -> listenReady.countDown());
-        listenReady.await(5, TimeUnit.SECONDS);
+        .compose(v -> {
+            MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+            startTimeRef[0] = System.currentTimeMillis();
 
-        // Send messages
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        
-        long startTime = System.currentTimeMillis();
-        
-        // Send warmup + test messages; await each send to avoid overwhelming the connection pool
-        for (int i = 0; i < messageCount + warmupMessages; i++) {
-            messageSentTimes[i] = System.currentTimeMillis();
-            producer.send("Performance test message " + i).await();
-        }
-        
-        // Wait for all test messages to be processed (excluding warmup)
-        boolean completed = allProcessed.await(30, TimeUnit.SECONDS);
-        long endTime = System.currentTimeMillis();
-        
-        producer.close();
-        consumer.close();
-        
-        assertTrue(completed, "All messages should be processed within timeout");
-        
-        double durationSeconds = (endTime - startTime) / 1000.0;
-        double throughput = messageCount / durationSeconds;
-        double averageLatency = totalLatency.get() / (double) messageCount;
-        
-        return new PerformanceResult(mode, throughput, averageLatency, messageCount);
+            Future<Void> sendChain = Future.succeededFuture();
+            for (int i = 0; i < messageCount + warmupMessages; i++) {
+                final int idx = i;
+                sendChain = sendChain.compose(ignored -> {
+                    messageSentTimes[idx] = System.currentTimeMillis();
+                    return producer.send("Performance test message " + idx);
+                });
+            }
+
+            return sendChain
+                    .compose(ignored -> allProcessedSignal.future())
+                    .eventually(() -> {
+                        vertx.cancelTimer(timerId);
+                        try { producer.close(); } catch (Exception e) { logger.warn("producer.close failed in throughput measurement", e); }
+                        try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close failed in throughput measurement", e); }
+                        return Future.succeededFuture();
+                    })
+                    .map(endTime -> {
+                        double durationSeconds = (endTime - startTimeRef[0]) / 1000.0;
+                        double throughput = messageCount / durationSeconds;
+                        double averageLatency = totalLatency.get() / (double) messageCount;
+                        return new PerformanceResult(mode, throughput, averageLatency, messageCount);
+                    });
+        });
     }
 
-    private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount,
-                                         Vertx vertx) throws Exception {
+    private Future<LatencyResult> measureLatency(String topicName, ConsumerMode mode,
+                                                   int messageCount, Vertx vertx) {
         List<Long> latencies = new ArrayList<>();
-        CountDownLatch allProcessed = new CountDownLatch(messageCount);
-        
-        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
-            ConsumerConfig.builder()
-                .mode(mode)
-                .pollingInterval(Duration.ofMillis(100))
-                .build());
-
         long[] messageSentTimes = new long[messageCount];
         AtomicInteger processedCount = new AtomicInteger(0);
-        
-        CountDownLatch listenReady = new CountDownLatch(1);
-        consumer.subscribe(message -> {
+        Promise<Void> allProcessedSignal = Promise.promise();
+
+        long timerId = vertx.setTimer(60_000, id ->
+                allProcessedSignal.tryFail(new Exception(
+                        "Timed out waiting for " + messageCount + " messages in latency mode " + mode)));
+
+        MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
+                ConsumerConfig.builder()
+                        .mode(mode)
+                        .pollingInterval(Duration.ofMillis(100))
+                        .build());
+
+        return consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.getAndIncrement();
-            
             if (index < messageCount) {
                 long sendTime = messageSentTimes[index];
                 long latency = receiveTime - sendTime;
                 synchronized (latencies) {
                     latencies.add(latency);
                 }
-                allProcessed.countDown();
+                if (index == messageCount - 1) {
+                    allProcessedSignal.tryComplete();
+                }
             }
-            
             return Future.succeededFuture();
         })
-            .onSuccess(v -> listenReady.countDown())
-            .onFailure(err -> listenReady.countDown());
+        .compose(v -> {
+            MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        // Wait for the LISTEN channel to establish before sending.
-        listenReady.await(5, TimeUnit.SECONDS);
+            Future<Void> sendChain = Future.succeededFuture();
+            for (int i = 0; i < messageCount; i++) {
+                final int idx = i;
+                sendChain = sendChain.compose(ignored -> {
+                    messageSentTimes[idx] = System.currentTimeMillis();
+                    return producer.send("Latency test message " + idx);
+                });
+            }
 
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        
-        for (int i = 0; i < messageCount; i++) {
-            messageSentTimes[i] = System.currentTimeMillis();
-            producer.send("Latency test message " + i).await();
-        }
-        
-        boolean completed = allProcessed.await(20, TimeUnit.SECONDS);
-        
-        producer.close();
-        consumer.close();
-        
-        assertTrue(completed, "All messages should be processed for latency measurement");
-        
-        // Calculate latency statistics
-        latencies.sort(Long::compareTo);
-        
-        double minLatency = latencies.get(0);
-        double maxLatency = latencies.get(latencies.size() - 1);
-        double averageLatency = latencies.stream().mapToLong(Long::longValue).average().orElse(0.0);
-        double p95Latency = latencies.get((int) (latencies.size() * 0.95));
-        
-        return new LatencyResult(mode, minLatency, maxLatency, averageLatency, p95Latency);
+            return sendChain
+                    .compose(ignored -> allProcessedSignal.future())
+                    .eventually(() -> {
+                        vertx.cancelTimer(timerId);
+                        try { producer.close(); } catch (Exception e) { logger.warn("producer.close failed in latency measurement", e); }
+                        try { consumer.close(); } catch (Exception e) { logger.warn("consumer.close failed in latency measurement", e); }
+                        return Future.succeededFuture();
+                    })
+                    .map(ignored -> {
+                        latencies.sort(Long::compareTo);
+                        double minLatency = latencies.get(0);
+                        double maxLatency = latencies.get(latencies.size() - 1);
+                        double averageLatency = latencies.stream().mapToLong(Long::longValue).average().orElse(0.0);
+                        double p95Latency = latencies.get((int) (latencies.size() * 0.95));
+                        return new LatencyResult(mode, minLatency, maxLatency, averageLatency, p95Latency);
+                    });
+        });
     }
 
-    // Performance result classes
     private static class PerformanceResult {
         final ConsumerMode mode;
         final double throughput;
         final double averageLatency;
+
         PerformanceResult(ConsumerMode mode, double throughput, double averageLatency, int messageCount) {
             this.mode = mode;
             this.throughput = throughput;
             this.averageLatency = averageLatency;
         }
     }
-    
+
     private static class LatencyResult {
         final ConsumerMode mode;
         final double minLatency;
         final double maxLatency;
         final double averageLatency;
         final double p95Latency;
-        
-        LatencyResult(ConsumerMode mode, double minLatency, double maxLatency, 
-                     double averageLatency, double p95Latency) {
+
+        LatencyResult(ConsumerMode mode, double minLatency, double maxLatency,
+                      double averageLatency, double p95Latency) {
             this.mode = mode;
             this.minLatency = minLatency;
             this.maxLatency = maxLatency;

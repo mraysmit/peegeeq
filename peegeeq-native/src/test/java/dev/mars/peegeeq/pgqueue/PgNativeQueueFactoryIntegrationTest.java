@@ -41,6 +41,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -89,14 +90,16 @@ class PgNativeQueueFactoryIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            try { factory.close(); } catch (Exception ignored) { }
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ============================================================
@@ -127,10 +130,9 @@ class PgNativeQueueFactoryIntegrationTest {
     }
 
     @Test
-    void testCreateBrowser_AfterClose_FailsFuture(VertxTestContext testContext) throws Exception {
-        factory.close();
-
-        factory.<String>createBrowser("native-topic", String.class)
+    void testCreateBrowser_AfterClose_FailsFuture(VertxTestContext testContext) {
+        factory.close()
+            .compose(v -> factory.<String>createBrowser("native-topic", String.class))
                 .onSuccess(b -> testContext.failNow("Expected failure but got browser: " + b))
                 .onFailure(err -> testContext.verify(() -> {
                     assertInstanceOf(IllegalStateException.class, err);

@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -71,6 +72,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     private final ObjectMapper objectMapper;
     private final VertxPoolAdapter poolAdapter;
     private final List<AutoCloseable> managedResources = new CopyOnWriteArrayList<>();
+    private final List<ConsumerGroup<?>> managedConsumerGroups = new CopyOnWriteArrayList<>();
     private volatile boolean closed = false;
 
     // Partitioned consumption support (optional)
@@ -240,7 +242,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         logger.info("Creating native queue consumer group '{}' for topic: {}", groupName, topic);
 
         MetricsProvider metrics = getMetrics();
-        return registerResource(new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper,
+        return registerConsumerGroup(new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper,
             metrics, configuration, databaseService, connectionManager, connectionServiceId));
     }
 
@@ -351,9 +353,12 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
                             topic, total, pending, processed, inFlight, deadLettered,
                             messagesPerSecond, 0.0, firstMessage, lastMessage);
                 })
-                .otherwise(e -> {
-                    logger.warn("Failed to get stats for topic {}: {}", topic, e.getMessage());
-                    return QueueStats.basic(topic, 0, 0, 0);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to get stats for topic {}: {}", topic, ar.cause().getMessage());
+                        return Future.succeededFuture(QueueStats.basic(topic, 0, 0, 0));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -410,33 +415,33 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         return resource;
     }
 
+    private <T> ConsumerGroup<T> registerConsumerGroup(ConsumerGroup<T> group) {
+        managedConsumerGroups.add(group);
+        return group;
+    }
+
     /**
      * Closes the factory and releases resources reactively.
      */
     @Override
-    public void close() throws Exception {
+    public Future<Void> close() {
         if (closed) {
             logger.debug("PgNativeQueueFactory already closed");
-            return;
+            return Future.succeededFuture();
         }
 
         logger.info("Closing PgNativeQueueFactory");
         closed = true;
 
-        closeManagedResources();
-        logger.info("PgNativeQueueFactory closed successfully");
+        return closeManagedResources()
+                .onSuccess(v -> logger.info("PgNativeQueueFactory closed successfully"));
     }
 
     /**
      * Legacy close method for backward compatibility.
-     * Calls the new close() method but swallows exceptions.
      */
     public void closeLegacy() {
-        try {
-            close();
-        } catch (Exception e) {
-            logger.error("Error during legacy close", e);
-        }
+        close().onFailure(e -> logger.error("Error during legacy close", e));
     }
 
     /**
@@ -450,26 +455,27 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         return mapper;
     }
 
-    private void closeManagedResources() throws Exception {
-        Exception firstFailure = null;
+    private Future<Void> closeManagedResources() {
+        List<Future<Void>> asyncCloses = new ArrayList<>();
+        for (ConsumerGroup<?> group : managedConsumerGroups) {
+            asyncCloses.add(group.close()
+                    .onFailure(e -> logger.error("Error closing consumer group", e))
+                    .transform(ar -> Future.<Void>succeededFuture()));
+        }
+        managedConsumerGroups.clear();
 
         for (AutoCloseable resource : managedResources) {
             try {
                 resource.close();
             } catch (Exception e) {
-                if (firstFailure == null) {
-                    firstFailure = e;
-                } else {
-                    firstFailure.addSuppressed(e);
-                }
                 logger.error("Error closing managed native queue resource", e);
             }
         }
-
         managedResources.clear();
 
-        if (firstFailure != null) {
-            throw firstFailure;
+        if (asyncCloses.isEmpty()) {
+            return Future.succeededFuture();
         }
+        return Future.all(asyncCloses).mapEmpty();
     }
 }
