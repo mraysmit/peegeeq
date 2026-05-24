@@ -6,7 +6,6 @@
 # Note: peegeeq-native entries below are false positives — PgNativeConsumerGroup.close() returns void,
 # not Future<Void>. The guard detects the pattern syntactically without checking the return type.
 path,count
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/deadletter/DeadLetterQueueManagerCoverageTest.java,3
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/JsonbConversionValidationTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java,1
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFaultToleranceTest.java,1
