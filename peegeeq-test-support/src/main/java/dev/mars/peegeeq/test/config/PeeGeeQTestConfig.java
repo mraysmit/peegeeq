@@ -124,6 +124,12 @@ public final class PeeGeeQTestConfig {
             props.setProperty("peegeeq.database.schema",   schema);
             props.setProperty("peegeeq.database.ssl.enabled", "false");
 
+            // Safe test defaults: disable background jobs that poll shared database state.
+            // Tests specifically testing these jobs (e.g. ConsumerGroupRetryJobLifecycleTest)
+            // use Properties directly and are unaffected by this default.
+            props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+            props.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
+
             // Apply caller-supplied extras last so they can override any of the above
             extras.forEach((k, v) -> props.setProperty(k.toString(), v.toString()));
 
