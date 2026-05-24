@@ -22,22 +22,14 @@ class OutboxBlockingSafetyTest {
         try {
             OutboxFactory factory = new OutboxFactory(null);
 
-            // isHealthy(), getStats(), and createBrowser() are reactive (return Future) and
-            // are safe to call from the event loop they no longer throw synchronously.
-            // Only close() remains blocking and must not run on the event loop.
-
+            // isHealthy(), getStats(), createBrowser(), and close() are all reactive
+            // (return Future) and are safe to call from the event loop.
             Throwable closeError = invokeOnEventLoop(vertx, () -> {
-                try {
-                    factory.close();
-                    return null;
-                } catch (Exception e) {
-                    throw new RuntimeException(e);
-                }
+                factory.close();
+                return null;
             });
-            // close() exception is wrapped by RuntimeException in this helper branch
-            Throwable effectiveCloseError = closeError.getCause() != null ? closeError.getCause() : closeError;
-            assertIllegalStateWithMessage(effectiveCloseError,
-                    "Do not call blocking close() on event-loop thread");
+            assertNull(closeError,
+                    "close() should not throw on event loop; got: " + closeError);
         } finally {
             vertx.close().await();
         }

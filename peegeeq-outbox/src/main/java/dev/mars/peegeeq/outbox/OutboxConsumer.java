@@ -77,6 +77,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // PgClientFactory)
     private final String clientId;
 
+    // Tenant schema name — used to qualify all SQL table references
+    private final String schemaName;
+
     // Vert.x instance for timer-based polling
     private final Vertx vertx;
 
@@ -116,6 +119,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
+        this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
 
         logger.info(
                 "Created outbox consumer for topic: {} with configuration: {}, consumerConfig: {} (clientId: {})",
@@ -155,6 +159,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
+        this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
 
         logger.info(
                 "Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}, consumerConfig: {} (clientId: {})",
@@ -267,19 +272,18 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             if (filter != null) {
                 // Server-side filtering: add filter condition to WHERE clause
                 String filterCondition = filter.toSqlCondition(4); // $4 onwards for filter params
-                sql = """
-                        UPDATE outbox
-                        SET status = 'PROCESSING', processed_at = $1
-                        WHERE id IN (
-                            SELECT id FROM outbox
-                            WHERE topic = $2 AND status = 'PENDING'
-                              AND """ + filterCondition + """
-                            ORDER BY created_at ASC
-                            LIMIT $3
-                            FOR UPDATE SKIP LOCKED
-                        )
-                        RETURNING id, payload, headers, correlation_id, message_group, created_at
-                        """;
+                String sq = quoteIdentifier(schemaName);
+                sql = "UPDATE " + sq + ".outbox\n" +
+                      "SET status = 'PROCESSING', processed_at = $1\n" +
+                      "WHERE id IN (\n" +
+                      "    SELECT id FROM " + sq + ".outbox\n" +
+                      "    WHERE topic = $2 AND status = 'PENDING'\n" +
+                      "      AND " + filterCondition + "\n" +
+                      "    ORDER BY created_at ASC\n" +
+                      "    LIMIT $3\n" +
+                      "    FOR UPDATE SKIP LOCKED\n" +
+                      ")\n" +
+                      "RETURNING id, payload, headers, correlation_id, message_group, created_at";
 
                 // Build tuple with base params + filter params
                 Object[] baseParams = new Object[] { OffsetDateTime.now(), topic, batchSize };
@@ -294,18 +298,19 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 logger.debug("OUTBOX-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
             } else {
                 // No filter: use original SQL
+                String sq = quoteIdentifier(schemaName);
                 sql = """
-                        UPDATE outbox
+                        UPDATE %s.outbox
                         SET status = 'PROCESSING', processed_at = $1
                         WHERE id IN (
-                            SELECT id FROM outbox
+                            SELECT id FROM %s.outbox
                             WHERE topic = $2 AND STATUS = 'PENDING'
                             ORDER BY created_at ASC
                             LIMIT $3
                             FOR UPDATE SKIP LOCKED
                         )
                         RETURNING id, payload, headers, correlation_id, message_group, created_at
-                        """;
+                        """.formatted(sq, sq);
                 params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
             }
 
@@ -354,6 +359,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
             return Future.failedFuture(e);
         }
+    }
+
+    private static String quoteIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
 
     private boolean isShutdownRelatedError(Throwable error) {
@@ -447,7 +456,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     private Future<Void> markMessageFailed(String messageId, String errorMessage) {
         try {
-            String sql = "UPDATE outbox SET status = 'FAILED', processed_at = $1 WHERE id = $2";
+            String sql = "UPDATE %s.outbox SET status = 'FAILED', processed_at = $1 WHERE id = $2"
+                    .formatted(quoteIdentifier(schemaName));
             Tuple params = Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId));
 
             return getReactivePoolFuture()
@@ -553,7 +563,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String sql = "UPDATE outbox SET status = 'COMPLETED', processed_at = $1 WHERE id = $2";
+        String sql = "UPDATE %s.outbox SET status = 'COMPLETED', processed_at = $1 WHERE id = $2"
+                .formatted(quoteIdentifier(schemaName));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
@@ -593,7 +604,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String sql = "UPDATE outbox SET status = 'PENDING', processed_at = NULL WHERE id = $1";
+        String sql = "UPDATE %s.outbox SET status = 'PENDING', processed_at = NULL WHERE id = $1"
+                .formatted(quoteIdentifier(schemaName));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
@@ -629,7 +641,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String selectSql = "SELECT retry_count, max_retries FROM outbox WHERE id = $1";
+        String selectSql = "SELECT retry_count, max_retries FROM %s.outbox WHERE id = $1"
+                .formatted(quoteIdentifier(schemaName));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(selectSql)
@@ -707,7 +720,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String sql = "UPDATE outbox SET retry_count = $1, status = 'PENDING', processed_at = NULL, error_message = $2 WHERE id = $3";
+        String sql = "UPDATE %s.outbox SET retry_count = $1, status = 'PENDING', processed_at = NULL, error_message = $2 WHERE id = $3"
+                .formatted(quoteIdentifier(schemaName));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
@@ -739,7 +753,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM outbox WHERE id = $1";
+        String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM %s.outbox WHERE id = $1"
+                .formatted(quoteIdentifier(schemaName));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(selectSql)
@@ -774,19 +789,21 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                             return Future.failedFuture(new IllegalStateException("Consumer is closed"));
                                         }
 
+                                        String sq = quoteIdentifier(schemaName);
                                         String insertSql = """
-                                                INSERT INTO dead_letter_queue (original_table, original_id, topic, payload,
+                                                INSERT INTO %s.dead_letter_queue (original_table, original_id, topic, payload,
                                                                               original_created_at, failure_reason, retry_count,
                                                                               headers, correlation_id, message_group)
                                                 VALUES ('outbox', $1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)
-                                                """;
+                                                """.formatted(sq);
 
                                         return client.preparedQuery(insertSql)
                                                 .execute(Tuple.of(
                                                         Long.parseLong(messageId), topic, payload, createdAt,
                                                         errorMessage, retryCount, headers, correlationId, messageGroup))
                                                 .compose(insertResult -> {
-                                                    String updateSql = "UPDATE outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2";
+                                                    String updateSql = "UPDATE %s.outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2"
+                                                            .formatted(sq);
                                                     return client.preparedQuery(updateSql)
                                                             .execute(Tuple.of(errorMessage, Long.parseLong(messageId)));
                                                 });

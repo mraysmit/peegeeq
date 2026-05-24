@@ -79,6 +79,7 @@ public class OutboxFactory implements QueueFactory {
 
     // Track created consumers and producers for proper cleanup
     private final Set<AutoCloseable> createdResources = ConcurrentHashMap.newKeySet();
+    private final Set<ConsumerGroup<?>> createdConsumerGroups = ConcurrentHashMap.newKeySet();
 
     // Constructor using DatabaseService interface
     public OutboxFactory(DatabaseService databaseService) {
@@ -290,7 +291,7 @@ public class OutboxFactory implements QueueFactory {
                 connectionManager, connectionServiceId);
 
         // Track the consumer group for cleanup
-        createdResources.add(consumerGroup);
+        createdConsumerGroups.add(consumerGroup);
         return consumerGroup;
     }
 
@@ -475,29 +476,22 @@ public class OutboxFactory implements QueueFactory {
             return io.vertx.core.Future.succeededFuture();
         }
 
-        logger.info("Closing {} tracked resources", createdResources.size());
+        logger.info("Closing {} tracked resources", createdResources.size() + createdConsumerGroups.size());
 
         java.util.List<io.vertx.core.Future<Void>> asyncCloses = new java.util.ArrayList<>();
+        for (ConsumerGroup<?> group : createdConsumerGroups) {
+            asyncCloses.add(group.close()
+                .onFailure(e -> logger.warn("Error closing consumer group: {}", e.getMessage()))
+                .transform(ar -> io.vertx.core.Future.<Void>succeededFuture()));
+        }
+        createdConsumerGroups.clear();
         for (AutoCloseable resource : createdResources) {
-            if (resource instanceof OutboxConsumer<?> consumer) {
-                try {
-                    consumer.close();
-                } catch (Exception e) {
-                    logger.warn("Error closing consumer: {}", e.getMessage());
-                }
-                asyncCloses.add(io.vertx.core.Future.succeededFuture());
-            } else if (resource instanceof OutboxConsumerGroup<?> group) {
-                asyncCloses.add(group.closeAsync()
-                    .onFailure(e -> logger.warn("Error closing consumer group: {}", e.getMessage()))
-                    .transform(ar -> io.vertx.core.Future.<Void>succeededFuture()));
-            } else {
-                try {
-                    resource.close();
-                    logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
-                } catch (Exception e) {
-                    logger.warn("Error closing resource {}: {}",
-                        resource.getClass().getSimpleName(), e.getMessage());
-                }
+            try {
+                resource.close();
+                logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
+            } catch (Exception e) {
+                logger.warn("Error closing resource {}: {}",
+                    resource.getClass().getSimpleName(), e.getMessage());
             }
         }
         createdResources.clear();
@@ -513,21 +507,15 @@ public class OutboxFactory implements QueueFactory {
     }
 
     @Override
-    public void close() throws Exception {
-        assertNotEventLoopForBlocking("close()", "close this factory from a worker thread");
-        closeTrackedResourcesAsync().await();
+    public io.vertx.core.Future<Void> close() {
+        return closeTrackedResourcesAsync();
     }
 
     /**
      * Legacy close method for backward compatibility.
-     * Calls the new close() method but swallows exceptions.
      */
     public void closeLegacy() {
-        try {
-            close();
-        } catch (Exception e) {
-            logger.error("Error during legacy close", e);
-        }
+        close().onFailure(e -> logger.error("Error during legacy close", e));
     }
 
     private MetricsProvider getMetrics() {

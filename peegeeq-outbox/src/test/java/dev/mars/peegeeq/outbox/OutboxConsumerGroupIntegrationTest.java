@@ -80,8 +80,9 @@ public class OutboxConsumerGroupIntegrationTest {
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumerGroup != null) {
-            consumerGroup.stop();
-            consumerGroup.close();
+            consumerGroup.stop()
+                .compose(v -> consumerGroup.close())
+                .onFailure(e -> logger.warn("consumerGroup stop/close failed in tearDown", e));
         }
         if (producer != null) {
             producer.close();

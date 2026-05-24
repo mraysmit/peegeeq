@@ -153,7 +153,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -182,7 +182,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -223,7 +223,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -235,7 +235,7 @@ class OutboxConsumerGroupSubscriptionTest {
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             assertThrows(IllegalArgumentException.class, () -> group.start(null));
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -253,7 +253,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
                 .onFailure(e -> testContext.verify(() -> {
                     assertInstanceOf(IllegalStateException.class, e);
-                    group.close();
+                    group.close().onFailure(testContext::failNow);
                     testContext.completeNow();
                 }));
 
@@ -267,7 +267,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
             group.start(options)
@@ -306,7 +306,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -321,7 +321,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 .compose(v -> {
         logger.info("Test: start with options  multiple positions");
                     testContext.verify(() -> assertTrue(group1.isActive()));
-                    group1.close();
+                    group1.close().onFailure(e -> logger.warn("group1.close() failed", e));
                     // FROM_BEGINNING
                     ConsumerGroup<String> group2 = factory.createConsumerGroup(
                         "group-from-beginning", "test-topic", String.class);
@@ -332,7 +332,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 })
                 .compose(group2 -> {
                     testContext.verify(() -> assertTrue(group2.isActive()));
-                    group2.close();
+                    group2.close().onFailure(e -> logger.warn("group2.close() failed", e));
                     // Defaults
                     ConsumerGroup<String> group3 = factory.createConsumerGroup(
                         "group-defaults", "test-topic", String.class);
@@ -342,7 +342,7 @@ class OutboxConsumerGroupSubscriptionTest {
                 })
                 .onComplete(testContext.succeeding(group3 -> testContext.verify(() -> {
                     assertTrue(group3.isActive());
-                    group3.close();
+                    group3.close().onFailure(e -> logger.warn("group3.close() failed", e));
                     testContext.completeNow();
                 })));
 
@@ -372,7 +372,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertEquals(1, group.getConsumerIds().size());
             assertTrue(group.getConsumerIds().contains("test-group-default-consumer"));
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -390,7 +390,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertEquals("test-group", member.getGroupName());
             assertEquals("test-topic", member.getTopic());
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -415,7 +415,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -429,7 +429,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertThrows(IllegalStateException.class,
                 () -> group.setMessageHandler(msg -> Future.succeededFuture()));
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -442,7 +442,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertThrows(NullPointerException.class,
                 () -> group.setMessageHandler(null));
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -451,7 +451,7 @@ class OutboxConsumerGroupSubscriptionTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
 
             assertThrows(IllegalStateException.class,
                 () -> group.setMessageHandler(msg -> Future.succeededFuture()));
@@ -478,7 +478,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -508,7 +508,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -542,7 +542,7 @@ class OutboxConsumerGroupSubscriptionTest {
             assertEquals("test-group-default-consumer", memberStats.getConsumerId());
             assertTrue(memberStats.isActive());
 
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
 
         @Test
@@ -589,7 +589,7 @@ class OutboxConsumerGroupSubscriptionTest {
             }
 
             executor.shutdown();
-            group.close();
+            group.close().onFailure(e -> logger.warn("close() failed in cleanup", e));
         }
     }
 }
