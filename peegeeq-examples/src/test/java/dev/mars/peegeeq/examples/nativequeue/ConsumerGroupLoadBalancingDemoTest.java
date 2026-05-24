@@ -301,7 +301,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // 🧹 **Cleanup ConsumerGroup**: Proper resource management
         roundRobinGroup.stopGracefully()
-            .compose(v -> roundRobinGroup.closeAsync())
+            .compose(v -> roundRobinGroup.close())
             .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));
 
         logger.info("Round Robin Load Balancing test completed successfully");
@@ -536,7 +536,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // 🧹 **Cleanup ConsumerGroup**: Proper resource management
         stickyGroup.stopGracefully()
-            .compose(v -> stickyGroup.closeAsync())
+            .compose(v -> stickyGroup.close())
             .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));
 
         logger.info("Sticky Session Load Balancing test completed successfully");

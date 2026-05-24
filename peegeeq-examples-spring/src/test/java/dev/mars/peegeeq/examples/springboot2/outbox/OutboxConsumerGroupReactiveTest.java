@@ -121,15 +121,10 @@ class OutboxConsumerGroupReactiveTest {
         Future<Void> closeGroups = Future.succeededFuture();
         for (ConsumerGroup<?> group : activeConsumerGroups) {
             closeGroups = closeGroups.compose(v ->
-                group.closeAsync()
-                    .transform(ar -> {
-                        if (ar.failed()) {
-                            logger.error("⚠️ Error closing consumer group: {}", ar.cause().getMessage());
-                        } else {
-                            logger.info("Closed consumer group: {}", group.getGroupName());
-                        }
-                        return Future.succeededFuture();
-                    }));
+                group.close()
+                    .onSuccess(v2 -> logger.info("Closed consumer group: {}", group.getGroupName()))
+                    .onFailure(err -> logger.warn("\u26a0\ufe0f Error closing consumer group: {} - {}",
+                            group.getGroupName(), err.getMessage())));
         }
         activeConsumerGroups.clear();
 

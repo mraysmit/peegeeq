@@ -126,28 +126,19 @@ public class TransactionalOutboxAnalysisTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx, VertxTestContext ctx) {
-        logger.info("Tearing down: closing resources and manager");
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("=== Tearing down TransactionalOutboxAnalysisTest ===");
-
-        if (outboxFactory != null) {
-            try {
-                outboxFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing outbox factory: {}", e.getMessage());
-            }
-        }
-
-        if (manager == null) {
-            logger.info("\u2713 Teardown completed");
-            ctx.completeNow();
-            return;
-        }
-        Future<Void> closeChain = manager.closeReactive()
-            .onSuccess(v -> logger.info("PeeGeeQ manager closed"))
-            .onFailure(err -> logger.warn("Error closing manager: {}", err.getMessage()));
-        closeChain.onSuccess(v -> { logger.info("\u2713 Teardown completed"); ctx.completeNow(); });
-        closeChain.onFailure(err -> ctx.completeNow());
+        (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+            .onSuccess(v -> {
+                logger.info("\u2713 Teardown completed");
+                ctx.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Error during teardown: {}", err.getMessage());
+                ctx.completeNow();
+            });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**

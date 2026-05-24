@@ -22,6 +22,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -162,12 +163,19 @@ public class OutboxMessageOrderingSpringBootTest {
         MessageProducer<OrderMessage> producer = outboxFactory.createProducer(topic, OrderMessage.class);
         activeProducers.add(producer);
         
-        // Send messages in sequence with small delays to ensure different created_at timestamps
-        logger.info("📤 Sending 10 messages in sequence");
+        // Send messages in sequence with delays to ensure distinct created_at timestamps
+        logger.info("\uD83D\uDCE4 Sending 10 messages in sequence");
+        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 1; i <= 10; i++) {
-            OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
-            producer.send(message).onFailure(testContext::failNow);
+            final int seq = i;
+            sendChain = sendChain.compose(v -> {
+                OrderMessage msg = new OrderMessage("order-" + seq, seq, "Item " + seq);
+                Promise<Void> delay = Promise.promise();
+                vertx.setTimer(2, id -> delay.complete());
+                return delay.future().compose(ignored -> producer.send(msg));
+            });
         }
+        sendChain.onFailure(testContext::failNow);
         
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed within 15 seconds");
@@ -227,18 +235,24 @@ public class OutboxMessageOrderingSpringBootTest {
         // Send messages for 3 different groups (customer IDs)
         logger.info("📤 Sending messages for 3 different customer groups");
         String[] customers = {"customer-A", "customer-B", "customer-C"};
-        int sequence = 1;
-        
+        final int[] sequenceHolder = {1};
+
+        Future<Void> sendChain = Future.succeededFuture();
         for (int round = 1; round <= 5; round++) {
             for (String customer : customers) {
-                OrderMessage message = new OrderMessage("order-" + sequence, sequence, "Item " + sequence);
-                message.setCustomerId(customer);
-                // Send with message_group parameter
-                producer.send(message, null, null, customer).onFailure(testContext::failNow);
-                logger.info("   Sent sequence {} for {}", sequence, customer);
-                sequence++;
+                final int seq = sequenceHolder[0]++;
+                final String cust = customer;
+                sendChain = sendChain.compose(v -> {
+                    OrderMessage msg = new OrderMessage("order-" + seq, seq, "Item " + seq);
+                    msg.setCustomerId(cust);
+                    logger.info("   Sent sequence {} for {}", seq, cust);
+                    Promise<Void> delay = Promise.promise();
+                    vertx.setTimer(2, id -> delay.complete());
+                    return delay.future().compose(ignored -> producer.send(msg, null, null, cust));
+                });
             }
         }
+        sendChain.onFailure(testContext::failNow);
         
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");

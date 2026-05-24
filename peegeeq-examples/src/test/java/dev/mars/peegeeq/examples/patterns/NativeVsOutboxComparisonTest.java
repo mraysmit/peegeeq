@@ -130,35 +130,20 @@ class NativeVsOutboxComparisonTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (nativeFactory != null) {
-            try {
-                nativeFactory.close();
-            } catch (Exception e) {
-                logger.error("Error closing native factory", e);
-            }
-        }
-        if (outboxFactory != null) {
-            try {
-                outboxFactory.close();
-            } catch (Exception e) {
-                logger.error("Error closing outbox factory", e);
-            }
-        }
-        if (manager == null) {
-            testContext.completeNow();
-            return;
-        }
-        manager.closeReactive()
+        (nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture())
+            .compose(v -> outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
             .onSuccess(v -> {
                 logger.info("Native vs Outbox comparison test teardown completed");
                 testContext.completeNow();
             })
             .onFailure(err -> {
-                logger.warn("Error during manager cleanup: {}", err.getMessage());
+                logger.warn("Error during teardown: {}", err.getMessage());
                 testContext.completeNow();
             });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
