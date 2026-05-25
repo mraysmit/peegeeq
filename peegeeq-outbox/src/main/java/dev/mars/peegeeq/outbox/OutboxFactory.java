@@ -315,7 +315,7 @@ public class OutboxFactory implements QueueFactory {
             if (pool == null) {
                 return io.vertx.core.Future.failedFuture(new IllegalStateException("Pool not available for browser creation"));
             }
-            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq";
+            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
             OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
             synchronized (this) {
                 createdResources.add(browser);
@@ -366,9 +366,9 @@ public class OutboxFactory implements QueueFactory {
                     COUNT(*) FILTER (WHERE status = 'DEAD_LETTER') as dead_lettered,
                     MIN(created_at) as first_message,
                     MAX(created_at) as last_message
-                FROM %s.outbox
+                FROM %s
                 WHERE topic = $1
-                """.formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
+                """.formatted(qualifyTable("outbox"));
 
         return getPool()
                 .compose(pool -> {
@@ -421,8 +421,8 @@ public class OutboxFactory implements QueueFactory {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
 
-        String sql = "SELECT COUNT(*) AS total FROM %s.outbox WHERE topic = $1"
-                .formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
+        String sql = "SELECT COUNT(*) AS total FROM %s WHERE topic = $1"
+                .formatted(qualifyTable("outbox"));
 
         return getPool()
                 .compose(pool -> {
@@ -444,8 +444,8 @@ public class OutboxFactory implements QueueFactory {
 
         logger.info("Purging outbox queue messages for topic: {}", topic);
 
-        String sql = "DELETE FROM %s.outbox WHERE topic = $1"
-                .formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
+        String sql = "DELETE FROM %s WHERE topic = $1"
+                .formatted(qualifyTable("outbox"));
 
         return getPool()
                 .compose(pool -> {
@@ -567,5 +567,14 @@ public class OutboxFactory implements QueueFactory {
      */
     static String quoteIdentifier(String identifier) {
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    /**
+     * Returns a fully-qualified table reference when a schema name is configured,
+     * or an unqualified table name when schema is null (relies on connection search_path).
+     */
+    private String qualifyTable(String tableName) {
+        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
+        return schema != null ? quoteIdentifier(schema) + "." + tableName : tableName;
     }
 }

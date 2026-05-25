@@ -147,18 +147,16 @@ public class DlqMultiTenantSchemaIsolationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        Future<Void> stopA = consumerGroupA != null
-                ? consumerGroupA.stop().compose(v -> consumerGroupA.close())
-                        .onFailure(e -> logger.warn("consumerGroupA stop/close failed", e))
-                : Future.succeededFuture();
-
-        Future<Void> stopB = consumerGroupB != null
-                ? consumerGroupB.stop().compose(v -> consumerGroupB.close())
-                        .onFailure(e -> logger.warn("consumerGroupB stop/close failed", e))
-                : Future.succeededFuture();
-
-        stopA.compose(v -> stopB)
-                .compose(v -> {
+        Future.<Void>succeededFuture()
+                .eventually(() -> consumerGroupA != null
+                        ? consumerGroupA.stop().compose(v -> consumerGroupA.close())
+                                .onFailure(e -> logger.warn("consumerGroupA stop/close failed", e))
+                        : Future.succeededFuture())
+                .eventually(() -> consumerGroupB != null
+                        ? consumerGroupB.stop().compose(v -> consumerGroupB.close())
+                                .onFailure(e -> logger.warn("consumerGroupB stop/close failed", e))
+                        : Future.succeededFuture())
+                .eventually(() -> {
                     if (producerA != null) producerA.close();
                     if (producerB != null) producerB.close();
                     if (factoryA != null) factoryA.close();
@@ -168,10 +166,7 @@ public class DlqMultiTenantSchemaIsolationTest {
                     return closeA.compose(ignored -> closeB);
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> {
-                    logger.warn("tearDown failure (non-fatal)", e);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));
     }
