@@ -77,7 +77,7 @@ public class OutboxDeadLetterQueueTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .property("peegeeq.queue.max-retries", "2")
+                .property("peegeeq.queue.max-retries", "3")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());

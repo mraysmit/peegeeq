@@ -54,7 +54,7 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
     private volatile boolean closed = false;
 
     public OutboxQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper) {
-        this(topic, payloadType, pool, objectMapper, "peegeeq");
+        this(topic, payloadType, pool, objectMapper, null);
     }
 
     public OutboxQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper, String schema) {
@@ -62,7 +62,8 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
         this.payloadType = payloadType;
         this.pool = pool;
         this.objectMapper = objectMapper;
-        this.schema = schema != null ? schema : "peegeeq";
+        // null schema → unqualified SQL (relies on search_path); non-null → schema-qualified SQL
+        this.schema = schema;
     }
 
     @Override
@@ -71,13 +72,14 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
             return Future.failedFuture(new IllegalStateException("Browser is closed"));
         }
 
+        String tableRef = schema != null ? OutboxFactory.quoteIdentifier(schema) + ".outbox" : "outbox";
         String sql = """
                 SELECT id, payload, headers, created_at, status, correlation_id
-                FROM %s.outbox
+                FROM %s
                 WHERE topic = $1
                 ORDER BY id DESC
                 LIMIT $2 OFFSET $3
-                """.formatted(OutboxFactory.quoteIdentifier(schema));
+                """.formatted(tableRef);
 
         return pool.preparedQuery(sql)
                 .execute(Tuple.of(topic, limit, offset))

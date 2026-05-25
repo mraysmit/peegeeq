@@ -79,19 +79,28 @@ public class CircuitBreakerRecoveryTest {
         
         member.start();
         
-        // Phase 1: Trigger circuit breaker opening
+        // Phase 1: Trigger circuit breaker opening.
+        // Since acceptsMessage() now re-throws filter exceptions (rather than returning false),
+        // callers must catch the exception; the CB still records the failure before throwing.
         logger.info("🔥 PHASE 1: Triggering circuit breaker opening");
         for (int i = 1; i <= 5; i++) {
             TestMessage payload = new TestMessage("fail-" + i, "Failing message " + i);
             Message<TestMessage> message = new SimpleMessage<>("fail-" + i, "recovery-topic", payload);
-            
-            boolean accepted = member.acceptsMessage(message);
+
+            boolean accepted;
+            try {
+                accepted = member.acceptsMessage(message);
+            } catch (RuntimeException filterEx) {
+                // Filter threw as expected; CB recorded the failure before re-throwing.
+                accepted = false;
+                logger.debug("Filter threw for message {} (expected in phase 1): {}", i, filterEx.getMessage());
+            }
             FilterCircuitBreaker.CircuitBreakerMetrics metrics = member.getFilterCircuitBreakerMetrics();
             lastObservedState.set(metrics.getState());
-            
-            logger.debug("Message {}: accepted={}, CB state={}, failures={}/{}", 
+
+            logger.debug("Message {}: accepted={}, CB state={}, failures={}/{}",
                 i, accepted, metrics.getState(), metrics.getFailureCount(), metrics.getRequestCount());
-            
+
             if (metrics.getState() == FilterCircuitBreaker.State.OPEN) {
                 logger.info("⚡ Circuit breaker opened after {} messages", i);
                 break;
@@ -227,13 +236,20 @@ public class CircuitBreakerRecoveryTest {
         
         member.start();
         
-        // Phase 1: Trigger circuit breaker opening
+        // Phase 1: Trigger circuit breaker opening.
+        // acceptsMessage() re-throws filter exceptions; catch here and record as rejection.
         logger.info("🔥 PHASE 1: Triggering initial circuit breaker opening");
         for (int i = 1; i <= 5; i++) {
             TestMessage failMessage = new TestMessage("fail-" + i, "Failing message " + i);
             Message<TestMessage> failMsg = new SimpleMessage<>("fail-" + i, "partial-recovery-topic", failMessage);
 
-            boolean accepted = member.acceptsMessage(failMsg);
+            boolean accepted;
+            try {
+                accepted = member.acceptsMessage(failMsg);
+            } catch (RuntimeException filterEx) {
+                accepted = false;
+                logger.debug("Filter threw for message {} (expected in phase 1): {}", i, filterEx.getMessage());
+            }
             FilterCircuitBreaker.CircuitBreakerMetrics metrics = member.getFilterCircuitBreakerMetrics();
 
             logger.info("Message {}: accepted={}, CB state={}, failures={}/{}",
@@ -254,12 +270,21 @@ public class CircuitBreakerRecoveryTest {
         phase.set(2);
         LockSupport.parkNanos(250_000_000L); // Wait for timeout
 
-        // Phase 2: Attempt recovery that will fail
+        // Phase 2: Attempt recovery that will fail.
+        // In HALF_OPEN state, allowRequest() returns true so the filter IS called.
+        // The phase-2 filter throws, so acceptsMessage() re-throws; catch it here.
         logger.info("🔄 PHASE 2: Attempting partial recovery (will fail)");
         TestMessage partialRecoveryMessage = new TestMessage("partial-recovery", "Partial recovery test");
         Message<TestMessage> partialRecoveryMsg = new SimpleMessage<>("partial-recovery", "partial-recovery-topic", partialRecoveryMessage);
 
-        boolean partialRecoveryAccepted = member.acceptsMessage(partialRecoveryMsg);
+        boolean partialRecoveryAccepted;
+        try {
+            partialRecoveryAccepted = member.acceptsMessage(partialRecoveryMsg);
+        } catch (RuntimeException filterEx) {
+            // Filter threw during HALF_OPEN test; CB records failure and reopens.
+            partialRecoveryAccepted = false;
+            logger.debug("Filter threw during partial recovery (expected in phase 2): {}", filterEx.getMessage());
+        }
         FilterCircuitBreaker.CircuitBreakerMetrics partialMetrics = member.getFilterCircuitBreakerMetrics();
 
         logger.info("   Partial recovery accepted: {}", partialRecoveryAccepted);

@@ -119,7 +119,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
-        this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
+        // null schema → unqualified SQL (relies on search_path); non-null → schema-qualified SQL
+        this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
 
         logger.info(
                 "Created outbox consumer for topic: {} with configuration: {}, consumerConfig: {} (clientId: {})",
@@ -159,7 +160,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
-        this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
+        // null schema → unqualified SQL (relies on search_path); non-null → schema-qualified SQL
+        this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
 
         logger.info(
                 "Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}, consumerConfig: {} (clientId: {})",
@@ -272,11 +274,11 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             if (filter != null) {
                 // Server-side filtering: add filter condition to WHERE clause
                 String filterCondition = filter.toSqlCondition(4); // $4 onwards for filter params
-                String sq = quoteIdentifier(schemaName);
-                sql = "UPDATE " + sq + ".outbox\n" +
+                String sqOutbox = qualifyTable("outbox");
+                sql = "UPDATE " + sqOutbox + "\n" +
                       "SET status = 'PROCESSING', processed_at = $1\n" +
                       "WHERE id IN (\n" +
-                      "    SELECT id FROM " + sq + ".outbox\n" +
+                      "    SELECT id FROM " + sqOutbox + "\n" +
                       "    WHERE topic = $2 AND status = 'PENDING'\n" +
                       "      AND " + filterCondition + "\n" +
                       "    ORDER BY created_at ASC\n" +
@@ -298,19 +300,19 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 logger.debug("OUTBOX-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
             } else {
                 // No filter: use original SQL
-                String sq = quoteIdentifier(schemaName);
+                String sqOutbox = qualifyTable("outbox");
                 sql = """
-                        UPDATE %s.outbox
+                        UPDATE %s
                         SET status = 'PROCESSING', processed_at = $1
                         WHERE id IN (
-                            SELECT id FROM %s.outbox
+                            SELECT id FROM %s
                             WHERE topic = $2 AND STATUS = 'PENDING'
                             ORDER BY created_at ASC
                             LIMIT $3
                             FOR UPDATE SKIP LOCKED
                         )
                         RETURNING id, payload, headers, correlation_id, message_group, created_at
-                        """.formatted(sq, sq);
+                        """.formatted(sqOutbox, sqOutbox);
                 params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
             }
 
@@ -363,6 +365,14 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     private static String quoteIdentifier(String identifier) {
         return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    /**
+     * Returns a fully-qualified table reference when a schema name is configured,
+     * or an unqualified table name when schema is null (relies on connection search_path).
+     */
+    private String qualifyTable(String tableName) {
+        return schemaName != null ? quoteIdentifier(schemaName) + "." + tableName : tableName;
     }
 
     private boolean isShutdownRelatedError(Throwable error) {
@@ -456,8 +466,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     private Future<Void> markMessageFailed(String messageId, String errorMessage) {
         try {
-            String sql = "UPDATE %s.outbox SET status = 'FAILED', processed_at = $1 WHERE id = $2"
-                    .formatted(quoteIdentifier(schemaName));
+            String sql = "UPDATE %s SET status = 'FAILED', processed_at = $1 WHERE id = $2"
+                    .formatted(qualifyTable("outbox"));
             Tuple params = Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId));
 
             return getReactivePoolFuture()
@@ -563,8 +573,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String sql = "UPDATE %s.outbox SET status = 'COMPLETED', processed_at = $1 WHERE id = $2"
-                .formatted(quoteIdentifier(schemaName));
+        String sql = "UPDATE %s SET status = 'COMPLETED', processed_at = $1 WHERE id = $2"
+                .formatted(qualifyTable("outbox"));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
@@ -604,8 +614,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String sql = "UPDATE %s.outbox SET status = 'PENDING', processed_at = NULL WHERE id = $1"
-                .formatted(quoteIdentifier(schemaName));
+        String sql = "UPDATE %s SET status = 'PENDING', processed_at = NULL WHERE id = $1"
+                .formatted(qualifyTable("outbox"));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
@@ -641,8 +651,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String selectSql = "SELECT retry_count, max_retries FROM %s.outbox WHERE id = $1"
-                .formatted(quoteIdentifier(schemaName));
+        String selectSql = "SELECT retry_count, max_retries FROM %s WHERE id = $1"
+                .formatted(qualifyTable("outbox"));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(selectSql)
@@ -720,8 +730,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String sql = "UPDATE %s.outbox SET retry_count = $1, status = 'PENDING', processed_at = NULL, error_message = $2 WHERE id = $3"
-                .formatted(quoteIdentifier(schemaName));
+        String sql = "UPDATE %s SET retry_count = $1, status = 'PENDING', processed_at = NULL, error_message = $2 WHERE id = $3"
+                .formatted(qualifyTable("outbox"));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(sql)
@@ -753,8 +763,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             return Future.succeededFuture();
         }
 
-        String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM %s.outbox WHERE id = $1"
-                .formatted(quoteIdentifier(schemaName));
+        String selectSql = "SELECT topic, payload, created_at, headers, correlation_id, message_group FROM %s WHERE id = $1"
+                .formatted(qualifyTable("outbox"));
 
         return getReactivePoolFuture()
                 .compose(pool -> pool.preparedQuery(selectSql)
@@ -789,21 +799,20 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                             return Future.failedFuture(new IllegalStateException("Consumer is closed"));
                                         }
 
-                                        String sq = quoteIdentifier(schemaName);
                                         String insertSql = """
-                                                INSERT INTO %s.dead_letter_queue (original_table, original_id, topic, payload,
-                                                                              original_created_at, failure_reason, retry_count,
-                                                                              headers, correlation_id, message_group)
+                                                INSERT INTO %s (original_table, original_id, topic, payload,
+                                                                original_created_at, failure_reason, retry_count,
+                                                                headers, correlation_id, message_group)
                                                 VALUES ('outbox', $1, $2, $3::jsonb, $4, $5, $6, $7::jsonb, $8, $9)
-                                                """.formatted(sq);
+                                                """.formatted(qualifyTable("dead_letter_queue"));
 
                                         return client.preparedQuery(insertSql)
                                                 .execute(Tuple.of(
                                                         Long.parseLong(messageId), topic, payload, createdAt,
                                                         errorMessage, retryCount, headers, correlationId, messageGroup))
                                                 .compose(insertResult -> {
-                                                    String updateSql = "UPDATE %s.outbox SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2"
-                                                            .formatted(sq);
+                                                    String updateSql = "UPDATE %s SET status = 'DEAD_LETTER', error_message = $1 WHERE id = $2"
+                                                            .formatted(qualifyTable("outbox"));
                                                     return client.preparedQuery(updateSql)
                                                             .execute(Tuple.of(errorMessage, Long.parseLong(messageId)));
                                                 });
