@@ -33,7 +33,6 @@ peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConfigurationIntegrat
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCoverageTest.java,15
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java,9
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerEdgeCasesCoverageTest.java,11
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerFailureHandlingTest.java,3
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFaultToleranceTest.java,4
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java,7
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupIntegrationTest.java,6
