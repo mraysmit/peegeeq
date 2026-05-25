@@ -702,7 +702,6 @@ class EventSourcingCQRSDemoTest {
             openAccountData,
             "user-001"
         );
-        commandProducer.send(openAccount).onFailure(testContext::failNow);
 
         // Command 2: Deposit money (first business transaction)
         Map<String, Object> deposit1Data = new HashMap<>();
@@ -724,14 +723,14 @@ class EventSourcingCQRSDemoTest {
         freezeAccountData.put("reason", "Suspicious activity detected");
         Command freezeAccount = new Command("cmd-005", "FreezeAccount", accountId, freezeAccountData, "admin-001");
 
-        // Pacing delays via composed timer chain to ensure command ordering.
-        vertx.timer(100)
+        // Send remaining commands in a composed chain starting from openAccount's completion.
+        // Composing off the send future guarantees openAccount is committed to the DB first,
+        // so ORDER BY created_at ASC in the consumer's SELECT processes OpenAccount before
+        // any command that depends on the aggregate existing.
+        commandProducer.send(openAccount)
             .compose(v -> commandProducer.send(deposit1))
-            .compose(v -> vertx.timer(50))
             .compose(v -> commandProducer.send(withdraw1))
-            .compose(v -> vertx.timer(50))
             .compose(v -> commandProducer.send(deposit2))
-            .compose(v -> vertx.timer(50))
             .compose(v -> commandProducer.send(freezeAccount))
             .onFailure(testContext::failNow);
 

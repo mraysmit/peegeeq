@@ -33,9 +33,14 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Spring Boot Configuration for PeeGeeQ Transactional Outbox Pattern.
@@ -74,21 +79,82 @@ public class PeeGeeQConfig {
     @Primary
     public PeeGeeQManager peeGeeQManager(PeeGeeQProperties properties, MeterRegistry meterRegistry) {
         log.info("Creating PeeGeeQ Manager with profile: {}", properties.getProfile());
-        
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile(), configureSystemProperties(properties));
-        PeeGeeQManager manager = new PeeGeeQManager(config, meterRegistry);
+        return new PeeGeeQManager(config, meterRegistry);
+    }
 
-        // Start the manager - this handles all Vert.x setup internally
-        java.util.concurrent.CountDownLatch startLatch = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicReference<Throwable> startError = new java.util.concurrent.atomic.AtomicReference<>();
-        manager.start()
-                .onSuccess(v -> startLatch.countDown())
-                .onFailure(e -> { startError.set(e); startLatch.countDown(); });
-        try { startLatch.await(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new RuntimeException("PeeGeeQManager start interrupted", e); }
-        if (startError.get() != null) { throw new RuntimeException("PeeGeeQManager failed to start", startError.get()); }
-        log.info("PeeGeeQ Manager started successfully with profile: {}", properties.getProfile());
+    /**
+     * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
+     *
+     * <p>start() runs on the Spring refresh thread (not the Vert.x event loop) and blocks
+     * for up to 60 seconds until manager.start() completes — the only acceptable bridge
+     * in a synchronous Spring context. stop(Runnable) closes the manager reactively and
+     * notifies Spring via the callback when teardown is complete.
+     */
+    @Bean
+    public SmartLifecycle peeGeeQManagerLifecycle(PeeGeeQManager manager) {
+        return new SmartLifecycle() {
+            private volatile boolean running = false;
 
-        return manager;
+            @Override
+            public void start() {
+                log.info("Starting PeeGeeQ Manager via SmartLifecycle...");
+                CountDownLatch latch = new CountDownLatch(1);
+                AtomicReference<Throwable> error = new AtomicReference<>();
+                manager.start()
+                    .onSuccess(v -> latch.countDown())
+                    .onFailure(e -> { error.set(e); latch.countDown(); });
+                try {
+                    if (!latch.await(60, TimeUnit.SECONDS)) {
+                        throw new RuntimeException("PeeGeeQManager start timed out after 60 seconds");
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException("PeeGeeQManager start interrupted", e);
+                }
+                if (error.get() != null) {
+                    throw new RuntimeException("PeeGeeQManager failed to start", error.get());
+                }
+                running = true;
+                log.info("PeeGeeQ Manager started successfully");
+            }
+
+            @Override
+            public void stop(Runnable callback) {
+                log.info("Stopping PeeGeeQ Manager via SmartLifecycle...");
+                manager.closeReactive()
+                    .onSuccess(v -> {
+                        log.info("PeeGeeQ Manager stopped successfully");
+                        running = false;
+                        callback.run();
+                    })
+                    .onFailure(e -> {
+                        log.error("Error stopping PeeGeeQ Manager", e);
+                        running = false;
+                        callback.run();
+                    });
+            }
+
+            @Override
+            public void stop() {
+                stop(() -> {});
+            }
+
+            @Override
+            public boolean isRunning() {
+                return running;
+            }
+
+            @Override
+            public boolean isAutoStartup() {
+                return true;
+            }
+
+            @Override
+            public int getPhase() {
+                return Integer.MAX_VALUE;
+            }
+        };
     }
 
     /**
@@ -176,6 +242,7 @@ public class PeeGeeQConfig {
         props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         props.setProperty("peegeeq.database.pool.max-size", String.valueOf(properties.getPool().getMaxSize()));
         props.setProperty("peegeeq.database.pool.min-size", String.valueOf(properties.getPool().getMinSize()));
+        props.setProperty("peegeeq.database.pool.max-wait-queue-size", String.valueOf(properties.getPool().getMaxWaitQueueSize()));
         props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getQueue().getMaxRetries()));
         props.setProperty("peegeeq.queue.visibility-timeout", properties.getQueue().getVisibilityTimeout().toString());
         props.setProperty("peegeeq.queue.batch-size", String.valueOf(properties.getQueue().getBatchSize()));

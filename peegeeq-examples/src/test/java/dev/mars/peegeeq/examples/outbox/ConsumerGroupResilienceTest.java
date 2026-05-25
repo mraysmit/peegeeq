@@ -259,23 +259,26 @@ class ConsumerGroupResilienceTest {
         // Send test messages
         sendFilterTestMessages(testContext);
 
-        // Wait for processing
-        vertx.timer(5000).onSuccess(t -> {
-            try {
-                logger.info("Filter handling results:");
-                logger.info("  Messages processed: {}", processedCount.get());
-                logger.info("  Filter exceptions: {}", filteredCount.get());
+        // Wait for processing using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (processedCount.get() > 0) {
+                vertx.cancelTimer(timerId);
+                try {
+                    logger.info("Filter handling results:");
+                    logger.info("  Messages processed: {}", processedCount.get());
+                    logger.info("  Filter exceptions: {}", filteredCount.get());
 
-                assertTrue(processedCount.get() > 0, "Some messages should be processed");
+                    assertTrue(processedCount.get() > 0, "Some messages should be processed");
 
-                testGroup.close().onFailure(testContext::failNow);
-                testContext.completeNow();
-            } catch (Throwable th) {
-                testContext.failNow(th);
+                    testGroup.close().onFailure(testContext::failNow);
+                    testContext.completeNow();
+                } catch (Throwable th) {
+                    testContext.failNow(th);
+                }
             }
-        }).onFailure(testContext::failNow);
+        });
 
-        testContext.awaitCompletion(10, TimeUnit.SECONDS);
+        testContext.awaitCompletion(15, TimeUnit.SECONDS);
         logger.info("Invalid message filter handling test completed successfully");
     }
     

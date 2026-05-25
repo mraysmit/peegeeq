@@ -111,8 +111,9 @@ public class SharedTestContainers {
         registry.add("peegeeq.database.schema", () -> "public");
 
         // Reactive pool tuning for high-load tests
-        registry.add("peegeeq.database.pool.max-size", () -> "32");
-        registry.add("peegeeq.database.pool.max-wait-queue-size", () -> "4096");
+        // Use peegeeq.pool.* (not peegeeq.database.pool.*) so Spring binds into PeeGeeQProperties.Pool
+        registry.add("peegeeq.pool.max-size", () -> "32");
+        registry.add("peegeeq.pool.max-wait-queue-size", () -> "4096");
         registry.add("peegeeq.database.pool.connection-timeout-ms", () -> "30000");
         registry.add("peegeeq.database.pool.idle-timeout-ms", () -> "600000");
 
