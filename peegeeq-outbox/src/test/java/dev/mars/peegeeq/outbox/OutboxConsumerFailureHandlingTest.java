@@ -51,7 +51,6 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import org.junit.jupiter.api.Disabled;
 
 import java.lang.reflect.Field;
 import java.util.Properties;
@@ -126,7 +125,7 @@ public class OutboxConsumerFailureHandlingTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down OutboxConsumerFailureHandlingTest");
         if (consumer != null) {
             try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
@@ -134,14 +133,13 @@ public class OutboxConsumerFailureHandlingTest {
         if (producer != null) {
             try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
         }
-        Future<Void> closeChain = outboxFactory != null
-                ? outboxFactory.close()
-                : Future.succeededFuture();
-        closeChain
-                .compose(v -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
-                .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+        Future.<Void>succeededFuture()
+                .eventually(() -> outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
+                .eventually(() -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));
         // Do NOT close vertx — VertxExtension manages its lifecycle
     }
 
@@ -152,40 +150,32 @@ public class OutboxConsumerFailureHandlingTest {
      * NOTE: Temporarily disabled - timing sensitive, requires investigation
      */
     @Test
-    @Disabled("Timing sensitive requires investigation")
-    void testRetryLogicWithFailingMessages(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint latch = testContext.checkpoint(4); // Initial + 3 retries
+    void testRetryLogicWithFailingMessages(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         AtomicInteger attemptCount = new AtomicInteger(0);
-        
-        // Subscribe with handler that always fails - triggers retry logic and error paths
+        AtomicBoolean verifyScheduled = new AtomicBoolean(false);
+        Checkpoint done = testContext.checkpoint(1);
+
         consumer.subscribe(message -> {
-        logger.info("Test: retry logic with failing messages");
             int attempt = attemptCount.incrementAndGet();
-            latch.flag();
-            throw new RuntimeException("Intentional failure attempt " + attempt);
-        });
+            logger.error("ERROR ===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Intentional failure attempt {}') is EXPECTED", attempt);
+            if (attempt >= 4 && verifyScheduled.compareAndSet(false, true)) {
+                vertx.setTimer(2000, ignored ->
+                    reactivePool.withConnection(conn ->
+                        conn.preparedQuery("SELECT retry_count FROM outbox WHERE topic = $1 ORDER BY id DESC LIMIT 1")
+                            .execute(Tuple.of(testTopic))
+                    ).onSuccess(rows -> testContext.verify(() -> {
+                        assertTrue(rows.size() > 0, "Message should exist");
+                        assertEquals(3, rows.iterator().next().getInteger("retry_count"), "Should have retry_count=3");
+                        done.flag();
+                    })).onFailure(testContext::failNow)
+                );
+            }
+            return Future.failedFuture(new RuntimeException("Intentional failure attempt " + attempt));
+        })
+        .compose(v -> producer.send("test-message"))
+        .onFailure(testContext::failNow);
 
-        // Send message that will fail
-        producer.send("test-message").await();
-        
-        // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should attempt 4 times");
-        assertEquals(4, attemptCount.get(), "Should have 4 processing attempts");
-        
-        // Allow final state transition
-        vertx.timer(2000).await();
-        
-        // Verify retry count after exhaustion
-        io.vertx.sqlclient.Row row = reactivePool.withConnection(conn ->
-            conn.preparedQuery("SELECT retry_count FROM outbox WHERE topic = $1 ORDER BY id DESC LIMIT 1")
-                .execute(Tuple.of(testTopic))
-                .map(rows -> {
-                    assertTrue(rows.size() > 0, "Message should exist");
-                    return rows.iterator().next();
-                })
-        ).await();
-
-        assertEquals(3, row.getInteger("retry_count"), "Should have retry_count=3");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should complete retry cycle");
     }
 
     /**

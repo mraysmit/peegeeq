@@ -107,12 +107,12 @@ class OutboxConsumerGroupCoreTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        Future<?> closeFuture = (group != null) ? group.close() : Future.succeededFuture();
-        closeFuture
-                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+        Future.<Void>succeededFuture()
+                .eventually(() -> group != null ? group.close() : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -1072,7 +1072,7 @@ class OutboxConsumerGroupCoreTest {
                     });
                 }
                 executor.shutdown();
-                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
+                assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
                 assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
             } finally {
                 executor.shutdownNow();

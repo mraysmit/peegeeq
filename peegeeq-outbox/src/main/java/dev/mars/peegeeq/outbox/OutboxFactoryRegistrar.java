@@ -91,6 +91,11 @@ public class OutboxFactoryRegistrar {
                 // connectionManager.withConnection(serviceId, ...) directly, so the resolved
                 // (non-null) id is required.
                 connectionServiceId = PeeGeeQDefaults.DEFAULT_POOL_ID;
+                // Fall back to the configuration held by PgDatabaseService when the caller
+                // did not place it in the configuration map explicitly.
+                if (peeGeeQConfig == null) {
+                    peeGeeQConfig = pgDs.getPeeGeeQConfiguration();
+                }
             }
 
             // Create the factory with the partitioned-aware constructor.
