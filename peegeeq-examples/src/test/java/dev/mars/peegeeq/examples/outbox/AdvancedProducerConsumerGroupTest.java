@@ -457,8 +457,8 @@ class AdvancedProducerConsumerGroupTest {
         paymentGroup.start();
         analyticsGroup.start();
 
-        // Send test messages
-        final int messageCount = 20;
+        // Send test messages - 30 messages ensures each group (batchSize=10) gets at least 10
+        final int messageCount = 30;
         sendSimpleMessages(messageCount)
             .onFailure(testContext::failNow)
             .onSuccess(sent -> {

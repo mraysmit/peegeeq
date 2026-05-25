@@ -110,6 +110,7 @@ public class PeeGeeQProperties {
     public static class Pool {
         private int maxSize = 20;
         private int minSize = 5;
+        private int maxWaitQueueSize = 128;
 
         // Getters and setters
         public int getMaxSize() { return maxSize; }
@@ -117,6 +118,9 @@ public class PeeGeeQProperties {
 
         public int getMinSize() { return minSize; }
         public void setMinSize(int minSize) { this.minSize = minSize; }
+
+        public int getMaxWaitQueueSize() { return maxWaitQueueSize; }
+        public void setMaxWaitQueueSize(int maxWaitQueueSize) { this.maxWaitQueueSize = maxWaitQueueSize; }
     }
 
     /**
