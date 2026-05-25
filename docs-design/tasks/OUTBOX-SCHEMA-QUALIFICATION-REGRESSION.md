@@ -718,9 +718,248 @@ This test validates the backward-compatible null-schema path after the fix (Step
 
 Tests must be written **after** Steps A–E of the remediation plan are applied, because some tests (TC-S6, TC-S7) validate behavior that only exists after the fix.
 
-The correct implementation sequence is:
-1. Apply Step D (registrar fallback) — no SQL change, lowest risk
-2. Apply Steps A, B, C (null schema → unqualified SQL in consumer, factory, browser)
-3. Compile and run `DlqMultiTenantSchemaIsolationTest` — must still pass (explicit schemas still qualify)
-4. Write and run TC-S1 through TC-S11 in the new test class
-5. Run full suite: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+---
+
+## Validation execution plan
+
+### Preconditions
+
+- All 14 production classes reviewed (done — see class inventory above).
+- All 19 gaps (G1–G19) documented.
+- All 15 test cases (TC-S1–TC-S15) specified.
+- No code changes made yet.
+
+The plan has six phases. Each phase has a concrete Maven command, a pass/fail criterion, and a stop condition. Do not proceed to the next phase if the current phase fails.
+
+---
+
+### Phase 0 — Baseline: establish the current test state
+
+**Purpose:** Capture which tests pass today, before any changes. This is the rollback reference.
+
+**Command:**
+```
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-baseline-20260524.txt
+```
+
+**Pass criterion:** Record the exact counts from `[INFO] Tests run: N, Failures: F, Errors: E, Skipped: S`.
+
+**Expected:** `DlqMultiTenantSchemaIsolationTest` (6 tests) passes — those tests use explicit schema names, not the fallback. `MultiTenantSchemaIsolationTest` and `OutboxSchemaQuotingTest` should also pass. All other outbox tests run against `public` schema and should pass.
+
+**Stop condition:** If baseline is NOT captured before code changes, rollback is impossible.
+
+---
+
+### Phase 1 — Apply fixes A–E (code changes only, no test changes)
+
+Apply the remediation steps in this order (lowest risk first):
+
+| Order | Step | Class | Change |
+|---|---|---|---|
+| 1 | D | `OutboxFactoryRegistrar` | Fall back to `pgDs.getPeeGeeQConfiguration()` when config map key absent |
+| 2 | A | `OutboxConsumer` | `schemaName = null` when config is null or `getSchema()` is null; `quoteIdentifier()` returns unqualified name when null |
+| 3 | B | `OutboxFactory` | Same null-schema → unqualified fallback in `getStats`, `countMessages`, `purgeMessages`, `createBrowser` |
+| 4 | C | `OutboxQueueBrowser` | `schema = null` when null passed; `browse()` uses unqualified ref when null |
+
+**After each individual fix:** run `mvn test-compile -pl :peegeeq-outbox` (fast, no Testcontainers) to verify the module compiles.
+
+**Command (compile-only gate):**
+```
+mvn test-compile -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\outbox-compile-20260524.txt
+```
+
+**Stop condition:** Do not proceed to Phase 2 if compile fails.
+
+---
+
+### Phase 2 — Regression gate: existing schema tests must still pass
+
+**Purpose:** Verify that applying fixes A–E does not break any currently passing test.
+
+**Targeted command (faster than full suite):**
+```
+mvn test -pl :peegeeq-outbox -Pall-tests -Dtest="DlqMultiTenantSchemaIsolationTest,MultiTenantSchemaIsolationTest,OutboxSchemaQuotingTest" 2>&1 | Tee-Object -FilePath logs\schema-regression-gate-20260524.txt
+```
+
+**Pass criterion:** All 6 tests in `DlqMultiTenantSchemaIsolationTest`, all tests in `MultiTenantSchemaIsolationTest` and `OutboxSchemaQuotingTest` pass. Zero failures.
+
+**What to check in the log:**
+- `DlqMultiTenantSchemaIsolationTest` — `Tests run: 6, Failures: 0`
+- `MultiTenantSchemaIsolationTest` — `Failures: 0`
+- `OutboxSchemaQuotingTest` — `Failures: 0`
+
+**Stop condition:** Any failure in these tests means a fix was incorrectly applied. Revert the specific fix and re-examine.
+
+---
+
+### Phase 3 — Write and run TC-S1–TC-S13 (new test class)
+
+**Test class name:** `OutboxSchemaIsolationCoverageTest`  
+**Location:** `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/`  
+**Annotations required:** `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `@ExtendWith(VertxExtension.class)`  
+**Infrastructure:** `PostgreSQLTestConstants.createStandardContainer()`, `PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.QUEUE_ALL)`, `PeeGeeQTestConfig.builder().from(postgres).schema(schema).build()`
+
+**Write tests in this priority order within the class:**
+
+| Priority | Test | Covers | Why first |
+|---|---|---|---|
+| 1 | TC-S6 | G7 | Verifies null schema → unqualified SQL (the core Bug A/B/C fix) |
+| 2 | TC-S3 | G6 | Producer (unqualified) + Consumer (qualified) roundtrip — proves they stay in sync |
+| 3 | TC-S1 | G1 | `OutboxFactory.getStats()` with explicit schema |
+| 4 | TC-S2 | G2 | `OutboxFactory.countMessages()` with explicit schema |
+| 5 | TC-S3b | G3 | `OutboxFactory.purgeMessages()` with explicit schema |
+| 6 | TC-S4 | G4, G5 | `OutboxQueueBrowser.browse()` via `createBrowser()` with explicit schema |
+| 7 | TC-S5 | G8 | `OutboxFactoryRegistrar` schema propagation |
+| 8 | TC-S7 | G7 | Explicit schema consumer ignores messages inserted outside its schema |
+| 9 | TC-S8 | G9 | `OutboxConsumerGroup.start()` schema propagation |
+| 10 | TC-S9 | G10 | `markMessageFailed()` with explicit schema |
+| 11 | TC-S10 | G11 | `resetFilteredMessageToPending()` with explicit schema |
+| 12 | TC-S11 | G13 | `processAvailableMessages()` server-side filter path with explicit schema |
+| 13 | TC-S12 | G12, G16 | `storeDeadLetterMessage()` + DLQ round-trip with explicit schema |
+| 14 | TC-S13 | G14 | `DeadLetterQueueManager.reprocessDeadLetterMessageRecord()` re-insert with explicit schema |
+
+**Command after writing each test (run just this class):**
+```
+mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxSchemaIsolationCoverageTest 2>&1 | Tee-Object -FilePath logs\schema-coverage-test-20260524.txt
+```
+
+**Pass criterion:** All 14 tests in `OutboxSchemaIsolationCoverageTest` pass. Zero failures.
+
+**Stop condition:** A failing test reveals a bug not yet fixed or a test setup error. Fix the production code or test (not both at the same time) before proceeding.
+
+---
+
+### Phase 4 — Write and run TC-S14 (subscription isolation)
+
+**Test class name:** `OutboxSchemaSubscriptionIsolationTest`  
+**Location:** `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/`
+
+**Covers:** G17 — `SubscriptionManager.subscribe()` schema isolation.
+
+**Command:**
+```
+mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxSchemaSubscriptionIsolationTest 2>&1 | Tee-Object -FilePath logs\schema-subscription-test-20260524.txt
+```
+
+**Pass criterion:** Test passes. `tenant_a.outbox_topic_subscriptions` has the subscription row. `tenant_b.outbox_topic_subscriptions` is empty. `public.outbox_topic_subscriptions` is empty.
+
+**Dependency:** Requires QUEUE_ALL DDL which includes `outbox_topic_subscriptions`. Verify `SchemaComponent.QUEUE_ALL` includes this table before writing the test.
+
+---
+
+### Phase 5 — Write and run TC-S15 (OFFSET_WATERMARK schema isolation)
+
+**Test class name:** `OutboxOffsetWatermarkSchemaIsolationTest`  
+**Location:** `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/`
+
+**Covers:** G18, G19 — full OFFSET_WATERMARK partitioned consumption path with explicit schema.
+
+**Prerequisite check (before writing):** Verify which `SchemaComponent` value initializes `outbox_topics`, `outbox_partition_offsets`, `outbox_partition_assignments`, `outbox_topic_watermarks`. Read `PeeGeeQTestSchemaInitializer` to confirm the correct component enum value. If these tables are not in `QUEUE_ALL`, a new `SchemaComponent` or explicit DDL may be needed.
+
+**Construction pattern:** The test must wire a `PgConnectionManager` to the `OutboxFactory` constructor with `connectionManager` argument. Study `OutboxOffsetWatermarkWiringTest` for the correct construction pattern before writing.
+
+**Command:**
+```
+mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxOffsetWatermarkSchemaIsolationTest 2>&1 | Tee-Object -FilePath logs\schema-watermark-test-20260524.txt
+```
+
+**Pass criterion:** Message in `tenant_wm.outbox` reaches `COMPLETED`. `tenant_wm.outbox_topic_watermarks` has an entry. `public.outbox` unchanged. `public.outbox_topic_watermarks` empty.
+
+**Note:** This is the most complex test. If it cannot be completed in one session, document the blocker and return to it. The Phase 5 test gap (G18, G19) is lower risk than the core bugs (A–E) because the OFFSET_WATERMARK path is only active when `connectionManager` is wired.
+
+---
+
+### Phase 6 — Full suite validation
+
+**Purpose:** Prove that all code changes and all new tests integrate cleanly with the entire codebase. No partial profiles.
+
+**Command:**
+```
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-post-fix-20260524.txt
+```
+
+**Pass criterion:** `BUILD SUCCESS`. Zero test failures. The delta from Phase 0 baseline is:
+- New passing tests: TC-S1–TC-S15 (plus any sub-tests)
+- No regressions: every test that passed in Phase 0 still passes
+
+**What to read in the log:**
+1. `[INFO] Tests run:` summary line per module — compare against Phase 0 baseline
+2. Any `FAILED` or `ERROR` lines
+3. `[INFO] BUILD SUCCESS` at the end
+
+**Stop condition:** Any failure at this phase requires bisecting to find whether the cause is a code fix regression or a new test error.
+
+---
+
+### Phase 7 (optional) — Coverage measurement with JaCoCo
+
+**Purpose:** Quantify line coverage on the 4 modified classes.
+
+**Scope:** `OutboxConsumer`, `OutboxFactory`, `OutboxQueueBrowser`, `OutboxFactoryRegistrar`.
+
+**Command:**
+```
+mvn clean test -Pall-tests -pl :peegeeq-outbox -Dtest="DlqMultiTenantSchemaIsolationTest,MultiTenantSchemaIsolationTest,OutboxSchemaQuotingTest,OutboxSchemaIsolationCoverageTest,OutboxSchemaSubscriptionIsolationTest" jacoco:report 2>&1 | Tee-Object -FilePath logs\coverage-report-20260524.txt
+```
+
+**Target:** ≥ 90% line coverage on `OutboxConsumer`, `OutboxFactory`, `OutboxQueueBrowser`. 100% branch coverage on the `schema == null` decision in each class.
+
+**Coverage report:** `peegeeq-outbox/target/site/jacoco/index.html` — open in browser.
+
+---
+
+### Phase summary table
+
+| Phase | Action | Gate | Command prefix |
+|---|---|---|---|
+| 0 | Baseline | Record test counts | `mvn clean test -Pall-tests` |
+| 1 | Apply fixes A–E | Compile success | `mvn test-compile -pl :peegeeq-outbox` |
+| 2 | Regression gate | Existing schema tests still pass | `mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=DlqMultiTenant...` |
+| 3 | TC-S1–TC-S13 | 14 new tests pass | `mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxSchemaIsolationCoverageTest` |
+| 4 | TC-S14 | Subscription isolation test passes | `mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxSchemaSubscriptionIsolationTest` |
+| 5 | TC-S15 | OFFSET_WATERMARK isolation test passes | `mvn test -pl :peegeeq-outbox -Pall-tests -Dtest=OutboxOffsetWatermarkSchemaIsolationTest` |
+| 6 | Full suite | `BUILD SUCCESS`, zero regressions | `mvn clean test -Pall-tests` |
+| 7 | Coverage (optional) | ≥ 90% line on 4 classes | `mvn ... jacoco:report` |
+
+---
+
+## Appendix — Follow-up actions
+
+Issues identified during this session that are out of scope here but should be tracked.
+
+### A1 — `OutboxConsumerGroupMember.acceptsMessage()` filter-exception bug (FIXED this session)
+
+**Status:** Fixed (2026-05-24, this session).  
+**Root cause:** The `catch` block in `acceptsMessage()` swallowed filter exceptions and returned `false`, which triggered `MessageFilteredException` → `resetFilteredMessageToPending()` — resetting the outbox row to `PENDING` without incrementing `retry_count`. This created an infinite PENDING loop; the message never reached `handleMessageFailureWithRetry()` → retry/DLQ.  
+**Fix applied:** `acceptsMessage()` now records the failure in the circuit breaker and re-throws the exception. The circuit-breaker OPEN fast-fail path (`return false` without calling the filter) is unchanged.  
+**Regression test:** `FilterExceptionFrameworkRetryIntegrationTest` (TC-1, TC-2, TC-3, TC-6) — pre-written specifically for this fix; now expected to pass.  
+**DLQ tests unblocked:** `DlqMultiTenantSchemaIsolationTest` TC-7a and TC-7b were timing out because of this bug; now expected to pass in an isolated run.  
+**Companion change:** `CircuitBreakerRecoveryTest` phase-1 loops and partial-recovery call updated to `try-catch` around `acceptsMessage()`, since the method now propagates the exception instead of returning `false`.
+
+---
+
+### A2 — `CircuitBreakerRecoveryTest` uses `LockSupport.parkNanos` (banned pattern)
+
+**Status:** Pre-existing violation, not introduced this session. Not fixed.  
+**Location:** `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/CircuitBreakerRecoveryTest.java`, lines 134, 271, 300.  
+**Also tracked in:** `docs-design/tasks/TIER5-BLOCKING-THREAD-VIOLATIONS-PLAN.md` (table entry: `CircuitBreakerRecoveryTest.java`, 2 occurrences, `parkNanos > timeout` validates CB state transition).  
+**Why not fixed now:** The test is a pure Java unit test (`@Tag(TestCategories.CORE)`, no Vert.x, no DB). It uses `parkNanos` to let a real 200 ms circuit-breaker timeout expire before asserting the HALF_OPEN transition. Replacing this requires either injecting a fake/manual clock into `FilterCircuitBreaker` or converting the test to a Vert.x-backed test with `vertx.timer(...)`. Both require structural changes beyond the scope of the DLQ/schema fix.  
+**Recommended approach:** Add a `Clock` or `Supplier<Instant>` seam to `FilterCircuitBreaker` so tests can fast-forward time without sleeping. `CircuitBreakerRecoveryTest` can then use `VertxTestContext` + `vertx.timer(...)` or simply advance the injected clock. Remove `LockSupport` import once all three call sites are replaced.
+
+---
+
+### A3 — `resetFilteredMessageToPending()` used by CB-OPEN path should not be called when filter throws
+
+**Status:** Design observation. Low priority.  
+**Context:** When the circuit breaker is OPEN, `acceptsMessage()` returns `false` (without calling the filter). `distributeMessage()` has no eligible consumers → `MessageFilteredException` → `resetFilteredMessageToPending()`. This means the message loops back to PENDING (retry_count unchanged) for every polling cycle while the CB is OPEN. TC-3 in `FilterExceptionFrameworkRetryIntegrationTest` validates this is bounded (retry_count stops climbing once CB opens).  
+**Risk:** If the CB timeout is long (default: 1 minute) and `polling-interval` is short, the message loops silently for up to 1 minute. This is the intended CB protection behaviour, but the PENDING churn could be confusing in monitoring.  
+**Possible improvement:** Log a periodic WARN (e.g. once per CB open event, not per poll cycle) that a message is being held pending because the filter CB is open for consumer `X` in group `Y`. No code change required now; document as a monitoring/observability improvement.
+
+---
+
+### A4 — TC-S1–TC-S15 (new schema isolation test class) not yet written
+
+**Status:** Planned in this document (Section "Test coverage plan"), not yet implemented.  
+**Scope:** `OutboxSchemaIsolationCoverageTest` (TC-S1–TC-S13), `OutboxSchemaSubscriptionIsolationTest` (TC-S14), `OutboxOffsetWatermarkSchemaIsolationTest` (TC-S15).  
+**Prerequisite:** Full `-Pall-tests` run with all existing tests passing (schema fixes A–D done, acceptsMessage fix done).  
+**Next action:** Implement TC-S1 through TC-S6 first (the highest-value gaps: `OutboxFactory` and `OutboxQueueBrowser` schema-qualified SQL paths). Run regression gate after each group.
