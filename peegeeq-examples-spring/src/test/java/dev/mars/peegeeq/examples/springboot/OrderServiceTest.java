@@ -204,9 +204,7 @@ class OrderServiceTest {
         );
         
         // Should complete exceptionally due to business validation failure
-        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Expected a failure");
-            Throwable cause = ar.cause();
+        orderService.createOrderWithBusinessValidation(request).onComplete(testContext.failing(cause -> testContext.verify(() -> {
             boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Order amount exceeds maximum limit")) ||
                                (cause.getCause() != null && cause.getCause().getMessage() != null &&
                                 cause.getCause().getMessage().contains("Order amount exceeds maximum limit"));
@@ -214,7 +212,7 @@ class OrderServiceTest {
             logger.info("Business validation rollback triggered correctly");
             logger.info("Business validation rollback test passed");
             testContext.completeNow();
-        }));
+        })));
     }
     
     /**
@@ -235,9 +233,7 @@ class OrderServiceTest {
         );
         
         // Should complete exceptionally due to invalid customer
-        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Expected a failure");
-            Throwable cause = ar.cause();
+        orderService.createOrderWithBusinessValidation(request).onComplete(testContext.failing(cause -> testContext.verify(() -> {
             boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Invalid customer ID")) ||
                                (cause.getCause() != null && cause.getCause().getMessage() != null &&
                                 cause.getCause().getMessage().contains("Invalid customer ID"));
@@ -245,7 +241,7 @@ class OrderServiceTest {
             logger.info("Invalid customer rollback triggered correctly");
             logger.info("Invalid customer rollback test passed");
             testContext.completeNow();
-        }));
+        })));
     }
     
     /**
@@ -266,9 +262,7 @@ class OrderServiceTest {
         );
         
         // Should complete exceptionally due to database constraint violation
-        orderService.createOrderWithDatabaseConstraints(request).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Expected a failure");
-            Throwable cause = ar.cause();
+        orderService.createOrderWithDatabaseConstraints(request).onComplete(testContext.failing(cause -> testContext.verify(() -> {
             boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Database constraint violation")) ||
                                (cause.getCause() != null && cause.getCause().getMessage() != null &&
                                 cause.getCause().getMessage().contains("Database constraint violation"));
@@ -276,7 +270,7 @@ class OrderServiceTest {
             logger.info("Database constraints rollback triggered correctly");
             logger.info("Database constraints rollback test passed");
             testContext.completeNow();
-        }));
+        })));
     }
     
     /**

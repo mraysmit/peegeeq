@@ -33,7 +33,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -99,27 +98,6 @@ public class HighPriorityConsumerService {
         updateConsumerStatus("RUNNING");
 
         log.info("High-priority consumer {} started successfully with filter: priority IN (HIGH, CRITICAL)", consumerInstanceId);
-    }
-    
-    /**
-     * Stop consuming messages when the application is shutting down.
-     */
-    @PreDestroy
-    public void stopConsuming() {
-        log.info("Stopping high-priority consumer: {}", consumerInstanceId);
-        
-        try {
-            // Update consumer status
-            updateConsumerStatus("STOPPED");
-            
-            // Close consumer
-            consumer.close();
-            
-            log.info("High-priority consumer {} stopped successfully. Total messages processed: {}, filtered: {}", 
-                consumerInstanceId, messagesProcessed.get(), messagesFiltered.get());
-        } catch (Exception e) {
-            log.error("Error stopping high-priority consumer", e);
-        }
     }
     
     /**
