@@ -1,6 +1,6 @@
 ---
 
-main-prep-prompt.md
+main-prompt.md
 
 ## PeeGeeQ Mandatory Pre-Work (prepend to every implementation prompt)
 
