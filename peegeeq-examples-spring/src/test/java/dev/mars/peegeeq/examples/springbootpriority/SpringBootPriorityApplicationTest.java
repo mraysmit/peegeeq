@@ -16,7 +16,6 @@ package dev.mars.peegeeq.examples.springbootpriority;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootpriority.controller.TradeProducerController;
 import dev.mars.peegeeq.examples.springbootpriority.service.AllTradesConsumerService;
@@ -178,23 +177,9 @@ public class SpringBootPriorityApplicationTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
     @AfterAll
-    static void tearDown(VertxTestContext testContext) {
-        log.info("🧹 Cleaning up Spring Boot Priority Test resources");
-        if (peeGeeQManagerRef == null) {
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeedingThenComplete());
+    static void tearDown() {
+        log.info("Spring Boot Priority Test completed - @DirtiesContext handles resource teardown");
     }
 
     @Test
