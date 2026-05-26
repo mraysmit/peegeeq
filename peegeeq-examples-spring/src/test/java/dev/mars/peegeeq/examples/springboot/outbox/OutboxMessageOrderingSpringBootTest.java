@@ -52,7 +52,9 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     properties = {
-        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration"
+        "spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration",
+        "peegeeq.queue.polling-interval=PT0.1S",
+        "peegeeq.queue.batch-size=1"
     }
 )
 @Testcontainers
@@ -163,15 +165,17 @@ public class OutboxMessageOrderingSpringBootTest {
         MessageProducer<OrderMessage> producer = outboxFactory.createProducer(topic, OrderMessage.class);
         activeProducers.add(producer);
         
-        // Send messages in sequence with delays to ensure distinct created_at timestamps
-        logger.info("\uD83D\uDCE4 Sending 10 messages in sequence");
+        // Send messages in sequence with delays to ensure distinct created_at timestamps.
+        // 50ms between sends: with millisecond DB precision and async commits, 2ms is too small
+        // and can produce duplicate timestamps within the same poll batch, breaking FIFO order.
+        logger.info("📤 Sending 10 messages in sequence");
         Future<Void> sendChain = Future.succeededFuture();
         for (int i = 1; i <= 10; i++) {
             final int seq = i;
             sendChain = sendChain.compose(v -> {
                 OrderMessage msg = new OrderMessage("order-" + seq, seq, "Item " + seq);
                 Promise<Void> delay = Promise.promise();
-                vertx.setTimer(2, id -> delay.complete());
+                vertx.setTimer(50, id -> delay.complete());
                 return delay.future().compose(ignored -> producer.send(msg));
             });
         }
@@ -247,7 +251,7 @@ public class OutboxMessageOrderingSpringBootTest {
                     msg.setCustomerId(cust);
                     logger.info("   Sent sequence {} for {}", seq, cust);
                     Promise<Void> delay = Promise.promise();
-                    vertx.setTimer(2, id -> delay.complete());
+                    vertx.setTimer(50, id -> delay.complete());
                     return delay.future().compose(ignored -> producer.send(msg, null, null, cust));
                 });
             }

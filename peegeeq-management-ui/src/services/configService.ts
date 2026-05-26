@@ -12,8 +12,8 @@ export interface BackendConfig {
 }
 
 const DEFAULT_CONFIG: BackendConfig = {
-    apiUrl: 'http://127.0.0.1:8080',
-    wsUrl: 'ws://127.0.0.1:8080'
+    apiUrl: 'http://127.0.0.1:8088',
+    wsUrl: 'ws://127.0.0.1:8088'
 }
 
 /**

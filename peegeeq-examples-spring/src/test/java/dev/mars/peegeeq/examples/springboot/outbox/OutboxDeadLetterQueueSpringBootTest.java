@@ -192,12 +192,13 @@ class OutboxDeadLetterQueueSpringBootTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         io.vertx.core.Promise<Void> retriesDone = io.vertx.core.Promise.promise();
 
-        // Subscribe with handler that always fails; signal when initial + 3 retries are exhausted.
+        // Subscribe with handler that always fails; signal when initial + 2 retries are exhausted.
+        // max-retries=2 means 3 total attempts (1 initial + 2 retries), not 4.
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
             logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
-            if (attempt >= 4) {
+            if (attempt >= 3) {
                 retriesDone.tryComplete();
             }
             return Future.failedFuture(
@@ -218,14 +219,14 @@ class OutboxDeadLetterQueueSpringBootTest {
                 logger.info("  Total attempts: {}", attemptCount.get());
                 logger.info("  Messages in DLQ: {}", dlqMessages.size());
 
-                assertEquals(4, attemptCount.get(), "Should have exactly 4 attempts (initial + 3 retries)");
+                assertEquals(3, attemptCount.get(), "Should have exactly 3 attempts (initial + 2 retries, max-retries=2)");
                 assertFalse(dlqMessages.isEmpty(), "DLQ should contain the poison message");
 
                 DeadLetterMessageInfo dlqMessage = dlqMessages.get(0);
                 assertEquals(topicName, dlqMessage.topic(), "DLQ message should have correct topic");
                 assertTrue(dlqMessage.failureReason().contains("poison message"),
                     "DLQ should preserve error information");
-                assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries");
+                assertEquals(2, dlqMessage.retryCount(), "DLQ message should show 2 retries (max-retries=2)");
 
                 logger.info("DLQ Movement test passed");
                 logger.info("Poison message moved to DLQ after {} attempts", attemptCount.get());
@@ -260,9 +261,9 @@ class OutboxDeadLetterQueueSpringBootTest {
         activeProducers.add(producer);
         activeConsumers.add(consumer);
 
-        // Track processing — each message: initial + 3 retries
+        // Track processing — each message: initial + 2 retries (max-retries=2 → 3 total attempts)
         AtomicInteger processedCount = new AtomicInteger(0);
-        int expectedTotalAttempts = messageCount * 4;
+        int expectedTotalAttempts = messageCount * 3;
         io.vertx.core.Promise<Void> allAttemptsDone = io.vertx.core.Promise.promise();
 
         // Subscribe with handler that always fails
@@ -300,7 +301,7 @@ class OutboxDeadLetterQueueSpringBootTest {
                         dlqMsg.failureReason().substring(0, Math.min(50, dlqMsg.failureReason().length())));
 
                     assertEquals(topicName, dlqMsg.topic(), "DLQ message should have correct topic");
-                    assertEquals(3, dlqMsg.retryCount(), "DLQ message should show 3 retries");
+                    assertEquals(2, dlqMsg.retryCount(), "DLQ message should show 2 retries (max-retries=2)");
                     assertNotNull(dlqMsg.failureReason(), "DLQ message should have error information");
                     assertNotNull(dlqMsg.failedAt(), "DLQ message should have timestamp");
                 }

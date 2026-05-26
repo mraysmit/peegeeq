@@ -40,6 +40,10 @@ more — it would be redundant.
 ## COPY-PASTE COMMANDS (update the date suffix before running)
 
 ```powershell
+
+# Full suite resume from — every tag, every module (~60m+) — THE regression-safety command
+mvn test -Pall-tests -rf :peegeeq-examples 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
+
 # Full suite — every tag, every module (~60m+) — THE regression-safety command
 mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 

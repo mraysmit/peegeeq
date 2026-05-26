@@ -8,7 +8,7 @@
 import { APIRequestContext } from '@playwright/test'
 import { QueueFixture, ConsumerGroupFixture, MessageFixture } from './testData'
 
-const API_BASE_URL = 'http://localhost:8080'
+const API_BASE_URL = 'http://localhost:8088'
 
 /**
  * Create a queue via API
