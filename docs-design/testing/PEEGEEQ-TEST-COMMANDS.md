@@ -40,29 +40,29 @@ more — it would be redundant.
 ## COPY-PASTE COMMANDS (update the date suffix before running)
 
 ```powershell
+# Full suite — every tag, every module (~60m+) — THE regression-safety command
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
+
 # Core tests — all modules (default, ~30s)
-mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260514.txt
+mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260526.txt
 
 # Core tests — single module
-mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260514.txt
+mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260526.txt
 
 # Smoke tests — all modules (~20s)
-mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260514.txt
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260526.txt
 
 # Integration tests — single module (~15m)
-mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260514.txt
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260526.txt
 
 # Integration tests — all modules (~60m)
-mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260514.txt
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.txt
 
 # Performance tests — single module (~30m)
-mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260514.txt
-
-# Full suite — every tag, every module (~60m+) — THE regression-safety command
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260514.txt
+mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.txt
 
 # Audit — tests missing @Tag (should report Tests run: 0 if tagging is healthy)
-mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260514.txt
+mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.txt
 ```
 
 **After the command finishes:**
@@ -89,7 +89,7 @@ Get-Content logs\<name>.txt -Tail 30
 
 Single module (fast feedback while fixing a known core-tagged failure):
 ```powershell
-mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260514.txt
+mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260526.txt
 ```
 
 ---
@@ -98,12 +98,12 @@ mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-cor
 
 Single module:
 ```powershell
-mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260514.txt
+mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260526.txt
 ```
 
 All modules (rarely needed — prefer `-Pall-tests`):
 ```powershell
-mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260514.txt
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260526.txt
 ```
 
 ---
@@ -111,7 +111,7 @@ mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-mo
 ## 4 Performance
 
 ```powershell
-mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260514.txt
+mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.txt
 ```
 
 The `peegeeq-performance-test-harness` module additionally provides workload-tuning
@@ -124,7 +124,7 @@ combined, e.g. `-Pperformance-tests,load-test`.
 ## 5 Full Suite (release / nightly / regression boundary)
 
 ```powershell
-mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260514.txt
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 ```
 
 `-Pall-tests` is the **single guarantee** that every test in every module
@@ -142,7 +142,7 @@ per-module `activeByDefault` profile that can silently override the filters.
 ## 6 Tagging Audit
 
 ```powershell
-mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260514.txt
+mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260526.txt
 ```
 
 Excludes all five known tag groups (`core`, `integration`, `performance`,
