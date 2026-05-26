@@ -427,7 +427,7 @@ test.describe('Queue Messaging Workflow', () => {
 
     test('should cleanup test queue', async ({ request }) => {
       // Delete the queue we created
-      const response = await request.delete(`http://localhost:8080/api/v1/management/queues/${SETUP_ID}-${createdQueueName}`)
+      const response = await request.delete(`http://localhost:8088/api/v1/management/queues/${SETUP_ID}-${createdQueueName}`)
 
       if (response.ok()) {
         const responseBody = await response.json()
