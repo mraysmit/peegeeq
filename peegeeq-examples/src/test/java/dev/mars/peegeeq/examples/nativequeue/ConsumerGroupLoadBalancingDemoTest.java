@@ -23,6 +23,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -67,6 +68,8 @@ class ConsumerGroupLoadBalancingDemoTest {
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
+    /** Set by testRoundRobinLoadBalancing and closed in tearDown before the manager closes. */
+    private ConsumerGroup<WorkItem> roundRobinGroupToCleanup;
 
     // Load balancing strategies
     enum LoadBalancingStrategy {
@@ -179,7 +182,21 @@ class ConsumerGroupLoadBalancingDemoTest {
             testContext.completeNow();
             return;
         }
-        manager.closeReactive()
+
+        // Close the round-robin consumer group (if set) BEFORE the manager so that
+        // all pooled connections used by in-flight ACK operations are returned before
+        // pool.close() is called inside manager.closeReactive().
+        ConsumerGroup<WorkItem> groupToClose = roundRobinGroupToCleanup;
+        roundRobinGroupToCleanup = null;
+
+        Future<Void> groupClose = (groupToClose != null)
+            ? groupToClose.stopGracefully()
+                .compose(v -> groupToClose.close())
+                .transform(ar -> Future.<Void>succeededFuture())
+            : Future.<Void>succeededFuture();
+
+        groupClose
+            .compose(v -> manager.closeReactive())
             .onSuccess(v -> {
                 logger.info("Cleanup complete");
                 testContext.completeNow();
@@ -227,8 +244,9 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // 🔄 **Create ConsumerGroup for Round-Robin Distribution**
         // ConsumerGroup automatically provides round-robin load balancing
-        ConsumerGroup<WorkItem> roundRobinGroup = queueFactory.createConsumerGroup(
+        roundRobinGroupToCleanup = queueFactory.createConsumerGroup(
             "RoundRobinGroup", queueName, WorkItem.class);
+        ConsumerGroup<WorkItem> roundRobinGroup = roundRobinGroupToCleanup;
 
         // Create consumers with equal capacity (round-robin)
         for (int i = 0; i < numConsumers; i++) {
@@ -299,11 +317,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                       " processed " + processed + ", expected ~" + expectedPerConsumer);
         }
 
-        // 🧹 **Cleanup ConsumerGroup**: Proper resource management
-        roundRobinGroup.stopGracefully()
-            .compose(v -> roundRobinGroup.close())
-            .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));
-
+        // 🧹 Cleanup is handled in tearDown to ensure it completes before manager.closeReactive().
         logger.info("Round Robin Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);
     }

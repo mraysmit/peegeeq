@@ -485,7 +485,21 @@ class EventSourcingCQRSDemoTest {
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up Event Sourcing & CQRS Demo Test");
 
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        // POLL INTERVAL — why this must be set explicitly
+        //
+        // OutboxConsumer polls the outbox table on a periodic Vert.x timer.  The default
+        // poll interval from PeeGeeQConfiguration is 5 seconds, which is appropriate for
+        // production but makes the command-ordering strategy in testEventSourcing fragile:
+        // all five commands can be inserted within 250 ms and will therefore land in the
+        // same 5-second poll batch regardless of inter-send delays.
+        //
+        // Setting the interval to 500 ms allows testEventSourcing to use 700 ms gaps
+        // between sends (> one poll cycle) so each command is the only entry in its
+        // batch.  The consumer then processes commands strictly in insertion order and
+        // the FreezeAccount command can never reach the handler before Deposit/Withdraw.
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
 
         logger.info("Initializing database schema for event sourcing CQRS test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
@@ -723,15 +737,43 @@ class EventSourcingCQRSDemoTest {
         freezeAccountData.put("reason", "Suspicious activity detected");
         Command freezeAccount = new Command("cmd-005", "FreezeAccount", accountId, freezeAccountData, "admin-001");
 
-        // Send remaining commands in a composed chain starting from openAccount's completion.
-        // Composing off the send future guarantees openAccount is committed to the DB first,
-        // so ORDER BY created_at ASC in the consumer's SELECT processes OpenAccount before
-        // any command that depends on the aggregate existing.
-        commandProducer.send(openAccount)
-            .compose(v -> commandProducer.send(deposit1))
-            .compose(v -> commandProducer.send(withdraw1))
-            .compose(v -> commandProducer.send(deposit2))
-            .compose(v -> commandProducer.send(freezeAccount))
+        // COMMAND ORDERING — why a composed timer chain is required
+        //
+        // The outbox pattern inserts messages into a database table; the consumer picks
+        // them up on a periodic poll.  commandProducer.send() only guarantees that the
+        // row exists in the table — it makes no guarantee about when the consumer will
+        // read it.
+        //
+        // If all five commands are inserted back-to-back (within milliseconds of each
+        // other) they will all appear in the same poll batch.  The batch is ordered by
+        // created_at, but sub-millisecond clock resolution means that ordering is not
+        // guaranteed.  In practice, FreezeAccount has been observed before Deposit or
+        // Withdraw, causing the aggregate to reject those commands with
+        // "Cannot deposit/withdraw from frozen account" and leaving two event checkpoints
+        // permanently unflagged → the 30-second awaitCompletion() times out.
+        //
+        // THE STRATEGY
+        // setUp sets peegeeq.queue.polling-interval=PT0.5S (500 ms).  Each send below
+        // is delayed by 700 ms (200 ms margin over one poll cycle).  Because the timer
+        // chain is composed — each vertx.timer() starts only after the previous send
+        // Future completes — the timeline is:
+        //
+        //   t =    0 ms  openAccount inserted → immediate poll, processes it alone
+        //   t =  700 ms  deposit1    inserted → poll at t≈1000 ms, processes it alone
+        //   t = 1400 ms  withdraw1   inserted → poll at t≈1500 ms, processes it alone
+        //   t = 2100 ms  deposit2    inserted → poll at t≈2500 ms, processes it alone
+        //   t = 2800 ms  freezeAccount inserted → poll at t≈3000 ms, processes it alone
+        //
+        // Both checkpoints (5 commands, 5 events) complete in ≈ 3.5 seconds, well within
+        // the 30-second awaitCompletion() budget.
+        //
+        // openAccount is sent as a separate fire-start (not inside the timer chain) so
+        // that the immediate initial poll can process it while the timer chain waits.
+        commandProducer.send(openAccount).onFailure(testContext::failNow);
+        vertx.timer(700).compose(v -> commandProducer.send(deposit1))
+            .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(withdraw1))
+            .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(deposit2))
+            .compose(v -> vertx.timer(700)).compose(v -> commandProducer.send(freezeAccount))
             .onFailure(testContext::failNow);
 
         // Wait for all commands and events to be processed
