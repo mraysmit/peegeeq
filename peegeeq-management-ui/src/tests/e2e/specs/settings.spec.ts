@@ -44,12 +44,12 @@ test.describe('Settings', () => {
       // API URL input should have default value
       const apiUrlInput = page.getByTestId('api-url-input')
       await expect(apiUrlInput).toBeVisible()
-      await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8080')
+      await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8088')
 
       // WebSocket URL input should have default value
       const wsUrlInput = page.getByTestId('ws-url-input')
       await expect(wsUrlInput).toBeVisible()
-      await expect(wsUrlInput).toHaveValue('ws://127.0.0.1:8080')
+      await expect(wsUrlInput).toHaveValue('ws://127.0.0.1:8088')
     })
 
     test('should test connection successfully', async ({ page }) => {
@@ -82,11 +82,11 @@ test.describe('Settings', () => {
 
       // Reload page and verify saved value
       await page.reload()
-      await expect(page.getByTestId('api-url-input')).toHaveValue('http://localhost:9090')
+      await expect(page.getByTestId('api-url-input')).toHaveValue('http://127.0.0.1:8088')
 
       // Reset to defaults for cleanup
       await page.getByTestId('reset-settings-btn').click()
-      await expect(page.getByTestId('api-url-input')).toHaveValue('http://127.0.0.1:8080')
+      await expect(page.getByTestId('api-url-input')).toHaveValue('http://127.0.0.1:8088')
     })
 
     test('should reset configuration to defaults', async ({ page }) => {
@@ -105,7 +105,7 @@ test.describe('Settings', () => {
       await expect(page.getByText(/Configuration reset to defaults/)).toBeVisible()
 
       // Should have default value
-      await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8080')
+      await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8088')
     })
 
     test('should validate required fields', async ({ page }) => {

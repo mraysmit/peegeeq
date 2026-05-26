@@ -1,5 +1,7 @@
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
+import { spawn, execSync } from 'child_process'
 import * as fs from 'fs'
+import * as http from 'http'
 import * as path from 'path'
 
 /**
@@ -17,6 +19,121 @@ import * as path from 'path'
 // Store container info in a file so teardown can access it
 // Using process.cwd() which points to peegeeq-management-ui when running tests
 const CONTAINER_INFO_FILE = path.join(process.cwd(), '.testcontainers-state.json')
+const BACKEND_PID_FILE = path.join(process.cwd(), '.testcontainers-backend-pid')
+
+/**
+ * Checks whether the backend correctly adds an Access-Control-Allow-Origin header
+ * for the given origin.  Uses the raw `http` module so that the browser's
+ * "forbidden request-header" restriction on `Origin` does not apply.
+ */
+function verifyCors(url: string, origin: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    try {
+      const parsed = new URL(url)
+      const req = http.request(
+        {
+          hostname: parsed.hostname,
+          port: parsed.port ? parseInt(parsed.port) : 80,
+          path: parsed.pathname || '/',
+          method: 'GET',
+          headers: { Origin: origin },
+        },
+        (res) => {
+          const header = res.headers['access-control-allow-origin']
+          res.resume() // drain so the socket is released
+          resolve(header === origin || header === '*')
+        },
+      )
+      req.setTimeout(3000, () => {
+        req.destroy()
+        resolve(false)
+      })
+      req.on('error', () => resolve(false))
+      req.end()
+    } catch {
+      resolve(false)
+    }
+  })
+}
+
+/**
+ * Kills any process currently listening on `port` and waits briefly for the
+ * port to be released.  Windows-compatible.
+ */
+function killBackendOnPort(port: number): void {
+  console.log(`🔴 Killing stale backend process on port ${port}...`)
+  try {
+    if (process.platform === 'win32') {
+      const output = execSync('netstat -aon', { shell: true, timeout: 5000 }).toString()
+      const seenPids = new Set<string>()
+      for (const line of output.split('\n')) {
+        if (line.includes(`:${port} `) && line.includes('LISTENING')) {
+          const parts = line.trim().split(/\s+/)
+          const pid = parts[parts.length - 1]
+          if (!pid || !/^\d+$/.test(pid) || pid === '0' || seenPids.has(pid)) continue
+          seenPids.add(pid)
+
+          // Safety check: only kill java.exe (the Maven/Vert.x backend).
+          // Never kill Docker, Node, or other infrastructure processes.
+          let processName = ''
+          try {
+            processName = execSync(
+              `tasklist /FI "PID eq ${pid}" /FO CSV /NH`,
+              { shell: true, timeout: 3000 },
+            ).toString().toLowerCase()
+          } catch {
+            // If we can't identify the process, skip it
+            console.log(`   Skipping PID ${pid} — could not identify process`)
+            continue
+          }
+
+          if (!processName.includes('java.exe')) {
+            console.log(`   Skipping PID ${pid} — not a java.exe process (${processName.split(',')[0]?.trim()})`)
+            continue
+          }
+
+          console.log(`   Killing java.exe PID ${pid}...`)
+          try {
+            execSync(`taskkill /PID ${pid} /F /T`, { shell: true, timeout: 5000 })
+          } catch {
+            // process may have already exited
+          }
+        }
+      }
+      // Brief wait for the port to be released (~3 s on Windows)
+      try { execSync('ping -n 4 127.0.0.1 > nul', { shell: true, timeout: 10000 }) } catch { /* ignore */ }
+    } else {
+      // On Linux/macOS, only kill java processes on the port
+      try {
+        const pids = execSync(`lsof -ti:${port} -sTCP:LISTEN 2>/dev/null || true`, { shell: true, timeout: 5000 }).toString().trim()
+        for (const pid of pids.split('\n').filter(Boolean)) {
+          const name = execSync(`ps -p ${pid} -o comm=`, { shell: true, timeout: 3000 }).toString().trim()
+          if (name.includes('java')) {
+            execSync(`kill -9 ${pid}`, { shell: true, timeout: 5000 })
+          }
+        }
+      } catch { /* ignore */ }
+      try { execSync('sleep 3', { shell: true, timeout: 5000 }) } catch { /* ignore */ }
+    }
+    console.log(`✅ Port ${port} released`)
+  } catch (err) {
+    console.warn('⚠️  Could not kill backend:', err instanceof Error ? err.message : String(err))
+  }
+}
+
+async function waitForBackend(url: string, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(url, { signal: AbortSignal.timeout(3000) })
+      if (response.ok) return
+    } catch {
+      // not ready yet
+    }
+    await new Promise(resolve => setTimeout(resolve, 2000))
+  }
+  throw new Error(`Backend did not become healthy at ${url} within ${timeoutMs}ms`)
+}
 
 async function globalSetup() {
   console.log('\n🐳 Starting TestContainers PostgreSQL for UI tests...')
@@ -112,37 +229,100 @@ async function globalSetup() {
     }
     fs.writeFileSync(CONTAINER_INFO_FILE, JSON.stringify(containerState, null, 2))
     
-    // Check if backend is running
+    // Check if backend is running; auto-start it if not (enables CI/CD with no manual setup)
     console.log('\n🔍 Checking if PeeGeeQ backend is running...')
-    const API_BASE_URL = 'http://127.0.0.1:8080'
+    const API_BASE_URL = 'http://127.0.0.1:8088'
+    let backendAlreadyRunning = false
 
     try {
       const response = await fetch(`${API_BASE_URL}/health`, {
         method: 'GET',
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(3000),
       })
+      if (response.ok) {
+        // Verify the running backend has the correct CORS config for the Vite
+        // dev server origin.  If config is stale (http://localhost:3000 not
+        // in allowedOrigins) the browser will see 403 / missing CORS headers.
+        console.log('   Verifying backend CORS configuration for http://localhost:3000...')
+        const corsOk = await verifyCors(`${API_BASE_URL}/health`, 'http://localhost:3000')
+        if (corsOk) {
+          console.log('✅ Backend is already running and healthy (CORS OK)')
+          backendAlreadyRunning = true
+        } else {
+          console.log('⚠️  Backend is running but CORS config is stale — restarting with current config...')
+          killBackendOnPort(8088)
+          // backendAlreadyRunning stays false → auto-start below
+        }
+      }
+    } catch {
+      // Backend not running — will auto-start it below
+    }
 
-      if (!response.ok) {
-        console.error(`\n❌ Backend health check failed with status: ${response.status}`)
-        console.error('   Please start the PeeGeeQ REST server on port 8080 before running e2e tests.')
-        console.error('   The backend should connect to the TestContainers database.')
-        console.error(`   Connection details are in: ${outputPath}`)
-        process.exit(1)
+    if (!backendAlreadyRunning) {
+      console.log('🚀 Backend not running — auto-starting PeeGeeQ REST server...')
+      // Project root is one level above peegeeq-management-ui (process.cwd())
+      const projectRoot = path.resolve(process.cwd(), '..')
+      const mvnCmd = process.platform === 'win32' ? 'mvn.cmd' : 'mvn'
+      const backendLogPath = path.join(process.cwd(), 'e2e-backend.log')
+      // Use 'pipe' for stdio then pipe manually to the log file.
+      // On Windows, neither a raw integer fd nor a freshly-created WriteStream
+      // (whose fd is null until the open callback fires) can be passed directly
+      // to spawn's stdio option — both cause EINVAL / "invalid stdio" errors.
+      const backendLogStream = fs.createWriteStream(backendLogPath, { flags: 'w' })
+
+      const backendProc = spawn(
+        mvnCmd,
+        [
+          'exec:java', '-pl', 'peegeeq-rest',
+          `-DPEEGEEQ_DATABASE_HOST=${connectionInfo.host}`,
+          `-DPEEGEEQ_DATABASE_PORT=${connectionInfo.port}`,
+          `-DPEEGEEQ_DATABASE_NAME=${connectionInfo.database}`,
+          `-DPEEGEEQ_DATABASE_USERNAME=${connectionInfo.username}`,
+          `-DPEEGEEQ_DATABASE_PASSWORD=${connectionInfo.password}`,
+          `-DPEEGEEQ_DATABASE_SCHEMA=public`,
+        ],
+        {
+          cwd: projectRoot,
+          env: {
+            ...process.env,
+            PEEGEEQ_DATABASE_HOST: connectionInfo.host,
+            PEEGEEQ_DATABASE_PORT: String(connectionInfo.port),
+            PEEGEEQ_DATABASE_NAME: connectionInfo.database,
+            PEEGEEQ_DATABASE_USERNAME: connectionInfo.username,
+            PEEGEEQ_DATABASE_PASSWORD: connectionInfo.password,
+            PEEGEEQ_DATABASE_SCHEMA: 'public',
+          },
+          // shell: true is required on Windows so that .cmd files (mvn.cmd) are
+          // invoked via cmd.exe; without it, CreateProcess fails with EINVAL.
+          shell: process.platform === 'win32',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }
+      )
+
+      // Pipe stdout and stderr to the log file via the stream (works on all platforms)
+      backendProc.stdout?.pipe(backendLogStream)
+      backendProc.stderr?.pipe(backendLogStream)
+
+      backendProc.on('error', (err: Error) =>
+        console.error('❌ Backend process error:', err.message)
+      )
+
+      if (backendProc.pid) {
+        fs.writeFileSync(BACKEND_PID_FILE, String(backendProc.pid))
+        console.log(`📝 Backend PID ${backendProc.pid} saved for teardown`)
+        console.log(`📋 Backend startup log: ${backendLogPath}`)
       }
 
-      console.log('✅ Backend is running and healthy')
-    } catch (error) {
-      console.error('\n❌ Cannot connect to PeeGeeQ backend at http://127.0.0.1:8080')
-      console.error('   Error:', error instanceof Error ? error.message : String(error))
-      console.error('\n   Please start the PeeGeeQ REST server before running e2e tests.')
-      console.error('   The backend should connect to the TestContainers database:')
-      console.error(`   - Host: ${host}`)
-      console.error(`   - Port: ${port}`)
-      console.error(`   - Database: ${database}`)
-      console.error(`   - Username: ${connectionInfo.username}`)
-      console.error(`   - Password: ${connectionInfo.password}`)
-      console.error(`\n   Connection details are in: ${outputPath}\n`)
-      process.exit(1)
+      console.log('⏳ Waiting for backend to become healthy (up to 120s)...')
+      try {
+        await waitForBackend(`${API_BASE_URL}/health`, 120000)
+        console.log('✅ Backend started and healthy')
+      } catch (err) {
+        console.error('❌ Backend did not start in time:', err instanceof Error ? err.message : String(err))
+        console.error(`   Check backend startup log: ${backendLogPath}`)
+        backendProc.kill()
+        process.exit(1)
+      }
     }
 
     // Clean up any existing database setups from previous test runs
@@ -194,6 +374,26 @@ async function globalTeardown() {
   console.log('\n🧹 Cleaning up TestContainers state files...')
 
   try {
+    // Stop the backend process if we auto-started it
+    if (fs.existsSync(BACKEND_PID_FILE)) {
+      const pidStr = fs.readFileSync(BACKEND_PID_FILE, 'utf8').trim()
+      const pid = parseInt(pidStr, 10)
+      if (!isNaN(pid)) {
+        console.log(`\n🛑 Stopping auto-started backend process (PID ${pid})...`)
+        try {
+          if (process.platform === 'win32') {
+            execSync(`taskkill /PID ${pid} /T /F`, { stdio: 'ignore' })
+          } else {
+            process.kill(pid, 'SIGTERM')
+          }
+          console.log('✅ Backend process terminated')
+        } catch {
+          console.warn(`⚠️  Could not kill backend process ${pid} (may have already exited)`)
+        }
+      }
+      fs.unlinkSync(BACKEND_PID_FILE)
+    }
+
     // Clean up state file
     if (fs.existsSync(CONTAINER_INFO_FILE)) {
       fs.unlinkSync(CONTAINER_INFO_FILE)
