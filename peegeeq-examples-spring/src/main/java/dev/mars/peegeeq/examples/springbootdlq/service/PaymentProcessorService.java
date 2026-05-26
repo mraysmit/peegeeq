@@ -30,7 +30,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -88,22 +87,6 @@ public class PaymentProcessorService {
         consumer.subscribe(this::processPayment)
                 .onFailure(err -> log.error("Consumer subscription failed for topic", err));
         log.info("Payment processor started successfully");
-    }
-    
-    /**
-     * Stop processing payments when the application is shutting down.
-     * Properly closes the consumer to shut down background threads.
-     */
-    @PreDestroy
-    public void stopProcessing() {
-        log.info("Stopping payment processor");
-        try {
-            // Close consumer to shut down scheduler and background threads
-            consumer.close();
-            log.info("Payment processor stopped successfully");
-        } catch (Exception e) {
-            log.error("Error stopping payment processor", e);
-        }
     }
     
     /**

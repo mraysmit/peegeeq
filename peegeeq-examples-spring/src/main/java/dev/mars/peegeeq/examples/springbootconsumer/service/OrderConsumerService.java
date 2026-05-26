@@ -30,7 +30,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -111,27 +110,6 @@ public class OrderConsumerService {
         updateConsumerStatus("RUNNING");
         
         log.info("Consumer {} started successfully", consumerInstanceId);
-    }
-    
-    /**
-     * Stop consuming messages when the application is shutting down.
-     */
-    @PreDestroy
-    public void stopConsuming() {
-        log.info("Stopping message consumption for consumer: {}", consumerInstanceId);
-        
-        try {
-            // Update consumer status
-            updateConsumerStatus("STOPPED");
-            
-            // Close consumer
-            consumer.close();
-            
-            log.info("Consumer {} stopped successfully. Total messages processed: {}", 
-                consumerInstanceId, messagesProcessed.get());
-        } catch (Exception e) {
-            log.error("Error stopping consumer", e);
-        }
     }
     
     /**

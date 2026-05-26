@@ -33,7 +33,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -98,27 +97,6 @@ public class CriticalTradeConsumerService {
         updateConsumerStatus("RUNNING");
 
         log.info("Critical-trades consumer {} started successfully with filter: priority=CRITICAL", consumerInstanceId);
-    }
-    
-    /**
-     * Stop consuming messages when the application is shutting down.
-     */
-    @PreDestroy
-    public void stopConsuming() {
-        log.info("Stopping critical-trades consumer: {}", consumerInstanceId);
-        
-        try {
-            // Update consumer status
-            updateConsumerStatus("STOPPED");
-            
-            // Close consumer
-            consumer.close();
-            
-            log.info("Critical-trades consumer {} stopped successfully. Total messages processed: {}, filtered: {}", 
-                consumerInstanceId, messagesProcessed.get(), messagesFiltered.get());
-        } catch (Exception e) {
-            log.error("Error stopping critical-trades consumer", e);
-        }
     }
     
     /**

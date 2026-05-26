@@ -168,7 +168,7 @@ public class PeeGeeQConfig {
         log.info("Creating outbox factory");
         
         DatabaseService databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
+        QueueFactoryProvider provider = new PgQueueFactoryProvider(manager.getConfiguration());
         
         // Register outbox factory implementation
         OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);

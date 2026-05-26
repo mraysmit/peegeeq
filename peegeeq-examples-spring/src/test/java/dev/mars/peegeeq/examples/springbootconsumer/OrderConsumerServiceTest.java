@@ -19,7 +19,6 @@ package dev.mars.peegeeq.examples.springbootconsumer;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springbootconsumer.events.OrderEvent;
 import dev.mars.peegeeq.examples.springbootconsumer.service.OrderConsumerService;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -160,27 +159,9 @@ public class OrderConsumerServiceTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
     @AfterAll
-    static void tearDown(VertxTestContext testContext) {
-        log.info("\uD83E\uDDF9 Cleaning up Order Consumer Service Test resources");
-        if (peeGeeQManagerRef == null) {
-            log.info("Order Consumer Service Test cleanup complete");
-            testContext.completeNow();
-            return;
-        }
-        peeGeeQManagerRef.closeReactive().onComplete(testContext.succeeding(v -> {
-            log.info("Order Consumer Service Test cleanup complete");
-            testContext.completeNow();
-        }));
+    static void tearDown() {
+        log.info("Order Consumer Service Test completed - @DirtiesContext handles resource teardown");
     }
 
     @Test

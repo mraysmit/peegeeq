@@ -33,7 +33,6 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PreDestroy;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -102,26 +101,7 @@ public class AllTradesConsumerService {
         log.info("All-trades consumer {} started successfully", consumerInstanceId);
     }
     
-    /**
-     * Stop consuming messages when the application is shutting down.
-     */
-    @PreDestroy
-    public void stopConsuming() {
-        log.info("Stopping all-trades consumer: {}", consumerInstanceId);
-        
-        try {
-            // Update consumer status
-            updateConsumerStatus("STOPPED");
-            
-            // Close consumer
-            consumer.close();
-            
-            log.info("All-trades consumer {} stopped successfully. Total messages processed: {}", 
-                consumerInstanceId, messagesProcessed.get());
-        } catch (Exception e) {
-            log.error("Error stopping all-trades consumer", e);
-        }
-    }
+
     
     /**
      * Process a single message.

@@ -206,18 +206,16 @@ class TransactionalConsistencyTest {
             )
         );
         
-        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Expected a failure");
-            Throwable cause = ar.cause();
+        orderService.createOrderWithBusinessValidation(request).onComplete(testContext.failing(cause -> testContext.verify(() -> {
             boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Order amount exceeds maximum limit")) ||
                                (cause.getCause() != null && cause.getCause().getMessage() != null &&
                                 cause.getCause().getMessage().contains("Order amount exceeds maximum limit"));
             assertTrue(msgMatch, "Exception should mention amount limit violation");
-            logger.info("❌ TRANSACTION ROLLBACK: Business validation failed as expected");
+            logger.info("\u274c TRANSACTION ROLLBACK: Business validation failed as expected");
             logger.info("Both database record and outbox event rolled back together");
             logger.info("Business validation rollback consistency test passed");
             testContext.completeNow();
-        }));
+        })));
     }
     
     /**
@@ -239,18 +237,16 @@ class TransactionalConsistencyTest {
             )
         );
         
-        orderService.createOrderWithBusinessValidation(request).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Expected a failure");
-            Throwable cause = ar.cause();
+        orderService.createOrderWithBusinessValidation(request).onComplete(testContext.failing(cause -> testContext.verify(() -> {
             boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Invalid customer ID")) ||
                                (cause.getCause() != null && cause.getCause().getMessage() != null &&
                                 cause.getCause().getMessage().contains("Invalid customer ID"));
             assertTrue(msgMatch, "Exception should mention invalid customer ID");
-            logger.info("❌ TRANSACTION ROLLBACK: Customer validation failed as expected");
+            logger.info("\u274c TRANSACTION ROLLBACK: Customer validation failed as expected");
             logger.info("Both database record and outbox event rolled back together");
             logger.info("Customer validation rollback consistency test passed");
             testContext.completeNow();
-        }));
+        })));
     }
     
     /**
@@ -272,18 +268,16 @@ class TransactionalConsistencyTest {
             )
         );
         
-        orderService.createOrderWithDatabaseConstraints(request).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Expected a failure");
-            Throwable cause = ar.cause();
+        orderService.createOrderWithDatabaseConstraints(request).onComplete(testContext.failing(cause -> testContext.verify(() -> {
             boolean msgMatch = (cause.getMessage() != null && cause.getMessage().contains("Database constraint violation")) ||
                                (cause.getCause() != null && cause.getCause().getMessage() != null &&
                                 cause.getCause().getMessage().contains("Database constraint violation"));
             assertTrue(msgMatch, "Exception should mention database constraint violation");
-            logger.info("❌ TRANSACTION ROLLBACK: Database constraint violation failed as expected");
+            logger.info("\u274c TRANSACTION ROLLBACK: Database constraint violation failed as expected");
             logger.info("Both database record and outbox event rolled back together");
             logger.info("Database constraint rollback consistency test passed");
             testContext.completeNow();
-        }));
+        })));
     }
     
     /**
