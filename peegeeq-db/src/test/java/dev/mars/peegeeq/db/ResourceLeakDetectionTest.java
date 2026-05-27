@@ -50,7 +50,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-10-02
  */
 @Tag(TestCategories.INTEGRATION)
-@Tag("demonstration")
+// BLOCKING-EXEMPT: All Thread.sleep calls occur AFTER closeReactive() has completed
+// and no Vert.x reactive runtime is active at the point of the delays. The sleeps
+// are post-shutdown JVM-level quiescence waits (criterion 3: JVM-thread diagnostics
+// with no reactive runtime), not reactive-handler delays.
+@Tag("blocking-exempt")
 @DisplayName("Resource Leak Detection Tests")
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @Isolated("Resource leak detection must run in complete isolation")
