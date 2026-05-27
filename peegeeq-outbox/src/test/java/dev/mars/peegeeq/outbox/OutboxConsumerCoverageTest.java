@@ -29,7 +29,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
-import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Transaction;
 import io.vertx.sqlclient.Tuple;
 
@@ -72,12 +71,12 @@ class OutboxConsumerCoverageTest {
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
         manager.start()
-                .onSuccess(v -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     DatabaseService databaseService = new PgDatabaseService(manager);
                     outboxFactory = new OutboxFactory(databaseService, config);
                     producer = outboxFactory.createProducer(testTopic, String.class);
                     testContext.completeNow();
-                })
+                }))
                 .onFailure(testContext::failNow);
     }
 
@@ -89,11 +88,9 @@ class OutboxConsumerCoverageTest {
         if (producer != null) {
             producer.close();
         }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
         if (manager != null) {
-            manager.closeReactive()
+            (outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
+                    .eventually(() -> manager.closeReactive())
                     .onSuccess(v -> tearDownContext.completeNow())
                     .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -103,35 +100,49 @@ class OutboxConsumerCoverageTest {
     }
 
     @Test
-    void testHandlerReturnsNull(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testHandlerReturnsNull(VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        Checkpoint latch = testContext.checkpoint();
+        // Verify the null-return error path by confirming the message is retried:
+        // null return → IllegalStateException → incrementRetryAndReset → status reset to PENDING
+        // → message re-delivered on next poll. Two handler invocations prove the retry cycle.
+        AtomicInteger invocationCount = new AtomicInteger(0);
+        Checkpoint retried = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            latch.flag();
+            if (invocationCount.incrementAndGet() == 2) {
+                retried.flag();
+            }
             return null; // Return null to trigger error handling
         }).compose(v -> producer.send("test-null-return"))
           .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should attempt to process message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+                "Handler should be invoked twice: once initially, once after null-return retry");
     }
 
     @Test
-    void testHandlerThrowsDirectException(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testHandlerThrowsDirectException(VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        Checkpoint latch = testContext.checkpoint();
+        // Verify the thrown-exception error path by confirming the message is retried:
+        // thrown exception → Future.failedFuture(e) → incrementRetryAndReset → status reset to PENDING
+        // → message re-delivered on next poll. Two handler invocations prove the retry cycle.
+        AtomicInteger invocationCount = new AtomicInteger(0);
+        Checkpoint retried = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            latch.flag();
+            if (invocationCount.incrementAndGet() == 2) {
+                retried.flag();
+            }
             throw new RuntimeException("Direct exception");
         }).compose(v -> producer.send("test-exception"))
           .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should attempt to process message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+                "Handler should be invoked twice: once initially, once after exception-based retry");
     }
 
     @Test
-    void testMessageDeletedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageDeletedDuringProcessing(VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         io.vertx.core.Promise<Void> startSignal = io.vertx.core.Promise.promise();
         io.vertx.core.Promise<Void> continueGate = io.vertx.core.Promise.promise();
@@ -160,7 +171,7 @@ class OutboxConsumerCoverageTest {
     }
 
     @Test
-    void testConfigurationNull(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConfigurationNull(VertxTestContext testContext) throws Exception {
         // Manually create consumer without configuration
         DatabaseService databaseService = new PgDatabaseService(manager);
         
@@ -177,13 +188,13 @@ class OutboxConsumerCoverageTest {
     }
 
     @Test
-    void testComplexPayloadParsing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testComplexPayloadParsing(VertxTestContext testContext) throws Exception {
         MessageConsumer<ComplexPayload> complexConsumer = outboxFactory.createConsumer(testTopic, ComplexPayload.class);
+        MessageProducer<ComplexPayload> complexProducer = outboxFactory.createProducer(testTopic, ComplexPayload.class);
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<ComplexPayload> received = new AtomicReference<>();
 
         ComplexPayload payload = new ComplexPayload("test", 123);
-        MessageProducer<ComplexPayload> complexProducer = outboxFactory.createProducer(testTopic, ComplexPayload.class);
         complexConsumer.subscribe(message -> {
             received.set(message.getPayload());
             latch.flag();
@@ -191,12 +202,16 @@ class OutboxConsumerCoverageTest {
         }).compose(v -> complexProducer.send(payload))
           .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
-        assertEquals("test", received.get().getName());
-        assertEquals(123, received.get().getValue());
-        
-        complexProducer.close();
-        complexConsumer.close();
+        // awaitCompletion blocks until the checkpoint fires (message processed) or timeout.
+        // close() is synchronous/void — safe to call in finally once all async work is settled.
+        try {
+            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
+            assertEquals("test", received.get().getName());
+            assertEquals(123, received.get().getValue());
+        } finally {
+            complexProducer.close();
+            complexConsumer.close();
+        }
     }
 
     @Test
@@ -247,17 +262,17 @@ class OutboxConsumerCoverageTest {
                             });
                 })
                 .compose(v -> bothHandled.future())
-                .onSuccess(v -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     assertEquals(2, handledCount.get(), "Both messages should be processed eventually");
                     testContext.completeNow();
-                })
+                }))
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
-    void testHeadersParsing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testHeadersParsing(VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();

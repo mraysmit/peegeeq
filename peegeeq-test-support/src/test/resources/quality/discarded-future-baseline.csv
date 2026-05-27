@@ -2,17 +2,5 @@
 # Guard: OnSuccessExceptionSwallowingGuardTest.noDiscardedFuturesFromStopOrCloseInTestSources.
 # Build fails on any mismatch with this baseline (regression OR stale entry).
 # To FIX a file: remediate it, then update or delete its row here in the same commit.
-# Baseline captured: 2026-05-18. Total allowed violations: 79.
-# Note: peegeeq-native entries below are false positives — PgNativeConsumerGroup.close() returns void,
-# not Future<Void>. The guard detects the pattern syntactically without checking the return type.
+# Baseline captured: 2026-05-18. All violations remediated 2026-05-27. Total allowed violations: 0.
 path,count
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/JsonbConversionValidationTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerCrashRecoveryTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupFaultToleranceTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupReviewFixesTest.java,4
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java,12
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerNullHandlerTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryConcurrencyTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryResilienceTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ReactiveOutboxProducerTest.java,1
