@@ -102,9 +102,12 @@ Full guidance:
 
 ## Opting out
 
-The guard skips any file annotated with `@Tag("demonstration")` at class
-level — reserved for deliberate antipattern demos that document what the guard
-catches. Do not use this tag to silence real test code.
+The guard skips any file annotated with `@Tag("blocking-exempt")` at class
+level — reserved for tests where the blocking pattern is the subject under
+test, or where blocking occurs on a non-reactive thread (worker pool, raw
+ExecutorService, post-shutdown quiescence). Each use must carry a
+`// BLOCKING-EXEMPT:` comment with a detailed rationale directly above the
+tag. Do not use this tag to silence real test code.
 
 Ranking by actual damage, not by tier number:
 
