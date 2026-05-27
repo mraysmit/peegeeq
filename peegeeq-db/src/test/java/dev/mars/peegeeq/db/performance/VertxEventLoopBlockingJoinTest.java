@@ -32,7 +32,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * the intentional blocking.
  */
 @Tag(TestCategories.CORE)
-@Tag("demonstration")
+// BLOCKING-EXEMPT: Thread.sleep IS the subject under test. This class deliberately
+// blocks the Vert.x event loop to verify (a) that Vert.x BlockedThreadChecker emits
+// the expected WARN log entries, and (b) that the resulting timer delay is measurable
+// and consistent with the configured maxEventLoopExecuteTime threshold.
+// No production code sleeps on the event loop; this is a diagnostic validation only.
+@Tag("blocking-exempt")
 @ExtendWith(VertxExtension.class)
 class VertxEventLoopBlockingJoinTest {
 
