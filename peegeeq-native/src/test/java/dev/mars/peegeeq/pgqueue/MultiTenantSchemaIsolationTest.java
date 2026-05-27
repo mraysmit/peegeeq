@@ -20,7 +20,6 @@ import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
-import dev.mars.peegeeq.api.messaging.QueueStats;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -76,7 +75,7 @@ class MultiTenantSchemaIsolationTest {
     private QueueFactory factoryTenantB;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         logger.info("========== SETUP STARTING ==========");
         logger.info("Setting up multi-tenant schema isolation test");
 
@@ -109,7 +108,6 @@ class MultiTenantSchemaIsolationTest {
             schemaTenantA
         );
         managerTenantA = new PeeGeeQManager(configTenantA, new SimpleMeterRegistry());
-        managerTenantA.start();
 
         // Create configuration for Tenant B using programmatic constructor
         PeeGeeQConfiguration configTenantB = new PeeGeeQConfiguration(
@@ -122,34 +120,38 @@ class MultiTenantSchemaIsolationTest {
             schemaTenantB
         );
         managerTenantB = new PeeGeeQManager(configTenantB, new SimpleMeterRegistry());
-        managerTenantB.start();
 
-        // Create factories for each tenant
-        PgDatabaseService dbServiceTenantA = new PgDatabaseService(managerTenantA);
-        PgDatabaseService dbServiceTenantB = new PgDatabaseService(managerTenantB);
-
-        PgQueueFactoryProvider providerTenantA = new PgQueueFactoryProvider();
-        PgQueueFactoryProvider providerTenantB = new PgQueueFactoryProvider();
-
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) providerTenantA);
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) providerTenantB);
-
-        factoryTenantA = providerTenantA.createFactory("native", dbServiceTenantA);
-        factoryTenantB = providerTenantB.createFactory("native", dbServiceTenantB);
-
-        logger.info("Multi-tenant setup complete");
-        logger.info("========== SETUP COMPLETE ==========");
+        managerTenantA.start()
+                .compose(v -> {
+                    PgDatabaseService dbServiceTenantA = new PgDatabaseService(managerTenantA);
+                    PgQueueFactoryProvider providerTenantA = new PgQueueFactoryProvider();
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) providerTenantA);
+                    factoryTenantA = providerTenantA.createFactory("native", dbServiceTenantA);
+                    return managerTenantB.start();
+                })
+                .onSuccess(v -> {
+                    PgDatabaseService dbServiceTenantB = new PgDatabaseService(managerTenantB);
+                    PgQueueFactoryProvider providerTenantB = new PgQueueFactoryProvider();
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) providerTenantB);
+                    factoryTenantB = providerTenantB.createFactory("native", dbServiceTenantB);
+                    logger.info("Multi-tenant setup complete");
+                    logger.info("========== SETUP COMPLETE ==========");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down multi-tenant test");
-        if (managerTenantA != null) {
-            managerTenantA.closeReactive().await();
-        }
-        if (managerTenantB != null) {
-            managerTenantB.closeReactive().await();
-        }
+        (managerTenantA != null ? managerTenantA.closeReactive() : Future.<Void>succeededFuture())
+                .compose(v -> managerTenantB != null ? managerTenantB.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -161,7 +163,7 @@ class MultiTenantSchemaIsolationTest {
 
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-queue", String.class);
-        producerA.send("tenant-a-message").await();
+        producerA.send("tenant-a-message").onFailure(testContext::failNow);
         logger.info("Tenant A sent message: tenant-a-message");
 
         // Give a moment for the message to be persisted
@@ -175,7 +177,7 @@ class MultiTenantSchemaIsolationTest {
             receivedB.add(msg.getPayload());
             tenantBLatch.countDown();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for any cross-tenant leakage
         boolean receivedMessage = tenantBLatch.await(3, TimeUnit.SECONDS);
@@ -193,7 +195,7 @@ class MultiTenantSchemaIsolationTest {
             receivedA.add(msg.getPayload());
             testContext.completeNow();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         logger.info("Waiting for Tenant A to receive message...");
         boolean receivedByA = testContext.awaitCompletion(10, TimeUnit.SECONDS);
@@ -210,34 +212,41 @@ class MultiTenantSchemaIsolationTest {
      * Test 2: Verify that queue statistics are isolated between tenants.
      */
     @Test
-    void testStatsIsolationBetweenTenants() throws Exception {
+    void testStatsIsolationBetweenTenants(VertxTestContext testContext) throws InterruptedException {
         logger.info("Test 2: Testing stats isolation between tenants");
 
-        // Tenant A sends 5 messages
+        // Tenant A sends 5 messages sequentially (must complete before getStats)
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-queue", String.class);
-        for (int i = 0; i < 5; i++) {
-            producerA.send("tenant-a-message-" + i).await();
-        }
-        logger.info("Tenant A sent 5 messages");
+        Future<Void> sendsFutureA = producerA.send("tenant-a-message-0")
+                .compose(v -> producerA.send("tenant-a-message-1"))
+                .compose(v -> producerA.send("tenant-a-message-2"))
+                .compose(v -> producerA.send("tenant-a-message-3"))
+                .compose(v -> producerA.send("tenant-a-message-4"));
 
-        // Tenant B sends 3 messages
+        // Tenant B sends 3 messages sequentially (must complete before getStats)
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-queue", String.class);
-        for (int i = 0; i < 3; i++) {
-            producerB.send("tenant-b-message-" + i).await();
-        }
-        logger.info("Tenant B sent 3 messages");
+        Future<Void> sendsFutureB = producerB.send("tenant-b-message-0")
+                .compose(v -> producerB.send("tenant-b-message-1"))
+                .compose(v -> producerB.send("tenant-b-message-2"));
 
-        // Get stats for tenant A
-        QueueStats statsA = factoryTenantA.getStats("stats-queue").await();
+        // Get stats only after all sends have completed
+        Future.all(sendsFutureA, sendsFutureB)
+                .compose(cf -> factoryTenantA.getStats("stats-queue"))
+                .compose(statsA -> factoryTenantB.getStats("stats-queue")
+                        .map(statsB -> {
+                            testContext.verify(() -> {
+                                assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
+                                assertEquals(3, statsB.getPendingMessages(), "Tenant B should have 3 pending messages");
+                            });
+                            return statsB;
+                        }))
+                .onSuccess(v -> {
+                    logger.info("Test 2: Stats isolation verified successfully");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
 
-        // Get stats for tenant B
-        QueueStats statsB = factoryTenantB.getStats("stats-queue").await();
-
-        // Verify stats are isolated
-        assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
-        assertEquals(3, statsB.getPendingMessages(), "Tenant B should have 3 pending messages");
-
-        logger.info("Test 2: Stats isolation verified successfully");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Stats test should complete within timeout");
     }
 
     /**
@@ -253,8 +262,8 @@ class MultiTenantSchemaIsolationTest {
         MessageProducer<String> producerA = factoryTenantA.createProducer(queueName, String.class);
         MessageProducer<String> producerB = factoryTenantB.createProducer(queueName, String.class);
 
-        producerA.send("tenant-a-data").await();
-        producerB.send("tenant-b-data").await();
+        producerA.send("tenant-a-data").onFailure(testContext::failNow);
+        producerB.send("tenant-b-data").onFailure(testContext::failNow);
 
         logger.info("Both tenants sent messages to queue: {}", queueName);
 
@@ -267,7 +276,7 @@ class MultiTenantSchemaIsolationTest {
             receivedA.add(msg.getPayload());
             latchA.countDown();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A should receive message");
         assertEquals(1, receivedA.size(), "Tenant A should have 1 message");
@@ -281,7 +290,7 @@ class MultiTenantSchemaIsolationTest {
             receivedB.add(msg.getPayload());
             testContext.completeNow();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Tenant B should receive message");
         assertEquals(1, receivedB.size(), "Tenant B should have 1 message");

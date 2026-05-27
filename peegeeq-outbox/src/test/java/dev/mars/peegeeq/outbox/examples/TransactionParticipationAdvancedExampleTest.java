@@ -31,6 +31,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
@@ -41,6 +43,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -53,6 +56,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -106,6 +110,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class TransactionParticipationAdvancedExampleTest {
@@ -122,7 +127,7 @@ class TransactionParticipationAdvancedExampleTest {
     private Pool vertxPool;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -131,257 +136,199 @@ class TransactionParticipationAdvancedExampleTest {
 
         // Configure PeeGeeQ to use container database
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
-        
+
         // Initialize PeeGeeQ Manager - following established pattern
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
-        
-        // Create outbox factory - following established pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        
-        // Register outbox factory implementation
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        
-        outboxFactory = provider.createFactory("outbox", databaseService);
-        orderProducer = (OutboxProducer<OrderEvent>) outboxFactory.createProducer("orders", OrderEvent.class);
-        
-        // Initialize Vert.x and connection pool for transaction participation
-        vertx = Vertx.vertx();
-        
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(postgres.getHost())
-            .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
-            .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
-        
-        PoolOptions poolOptions = new PoolOptions().setMaxSize(10);
-        vertxPool = PgBuilder.pool().with(poolOptions).connectingTo(connectOptions).using(vertx).build();
-        
-        // Create test business table
-        createTestBusinessTable();
-        
-        logger.info("Transaction Participation Advanced Example Test setup completed");
+        manager.start()
+            .compose(v -> {
+                logger.info("PeeGeeQ Manager started successfully");
+
+                // Create outbox factory - following established pattern
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                outboxFactory = provider.createFactory("outbox", databaseService);
+                orderProducer = (OutboxProducer<OrderEvent>) outboxFactory.createProducer("orders", OrderEvent.class);
+
+                // Initialize Vert.x and connection pool for transaction participation
+                vertx = Vertx.vertx();
+                PgConnectOptions connectOptions = new PgConnectOptions()
+                    .setHost(postgres.getHost())
+                    .setPort(postgres.getFirstMappedPort())
+                    .setDatabase(postgres.getDatabaseName())
+                    .setUser(postgres.getUsername())
+                    .setPassword(postgres.getPassword());
+                PoolOptions poolOptions = new PoolOptions().setMaxSize(10);
+                vertxPool = PgBuilder.pool().with(poolOptions).connectingTo(connectOptions).using(vertx).build();
+
+                // Create test business table
+                return createTestBusinessTable();
+            })
+            .onSuccess(v -> {
+                logger.info("Transaction Participation Advanced Example Test setup completed");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Transaction Participation Advanced Example Test");
-        
-        if (orderProducer != null) {
-            orderProducer.close();
-        }
-        
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        
-        if (vertxPool != null) {
-            vertxPool.close();
-        }
-        
-        if (vertx != null) {
-            vertx.close();
-        }
-        
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-        
-        logger.info("Transaction Participation Advanced Example Test cleanup completed");
+
+        if (orderProducer != null) orderProducer.close();
+        if (outboxFactory != null) outboxFactory.close().onFailure(e -> logger.warn("outboxFactory close failed in teardown", e));
+
+        // Close manager on its own event loop; complete the test context on success.
+        // vertxPool and vertx are closed after awaitCompletion — closing vertx inside the
+        // chain causes RejectedExecutionException because vertx.close() terminates the very
+        // event loop the chain needs to emit its next result on.
+        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Transaction Participation Advanced Example Test cleanup completed");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
+
+        assertTrue(ctx.awaitCompletion(15, TimeUnit.SECONDS), "Teardown should complete within 15s");
+
+        if (vertxPool != null) vertxPool.close().onFailure(e -> logger.warn("vertxPool close failed in teardown", e));
+        if (vertx != null) vertx.close().onFailure(e -> logger.warn("vertx close failed in teardown", e));
     }
     
     @Test
-    void testSimpleTransactionParticipation() throws Exception {
+    void testSimpleTransactionParticipation(VertxTestContext ctx) throws Exception {
         logger.info("=== Testing Pattern 1: Simple Transaction Participation ===");
-        
+
         // Create a test order event
         OrderEvent testOrder = new OrderEvent("TX-ORDER-001", "CUSTOMER-TX-123", 199.99);
         logger.info("Created order: {}", testOrder);
-        
+
         // Demonstrate simple transaction participation
-        Future<Void> transactionFuture = vertxPool.getConnection()
-            .compose(connection -> {
-                logger.info("✓ Got SqlConnection for simple transaction participation");
-                
-                return connection.begin()
-                    .compose(transaction -> {
-                        logger.info("✓ Transaction started");
-                        
-                        // Send outbox message within transaction
-                        return orderProducer.sendInExistingTransaction(testOrder, connection)
-                            .compose(v -> {
-                                logger.info("✓ Outbox message sent in transaction");
-                                
-                                // Commit the transaction
-                                return transaction.commit();
-                            });
-                    })
-                    .eventually(() -> connection.close());
+        vertxPool.getConnection()
+            .compose(connection -> connection.begin()
+                .compose(transaction -> orderProducer.sendInExistingTransaction(testOrder, connection)
+                    .compose(v -> {
+                        logger.info("✓ Outbox message sent in transaction");
+                        return transaction.commit();
+                    }))
+                .eventually(() -> connection.close()))
+            .mapEmpty()
+            .onSuccess(v -> {
+                logger.info("Simple transaction participation test completed successfully!");
+                ctx.completeNow();
             })
-            .mapEmpty();
-        
-        // Wait for completion
-        assertDoesNotThrow(() -> transactionFuture.await());
-        logger.info("Simple transaction participation test completed successfully!");
+            .onFailure(ctx::failNow);
+
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
     
     @Test
-    void testTransactionParticipationWithMetadata() throws Exception {
+    void testTransactionParticipationWithMetadata(VertxTestContext ctx) throws Exception {
         logger.info("=== Testing Pattern 2: Transaction Participation with Headers and Metadata ===");
-        
-        // Create a test order event
+
         OrderEvent testOrder = new OrderEvent("TX-ORDER-002", "CUSTOMER-TX-456", 299.99);
-        logger.info("Created order: {}", testOrder);
-        
-        // Prepare headers and metadata
         Map<String, String> headers = new HashMap<>();
         headers.put("source", "transaction-participation-test");
         headers.put("version", "1.0");
         headers.put("priority", "high");
-        
         String correlationId = UUID.randomUUID().toString();
         String messageGroup = "tx-participation-group";
-        
-        logger.info("Headers: {}", headers);
-        logger.info("Correlation ID: {}", correlationId);
-        logger.info("Message Group: {}", messageGroup);
-        
-        // Demonstrate transaction participation with full metadata
-        Future<Void> transactionFuture = vertxPool.getConnection()
-            .compose(connection -> {
-                logger.info("✓ Got SqlConnection for metadata transaction participation");
-                
-                return connection.begin()
-                    .compose(transaction -> {
-                        logger.info("✓ Transaction started with metadata");
-                        
-                        // Send outbox message with full metadata within transaction
-                        return orderProducer.sendInExistingTransaction(testOrder, headers, correlationId, messageGroup, connection)
-                            .compose(v -> {
-                                logger.info("✓ Outbox message with metadata sent in transaction");
-                                
-                                // Commit the transaction
-                                return transaction.commit();
-                            });
-                    })
-                    .eventually(() -> connection.close());
+
+        vertxPool.getConnection()
+            .compose(connection -> connection.begin()
+                .compose(transaction -> orderProducer.sendInExistingTransaction(testOrder, headers, correlationId, messageGroup, connection)
+                    .compose(v -> {
+                        logger.info("✓ Outbox message with metadata sent in transaction");
+                        return transaction.commit();
+                    }))
+                .eventually(() -> connection.close()))
+            .mapEmpty()
+            .onSuccess(v -> {
+                logger.info("Transaction participation with metadata test completed successfully!");
+                ctx.completeNow();
             })
-            .mapEmpty();
-        
-        // Wait for completion
-        assertDoesNotThrow(() -> transactionFuture.await());
-        logger.info("Transaction participation with metadata test completed successfully!");
+            .onFailure(ctx::failNow);
+
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
-    void testMultipleOperationsInSameTransaction() throws Exception {
+    void testMultipleOperationsInSameTransaction(VertxTestContext ctx) throws Exception {
         logger.info("=== Testing Pattern 3: Multiple Operations in Same Transaction ===");
 
-        // Create multiple test order events
         OrderEvent order1 = new OrderEvent("TX-ORDER-003A", "CUSTOMER-TX-789", 150.00);
         OrderEvent order2 = new OrderEvent("TX-ORDER-003B", "CUSTOMER-TX-789", 250.00);
-        logger.info("Created order 1: {}", order1);
-        logger.info("Created order 2: {}", order2);
 
-        // Demonstrate multiple operations in same transaction
-        Future<Void> transactionFuture = vertxPool.getConnection()
-            .compose(connection -> {
-                logger.info("✓ Got SqlConnection for multiple operations");
-
-                return connection.begin()
-                    .compose(transaction -> {
-                        logger.info("✓ Transaction started for multiple operations");
-
-                        // Send first outbox message
-                        return orderProducer.sendInExistingTransaction(order1, connection)
-                            .compose(v -> {
-                                logger.info("✓ First outbox message sent in transaction");
-
-                                // Send second outbox message
-                                return orderProducer.sendInExistingTransaction(order2, connection)
-                                    .compose(v2 -> {
-                                        logger.info("✓ Second outbox message sent in transaction");
-
-                                        // Commit the transaction - all operations commit together
-                                        return transaction.commit();
-                                    });
-                            });
+        vertxPool.getConnection()
+            .compose(connection -> connection.begin()
+                .compose(transaction -> orderProducer.sendInExistingTransaction(order1, connection)
+                    .compose(v -> {
+                        logger.info("✓ First outbox message sent in transaction");
+                        return orderProducer.sendInExistingTransaction(order2, connection);
                     })
-                    .eventually(() -> connection.close());
+                    .compose(v -> {
+                        logger.info("✓ Second outbox message sent in transaction");
+                        return transaction.commit();
+                    }))
+                .eventually(() -> connection.close()))
+            .mapEmpty()
+            .onSuccess(v -> {
+                logger.info("Multiple operations in same transaction test completed successfully!");
+                ctx.completeNow();
             })
-            .mapEmpty();
+            .onFailure(ctx::failNow);
 
-        // Wait for completion
-        assertDoesNotThrow(() -> transactionFuture.await());
-        logger.info("Multiple operations in same transaction test completed successfully!");
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
-    void testBusinessLogicWithOutboxConsistency() throws Exception {
+    void testBusinessLogicWithOutboxConsistency(VertxTestContext ctx) throws Exception {
         logger.info("=== Testing Pattern 4: Business Logic with Outbox Consistency ===");
 
-        // Create a test order event
         OrderEvent testOrder = new OrderEvent("TX-ORDER-004", "CUSTOMER-TX-999", 399.99);
-        logger.info("Created order: {}", testOrder);
 
-        // Demonstrate business logic + outbox consistency
-        Future<String> businessResult = vertxPool.getConnection()
-            .compose(connection -> {
-                logger.info("✓ Got SqlConnection for business logic consistency");
+        vertxPool.getConnection()
+            .compose(connection -> connection.begin()
+                .compose(transaction -> {
+                    String insertSql = "INSERT INTO test_orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)";
+                    Tuple params = Tuple.of(testOrder.getOrderId(), testOrder.getCustomerId(), testOrder.getAmount(), "CREATED");
+                    return connection.preparedQuery(insertSql).execute(params)
+                        .compose(result -> {
+                            logger.info("✓ Order inserted: {} rows affected", result.rowCount());
+                            assertEquals(1, result.rowCount(), "Should insert exactly 1 row");
+                            String updateSql = "UPDATE test_orders SET status = $1 WHERE id = $2";
+                            return connection.preparedQuery(updateSql).execute(Tuple.of("CONFIRMED", testOrder.getOrderId()));
+                        })
+                        .compose(result -> {
+                            logger.info("✓ Order status updated: {} rows affected", result.rowCount());
+                            assertEquals(1, result.rowCount(), "Should update exactly 1 row");
+                            return orderProducer.sendInExistingTransaction(testOrder, connection)
+                                .compose(v -> {
+                                    logger.info("✓ Outbox event sent in same transaction");
+                                    return transaction.commit()
+                                        .map(ignored -> "Business logic completed with outbox consistency");
+                                });
+                        });
+                })
+                .eventually(() -> connection.close()))
+            .onSuccess(result -> ctx.verify(() -> {
+                assertEquals("Business logic completed with outbox consistency", result);
+                logger.info("Business logic with outbox consistency test completed successfully!");
+                ctx.completeNow();
+            }))
+            .onFailure(ctx::failNow);
 
-                return connection.begin()
-                    .compose(transaction -> {
-                        logger.info("✓ Transaction started for business logic");
-
-                        // Step 1: Insert order
-                        String insertSql = "INSERT INTO test_orders (id, customer_id, amount, status) VALUES ($1, $2, $3, $4)";
-                        Tuple params = Tuple.of(testOrder.getOrderId(), testOrder.getCustomerId(), testOrder.getAmount(), "CREATED");
-
-                        return connection.preparedQuery(insertSql).execute(params)
-                            .compose(result -> {
-                                logger.info("✓ Order inserted: {} rows affected", result.rowCount());
-                                assertEquals(1, result.rowCount(), "Should insert exactly 1 row");
-
-                                // Step 2: Update order status
-                                String updateSql = "UPDATE test_orders SET status = $1 WHERE id = $2";
-                                return connection.preparedQuery(updateSql).execute(Tuple.of("CONFIRMED", testOrder.getOrderId()));
-                            })
-                            .compose(result -> {
-                                logger.info("✓ Order status updated: {} rows affected", result.rowCount());
-                                assertEquals(1, result.rowCount(), "Should update exactly 1 row");
-
-                                // Step 3: Send outbox event - guaranteed consistency with business operations
-                                return orderProducer.sendInExistingTransaction(testOrder, connection)
-                                    .compose(v -> {
-                                        logger.info("✓ Outbox event sent in same transaction");
-
-                                        // Step 4: Commit everything together
-                                        return transaction.commit()
-                                            .map(ignored -> "Business logic completed with outbox consistency");
-                                    });
-                            });
-                    })
-                    .eventually(() -> connection.close());
-            });
-
-        // Wait for completion and verify result
-        String result = assertDoesNotThrow(() -> businessResult.await());
-        assertEquals("Business logic completed with outbox consistency", result);
-        logger.info("Business logic with outbox consistency test completed successfully!");
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     /**
      * Creates the test business table for demonstrating business logic consistency.
      */
-    private void createTestBusinessTable() throws Exception {
+    private Future<Void> createTestBusinessTable() {
         logger.info("Creating test business table for transaction participation...");
-
-        Future<Void> createTableFuture = vertxPool.getConnection()
-            .compose(connection -> {
+        return vertxPool.getConnection()
+            .<Void>compose(connection -> {
                 String createTableSql = """
                     CREATE TABLE IF NOT EXISTS test_orders (
                         id VARCHAR(255) PRIMARY KEY,
@@ -391,18 +338,11 @@ class TransactionParticipationAdvancedExampleTest {
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                     """;
-
                 return connection.query(createTableSql).execute()
-                    .compose(result -> {
-                        logger.info("✓ Test orders table created/verified");
-                        return Future.succeededFuture();
-                    })
-                    .eventually(() -> connection.close());
+                    .eventually(() -> connection.close())
+                    .mapEmpty();
             })
-            .mapEmpty();
-
-        createTableFuture.await();
-        logger.info("✓ Test business table created successfully");
+            .onSuccess(v -> logger.info("✓ Test business table created successfully"));
     }
 
     /**

@@ -65,7 +65,7 @@ class HybridModeEdgeCaseTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -81,29 +81,31 @@ class HybridModeEdgeCaseTest {
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for HYBRID mode edge case testing");
+        manager.start()
+                .onSuccess(v -> {
+                    // Create factory using the proper pattern
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("native", databaseService);
+                    logger.info("Test setup completed for HYBRID mode edge case testing");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
         logger.info("Test teardown completed");
     }
 
@@ -155,8 +157,8 @@ class HybridModeEdgeCaseTest {
 
         // Send messages BEFORE creating consumer (to test polling fallback)
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        producer.send("Existing message 1").await();
-        producer.send("Existing message 2").await();
+        producer.send("Existing message 1").onFailure(testContext::failNow);
+        producer.send("Existing message 2").onFailure(testContext::failNow);
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -191,8 +193,8 @@ class HybridModeEdgeCaseTest {
 
         // Send some messages BEFORE consumer starts
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        producer.send("Pre-existing message 1").await();
-        producer.send("Pre-existing message 2").await();
+        producer.send("Pre-existing message 1").onFailure(testContext::failNow);
+        producer.send("Pre-existing message 2").onFailure(testContext::failNow);
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -254,7 +256,7 @@ class HybridModeEdgeCaseTest {
         });
 
         // Send a message to verify consumer is working
-        producer.send("Cleanup test message");
+        producer.send("Cleanup test message").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -294,7 +296,7 @@ class HybridModeEdgeCaseTest {
 
         // Send messages in sequence
         for (int i = 1; i <= 6; i++) {
-            producer.send("Message " + i).await();
+            producer.send("Message " + i).onFailure(testContext::failNow);
         }
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
@@ -334,7 +336,7 @@ class HybridModeEdgeCaseTest {
 
         // Send messages
         for (int i = 1; i <= 15; i++) {
-            producer.send("Performance test message " + i).await();
+            producer.send("Performance test message " + i).onFailure(testContext::failNow);
         }
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");

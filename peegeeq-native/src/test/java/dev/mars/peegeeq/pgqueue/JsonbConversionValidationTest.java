@@ -70,7 +70,7 @@ class JsonbConversionValidationTest {
     private PgNativeQueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -83,64 +83,71 @@ class JsonbConversionValidationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("jsonb-native-test", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        databaseService = new PgDatabaseService(manager);
-        factory = new PgNativeQueueFactory(databaseService);
+        manager.start()
+                .onSuccess(v -> {
+                    databaseService = new PgDatabaseService(manager);
+                    factory = new PgNativeQueueFactory(databaseService);
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that simple string payloads are stored as proper JSONB objects.
      */
     @Test
-    void testSimpleStringPayloadStoredAsJsonb() throws Exception {
+    void testSimpleStringPayloadStoredAsJsonb(VertxTestContext testContext) throws InterruptedException {
         logger.info("Test: simple string payload stored as jsonb");
         String testMessage = "Hello, Native JSONB World!";
         String topic = "jsonb-native-test-simple";
 
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
-        try {
-            producer.send(testMessage).await();
+        producer.send(testMessage)
+                .compose(v -> databaseService.getPool().preparedQuery("""
+                        SELECT jsonb_typeof(payload) as payload_type,
+                               payload->>'value' as extracted_value
+                        FROM queue_messages
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """)
+                        .execute(Tuple.of(topic)))
+                .onSuccess(rows -> testContext.verify(() -> {
+                    assertTrue(rows.iterator().hasNext(), "Should find the inserted message");
+                    Row row = rows.iterator().next();
+                    assertEquals("object", row.getString("payload_type"),
+                            "Payload should be stored as JSONB object, not string");
+                    assertEquals(testMessage, row.getString("extracted_value"),
+                            "Should be able to extract value using JSON operators");
+                    producer.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(err -> {
+                    producer.close();
+                    testContext.failNow(err);
+                });
 
-            Pool pool = databaseService.getPool();
-            RowSet<Row> rows = pool.preparedQuery("""
-                    SELECT jsonb_typeof(payload) as payload_type,
-                           payload->>'value' as extracted_value
-                    FROM queue_messages
-                    WHERE topic = $1
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """)
-                    .execute(Tuple.of(topic)).await();
-
-            assertTrue(rows.iterator().hasNext(), "Should find the inserted message");
-            Row row = rows.iterator().next();
-
-            assertEquals("object", row.getString("payload_type"),
-                    "Payload should be stored as JSONB object, not string");
-            assertEquals(testMessage, row.getString("extracted_value"),
-                    "Should be able to extract value using JSON operators");
-        } finally {
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
     }
 
     /**
      * Test that headers are stored as proper JSONB objects.
      */
     @Test
-    void testHeadersStoredAsJsonb() throws Exception {
+    void testHeadersStoredAsJsonb(VertxTestContext testContext) throws InterruptedException {
         logger.info("Test: headers stored as jsonb");
         String testMessage = "Message with headers";
         String topic = "jsonb-native-test-headers";
@@ -151,36 +158,38 @@ class JsonbConversionValidationTest {
                 "correlationId", "test-correlation-456");
 
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
-        try {
-            producer.send(testMessage, headers).await();
+        producer.send(testMessage, headers)
+                .compose(v -> databaseService.getPool().preparedQuery("""
+                        SELECT jsonb_typeof(payload) as payload_type,
+                               jsonb_typeof(headers) as headers_type,
+                               headers->>'correlationId' as correlation_id,
+                               headers->>'source' as source_header
+                        FROM queue_messages
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """)
+                        .execute(Tuple.of(topic)))
+                .onSuccess(rows -> testContext.verify(() -> {
+                    assertTrue(rows.iterator().hasNext(), "Should find the inserted message");
+                    Row row = rows.iterator().next();
+                    assertEquals("object", row.getString("payload_type"),
+                            "Payload should be stored as JSONB object");
+                    assertEquals("object", row.getString("headers_type"),
+                            "Headers should be stored as JSONB object");
+                    assertEquals("test-correlation-456", row.getString("correlation_id"),
+                            "Should extract correlationId from headers");
+                    assertEquals("jsonb-native-test", row.getString("source_header"),
+                            "Should extract source from headers");
+                    producer.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(err -> {
+                    producer.close();
+                    testContext.failNow(err);
+                });
 
-            Pool pool = databaseService.getPool();
-            RowSet<Row> rows = pool.preparedQuery("""
-                    SELECT jsonb_typeof(payload) as payload_type,
-                           jsonb_typeof(headers) as headers_type,
-                           headers->>'correlationId' as correlation_id,
-                           headers->>'source' as source_header
-                    FROM queue_messages
-                    WHERE topic = $1
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """)
-                    .execute(Tuple.of(topic)).await();
-
-            assertTrue(rows.iterator().hasNext(), "Should find the inserted message");
-            Row row = rows.iterator().next();
-
-            assertEquals("object", row.getString("payload_type"),
-                    "Payload should be stored as JSONB object");
-            assertEquals("object", row.getString("headers_type"),
-                    "Headers should be stored as JSONB object");
-            assertEquals("test-correlation-456", row.getString("correlation_id"),
-                    "Should extract correlationId from headers");
-            assertEquals("jsonb-native-test", row.getString("source_header"),
-                    "Should extract source from headers");
-        } finally {
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
     }
 
     /**
@@ -199,30 +208,27 @@ class JsonbConversionValidationTest {
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
 
-        try {
-            producer.send(testMessage, headers).await();
+        producer.send(testMessage, headers).onFailure(testContext::failNow);
 
-            consumer.subscribe(message -> {
-                testContext.verify(() -> {
-                    String receivedMessage = message.getPayload();
-                    assertNotNull(receivedMessage, "Payload should not be null");
-                    assertEquals(testMessage, receivedMessage, "Message should match");
+        consumer.subscribe(message -> {
+            testContext.verify(() -> {
+                String receivedMessage = message.getPayload();
+                assertNotNull(receivedMessage, "Payload should not be null");
+                assertEquals(testMessage, receivedMessage, "Message should match");
 
-                    Map<String, String> receivedHeaders = message.getHeaders();
-                    assertNotNull(receivedHeaders, "Headers should not be null");
-                    assertEquals("consumer-test", receivedHeaders.get("source"), "Source header should match");
-                    assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
-                });
+                Map<String, String> receivedHeaders = message.getHeaders();
+                assertNotNull(receivedHeaders, "Headers should not be null");
+                assertEquals("consumer-test", receivedHeaders.get("source"), "Source header should match");
+                assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
+                consumer.close();
+                producer.close();
                 testContext.completeNow();
-                return Future.succeededFuture();
             });
+            return Future.succeededFuture();
+        });
 
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
-                    "Message should be processed within 10 seconds");
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+                "Message should be processed within 10 seconds");
     }
 }
 

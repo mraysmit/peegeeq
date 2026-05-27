@@ -38,6 +38,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import org.junit.jupiter.api.extension.ExtendWith;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import java.util.concurrent.TimeUnit;
+
 import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -74,6 +80,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class NativeVsOutboxComparisonExampleTest {
@@ -86,7 +93,7 @@ class NativeVsOutboxComparisonExampleTest {
     private PeeGeeQManager manager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Native vs Outbox Comparison Test ===");
 
@@ -113,27 +120,32 @@ class NativeVsOutboxComparisonExampleTest {
                 new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
-
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native queue factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        logger.info("Native vs Outbox Comparison Test setup completed");
+        manager.start()
+                .onSuccess(v -> {
+                    logger.info("PeeGeeQ Manager started successfully");
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native queue factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    logger.info("Native vs Outbox Comparison Test setup completed");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Native vs Outbox Comparison Test");
-        
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-        
-        logger.info("Native vs Outbox Comparison Test cleanup completed");
+        logger.info("\uD83E\uDDF9 Cleaning up Native vs Outbox Comparison Test");
+        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> {
+                    logger.info("Native vs Outbox Comparison Test cleanup completed");
+                    ctx.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
