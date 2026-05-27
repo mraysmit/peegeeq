@@ -60,7 +60,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * @since 2026-05-15
  */
 @Disabled("Counter-example fixture. Enable individually to observe Vert.x async test failure swallowing. Do NOT enable in CI.")
-@Tag("demonstration")
+// BLOCKING-EXEMPT: Pedagogical counter-example fixture (@Disabled in CI).
+// The blocking and fire-and-forget patterns present in this class ARE the behaviours
+// under demonstration — the class intentionally shows what NOT to do so that
+// developers can observe Vert.x test failure-swallowing pitfalls first-hand.
+@Tag("blocking-exempt")
 @ExtendWith(VertxExtension.class)
 public class VertxAsyncTestPitfallsDemo {
 
