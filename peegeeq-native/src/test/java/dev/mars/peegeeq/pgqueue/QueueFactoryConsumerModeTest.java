@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import io.vertx.core.Future;
+import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.CountDownLatch;
@@ -64,7 +65,7 @@ class QueueFactoryConsumerModeTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -80,18 +81,18 @@ class QueueFactoryConsumerModeTest {
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for QueueFactory consumer mode testing");
+        manager.start()
+                .onSuccess(v -> {
+                    // Create factory using the proper pattern
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("native", databaseService);
+                    logger.info("Test setup completed for QueueFactory consumer mode testing");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -109,7 +110,7 @@ class QueueFactoryConsumerModeTest {
     }
 
     @Test
-    void testCreateConsumerWithValidConfig() throws Exception {
+    void testCreateConsumerWithValidConfig(VertxTestContext testContext) throws InterruptedException {
         logger.info("🧪 Testing QueueFactory consumer creation with valid ConsumerConfig");
 
         String topicName = "test-factory-valid-config";
@@ -127,21 +128,20 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch methodLatch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received factory test message: {}", message.getPayload());
-            methodLatch.countDown();
+            messageReceived.flag();
             return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send("Factory test message").await();
+        producer.send("Factory test message").onFailure(testContext::failNow);
 
         // Verify message received
-        boolean received = methodLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive message via factory-created consumer");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message via factory-created consumer");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
         consumer.close();
@@ -150,7 +150,7 @@ class QueueFactoryConsumerModeTest {
     }
 
     @Test
-    void testCreateConsumerWithNullConfig() throws Exception {
+    void testCreateConsumerWithNullConfig(VertxTestContext testContext) throws InterruptedException {
         logger.info("🧪 Testing QueueFactory consumer creation with null ConsumerConfig");
 
         String topicName = "test-factory-null-config";
@@ -164,21 +164,20 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly (should default to HYBRID mode)
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch methodLatch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received null config test message: {}", message.getPayload());
-            methodLatch.countDown();
+            messageReceived.flag();
             return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send("Null config test message").await();
+        producer.send("Null config test message").onFailure(testContext::failNow);
 
         // Verify message received
-        boolean received = methodLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive message via consumer created with null config");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message via consumer created with null config");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
         consumer.close();
@@ -258,7 +257,7 @@ class QueueFactoryConsumerModeTest {
     }
 
     @Test
-    void testCreateConsumerBackwardCompatibility() throws Exception {
+    void testCreateConsumerBackwardCompatibility(VertxTestContext testContext) throws InterruptedException {
         logger.info("🧪 Testing QueueFactory backward compatibility (without ConsumerConfig)");
 
         String topicName = "test-factory-backward-compatibility";
@@ -272,21 +271,20 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly (should default to HYBRID mode)
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch methodLatch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received backward compatibility test message: {}", message.getPayload());
-            methodLatch.countDown();
+            messageReceived.flag();
             return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send("Backward compatibility test message").await();
+        producer.send("Backward compatibility test message").onFailure(testContext::failNow);
 
         // Verify message received
-        boolean received = methodLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive message via backward compatible consumer");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message via backward compatible consumer");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
         consumer.close();

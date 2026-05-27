@@ -77,7 +77,7 @@ class PgNativeQueueShutdownTest {
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties - following existing pattern exactly
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -93,13 +93,16 @@ class PgNativeQueueShutdownTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Initialize native queue components using DatabaseService pattern
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        queueFactory = new PgNativeQueueFactory(databaseService);
-        producer = queueFactory.createProducer("test-native-topic", String.class);
-        consumer = queueFactory.createConsumer("test-native-topic", String.class);
+        manager.start()
+                .onSuccess(v -> {
+                    // Initialize native queue components using DatabaseService pattern
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    queueFactory = new PgNativeQueueFactory(databaseService);
+                    producer = queueFactory.createProducer("test-native-topic", String.class);
+                    consumer = queueFactory.createConsumer("test-native-topic", String.class);
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -125,7 +128,7 @@ class PgNativeQueueShutdownTest {
         logger.info("Test: basic shutdown without errors");
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Step 2: Process the message
         AtomicBoolean messageReceived = new AtomicBoolean(false);
@@ -149,7 +152,7 @@ class PgNativeQueueShutdownTest {
         logger.info("Test: shutdown during message processing");
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Step 2: Set up consumer that will trigger shutdown during processing
         AtomicBoolean messageReceived = new AtomicBoolean(false);

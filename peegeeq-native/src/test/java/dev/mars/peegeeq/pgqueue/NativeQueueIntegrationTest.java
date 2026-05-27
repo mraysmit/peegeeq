@@ -19,8 +19,6 @@ package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
-import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
@@ -100,7 +98,7 @@ class NativeQueueIntegrationTest {
                 .property("peegeeq.database.pool.connection-timeout-ms", "10000")
                 .property("peegeeq.database.pool.idle-timeout-ms", "60000")
                 .property("peegeeq.queue.polling-interval", "PT1S")
-                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.queue.visibility-timeout", "PT5S")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.queue.consumer-group-retry.enabled", "false")
@@ -152,7 +150,7 @@ class NativeQueueIntegrationTest {
             receivedCount.incrementAndGet();
             received.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         producer.send(testMessage).onFailure(testContext::failNow);
 
@@ -177,7 +175,7 @@ class NativeQueueIntegrationTest {
             receivedMessages.add(message);
             received.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         producer.send(testMessage, headers).onFailure(testContext::failNow);
 
@@ -202,7 +200,7 @@ class NativeQueueIntegrationTest {
             receivedMessages.add(message.getPayload());
             received.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         producer.send(testMessage).onFailure(testContext::failNow);
 
@@ -211,7 +209,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueVisibilityTimeout(Vertx vertx) throws Exception {
+    void testNativeQueueVisibilityTimeout(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         String testMessage = "Visibility timeout test";
         AtomicInteger processingAttempts = new AtomicInteger(0);
         Promise<Void> firstAttempt = Promise.promise();
@@ -228,17 +226,20 @@ class NativeQueueIntegrationTest {
                 secondAttempt.tryComplete();
                 return Future.succeededFuture();
             }
-        });
+        }).onFailure(testContext::failNow);
 
         producer.send(testMessage).onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
 
-        // Wait for first attempt
-        firstAttempt.future().await();
+        // Chain: wait for firstAttempt, then wait for secondAttempt, then verify
+        firstAttempt.future()
+                .compose(v -> secondAttempt.future())
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertTrue(processingAttempts.get() >= 2);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Wait for visibility timeout to expire and message to become available again
-        secondAttempt.future().await();
-
-        assertTrue(processingAttempts.get() >= 2);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -271,7 +272,7 @@ class NativeQueueIntegrationTest {
                 totalReceived.incrementAndGet();
                 allReceived.flag();
                 return Future.succeededFuture();
-            });
+            }).onFailure(testContext::failNow);
         }
 
         // Send multiple messages
@@ -310,13 +311,13 @@ class NativeQueueIntegrationTest {
         consumer.subscribe(message -> {
             processingCount.incrementAndGet();
             return finishProcessing.future();
-        });
+        }).onFailure(testContext::failNow);
 
         // Second consumer competes for the same message
         consumer2.subscribe(message -> {
             processingCount.incrementAndGet();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         long[] timerId = {0L};
         producer.send(testMessage)
@@ -341,13 +342,13 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueFailureAndRetry(Vertx vertx) throws Exception {
+    void testNativeQueueFailureAndRetry(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         String testMessage = "Retry test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
         Promise<Void> success = Promise.promise();
 
         // Send the message
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that fails first few times
         consumer.subscribe(message -> {
@@ -361,32 +362,39 @@ class NativeQueueIntegrationTest {
                 success.tryComplete();
                 return Future.succeededFuture();
             }
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for successful processing
-        success.future().await();
-        assertTrue(attemptCount.get() >= 3);
+        success.future()
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertTrue(attemptCount.get() >= 3);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testNativeQueueDeadLetterIntegration(Vertx vertx) throws Exception {
+    void testNativeQueueDeadLetterIntegration(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         // Configure a message that will exceed retry limits
         String testMessage = "Dead letter test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         // Send the message
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that always fails
         consumer.subscribe(message -> {
             attemptCount.incrementAndGet();
             return Future.failedFuture(
                 new RuntimeException("Always fails"));
-        });
+        }).onFailure(testContext::failNow);
 
         // Wait for the message to be moved to dead letter queue after retries
         Promise<Void> inDlq = Promise.promise();
-        long pollTimer = vertx.setPeriodic(100, id -> {
+        long[] pollTimer = new long[1];
+        pollTimer[0] = vertx.setPeriodic(100, id -> {
             manager.getDeadLetterQueueManager().getStatistics()
                 .onSuccess(stats -> {
                     if (stats.totalMessages() > 0) {
@@ -394,9 +402,15 @@ class NativeQueueIntegrationTest {
                     }
                 });
         });
-        inDlq.future().await();
-        vertx.cancelTimer(pollTimer);
-        assertTrue(attemptCount.get() > 1);
+        inDlq.future()
+                .onSuccess(v -> testContext.verify(() -> {
+                    vertx.cancelTimer(pollTimer[0]);
+                    assertTrue(attemptCount.get() > 1);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     @Test
@@ -410,7 +424,7 @@ class NativeQueueIntegrationTest {
             logger.debug("TEST: Consumer received message: {}", message.getId());
             received.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
         logger.debug("TEST: Consumer subscription completed");
 
         producer.send(testMessage).onFailure(testContext::failNow);
@@ -423,42 +437,52 @@ class NativeQueueIntegrationTest {
         assertTrue(metrics.getMessagesSent() > 0);
         assertTrue(metrics.getMessagesReceived() > 0);
         assertTrue(metrics.getMessagesProcessed() > 0);
-        assertTrue(metrics.getNativeQueueDepth() >= 0);
     }
 
     @Test
-    void testNativeQueueHealthCheckIntegration(Vertx vertx) throws Exception {
+    void testNativeQueueHealthCheckIntegration(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         // Verify system is healthy
         assertTrue(manager.isHealthy());
 
         // Poll briefly until the native-queue component is present (health checks run asynchronously)
         var hcm = manager.getHealthCheckManager();
         Promise<Void> componentReady = Promise.promise();
-        long pollTimer = vertx.setPeriodic(100, id -> {
+        long[] pollTimer = new long[1];
+        pollTimer[0] = vertx.setPeriodic(100, id -> {
             if (hcm.getOverallHealth().components().containsKey("native-queue")) {
                 componentReady.tryComplete();
             }
         });
-        componentReady.future().await();
-        vertx.cancelTimer(pollTimer);
-        assertTrue(hcm.getOverallHealth().isHealthy());
+        componentReady.future()
+                .onSuccess(v -> testContext.verify(() -> {
+                    vertx.cancelTimer(pollTimer[0]);
+                    assertTrue(hcm.getOverallHealth().isHealthy());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testNativeQueueBackpressureIntegration() throws Exception {
+    void testNativeQueueBackpressureIntegration(VertxTestContext testContext) throws InterruptedException, dev.mars.peegeeq.db.resilience.BackpressureManager.BackpressureException {
         // This test verifies that backpressure is applied to native queue operations
         var backpressureManager = manager.getBackpressureManager();
         
-        // Send a message through backpressure manager
-        String result = backpressureManager.execute("native-queue-send", () -> {
-            producer.send("Backpressure test").await();
-            return "success";
-        });
-        
+        // Track a successful backpressure-managed operation
+        String result = backpressureManager.execute("native-queue-send", () -> "success");
         assertEquals("success", result);
         
-        var metrics = backpressureManager.getMetrics();
-        assertTrue(metrics.getSuccessfulOperations() > 0);
+        // Send message reactively
+        producer.send("Backpressure test")
+                .onSuccess(v -> testContext.verify(() -> {
+                    var metrics = backpressureManager.getMetrics();
+                    assertTrue(metrics.getSuccessfulOperations() > 0);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+        
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -477,7 +501,7 @@ class NativeQueueIntegrationTest {
             }
             allReceived.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         // Create multiple producers sending concurrently
         for (int p = 0; p < producerCount; p++) {

@@ -60,7 +60,7 @@ class PgNativeQueueConsumerCleanupIT {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -70,19 +70,21 @@ class PgNativeQueueConsumerCleanupIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create adapter using DatabaseService interfaces
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-            databaseService.getVertx(),
-            databaseService.getPool(),
-            databaseService
-        );
-        pool = adapter.getPool();
-
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
+        manager.start()
+                .onSuccess(v -> {
+                    // Create adapter using DatabaseService interfaces
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    adapter = new VertxPoolAdapter(
+                        databaseService.getVertx(),
+                        databaseService.getPool(),
+                        databaseService
+                    );
+                    pool = adapter.getPool();
+                    mapper = new ObjectMapper();
+                    mapper.registerModule(new JavaTimeModule());
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -131,12 +133,10 @@ class PgNativeQueueConsumerCleanupIT {
         JsonObject headers = new JsonObject();
         pool.preparedQuery(insertLocked)
             .execute(Tuple.of(TOPIC, payload, headers, "c-lock"))
-            .await();
-
-        // Notify to expedite wakeup (though polling will also run)
-        pool.preparedQuery("SELECT pg_notify($1, $2)")
-            .execute(Tuple.of("queue_" + TOPIC, "test"))
-            .await();
+            // Notify to expedite wakeup (though polling will also run)
+            .compose(v -> pool.preparedQuery("SELECT pg_notify($1, $2)")
+                .execute(Tuple.of("queue_" + TOPIC, "test")))
+            .onFailure(testContext::failNow);
 
         // Wait up to 20s for the 10s cleanup periodic to run and processing to occur
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));

@@ -15,8 +15,12 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -24,6 +28,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
@@ -40,6 +45,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * - Test validates current JDBC behavior before reactive migration
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class ReactiveOutboxProducerTest {
 
@@ -55,266 +61,237 @@ public class ReactiveOutboxProducerTest {
     private io.vertx.core.Vertx testVertx;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up ReactiveOutboxProducerTest ===");
         logger.info("PostgreSQL container: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
-        
+
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "3")
                 .build();
-        
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started successfully");
 
-        // Create outbox factory and producer - following existing patterns
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
-        
-        QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("reactive-test", String.class);
-        
-        // Create test-specific Vert.x instance and connection manager for verification queries
-        testVertx = io.vertx.core.Vertx.vertx();
-        connectionManager = new PgConnectionManager(testVertx);
-        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
-                .database(postgres.getDatabaseName())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
-                .build();
+                // Create outbox factory and producer - following existing patterns
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith(provider);
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(3)
-                .build();
+                QueueFactory factory = provider.createFactory("outbox", databaseService);
+                producer = factory.createProducer("reactive-test", String.class);
 
-        testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
-        
-        logger.info("Test setup completed successfully");
+                // Create test-specific Vert.x instance and connection manager for verification queries
+                testVertx = io.vertx.core.Vertx.vertx();
+                connectionManager = new PgConnectionManager(testVertx);
+                PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                        .host(postgres.getHost())
+                        .port(postgres.getFirstMappedPort())
+                        .database(postgres.getDatabaseName())
+                        .username(postgres.getUsername())
+                        .password(postgres.getPassword())
+                        .build();
+                PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
+                testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
+
+                logger.info("Test setup completed successfully");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) producer.close();
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-        if (connectionManager != null) connectionManager.close();
-
-        // Close the test-specific Vert.x instance to prevent resource leaks
-        if (testVertx != null) {
-            try {
-                testVertx.close().await();
-                logger.info("Test Vert.x instance closed successfully");
-            } catch (Exception e) {
-                logger.warn("Error closing test Vert.x instance: {}", e.getMessage());
-            }
-        }
-
-        logger.info("Test cleanup completed");
+        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .eventually(() -> connectionManager != null ? connectionManager.close() : Future.<Void>succeededFuture())
+            .eventually(() -> testVertx != null ? testVertx.close() : Future.<Void>succeededFuture())
+            .onSuccess(v -> { logger.info("Test cleanup completed"); ctx.completeNow(); })
+            .onFailure(ctx::failNow);
+        assertTrue(ctx.awaitCompletion(15, TimeUnit.SECONDS), "Teardown should complete within 15s");
     }
 
     @Test
     @DisplayName("BASELINE: Current JDBC OutboxProducer behavior")
-    void testCurrentJdbcBehavior() throws Exception {
+    void testCurrentJdbcBehavior(VertxTestContext ctx) throws Exception {
         logger.info("--- Testing current JDBC OutboxProducer behavior ---");
-        
+
         String testMessage = "baseline-test-message-" + System.currentTimeMillis();
-        
-        // Send message using current implementation
-        producer.send(testMessage).await();
-        logger.info("Message sent via JDBC: {}", testMessage);
-        
-        // Verify message exists in outbox table
-        boolean messageExists = verifyOutboxMessageExists(testMessage);
-        Assertions.assertTrue(messageExists, "Message should exist in outbox table");
-        
-        logger.info("BASELINE TEST PASSED: Current behavior works correctly");
+
+        producer.send(testMessage)
+            .compose(v -> verifyOutboxMessageExists(testMessage))
+            .onSuccess(exists -> ctx.verify(() -> {
+                assertTrue(exists, "Message should exist in outbox table");
+                logger.info("BASELINE TEST PASSED: Current behavior works correctly");
+                ctx.completeNow();
+            }))
+            .onFailure(ctx::failNow);
+
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
     @DisplayName("PREPARATION: Verify test infrastructure")
-    void testInfrastructure() throws Exception {
+    void testInfrastructure(VertxTestContext ctx) throws Exception {
         logger.info("--- Testing infrastructure setup ---");
 
-        // Test reactive database connection and outbox table
-        Integer count = testReactivePool.withConnection(connection -> {
-            return connection.query("SELECT COUNT(*) FROM outbox")
+        testReactivePool.withConnection(connection ->
+            connection.query("SELECT COUNT(*) FROM outbox")
                 .execute()
-                .map(rowSet -> {
-                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                    return row.getInteger(0);
-                });
-        }).await();
+                .map(rowSet -> rowSet.iterator().next().getInteger(0))
+        ).onSuccess(count -> ctx.verify(() -> {
+            logger.info("Reactive database connection successful");
+            logger.info("Outbox table accessible, current message count: {}", count);
+            logger.info("INFRASTRUCTURE TEST PASSED: All components ready for reactive migration");
+            ctx.completeNow();
+        })).onFailure(ctx::failNow);
 
-        logger.info("Reactive database connection successful");
-        logger.info("Outbox table accessible, current message count: {}", count);
-        logger.info("INFRASTRUCTURE TEST PASSED: All components ready for reactive migration");
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
     @DisplayName("PHASE 1 STEP 1: Reactive OutboxProducer basic functionality")
-    void testReactiveOutboxProducer() throws Exception {
+    void testReactiveOutboxProducer(VertxTestContext ctx) throws Exception {
         logger.info("--- Testing new reactive OutboxProducer functionality ---");
 
         String testMessage = "reactive-test-message-" + System.currentTimeMillis();
-
-        // Cast to MessageProducer to access reactive methods
         MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
 
-        // Send message using reactive implementation
-        messageProducer.send(testMessage).await();
-        logger.info("Message sent via reactive method: {}", testMessage);
+        messageProducer.send(testMessage)
+            .compose(v -> verifyOutboxMessageExists(testMessage))
+            .onSuccess(exists -> ctx.verify(() -> {
+                Assertions.assertTrue(exists, "Reactive message should exist in outbox table");
+                logger.info("PHASE 1 STEP 1 PASSED: Reactive OutboxProducer works correctly");
+                ctx.completeNow();
+            }))
+            .onFailure(ctx::failNow);
 
-        // Verify message exists in outbox table
-        boolean messageExists = verifyOutboxMessageExists(testMessage);
-        Assertions.assertTrue(messageExists, "Reactive message should exist in outbox table");
-
-        logger.info("PHASE 1 STEP 1 PASSED: Reactive OutboxProducer works correctly");
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
     @DisplayName("PHASE 1 STEP 1: Reactive vs JDBC comparison")
-    void testReactiveVsJdbcComparison() throws Exception {
+    void testReactiveVsJdbcComparison(VertxTestContext ctx) throws Exception {
         logger.info("--- Comparing reactive vs JDBC implementations ---");
 
         String jdbcMessage = "jdbc-message-" + System.currentTimeMillis();
         String reactiveMessage = "reactive-message-" + System.currentTimeMillis();
-
         MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
 
-        // Send first message
-        long jdbcStart = System.currentTimeMillis();
-        producer.send(jdbcMessage).await();
-        long jdbcTime = System.currentTimeMillis() - jdbcStart;
-        logger.info("First message sent in {}ms: {}", jdbcTime, jdbcMessage);
+        producer.send(jdbcMessage)
+            .compose(v -> messageProducer.send(reactiveMessage))
+            .compose(v -> verifyOutboxMessageExists(jdbcMessage))
+            .compose(jdbcExists -> verifyOutboxMessageExists(reactiveMessage)
+                .map(reactiveExists -> new boolean[]{jdbcExists, reactiveExists}))
+            .onSuccess(results -> ctx.verify(() -> {
+                Assertions.assertTrue(results[0], "JDBC message should exist");
+                Assertions.assertTrue(results[1], "Reactive message should exist");
+                logger.info("COMPARISON PASSED: Both JDBC and reactive methods work correctly");
+                ctx.completeNow();
+            }))
+            .onFailure(ctx::failNow);
 
-        // Send second message
-        long reactiveStart = System.currentTimeMillis();
-        messageProducer.send(reactiveMessage).await();
-        long reactiveTime = System.currentTimeMillis() - reactiveStart;
-        logger.info("Second message sent in {}ms: {}", reactiveTime, reactiveMessage);
-
-        // Verify both messages exist
-        Assertions.assertTrue(verifyOutboxMessageExists(jdbcMessage), "JDBC message should exist");
-        Assertions.assertTrue(verifyOutboxMessageExists(reactiveMessage), "Reactive message should exist");
-
-        logger.info("COMPARISON PASSED: Both JDBC and reactive methods work correctly");
-        logger.info("Performance comparison - JDBC: {}ms, Reactive: {}ms", jdbcTime, reactiveTime);
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
     @DisplayName("PHASE 1 STEP 2: Transactional method signatures validation")
-    void testTransactionalMethodSignatures() throws Exception {
+    void testTransactionalMethodSignatures(VertxTestContext ctx) throws Exception {
         logger.info("--- Testing transactional method signatures ---");
 
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
 
-        // Test that the transactional methods exist and can be called
-        // Note: We'll test with null transaction to verify method signatures
-        // The actual transaction functionality will be tested when we implement the transaction manager
+        // Test that sendInExistingTransaction rejects a null connection
+        outboxProducer.sendInExistingTransaction("test", (io.vertx.sqlclient.SqlConnection) null)
+            .onSuccess(v -> ctx.failNow(new AssertionError("Should fail with null connection")))
+            .onFailure(e -> ctx.verify(() -> {
+                logger.info("sendInExistingTransaction method exists and validates null connection: {}", e.getMessage());
+                assertTrue(e.getMessage().contains("connection cannot be null") || e instanceof IllegalArgumentException,
+                    "Exception should relate to null connection");
+                logger.info("PHASE 1 STEP 2 PASSED: Transactional method signatures are correct");
+                ctx.completeNow();
+            }));
 
-        try {
-            outboxProducer.sendInExistingTransaction("test", (io.vertx.sqlclient.SqlConnection) null).await();
-            fail("Should fail with null connection");
-        } catch (Exception e) {
-            // Expected to fail with null connection - this validates the method signature exists
-            logger.info("sendInExistingTransaction method exists and validates null connection: {}", e.getMessage());
-            Assertions.assertTrue(e.getMessage().contains("connection cannot be null") ||
-                                e instanceof IllegalArgumentException);
-        }
-
-        logger.info("PHASE 1 STEP 2 PASSED: Transactional method signatures are correct");
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
     @DisplayName("PHASE 1 STEP 3: Production-grade transactional methods")
-    void testProductionGradeTransactionalMethods() throws Exception {
+    void testProductionGradeTransactionalMethods(VertxTestContext ctx) throws Exception {
         logger.info("--- Testing production-grade transactional methods ---");
 
         String testMessage = "production-tx-message-" + System.currentTimeMillis();
-
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
 
-        // Send message using production-grade transactional method
-        outboxProducer.sendInOwnTransaction(testMessage).await();
-        logger.info("Message sent via production-grade transaction: {}", testMessage);
+        outboxProducer.sendInOwnTransaction(testMessage)
+            .compose(v -> verifyOutboxMessageExists(testMessage))
+            .onSuccess(exists -> ctx.verify(() -> {
+                Assertions.assertTrue(exists, "Production-grade transactional message should exist in outbox table");
+                logger.info("PHASE 1 STEP 3 PASSED: Production-grade transactional methods work correctly");
+                ctx.completeNow();
+            }))
+            .onFailure(ctx::failNow);
 
-        // Verify message exists in outbox table
-        boolean messageExists = verifyOutboxMessageExists(testMessage);
-        Assertions.assertTrue(messageExists, "Production-grade transactional message should exist in outbox table");
-
-        logger.info("PHASE 1 STEP 3 PASSED: Production-grade transactional methods work correctly");
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Test should complete within 10s");
     }
 
     @Test
     @DisplayName("PHASE 1 STEP 4: TransactionPropagation support")
-    void testTransactionPropagationSupport() throws Exception {
+    void testTransactionPropagationSupport(VertxTestContext ctx) throws Exception {
         logger.info("--- Testing TransactionPropagation support ---");
 
         String testMessage = "propagation-test-message-" + System.currentTimeMillis();
-
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
 
-        // Test with TransactionPropagation.CONTEXT
-        // Note: CONTEXT propagation may fail outside a Vert.x context (no active transaction to join).
-        // The send returns a failed Future if the context lookup fails handle gracefully.
-        Throwable sendError = null;
-        try {
-            outboxProducer.sendInOwnTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT).await();
-        } catch (Exception e) {
-            sendError = e;
-        }
+        outboxProducer.sendInOwnTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT)
+            .compose(v -> verifyOutboxMessageExists(testMessage))
+            .onSuccess(exists -> ctx.verify(() -> {
+                Assertions.assertTrue(exists, "TransactionPropagation message should exist in outbox table");
+                logger.info("PHASE 1 STEP 4 PASSED: TransactionPropagation.CONTEXT works correctly");
+                ctx.completeNow();
+            }))
+            .onFailure(sendError -> {
+                // CONTEXT propagation may not work without an active Vert.x context
+                logger.warn("TransactionPropagation.CONTEXT failed (expected without Vert.x context): {}",
+                    sendError.getMessage());
+                String fallbackMessage = testMessage + "-fallback";
+                outboxProducer.sendInOwnTransaction(fallbackMessage)
+                    .compose(v -> verifyOutboxMessageExists(fallbackMessage))
+                    .onSuccess(exists -> ctx.verify(() -> {
+                        Assertions.assertTrue(exists, "Fallback message should exist");
+                        logger.info("PHASE 1 STEP 4 PASSED: Basic transactional methods work (CONTEXT propagation not available outside Vert.x context)");
+                        ctx.completeNow();
+                    }))
+                    .onFailure(ctx::failNow);
+            });
 
-        if (sendError == null) {
-            logger.info("Message sent with TransactionPropagation.CONTEXT: {}", testMessage);
-            boolean messageExists = verifyOutboxMessageExists(testMessage);
-            Assertions.assertTrue(messageExists, "TransactionPropagation message should exist in outbox table");
-            logger.info("PHASE 1 STEP 4 PASSED: TransactionPropagation.CONTEXT works correctly");
-        } else {
-            // CONTEXT propagation may not work without an active Vert.x context expected
-            logger.warn("TransactionPropagation.CONTEXT failed (expected without Vert.x context): {}",
-                sendError.getMessage());
-
-            // Fall back to testing without propagation to verify basic transactional methods
-            String fallbackMessage = testMessage + "-fallback";
-            outboxProducer.sendInOwnTransaction(fallbackMessage).await();
-            boolean fallbackExists = verifyOutboxMessageExists(fallbackMessage);
-            Assertions.assertTrue(fallbackExists, "Fallback message should exist");
-
-            logger.info("PHASE 1 STEP 4 PASSED: Basic transactional methods work (CONTEXT propagation not available outside Vert.x context)");
-        }
+        assertTrue(ctx.awaitCompletion(15, TimeUnit.SECONDS), "Test should complete within 15s");
     }
 
     /**
      * Verify that a message exists in the outbox table.
-     * This method will be used to validate both JDBC and reactive implementations.
      */
-    private boolean verifyOutboxMessageExists(String message) throws Exception {
-        Integer count = testReactivePool.withConnection(connection -> {
-            return connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1")
+    private Future<Boolean> verifyOutboxMessageExists(String message) {
+        return testReactivePool.withConnection(connection ->
+            connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + message + "%"))
-                .map(rowSet -> {
-                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                    return row.getInteger(0);
-                });
-        }).await();
-
-        boolean exists = count != null && count > 0;
-        logger.info("Message '{}' exists in outbox: {} (count: {})", message, exists, count);
-        return exists;
+                .map(rowSet -> rowSet.iterator().next().getInteger(0))
+        ).map(count -> {
+            boolean exists = count != null && count > 0;
+            logger.info("Message '{}' exists in outbox: {} (count: {})", message, exists, count);
+            return exists;
+        });
     }
 }
 

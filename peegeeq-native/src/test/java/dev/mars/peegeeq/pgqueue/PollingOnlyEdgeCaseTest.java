@@ -64,7 +64,7 @@ class PollingOnlyEdgeCaseTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -80,18 +80,18 @@ class PollingOnlyEdgeCaseTest {
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for POLLING_ONLY edge case testing");
+        manager.start()
+                .onSuccess(v -> {
+                    // Create factory using the proper pattern
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("native", databaseService);
+                    logger.info("Test setup completed for POLLING_ONLY edge case testing");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -135,7 +135,7 @@ class PollingOnlyEdgeCaseTest {
 
         // Send messages rapidly
         for (int i = 1; i <= 5; i++) {
-            producer.send("Fast polling message " + i).await();
+            producer.send("Fast polling message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed
@@ -173,8 +173,8 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages before polling kicks in
-        producer.send("Slow polling message 1").await();
-        producer.send("Slow polling message 2").await();
+        producer.send("Slow polling message 1").onFailure(testContext::failNow);
+        producer.send("Slow polling message 2").onFailure(testContext::failNow);
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 2 messages with slow polling");
@@ -214,7 +214,7 @@ class PollingOnlyEdgeCaseTest {
 
         // Send messages sequentially to avoid overwhelming the system
         for (int i = 1; i <= 10; i++) {
-            producer.send("Concurrent message " + i).await();
+            producer.send("Concurrent message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed
@@ -255,7 +255,7 @@ class PollingOnlyEdgeCaseTest {
         // Send messages before consumer starts polling
         logger.info("Sending 10 messages for batch processing...");
         for (int i = 1; i <= 10; i++) {
-            producer.send("Batch message " + i).await();
+            producer.send("Batch message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed in batches
@@ -345,9 +345,9 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages sequentially
-        producer.send("Message 1 - resilience test").await();
-        producer.send("Message 2 - resilience test").await();
-        producer.send("Message 3 - resilience test").await();
+        producer.send("Message 1 - resilience test").onFailure(testContext::failNow);
+        producer.send("Message 2 - resilience test").onFailure(testContext::failNow);
+        producer.send("Message 3 - resilience test").onFailure(testContext::failNow);
 
         // Wait for messages to be processed (consumer should handle normal operations)
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages in normal operation");
