@@ -57,7 +57,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@Tag("demonstration")
+// BLOCKING-EXEMPT: Thread.sleep runs inside executor.submit(Runnable) on a raw JVM
+// thread pool (ExecutorService), fully isolated from the Vert.x event loop.
+// The test subject is ExecutorService interrupt semantics, not reactive behaviour
+// (criterion 1: the blocking pattern itself is under test).
+@Tag("blocking-exempt")
 @ExtendWith(VertxExtension.class)
 public class ShutdownTest {
     private static final Logger logger = LoggerFactory.getLogger(ShutdownTest.class);
