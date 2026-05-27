@@ -108,8 +108,8 @@ class OnSuccessExceptionSwallowingGuardTest {
             Pattern.compile("\\b[A-Za-z_$][A-Za-z0-9_$]*\\.verify\\s*\\(");
     private static final Pattern TRY_BLOCK_START =
             Pattern.compile("\\btry\\s*\\{");
-    private static final Pattern DEMONSTRATION_TAG =
-            Pattern.compile("@Tag\\s*\\(\\s*\"demonstration\"\\s*\\)");
+    private static final Pattern BLOCKING_EXEMPT_TAG =
+            Pattern.compile("@Tag\\s*\\(\\s*\"blocking-exempt\"\\s*\\)");
 
     // -------------------------------------------------------------------------
     // Patterns — Tier 4: Future.await() banned in test code
@@ -426,7 +426,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanOnSuccess(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (DEMONSTRATION_TAG.matcher(content).find()) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = ON_SUCCESS_START.matcher(masked);
@@ -462,7 +462,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanAwait(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (DEMONSTRATION_TAG.matcher(content).find()) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = AWAIT_CALL.matcher(masked);
@@ -499,7 +499,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanSleep(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (DEMONSTRATION_TAG.matcher(content).find()) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
 
@@ -523,7 +523,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanOnComplete(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (DEMONSTRATION_TAG.matcher(content).find()) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = ON_COMPLETE_START.matcher(masked);
@@ -578,7 +578,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static void scanDiscardedFuture(Path file, List<Violation> violations) {
         String content = readFile(file);
         if (content == null) return;
-        if (DEMONSTRATION_TAG.matcher(content).find()) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
 
         String masked = maskNonCode(content);
         Matcher m = STOP_OR_CLOSE_CALL.matcher(masked);
