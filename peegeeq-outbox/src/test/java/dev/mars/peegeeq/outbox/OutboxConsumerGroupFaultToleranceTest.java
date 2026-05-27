@@ -99,7 +99,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     private Pool verificationPool;
 
     @BeforeEach
-    void setUp(Vertx vertx) {
+    void setUp(Vertx vertx, VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -108,11 +108,6 @@ class OutboxConsumerGroupFaultToleranceTest {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
 
         // Verification pool independent connection for asserting DB state
         verificationConnectionManager = new PgConnectionManager(vertx);
@@ -126,28 +121,29 @@ class OutboxConsumerGroupFaultToleranceTest {
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(2).build();
         verificationPool = verificationConnectionManager.getOrCreateReactivePool(
                 "verification", connConfig, poolConfig);
+
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (consumerGroup != null) {
-            consumerGroup.stop()
-                .compose(v -> consumerGroup.close())
-                .onFailure(e -> logger.warn("consumerGroup stop/close failed in tearDown", e));
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-        if (verificationConnectionManager != null) {
-            verificationConnectionManager.close();
-        }
+        try { if (producer != null) producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
+        try { if (outboxFactory != null) outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing outboxFactory", e); }
+        Future.<Void>succeededFuture()
+                .eventually(() -> consumerGroup != null ? consumerGroup.stop().compose(v -> consumerGroup.close()) : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .eventually(() -> verificationConnectionManager != null ? verificationConnectionManager.close() : Future.<Void>succeededFuture())
+                .onSuccess(v -> tearDownContext.completeNow())
+                .onFailure(tearDownContext::failNow);
+        assertTrue(tearDownContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -170,10 +166,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                 received.add(message.getPayload());
                 return Future.succeededFuture();
             });
-            consumerGroup.start();
-
             // Wait for group to start polling, then send pre-kill messages
-            vertx.timer(500).mapEmpty()
+            consumerGroup.start()
+                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> {
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < preKillMessages; i++) {
@@ -249,10 +244,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                 allDone.flag();
                 return Future.succeededFuture();
             });
-            consumerGroup.start();
-
             // Wait for group to start, then send mix of messages
-            vertx.timer(500).mapEmpty()
+            consumerGroup.start()
+                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> {
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < totalMessages; i++) {
@@ -293,10 +287,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                 // Block until gate is released simulates slow processing
                 return handlerGate.future();
             });
-            consumerGroup.start();
-
             // Wait for group to start, then send a message handler will hang on the gate
-            vertx.timer(500).mapEmpty()
+            consumerGroup.start()
+                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> producer.send("slow-message").mapEmpty())
                 .compose(v -> {
                     // Poll until handler is entered
@@ -366,10 +359,9 @@ class OutboxConsumerGroupFaultToleranceTest {
                 // Return a Future that never completes simulates permanently hung handler
                 return Promise.<Void>promise().future();
             });
-            consumerGroup.start();
-
             // Wait for group to start, send multiple messages, then wait
-            vertx.timer(500).mapEmpty()
+            consumerGroup.start()
+                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> {
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < totalMessages; i++) {
@@ -442,29 +434,29 @@ class OutboxConsumerGroupFaultToleranceTest {
                     .property("peegeeq.queue.max-retries", "2")
                     .build();
 
-            // Recreate config + factory with the new max-retries
-            if (manager != null) {
-                manager.closeReactive().await();
-            }
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", retryProps);
-            manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-            manager.start().await();
-            DatabaseService databaseService = new PgDatabaseService(manager);
-            outboxFactory = new OutboxFactory(databaseService, config);
-            producer = outboxFactory.createProducer(testTopic, String.class);
-
             AtomicInteger attemptCount = new AtomicInteger();
+            PeeGeeQConfiguration newConfig = new PeeGeeQConfiguration("default", retryProps);
 
-            consumerGroup = outboxFactory.createConsumerGroup("retry-group", testTopic, String.class);
-            consumerGroup.addConsumer("c1", message -> {
-                attemptCount.incrementAndGet();
-                logger.info("Handler attempt {} for message {}", attemptCount.get(), message.getPayload());
-                return Future.failedFuture(new RuntimeException("Permanent failure: " + message.getPayload()));
-            });
-            consumerGroup.start();
-
-            // Wait for group to start, then send one doomed message
-            vertx.timer(500).mapEmpty()
+            // Recreate config + factory with the new max-retries, then run the test chain
+            (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .compose(v -> {
+                    manager = new PeeGeeQManager(newConfig, new SimpleMeterRegistry());
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, newConfig);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    return manager.start();
+                })
+                .compose(v -> {
+                    consumerGroup = outboxFactory.createConsumerGroup("retry-group", testTopic, String.class);
+                    consumerGroup.addConsumer("c1", message -> {
+                        attemptCount.incrementAndGet();
+                        logger.info("Handler attempt {} for message {}", attemptCount.get(), message.getPayload());
+                        return Future.failedFuture(new RuntimeException("Permanent failure: " + message.getPayload()));
+                    });
+                    return consumerGroup.start();
+                })
+                // Wait for group to start, then send one doomed message
+                .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> producer.send("doomed-message").mapEmpty())
                 .compose(v -> {
                     // Poll until message reaches terminal state

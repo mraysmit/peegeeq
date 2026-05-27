@@ -61,46 +61,36 @@ class OutboxConsumerEdgeCasesCoverageTest {
     private String testTopic;
 
     @BeforeEach
-    void setup() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Initialize schema
+    void setup(VertxTestContext testContext) throws Exception {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-
-        // Use unique topic for each test
         testTopic = "edge-test-" + UUID.randomUUID().toString().substring(0, 8);
-
-        // Configure database connection with short polling interval and low max retries
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .property("peegeeq.queue.max-retries", "2")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
-
-        // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and components
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void cleanup() throws Exception {
-        if (consumer != null) {
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+    void cleanup(VertxTestContext tearDownContext) throws Exception {
+        try { if (consumer != null) consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
+        try { if (producer != null) producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
+        try { if (outboxFactory != null) outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing outboxFactory", e); }
+        Future.<Void>succeededFuture()
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .onSuccess(v -> tearDownContext.completeNow())
+                .onFailure(tearDownContext::failNow);
+        assertTrue(tearDownContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -115,18 +105,16 @@ class OutboxConsumerEdgeCasesCoverageTest {
         consumer.subscribe(message -> {
             messagesProcessed.incrementAndGet();
             return Future.succeededFuture();
-        });
-
-        // Send a message
-        producer.send("test-data").await();
-        vertx.setTimer(50, id -> {
-            consumer.close(); // This should trigger closed.get() checks
-            vertx.setTimer(200, id2 -> {
-                testContext.verify(() ->
-                    assertTrue(messagesProcessed.get() <= 1, "Should process at most 1 message before shutdown"));
-                shutdownCheckpoint.flag();
-            });
-        });
+        }).compose(v -> producer.send("test-data"))
+          .onSuccess(v -> vertx.setTimer(50, id -> {
+              consumer.close();
+              vertx.setTimer(200, id2 -> {
+                  testContext.verify(() ->
+                      assertTrue(messagesProcessed.get() <= 1, "Should process at most 1 message before shutdown"));
+                  shutdownCheckpoint.flag();
+              });
+          }))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -145,20 +133,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
             if (attempt == 1) {
                 firstAttemptCheckpoint.flag();
             }
-            
             // Always fail to trigger retry and eventual DLQ
             throw new RuntimeException("INTENTIONAL FAILURE for DLQ test");
-        });
-
-        // Send message
-        producer.send("test-data").await();
+        }).compose(v -> producer.send("test-data"))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message at least once");
-
-        // Close consumer during DLQ operation window
         consumer.close();
-
-        // Verify message was attempted multiple times
         assertTrue(attemptCount.get() >= 1, "Should have attempted processing at least once");
     }
 
@@ -175,20 +156,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
             messagesProcessed.incrementAndGet();
             messageCheckpoint.flag();
             return Future.succeededFuture();
-        });
+        }).compose(v -> producer.send("message1"))
+          .compose(v -> producer.send("message2"))
+          .compose(v -> producer.send("message3"))
+          .onFailure(testContext::failNow);
 
-        // Send multiple messages
-        producer.send("message1").await();
-        producer.send("message2").await();
-        producer.send("message3").await();
-
-        // Wait for messages to be processed
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process messages");
-
-        // Close consumer to shut down executor
         consumer.close();
-
-        // Verify some messages were processed (exact count depends on timing)
         assertTrue(messagesProcessed.get() >= 1, "Should have processed at least one message");
     }
 
@@ -203,14 +177,10 @@ class OutboxConsumerEdgeCasesCoverageTest {
         consumer.subscribe(message -> {
             retryCheckpoint.flag();
             throw new RuntimeException("INTENTIONAL FAILURE for retry test");
-        });
+        }).compose(v -> producer.send("test"))
+          .onFailure(testContext::failNow);
 
-        producer.send("test").await();
-
-        // Wait for retries
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message multiple times");
-
-        // Close consumer to trigger potential pool closure errors
         consumer.close();
     }
 
@@ -225,12 +195,10 @@ class OutboxConsumerEdgeCasesCoverageTest {
         consumer.subscribe(message -> {
             retryCheckpoint.flag();
             throw new RuntimeException("INTENTIONAL FAILURE to trigger retries and DLQ");
-        });
+        }).compose(v -> producer.send("test-data"))
+          .onFailure(testContext::failNow);
 
-        producer.send("test-data").await();
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should complete all retry attempts");
-
-        // Close consumer to trigger pool closure during DLQ
         consumer.close();
     }
 
@@ -246,24 +214,18 @@ class OutboxConsumerEdgeCasesCoverageTest {
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
             startProcessing.flag();
-            // Slow processing via non-blocking delay
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, id -> promise.complete());
             return promise.future();
-        });
+        }).compose(v -> producer.send("message-0"))
+          .compose(v -> producer.send("message-1"))
+          .compose(v -> producer.send("message-2"))
+          .compose(v -> producer.send("message-3"))
+          .compose(v -> producer.send("message-4"))
+          .onFailure(testContext::failNow);
 
-        // Send multiple messages
-        for (int i = 0; i < 5; i++) {
-            producer.send("message-" + i).await();
-        }
-
-        // Wait for processing to start
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
-
-        // Close during processing
         consumer.close();
-
-        // Verify graceful shutdown
         assertTrue(processedCount.get() >= 1, "Should have processed at least one message");
         assertTrue(processedCount.get() <= 5, "Should not process more than available messages");
     }
@@ -277,35 +239,33 @@ class OutboxConsumerEdgeCasesCoverageTest {
         // Scenario 1: Close before subscribe
         MessageConsumer<String> earlyCloseConsumer = outboxFactory.createConsumer(testTopic, String.class);
         earlyCloseConsumer.close();
-        
         // Should handle gracefully
         try {
-            earlyCloseConsumer.subscribe(msg -> Future.succeededFuture());
+            earlyCloseConsumer.subscribe(msg -> Future.succeededFuture())
+                    .onFailure(e -> logger.debug("Expected: consumer already closed", e));
             earlyCloseConsumer.close(); // Double close
         } catch (Exception e) {
-            // Expected - consumer already closed
+            logger.debug("Expected: consumer already closed (thrown)", e);
         }
 
         // Scenario 2: Close during active processing
         MessageConsumer<String> activeConsumer = outboxFactory.createConsumer(testTopic, String.class);
         Checkpoint processing = testContext.checkpoint();
-        
         activeConsumer.subscribe(message -> {
             processing.flag();
-            // Simulate work via non-blocking delay
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(200, id -> promise.complete());
             return promise.future();
-        });
+        }).compose(v -> producer.send("test-message"))
+          .onFailure(testContext::failNow);
 
-        producer.send("test-message").await();
-        
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
-        activeConsumer.close(); // Close while processing
+        activeConsumer.close();
 
         // Scenario 3: Close after unsubscribe
         MessageConsumer<String> unsubscribeConsumer = outboxFactory.createConsumer(testTopic, String.class);
-        unsubscribeConsumer.subscribe(msg -> Future.succeededFuture());
+        unsubscribeConsumer.subscribe(msg -> Future.succeededFuture())
+                .onFailure(e -> logger.debug("Expected: unsubscribed consumer", e));
         unsubscribeConsumer.unsubscribe();
         unsubscribeConsumer.close();
     }

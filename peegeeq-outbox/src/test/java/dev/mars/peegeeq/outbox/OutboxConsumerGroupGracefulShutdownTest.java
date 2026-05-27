@@ -78,28 +78,27 @@ class OutboxConsumerGroupGracefulShutdownTest {
     private PeeGeeQConfiguration config;
 
     @BeforeEach
-    void setUp(Vertx vertx) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        this.manager.start().await();
-        this.databaseService = new PgDatabaseService(manager);
+        this.manager.start()
+                .onSuccess(v -> {
+                    this.databaseService = new PgDatabaseService(manager);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        if (group != null) {
-            group.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        Future.<Void>succeededFuture()
+                .eventually(() -> group != null ? group.close() : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -117,26 +116,36 @@ class OutboxConsumerGroupGracefulShutdownTest {
 
     @Test
     @DisplayName("stopGracefully on CLOSED group returns succeeded future")
-    void stopGracefully_whenClosed_returnsSuccess() {
+    void stopGracefully_whenClosed_returnsSuccess(VertxTestContext testContext) throws Exception {
         group = createGroup("closed-group", "test-topic");
-        group.close();
-        var future = group.stopGracefully();
-        assertTrue(future.succeeded(), "Should succeed on closed group");
+        group.close()
+                .map(v -> {
+                    var future = group.stopGracefully();
+                    assertTrue(future.succeeded(), "Should succeed on closed group");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("stopGracefully is idempotent second call returns succeeded")
-    void stopGracefully_idempotent() throws Exception {
+    void stopGracefully_idempotent(VertxTestContext testContext) throws Exception {
         group = createGroup("idempotent-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-        group.start();
-        assertTrue(group.isActive());
-
-        group.stopGracefully().await();
-        assertFalse(group.isActive(), "Group should be stopped after first call");
-
-        var second = group.stopGracefully();
-        assertTrue(second.succeeded(), "Second stopGracefully should succeed (idempotent)");
+        group.start()
+                .map(v -> { assertTrue(group.isActive()); return v; })
+                .compose(v -> group.stopGracefully())
+                .map(v -> {
+                    assertFalse(group.isActive(), "Group should be stopped after first call");
+                    var second = group.stopGracefully();
+                    assertTrue(second.succeeded(), "Second stopGracefully should succeed (idempotent)");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // =========================================================================
@@ -145,15 +154,20 @@ class OutboxConsumerGroupGracefulShutdownTest {
 
     @Test
     @DisplayName("stopGracefully on group started without subscription stops locally, no cancel call")
-    void stopGracefully_withoutSubscription_stopsLocallyOnly() throws Exception {
+    void stopGracefully_withoutSubscription_stopsLocallyOnly(VertxTestContext testContext) throws Exception {
         group = createGroup("local-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-        group.start();  // start without subscription options
-        assertTrue(group.isActive());
-
-        group.stopGracefully().await();
-        assertFalse(group.isActive(), "Group should be stopped");
-        // Group was started without SubscriptionOptions: stopGracefully completes without DB cancel
+        group.start()
+                .map(v -> { assertTrue(group.isActive()); return v; })
+                .compose(v -> group.stopGracefully())
+                .map(v -> {
+                    assertFalse(group.isActive(), "Group should be stopped");
+                    // Group was started without SubscriptionOptions: stopGracefully completes without DB cancel
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // =========================================================================
@@ -162,49 +176,67 @@ class OutboxConsumerGroupGracefulShutdownTest {
 
     @Test
     @DisplayName("stopGracefully on subscription-started group cancels subscription then stops")
-    void stopGracefully_withSubscription_cancelsAndStops() throws Exception {
+    void stopGracefully_withSubscription_cancelsAndStops(VertxTestContext testContext) throws Exception {
         group = createGroup("sub-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-
         // Start with subscription options — creates the subscription in the DB
-        group.start(SubscriptionOptions.builder().build()).await();
-        assertTrue(group.isActive());
-
-        group.stopGracefully().await();
-        assertFalse(group.isActive(), "Group should be stopped");
+        group.start(SubscriptionOptions.builder().build())
+                .map(v -> { assertTrue(group.isActive()); return v; })
+                .compose(v -> group.stopGracefully())
+                .map(v -> {
+                    assertFalse(group.isActive(), "Group should be stopped");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("stopGracefully when cancel fails still stops the group")
-    void stopGracefully_cancelFails_stillStops() throws Exception {
+    void stopGracefully_cancelFails_stillStops(VertxTestContext testContext) throws Exception {
         group = createGroup("no-sub-cancel-fail-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-        group.start();
-        assertTrue(group.isActive());
-
-        // Force startedWithSubscription=true without actually creating a DB subscription,
-        // so the cancel call will fail (subscription not found in DB).
-        // stopGracefully() must still succeed via its .transform(ar -> succeededFuture()) guard.
-        setPrivateField(group, "startedWithSubscription", true);
-
-        group.stopGracefully().await();
-        assertFalse(group.isActive(), "Group should be stopped even when cancel fails");
+        group.start()
+                .map(v -> { assertTrue(group.isActive()); return v; })
+                .compose(v -> {
+                    // Force startedWithSubscription=true without actually creating a DB subscription,
+                    // so the cancel call will fail (subscription not found in DB).
+                    // stopGracefully() must still succeed via its .transform(ar -> succeededFuture()) guard.
+                    try {
+                        setPrivateField(group, "startedWithSubscription", true);
+                    } catch (Exception e) {
+                        return Future.failedFuture(e);
+                    }
+                    return group.stopGracefully();
+                })
+                .map(v -> {
+                    assertFalse(group.isActive(), "Group should be stopped even when cancel fails");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("stopGracefully after stop() is no-op does not cancel again")
-    void stopGracefully_afterStop_isNoOp() throws Exception {
+    void stopGracefully_afterStop_isNoOp(VertxTestContext testContext) throws Exception {
         group = createGroup("stop-then-graceful", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-
-        group.start(SubscriptionOptions.builder().build()).await();
-        assertTrue(group.isActive());
-
-        group.stop().onFailure(e -> logger.warn("stop() failed in stopGracefully_afterStop_isNoOp test", e));  // regular stop first — does not cancel DB subscription
-        assertFalse(group.isActive());
-
-        var future = group.stopGracefully();
-        assertTrue(future.succeeded(), "Should succeed as no-op — group is already stopped");
+        // Start with subscription options, then stop (not gracefully), then verify stopGracefully is no-op
+        group.start(SubscriptionOptions.builder().build())
+                .map(v -> { assertTrue(group.isActive()); return v; })
+                .compose(v -> group.stop())  // regular stop — does not cancel DB subscription
+                .map(v -> {
+                    assertFalse(group.isActive());
+                    var future = group.stopGracefully();
+                    assertTrue(future.succeeded(), "Should succeed as no-op — group is already stopped");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // =========================================================================
