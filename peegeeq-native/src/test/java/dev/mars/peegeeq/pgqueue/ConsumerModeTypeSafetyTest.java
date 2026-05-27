@@ -71,7 +71,7 @@ class ConsumerModeTypeSafetyTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -88,23 +88,28 @@ class ConsumerModeTypeSafetyTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        factory = provider.createFactory("native", databaseService);
+        manager.start()
+                .onSuccess(v -> {
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("native", databaseService);
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Test data classes for complex type testing
@@ -240,7 +245,7 @@ class ConsumerModeTypeSafetyTest {
         });
 
         try {
-            producer.send(null).await();
+            producer.send(null).onFailure(err -> logger.debug("Expected null send failure: {}", err.getMessage()));
 
             boolean received = nullLatch.await(5, TimeUnit.SECONDS);
             assertFalse(received, "Consumer should not receive null payload (moved to dead letter queue)");
@@ -276,7 +281,7 @@ class ConsumerModeTypeSafetyTest {
                 return Future.succeededFuture();
             });
 
-            producer.send(expectedMessage).await();
+            producer.send(expectedMessage).onFailure(err -> logger.warn("send failed in type-safety test: {}", err.getMessage()));
 
             boolean received = modeLatch.await(10, TimeUnit.SECONDS);
             assertTrue(received, "Should receive message in " + mode + " mode");
