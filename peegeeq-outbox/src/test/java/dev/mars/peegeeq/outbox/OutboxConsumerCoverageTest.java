@@ -60,29 +60,25 @@ class OutboxConsumerCoverageTest {
     private ObjectMapper objectMapper;
 
     @BeforeEach
-    void setup() throws Exception {
+    void setup(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Initialize schema
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-
-        // Use unique topic for each test
         testTopic = "cov-test-" + UUID.randomUUID().toString().substring(0, 8);
-
-        // Configure database connection
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and components
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        
         objectMapper = new ObjectMapper();
         objectMapper.registerModule(new JavaTimeModule());
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
@@ -114,9 +110,8 @@ class OutboxConsumerCoverageTest {
         consumer.subscribe(message -> {
             latch.flag();
             return null; // Return null to trigger error handling
-        });
-
-        producer.send("test-null-return").onFailure(testContext::failNow);
+        }).compose(v -> producer.send("test-null-return"))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should attempt to process message");
     }
@@ -129,9 +124,8 @@ class OutboxConsumerCoverageTest {
         consumer.subscribe(message -> {
             latch.flag();
             throw new RuntimeException("Direct exception");
-        });
-
-        producer.send("test-exception").onFailure(testContext::failNow);
+        }).compose(v -> producer.send("test-exception"))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should attempt to process message");
     }
@@ -144,31 +138,25 @@ class OutboxConsumerCoverageTest {
 
         consumer.subscribe(message -> {
             startSignal.tryComplete();
-            continueGate.future().await();
-            return Future.succeededFuture();
-        });
+            return continueGate.future();
+        }).compose(v -> producer.send("test-delete"))
+          .onFailure(testContext::failNow);
 
-        producer.send("test-delete").onFailure(testContext::failNow);
+        startSignal.future()
+                .compose(v -> manager.getPool()
+                        .preparedQuery("SELECT id FROM outbox ORDER BY id DESC LIMIT 1")
+                        .execute()
+                        .map(rows -> rows.iterator().next().getLong(0)))
+                .compose(id -> manager.getPool()
+                        .preparedQuery("DELETE FROM outbox WHERE id = $1")
+                        .execute(Tuple.of(id)))
+                .onSuccess(v -> {
+                    continueGate.tryComplete();
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
 
-        startSignal.future().await();
-
-        // Query DB for ID
-        long id = manager.getPool()
-                .preparedQuery("SELECT id FROM outbox ORDER BY id DESC LIMIT 1")
-                .execute()
-                .map(rows -> rows.iterator().next().getLong(0))
-                .await();
-        String messageId = String.valueOf(id);
-
-        // Delete message from DB directly
-        manager.getPool()
-                .preparedQuery("DELETE FROM outbox WHERE id = $1")
-                .execute(Tuple.of(id))
-                .await();
-
-        continueGate.tryComplete(); // Resume processing
-
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -182,9 +170,8 @@ class OutboxConsumerCoverageTest {
         consumer.subscribe(message -> {
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        producer.send("test-no-config").onFailure(testContext::failNow);
+        }).compose(v -> producer.send("test-no-config"))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message without config");
     }
@@ -195,17 +182,14 @@ class OutboxConsumerCoverageTest {
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<ComplexPayload> received = new AtomicReference<>();
 
+        ComplexPayload payload = new ComplexPayload("test", 123);
+        MessageProducer<ComplexPayload> complexProducer = outboxFactory.createProducer(testTopic, ComplexPayload.class);
         complexConsumer.subscribe(message -> {
             received.set(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        ComplexPayload payload = new ComplexPayload("test", 123);
-        
-        // We need a producer for ComplexPayload
-        MessageProducer<ComplexPayload> complexProducer = outboxFactory.createProducer(testTopic, ComplexPayload.class);
-        complexProducer.send(payload).onFailure(testContext::failNow);
+        }).compose(v -> complexProducer.send(payload))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
         assertEquals("test", received.get().getName());
@@ -217,16 +201,6 @@ class OutboxConsumerCoverageTest {
 
     @Test
     void testCompletionPersistenceBlocksNextMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        producer.send("first-blocked").await();
-        producer.send("second-waits").await();
-
-        var firstRows = manager.getPool()
-                .preparedQuery("SELECT id FROM outbox WHERE topic = $1 ORDER BY id ASC LIMIT 1")
-                .execute(Tuple.of(testTopic))
-                .await();
-        assertTrue(firstRows.iterator().hasNext(), "Expected first outbox message row to exist");
-        long firstMessageId = firstRows.iterator().next().getLong(0);
-
         io.vertx.core.Promise<Void> firstHandled = io.vertx.core.Promise.promise();
         io.vertx.core.Promise<Void> bothHandled = io.vertx.core.Promise.promise();
         AtomicInteger handledCount = new AtomicInteger(0);
@@ -236,35 +210,50 @@ class OutboxConsumerCoverageTest {
                 .build();
         consumer = outboxFactory.createConsumer(testTopic, String.class, singleThreadConfig);
 
-        SqlConnection lockConn = manager.getPool().getConnection().await();
-        try {
-            Transaction tx = lockConn.begin().await();
-            lockConn.preparedQuery("SELECT id FROM outbox WHERE id = $1 FOR UPDATE")
-                    .execute(Tuple.of(firstMessageId))
-                    .await();
+        producer.send("first-blocked")
+                .compose(v -> producer.send("second-waits"))
+                .compose(v -> manager.getPool()
+                        .preparedQuery("SELECT id FROM outbox WHERE topic = $1 ORDER BY id ASC LIMIT 1")
+                        .execute(Tuple.of(testTopic)))
+                .compose(firstRows -> {
+                    var iter = firstRows.iterator();
+                    assertTrue(iter.hasNext(), "Expected first outbox message row to exist");
+                    long firstMessageId = iter.next().getLong(0);
+                    return manager.getPool().getConnection()
+                            .compose(lockConn -> {
+                                AtomicReference<Transaction> txRef = new AtomicReference<>();
+                                return lockConn.begin()
+                                        .compose(tx -> {
+                                            txRef.set(tx);
+                                            return lockConn.preparedQuery("SELECT id FROM outbox WHERE id = $1 FOR UPDATE")
+                                                    .execute(Tuple.of(firstMessageId));
+                                        })
+                                        .compose(v -> consumer.subscribe(message -> {
+                                            int count = handledCount.incrementAndGet();
+                                            firstHandled.tryComplete();
+                                            if (count >= 2) {
+                                                bothHandled.tryComplete();
+                                            }
+                                            return Future.succeededFuture();
+                                        }))
+                                        .compose(v -> firstHandled.future())
+                                        .compose(v -> vertx.timer(800))
+                                        .compose(v -> {
+                                            assertFalse(bothHandled.future().isComplete(),
+                                                    "Second message must wait while first completion update is blocked");
+                                            return txRef.get().commit();
+                                        })
+                                        .eventually(() -> lockConn.close());
+                            });
+                })
+                .compose(v -> bothHandled.future())
+                .onSuccess(v -> {
+                    assertEquals(2, handledCount.get(), "Both messages should be processed eventually");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
 
-            consumer.subscribe(message -> {
-                int count = handledCount.incrementAndGet();
-                firstHandled.tryComplete();
-                if (count >= 2) {
-                    bothHandled.tryComplete();
-                }
-                return Future.succeededFuture();
-            });
-
-            firstHandled.future().await();
-            vertx.timer(800).await();
-            assertFalse(bothHandled.future().isComplete(),
-                    "Second message must wait while first completion update is blocked");
-
-            tx.commit().await();
-        } finally {
-            lockConn.close();
-        }
-
-        bothHandled.future().await();
-        assertEquals(2, handledCount.get(), "Both messages should be processed eventually");
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
@@ -273,17 +262,16 @@ class OutboxConsumerCoverageTest {
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
+        Map<String, String> headers = new HashMap<>();
+        headers.put("key1", "value1");
+        headers.put("key2", "value2");
+
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
             latch.flag();
             return Future.succeededFuture();
-        });
-
-        Map<String, String> headers = new HashMap<>();
-        headers.put("key1", "value1");
-        headers.put("key2", "value2");
-        
-        producer.send("test-headers", headers).onFailure(testContext::failNow);
+        }).compose(v -> producer.send("test-headers", headers))
+          .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message with headers");
         assertEquals("value1", receivedHeaders.get().get("key1"));
