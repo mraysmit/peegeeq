@@ -59,7 +59,7 @@ class PgNativeQueueConsumerClaimIT {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -69,29 +69,33 @@ class PgNativeQueueConsumerClaimIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create adapter using DatabaseService interfaces
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-            databaseService.getVertx(),
-            databaseService.getPool(),
-            databaseService
-        );
-        pool = adapter.getPool();
-
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
+        manager.start()
+                .onSuccess(v -> {
+                    // Create adapter using DatabaseService interfaces
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    adapter = new VertxPoolAdapter(
+                        databaseService.getVertx(),
+                        databaseService.getPool(),
+                        databaseService
+                    );
+                    pool = adapter.getPool();
+                    mapper = new ObjectMapper();
+                    mapper.registerModule(new JavaTimeModule());
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception ignore) {}
-        }
+        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -133,34 +137,30 @@ class PgNativeQueueConsumerClaimIT {
         JsonObject headers = new JsonObject();
         pool.preparedQuery(insertNow)
             .execute(Tuple.of(TOPIC, payloadNow, headers, "c1"))
-            .await();
-
-        // Insert one message visible in the future (10s)
-        String insertFuture = """
-            INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)
-            VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', now(), now() + make_interval(secs => 10), 5)
-            RETURNING id
-        """;
-        JsonObject payloadFuture = new JsonObject().put("value", "future-msg");
-        pool.preparedQuery(insertFuture)
-            .execute(Tuple.of(TOPIC, payloadFuture, headers, "c2"))
-            .await();
-
-        // Trigger consumer via NOTIFY
-        pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test')").execute()
-            .await();
-
-        // Wait for first message to be processed
-        firstReceived.future().await();
-        assertEquals(1, processedCount.get(), "Only the visible-now message should be processed initially");
-
-        // Update the future message to become visible now and notify again
-        String makeVisibleNow = "UPDATE queue_messages SET visible_at = now() WHERE topic = $1 AND payload = $2::jsonb";
-        pool.preparedQuery(makeVisibleNow)
-            .execute(Tuple.of(TOPIC, payloadFuture))
-            .await();
-        pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test2')").execute()
-            .await();
+            // Insert one message visible in the future (10s)
+            .compose(v -> {
+                String insertFuture = """
+                    INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)
+                    VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', now(), now() + make_interval(secs => 10), 5)
+                    RETURNING id
+                """;
+                JsonObject payloadFuture = new JsonObject().put("value", "future-msg");
+                return pool.preparedQuery(insertFuture)
+                    .execute(Tuple.of(TOPIC, payloadFuture, headers, "c2"));
+            })
+            // Trigger consumer via NOTIFY
+            .compose(v -> pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test')").execute())
+            // After firstReceived, update visibility and notify again
+            .compose(v -> firstReceived.future())
+            .compose(v -> {
+                testContext.verify(() -> assertEquals(1, processedCount.get(), "Only the visible-now message should be processed initially"));
+                String makeVisibleNow = "UPDATE queue_messages SET visible_at = now() WHERE topic = $1 AND payload = $2::jsonb";
+                JsonObject payloadFuture = new JsonObject().put("value", "future-msg");
+                return pool.preparedQuery(makeVisibleNow)
+                    .execute(Tuple.of(TOPIC, payloadFuture));
+            })
+            .compose(v -> pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test2')").execute())
+            .onFailure(testContext::failNow);
 
         // Now the second should be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

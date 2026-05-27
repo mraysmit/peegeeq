@@ -70,7 +70,7 @@ class PgNativeQueueFactoryIntegrationTest {
     private PgNativeQueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 SchemaComponent.NATIVE_QUEUE,
@@ -83,10 +83,13 @@ class PgNativeQueueFactoryIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("native-factory-test", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        databaseService = new PgDatabaseService(manager);
-        factory = new PgNativeQueueFactory(databaseService);
+        manager.start()
+                .onSuccess(v -> {
+                    databaseService = new PgDatabaseService(manager);
+                    factory = new PgNativeQueueFactory(databaseService);
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach

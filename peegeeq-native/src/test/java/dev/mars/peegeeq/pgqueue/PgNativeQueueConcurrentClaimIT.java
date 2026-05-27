@@ -62,7 +62,7 @@ class PgNativeQueueConcurrentClaimIT {
     }
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -72,29 +72,33 @@ class PgNativeQueueConcurrentClaimIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create adapter using DatabaseService interfaces
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        adapter = new VertxPoolAdapter(
-            databaseService.getVertx(),
-            databaseService.getPool(),
-            databaseService
-        );
-        pool = adapter.getPool();
-
-        mapper = new ObjectMapper();
-        mapper.registerModule(new JavaTimeModule());
+        manager.start()
+                .onSuccess(v -> {
+                    // Create adapter using DatabaseService interfaces
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    adapter = new VertxPoolAdapter(
+                        databaseService.getVertx(),
+                        databaseService.getPool(),
+                        databaseService
+                    );
+                    pool = adapter.getPool();
+                    mapper = new ObjectMapper();
+                    mapper.registerModule(new JavaTimeModule());
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception ignore) {}
-        }
+        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -107,10 +111,9 @@ class PgNativeQueueConcurrentClaimIT {
         """;
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m1"), new JsonObject(), "c-1"))
-            .await();
-        pool.preparedQuery(insertSql)
-            .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m2"), new JsonObject(), "c-2"))
-            .await();
+            .compose(v -> pool.preparedQuery(insertSql)
+                .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m2"), new JsonObject(), "c-2")))
+            .onFailure(testContext::failNow);
 
         ConsumerConfig cfg = ConsumerConfig.builder()
             .mode(ConsumerMode.POLLING_ONLY)

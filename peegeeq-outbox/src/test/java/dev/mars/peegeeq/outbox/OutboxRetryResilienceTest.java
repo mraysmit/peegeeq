@@ -91,13 +91,13 @@ public class OutboxRetryResilienceTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         logger.info("🔧 Setting up OutboxRetryResilienceTest");
-        
+
         // Set up database connection properties
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
@@ -110,32 +110,30 @@ public class OutboxRetryResilienceTest {
 
         // Initialize manager and components
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
-        manager.start().await();
+        manager.start()
+            .onSuccess(v -> {
+                // Create queue factory using the standard pattern
+                PgDatabaseService databaseService = new PgDatabaseService(manager);
+                PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                OutboxFactoryRegistrar.registerWith(provider);
+                queueFactory = provider.createFactory("outbox", databaseService);
 
-        // Create queue factory using the standard pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith(provider);
+                // Create test-specific DataSource for failure simulation
+                connectionManager = new PgConnectionManager(Vertx.vertx());
+                PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                        .host(postgres.getHost())
+                        .port(postgres.getFirstMappedPort())
+                        .database(postgres.getDatabaseName())
+                        .username(postgres.getUsername())
+                        .password(postgres.getPassword())
+                        .build();
+                PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
+                testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
 
-        queueFactory = provider.createFactory("outbox", databaseService);
-
-        // Create test-specific DataSource for failure simulation
-        connectionManager = new PgConnectionManager(Vertx.vertx());
-        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-                .host(postgres.getHost())
-                .port(postgres.getFirstMappedPort())
-                .database(postgres.getDatabaseName())
-                .username(postgres.getUsername())
-                .password(postgres.getPassword())
-                .build();
-
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(3)
-                .build();
-
-        testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
-
-        logger.info("OutboxRetryResilienceTest setup completed");
+                logger.info("OutboxRetryResilienceTest setup completed");
+                ctx.completeNow();
+            })
+            .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -168,11 +166,7 @@ public class OutboxRetryResilienceTest {
         }
         
         if (connectionManager != null) {
-            try {
-                connectionManager.close();
-            } catch (Exception e) {
-                logger.warn("Error closing connection manager: {}", e.getMessage());
-            }
+            connectionManager.close().onFailure(e -> logger.warn("Error closing connection manager: {}", e.getMessage()));
         }
 
         if (manager != null) {
@@ -198,7 +192,9 @@ public class OutboxRetryResilienceTest {
         String testMessage = "Message for connection timeout test";
         AtomicInteger attemptCount = new AtomicInteger(0);
         AtomicReference<String> lastError = new AtomicReference<>();
+        AtomicInteger retryFlags = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
+        Checkpoint verifyCheckpoint = testContext.checkpoint();
 
         logger.info("📤 Sending message: {}", testMessage);
 
@@ -210,6 +206,13 @@ public class OutboxRetryResilienceTest {
 
             retryCheckpoint.flag();
             lastError.set("INTENTIONAL FAILURE: Simulated connection timeout, attempt " + attempt);
+            if (retryFlags.incrementAndGet() == 4) {
+                // All retries done — wait for DLQ processing then verify
+                vertx.setTimer(2000, t ->
+                    verifyMessageInDeadLetterQueue(testMessage)
+                        .onSuccess(v -> verifyCheckpoint.flag())
+                        .onFailure(testContext::failNow));
+            }
 
             // Simulate connection timeout during message processing
             throw new RuntimeException("INTENTIONAL FAILURE: Connection timeout during processing, attempt " + attempt);
@@ -219,14 +222,9 @@ public class OutboxRetryResilienceTest {
         producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("\u2705 Message sent successfully");
 
-        // Wait for all retry attempts
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite connection issues");
+        // Wait for all retry attempts + DLQ verification
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing 4 times despite connection issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-
-        // Verify message eventually moves to dead letter queue
-        // GC-settle: allow time for DLQ processing
-        vertx.timer(2000).await();
-        verifyMessageInDeadLetterQueue(testMessage);
 
         logger.info("Connection timeout resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
@@ -275,18 +273,16 @@ public class OutboxRetryResilienceTest {
     /**
      * Verifies that a message has been moved to the dead letter queue.
      */
-    private void verifyMessageInDeadLetterQueue(String expectedPayload) throws Exception {
-        Integer count = testReactivePool.withConnection(connection -> {
-            return connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
+    private Future<Void> verifyMessageInDeadLetterQueue(String expectedPayload) {
+        return testReactivePool.withConnection(connection ->
+            connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
-                .map(rowSet -> {
-                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                    return row.getInteger(0);
-                });
-        }).await();
-
-        assertTrue(count > 0, "Message should be found in dead letter queue");
-        logger.info("Verified message in dead letter queue: {} entries found", count);
+                .map(rowSet -> rowSet.iterator().next().getInteger(0))
+        ).map(count -> {
+            assertTrue(count > 0, "Message should be found in dead letter queue");
+            logger.info("Verified message in dead letter queue: {} entries found", count);
+            return (Void) null;
+        });
     }
 
     @Test
@@ -340,7 +336,9 @@ public class OutboxRetryResilienceTest {
 
         String testMessage = "Message for transaction rollback test";
         AtomicInteger attemptCount = new AtomicInteger(0);
+        AtomicInteger retryFlags = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
+        Checkpoint verifyCheckpoint = testContext.checkpoint();
 
         // Send message first
         producer.send(testMessage).onFailure(testContext::failNow);
@@ -353,17 +351,20 @@ public class OutboxRetryResilienceTest {
                 attempt, message.getPayload());
 
             retryCheckpoint.flag();
+            if (retryFlags.incrementAndGet() == 4) {
+                // All retries done — verify retry state consistency
+                verifyRetryStateConsistency(testMessage)
+                    .onSuccess(v -> verifyCheckpoint.flag())
+                    .onFailure(testContext::failNow);
+            }
 
             // Simulate transaction rollback scenario
             throw new RuntimeException("INTENTIONAL FAILURE: Transaction rollback during retry update, attempt " + attempt);
         });
 
-        // Wait for all retry attempts
+        // Wait for all retry attempts + state verification
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite transaction issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-
-        // Verify retry state consistency after rollbacks
-        verifyRetryStateConsistency(testMessage);
 
         logger.info("Transaction rollback resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
@@ -421,36 +422,31 @@ public class OutboxRetryResilienceTest {
     /**
      * Verifies that retry state remains consistent after transaction rollbacks.
      */
-    private void verifyRetryStateConsistency(String expectedPayload) throws Exception {
-        testReactivePool.withConnection(connection -> {
-            return connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
+    private Future<Void> verifyRetryStateConsistency(String expectedPayload) {
+        return testReactivePool.withConnection(connection ->
+            connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
                 .map(rowSet -> {
                     if (rowSet.iterator().hasNext()) {
                         io.vertx.sqlclient.Row row = rowSet.iterator().next();
                         int retryCount = row.getInteger("retry_count");
                         String status = row.getString("status");
-
                         logger.info("Retry state verification: retry_count={}, status={}", retryCount, status);
-
-                        // Verify retry count is within expected bounds
                         assertTrue(retryCount >= 0 && retryCount <= 4,
                             "Retry count should be between 0 and 4, but was: " + retryCount);
-
-                        // Verify status is valid
                         assertTrue(status.equals("PENDING") || status.equals("PROCESSING") ||
                                   status.equals("COMPLETED") || status.equals("DEAD_LETTER"),
                             "Status should be valid, but was: " + status);
                     }
-                    return null;
-                });
-        }).await();
+                    return (Void) null;
+                })
+        );
     }
 
     /**
      * Simulates database connection pool exhaustion by creating many long-running connections.
      */
-    private void simulateConnectionPoolExhaustion() throws Exception {
+    private void simulateConnectionPoolExhaustion() {
         logger.info("🔥 INTENTIONAL TEST: Simulating connection pool exhaustion");
 
         for (int i = 0; i < 10; i++) {
@@ -466,16 +462,9 @@ public class OutboxRetryResilienceTest {
                         });
                     });
                 })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.info("Connection pool exhausted at connection {}: {}", connectionNum, ar.cause().getMessage());
-                    }
-                    return io.vertx.core.Future.succeededFuture();
-                });
+                .onFailure(e -> logger.info("Connection pool exhausted at connection {}: {}", connectionNum, e.getMessage()));
         }
 
-        // GC-settle: wait for connections to be acquired
-        io.vertx.core.Vertx.vertx().timer(500).await();
         logger.info("Connection pool exhaustion simulation initiated");
     }
 }

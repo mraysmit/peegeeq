@@ -49,7 +49,7 @@ public class RetryableErrorIT {
     private PgNativeQueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .build();
@@ -57,10 +57,13 @@ public class RetryableErrorIT {
 
         PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("retryable-error-test", testProps);
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        factory = new PgNativeQueueFactory(databaseService);
+        manager.start()
+                .onSuccess(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    factory = new PgNativeQueueFactory(databaseService);
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -89,7 +92,7 @@ public class RetryableErrorIT {
             return Future.succeededFuture();
         });
 
-        producer.send("one").await();
+        producer.send("one").onFailure(testContext::failNow);
 
         // Should still process successfully even though the first claim attempt fails with 40P01
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be processed after one retry");
