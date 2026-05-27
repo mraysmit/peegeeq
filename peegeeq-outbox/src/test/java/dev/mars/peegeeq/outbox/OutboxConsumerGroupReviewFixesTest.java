@@ -79,28 +79,27 @@ class OutboxConsumerGroupReviewFixesTest {
     private PeeGeeQConfiguration config;
 
     @BeforeEach
-    void setUp(Vertx vertx) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        this.manager.start().await();
-        this.databaseService = new PgDatabaseService(manager);
+        this.manager.start()
+                .onSuccess(v -> {
+                    this.databaseService = new PgDatabaseService(manager);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        if (group != null) {
-            group.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        Future.<Void>succeededFuture()
+                .eventually(() -> group != null ? group.close() : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -298,7 +297,7 @@ class OutboxConsumerGroupReviewFixesTest {
                 targetConsumerId.set("c2");
                 return Future.succeededFuture();
             });
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             // Route once to discover which consumer gets "target-msg"
             Message<String> msg = new SimpleMessage<>("target-msg", "test-topic", "payload");
@@ -336,7 +335,7 @@ class OutboxConsumerGroupReviewFixesTest {
                 received.add(msg.getId());
                 return Future.succeededFuture();
             });
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             // Verify it works while active
             Future<Void> ok = invokeDistributeMessage(group,
@@ -372,7 +371,7 @@ class OutboxConsumerGroupReviewFixesTest {
                 c2Received.incrementAndGet();
                 return Future.succeededFuture();
             });
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             // Send many messages while concurrently removing consumers
             int messageCount = 50;
@@ -427,9 +426,8 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("close-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            group.start();
-
-            group.close();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
+            assertTrue(group.close().succeeded(), "group.close() should succeed");
 
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
             assertTrue(group.getConsumerIds().isEmpty());
@@ -441,7 +439,7 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("close-async-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             Future<Void> result = group.close();
 
@@ -484,12 +482,11 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("close-active-group", "test-topic");
             var m1 = (OutboxConsumerGroupMember<String>) group.addConsumer("c1", msg -> Future.succeededFuture());
             var m2 = (OutboxConsumerGroupMember<String>) group.addConsumer("c2", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             assertTrue(m1.isActive());
             assertTrue(m2.isActive());
-
-            group.close();
+            assertTrue(group.close().succeeded(), "group.close() should succeed");
 
             // Members should be stopped and closed
             assertFalse(m1.isActive());
@@ -503,14 +500,14 @@ class OutboxConsumerGroupReviewFixesTest {
         void groupStopAllowsRestart() {
             group = createGroup("stop-restart-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
             assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
 
-            group.stop().onFailure(e -> fail("stop() failed: " + e.getMessage()));
+            assertTrue(group.stop().succeeded(), "group.stop() should succeed");
             assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
 
             // Should be restartable
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
             assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
         }
     }
@@ -574,17 +571,17 @@ class OutboxConsumerGroupReviewFixesTest {
 
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             // Route messages with hash routing, different IDs go to different consumers
             // Send 1 message to c1, 10 to c2 (by finding IDs that route to each)
             // Instead, just use a single consumer approach for deterministic verification
-            group.close();
+            assertTrue(group.close().succeeded(), "group.close() should succeed");
 
             // Use a controlled setup: two members with known stats
             group = createGroup("weighted-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             // Process messages through c1 to establish known counts
             for (int i = 0; i < 5; i++) {
@@ -604,7 +601,7 @@ class OutboxConsumerGroupReviewFixesTest {
         void zeroMessagesProduceZeroAvg() {
             group = createGroup("empty-stats-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             ConsumerGroupStats stats = group.getStats();
             assertEquals(0.0, stats.getAverageProcessingTimeMs());
@@ -617,7 +614,7 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("lastactive-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             // Process some messages to set lastActiveAt
             for (int i = 0; i < 10; i++) {
@@ -635,7 +632,7 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("filtered-stats-group", "test-topic");
             group.setGroupFilter(msg -> false); // reject all
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             invokeDistributeMessage(group, new SimpleMessage<>("f1", "test-topic", "p"));
             invokeDistributeMessage(group, new SimpleMessage<>("f2", "test-topic", "p"));
@@ -650,7 +647,7 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("failed-stats-group", "test-topic");
             group.addConsumer("c1", msg ->
                 Future.failedFuture(new RuntimeException("boom")));
-            group.start();
+            assertTrue(group.start().succeeded(), "group.start() should succeed");
 
             invokeDistributeMessage(group, new SimpleMessage<>("e1", "test-topic", "p"));
             invokeDistributeMessage(group, new SimpleMessage<>("e2", "test-topic", "p"));
