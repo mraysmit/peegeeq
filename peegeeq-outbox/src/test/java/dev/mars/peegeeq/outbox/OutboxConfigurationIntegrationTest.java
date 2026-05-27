@@ -43,6 +43,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Properties;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -76,20 +77,16 @@ class OutboxConfigurationIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) {
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
+        try { if (consumer != null) consumer.close(); } catch (Exception e) { logger.warn("consumer.close() failed", e); }
+        try { if (producer != null) producer.close(); } catch (Exception e) { logger.warn("producer.close() failed", e); }
+        try { if (outboxFactory != null) outboxFactory.close(); } catch (Exception e) { logger.warn("outboxFactory.close() failed", e); }
+        Future.<Void>succeededFuture()
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
 
@@ -101,32 +98,32 @@ class OutboxConfigurationIntegrationTest {
                 .property("peegeeq.queue.max-retries", "2")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", configProps), new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
         String testTopic = "test-config-integration-" + UUID.randomUUID().toString().substring(0, 8);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send("Message for config integration test").await();
-
-        consumer.subscribe(message -> {
-            attemptCount.incrementAndGet();
-            retryCheckpoint.flag();
-            return Future.failedFuture(
-                new RuntimeException("INTENTIONAL FAILURE: attempt " + attemptCount.get()));
-        });
+        manager.start()
+                .compose(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    return consumer.subscribe(message -> {
+                        attemptCount.incrementAndGet();
+                        retryCheckpoint.flag();
+                        return Future.failedFuture(
+                            new RuntimeException("INTENTIONAL FAILURE: attempt " + attemptCount.get()));
+                    });
+                })
+                .compose(v -> producer.send("Message for config integration test"))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
             "Should have attempted processing exactly 3 times (initial + 2 retries)");
 
         // Wait to confirm no additional attempts beyond max retries
-        vertx.timer(2000).await();
+        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
         assertEquals(3, attemptCount.get(), "Should not exceed configured max retries");
     }
 
@@ -137,32 +134,32 @@ class OutboxConfigurationIntegrationTest {
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", defaultProps), new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
         String testTopic = "test-default-config-" + UUID.randomUUID().toString().substring(0, 8);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4);
 
-        consumer.subscribe(message -> {
-            attemptCount.incrementAndGet();
-            retryCheckpoint.flag();
-            return Future.failedFuture(
-                new RuntimeException("INTENTIONAL FAILURE: attempt " + attemptCount.get()));
-        });
-
-        producer.send("Message for default config test").await();
+        manager.start()
+                .compose(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    return consumer.subscribe(message -> {
+                        attemptCount.incrementAndGet();
+                        retryCheckpoint.flag();
+                        return Future.failedFuture(
+                            new RuntimeException("INTENTIONAL FAILURE: attempt " + attemptCount.get()));
+                    });
+                })
+                .compose(v -> producer.send("Message for default config test"))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should have attempted processing exactly 4 times (initial + 3 retries from default profile)");
 
         // Wait to confirm no additional attempts beyond max retries
-        vertx.timer(2000).await();
+        new CountDownLatch(1).await(2, TimeUnit.SECONDS);
         assertEquals(4, attemptCount.get(), "Should not exceed default max retries");
     }
 
@@ -173,26 +170,26 @@ class OutboxConfigurationIntegrationTest {
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", basicProps), new SimpleMeterRegistry());
-        manager.start().await();
-
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
         String testTopic = "test-basic-processing-" + UUID.randomUUID().toString().substring(0, 8);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-        consumer = outboxFactory.createConsumer(testTopic, String.class);
-
         Checkpoint messageProcessed = testContext.checkpoint();
         AtomicInteger processedCount = new AtomicInteger(0);
 
-        consumer.subscribe(message -> {
-            if (processedCount.incrementAndGet() == 1) {
-                messageProcessed.flag();
-            }
-            return Future.succeededFuture();
-        });
-
-        producer.send("Basic processing test message").await();
+        manager.start()
+                .compose(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    consumer = outboxFactory.createConsumer(testTopic, String.class);
+                    return consumer.subscribe(message -> {
+                        if (processedCount.incrementAndGet() == 1) {
+                            messageProcessed.flag();
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .compose(v -> producer.send("Basic processing test message"))
+                .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have processed the message within timeout");
         assertEquals(1, processedCount.get(), "Should process exactly one message");
