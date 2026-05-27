@@ -20,7 +20,7 @@ import java.util.concurrent.TimeUnit;
  * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
  *
- * NOTE: Exempt from blocking-thread guard via @Tag("demonstration") marker — the
+ * NOTE: Exempt from blocking-thread guard via @Tag("blocking-exempt") marker — the
  * container-readiness polling loop below uses Thread.sleep intentionally as test
  * infrastructure (Testcontainers port-mapping retry), not as application logic.
  */
