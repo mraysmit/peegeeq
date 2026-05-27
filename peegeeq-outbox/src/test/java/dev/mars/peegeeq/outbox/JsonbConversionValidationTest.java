@@ -31,11 +31,14 @@ import java.util.Properties;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -43,7 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.Map;
-
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,6 +60,7 @@ import org.slf4j.LoggerFactory;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class JsonbConversionValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
 
@@ -66,23 +70,17 @@ class JsonbConversionValidationTest {
 
     private PeeGeeQManager manager;
     private OutboxFactory factory;
-    private Vertx testVertx;
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        factory = new OutboxFactory(manager.getDatabaseService());
-
-        testVertx = Vertx.vertx();
-        connectionManager = new PgConnectionManager(testVertx);
+        connectionManager = new PgConnectionManager(vertx);
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -92,166 +90,156 @@ class JsonbConversionValidationTest {
                 .build();
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
         reactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
+        manager.start()
+                .onSuccess(v -> {
+                    factory = new OutboxFactory(manager.getDatabaseService());
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) {
-            factory.close();
-        }
-        if (connectionManager != null) {
-            connectionManager.close();
-        }
-        if (testVertx != null) {
-            testVertx.close().await();
-        }
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-
+        try { if (factory != null) factory.close(); } catch (Exception e) { logger.warn("factory.close() failed", e); }
+        Future.<Void>succeededFuture()
+                .eventually(() -> connectionManager != null ? connectionManager.close() : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that simple string payloads are stored as proper JSONB objects.
      */
     @Test
-    void testSimpleStringPayloadStoredAsJsonb() throws Exception {
+    void testSimpleStringPayloadStoredAsJsonb(VertxTestContext testContext) {
         logger.info("Test: simple string payload stored as jsonb");
         String testMessage = "Hello, JSONB World!";
         String topic = "jsonb-test-simple";
-
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
-        try {
-            producer.send(testMessage).await();
 
-            Row row = reactivePool.withConnection(conn ->
-                conn.preparedQuery("""
-                    SELECT jsonb_typeof(payload) as payload_type,
-                           payload->>'value' as extracted_value
-                    FROM outbox
-                    WHERE topic = $1
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """)
-                    .execute(Tuple.of(topic))
-                    .map(rows -> {
-                        assertTrue(rows.size() > 0, "Should find the inserted message");
-                        return rows.iterator().next();
-                    })
-            ).await();
-
-            assertEquals("object", row.getString("payload_type"),
-                    "Payload should be stored as JSONB object, not string");
-            assertEquals(testMessage, row.getString("extracted_value"),
-                    "Should be able to extract value using JSON operators");
-        } finally {
-            producer.close();
-        }
+        producer.send(testMessage)
+                .compose(v -> reactivePool.withConnection(conn ->
+                    conn.preparedQuery("""
+                        SELECT jsonb_typeof(payload) as payload_type,
+                               payload->>'value' as extracted_value
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """)
+                        .execute(Tuple.of(topic))
+                        .map(rows -> {
+                            assertTrue(rows.size() > 0, "Should find the inserted message");
+                            return rows.iterator().next();
+                        })
+                ))
+                .onComplete(testContext.succeeding(row -> testContext.verify(() -> {
+                    assertEquals("object", row.getString("payload_type"),
+                            "Payload should be stored as JSONB object, not string");
+                    assertEquals(testMessage, row.getString("extracted_value"),
+                            "Should be able to extract value using JSON operators");
+                    producer.close();
+                    testContext.completeNow();
+                })));
     }
 
     /**
      * Test that complex object payloads are stored as proper JSONB objects.
      */
     @Test
-    void testComplexObjectPayloadStoredAsJsonb() throws Exception {
+    void testComplexObjectPayloadStoredAsJsonb(VertxTestContext testContext) {
         logger.info("Test: complex object payload stored as jsonb");
         OrderEvent testOrder = new OrderEvent("ORD-JSONB-001", "customer-123", new BigDecimal("299.99"), "PROCESSING");
         String topic = "jsonb-test-complex";
-
         Map<String, String> headers = new HashMap<>();
         headers.put("source", "jsonb-test");
         headers.put("version", "1.0");
         headers.put("correlationId", "test-correlation-123");
-
         MessageProducer<OrderEvent> producer = factory.createProducer(topic, OrderEvent.class);
-        try {
-            producer.send(testOrder, headers).await();
 
-            Row row = reactivePool.withConnection(conn ->
-                conn.preparedQuery("""
-                    SELECT jsonb_typeof(payload) as payload_type,
-                           jsonb_typeof(headers) as headers_type,
-                           payload->>'orderId' as order_id,
-                           payload->>'amount' as amount,
-                           headers->>'correlationId' as correlation_id
-                    FROM outbox
-                    WHERE topic = $1
-                    ORDER BY id DESC
-                    LIMIT 1
-                    """)
-                    .execute(Tuple.of(topic))
-                    .map(rows -> {
-                        assertTrue(rows.size() > 0, "Should find the inserted message");
-                        return rows.iterator().next();
-                    })
-            ).await();
-
-            assertEquals("object", row.getString("payload_type"),
-                    "Payload should be stored as JSONB object");
-            assertEquals("object", row.getString("headers_type"),
-                    "Headers should be stored as JSONB object");
-            assertEquals("ORD-JSONB-001", row.getString("order_id"),
-                    "Should extract orderId from payload");
-            assertEquals("299.99", row.getString("amount"),
-                    "Should extract amount from payload");
-            assertEquals("test-correlation-123", row.getString("correlation_id"),
-                    "Should extract correlationId from headers");
-        } finally {
-            producer.close();
-        }
+        producer.send(testOrder, headers)
+                .compose(v -> reactivePool.withConnection(conn ->
+                    conn.preparedQuery("""
+                        SELECT jsonb_typeof(payload) as payload_type,
+                               jsonb_typeof(headers) as headers_type,
+                               payload->>'orderId' as order_id,
+                               payload->>'amount' as amount,
+                               headers->>'correlationId' as correlation_id
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """)
+                        .execute(Tuple.of(topic))
+                        .map(rows -> {
+                            assertTrue(rows.size() > 0, "Should find the inserted message");
+                            return rows.iterator().next();
+                        })
+                ))
+                .onComplete(testContext.succeeding(row -> testContext.verify(() -> {
+                    assertEquals("object", row.getString("payload_type"),
+                            "Payload should be stored as JSONB object");
+                    assertEquals("object", row.getString("headers_type"),
+                            "Headers should be stored as JSONB object");
+                    assertEquals("ORD-JSONB-001", row.getString("order_id"),
+                            "Should extract orderId from payload");
+                    assertEquals("299.99", row.getString("amount"),
+                            "Should extract amount from payload");
+                    assertEquals("test-correlation-123", row.getString("correlation_id"),
+                            "Should extract correlationId from headers");
+                    producer.close();
+                    testContext.completeNow();
+                })));
     }
 
     /**
      * Test that consumers can properly read and parse JSONB objects.
      */
     @Test
-    void testConsumerCanReadJsonbObjects() throws Exception {
+    void testConsumerCanReadJsonbObjects(VertxTestContext testContext) {
         logger.info("Test: consumer can read jsonb objects");
         String topic = "jsonb-test-consumer";
         OrderEvent testOrder = new OrderEvent("ORD-CONSUMER-001", "customer-456", new BigDecimal("199.99"), "COMPLETED");
-
         Map<String, String> headers = new HashMap<>();
         headers.put("source", "consumer-test");
         headers.put("priority", "HIGH");
-
         MessageProducer<OrderEvent> producer = factory.createProducer(topic, OrderEvent.class);
         MessageConsumer<OrderEvent> consumer = factory.createConsumer(topic, OrderEvent.class);
-        try {
-            producer.send(testOrder, headers).await();
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Promise<Void> done = Promise.promise();
 
-            Promise<Void> done = Promise.promise();
-            AtomicInteger processedCount = new AtomicInteger(0);
+        consumer.subscribe(message -> {
+            try {
+                OrderEvent receivedOrder = message.getPayload();
+                assertNotNull(receivedOrder, "Payload should not be null");
+                assertEquals("ORD-CONSUMER-001", receivedOrder.getOrderId(), "OrderId should match");
+                assertEquals("customer-456", receivedOrder.getCustomerId(), "CustomerId should match");
+                assertEquals(new BigDecimal("199.99"), receivedOrder.getAmount(), "Amount should match");
+                assertEquals("COMPLETED", receivedOrder.getStatus(), "Status should match");
+                Map<String, String> receivedHeaders = message.getHeaders();
+                assertNotNull(receivedHeaders, "Headers should not be null");
+                assertEquals("consumer-test", receivedHeaders.get("source"), "Source header should match");
+                assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
+                processedCount.incrementAndGet();
+                done.tryComplete();
+                return Future.succeededFuture();
+            } catch (Throwable e) {
+                done.tryFail(e);
+                return Future.failedFuture(e instanceof RuntimeException ? (RuntimeException) e : new RuntimeException(e));
+            }
+        });
 
-            consumer.subscribe(message -> {
-                try {
-                    OrderEvent receivedOrder = message.getPayload();
-                    assertNotNull(receivedOrder, "Payload should not be null");
-                    assertEquals("ORD-CONSUMER-001", receivedOrder.getOrderId(), "OrderId should match");
-                    assertEquals("customer-456", receivedOrder.getCustomerId(), "CustomerId should match");
-                    assertEquals(new BigDecimal("199.99"), receivedOrder.getAmount(), "Amount should match");
-                    assertEquals("COMPLETED", receivedOrder.getStatus(), "Status should match");
-
-                    Map<String, String> receivedHeaders = message.getHeaders();
-                    assertNotNull(receivedHeaders, "Headers should not be null");
-                    assertEquals("consumer-test", receivedHeaders.get("source"), "Source header should match");
-                    assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
-
-                    processedCount.incrementAndGet();
-                    done.complete();
-                    return Future.succeededFuture();
-                } catch (Exception e) {
-                    done.tryFail(e);
-                    return Future.failedFuture(e);
-                }
-            });
-
-            done.future().await();
-            assertEquals(1, processedCount.get(), "Should have processed exactly 1 message");
-        } finally {
-            consumer.close();
-            producer.close();
-        }
+        producer.send(testOrder, headers)
+                .compose(v -> done.future())
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                    consumer.close();
+                    producer.close();
+                    assertEquals(1, processedCount.get(), "Should have processed exactly 1 message");
+                    testContext.completeNow();
+                })));
     }
 
     /**
