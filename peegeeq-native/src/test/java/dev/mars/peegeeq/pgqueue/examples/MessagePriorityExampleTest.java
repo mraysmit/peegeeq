@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.vertx.core.Future;
 
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.CountDownLatch;
 import org.junit.jupiter.api.extension.ExtendWith;
 
@@ -129,7 +130,7 @@ class MessagePriorityExampleTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Message Priority Example Test ===");
 
@@ -152,32 +153,37 @@ class MessagePriorityExampleTest {
                 new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
-        manager.start().await();
-        logger.info("PeeGeeQ Manager started successfully");
-
-        // Create database service and factory provider
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native queue factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        // Create native queue factory
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Message Priority Example Test setup completed");
+        manager.start()
+                .onSuccess(v -> {
+                    logger.info("PeeGeeQ Manager started successfully");
+                    // Create database service and factory provider
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native queue factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    // Create native queue factory
+                    factory = provider.createFactory("native", databaseService);
+                    logger.info("Message Priority Example Test setup completed");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext ctx) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Message Priority Example Test");
-
-        if (manager != null) {
-            manager.closeReactive().await();
-        }
-
-        logger.info("Message Priority Example Test cleanup completed");
+        logger.info("\uD83E\uDDF9 Cleaning up Message Priority Example Test");
+        (factory != null ? factory.close() : Future.<Void>succeededFuture())
+                .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+                .onSuccess(v -> {
+                    logger.info("Message Priority Example Test cleanup completed");
+                    ctx.completeNow();
+                })
+                .onFailure(err -> {
+                    logger.error("Teardown close failed", err);
+                    ctx.failNow(err);
+                });
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -453,7 +459,7 @@ class MessagePriorityExampleTest {
     }
 
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String messageId,
-                                   String messageType, String content, int priority) throws Exception {
+                                   String messageType, String content, int priority) {
         PriorityMessage message = new PriorityMessage(messageId, messageType, content, priority,
                                                     System.currentTimeMillis(), new HashMap<>());
 
@@ -462,7 +468,8 @@ class MessagePriorityExampleTest {
             "messageType", messageType
         );
 
-        producer.send(message, headers, messageId, String.valueOf(priority)).await();
+        producer.send(message, headers, messageId, String.valueOf(priority))
+                .onFailure(err -> logger.warn("Failed to send message {}: {}", messageId, err.getMessage()));
         logger.debug("Sent message: {} with priority {}", messageId, priority);
     }
 

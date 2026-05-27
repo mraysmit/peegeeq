@@ -67,7 +67,7 @@ class ListenNotifyOnlyEdgeCaseTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern (following existing patterns)
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -83,18 +83,18 @@ class ListenNotifyOnlyEdgeCaseTest {
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory using the proper pattern
-        PgDatabaseService databaseService = new PgDatabaseService(manager);
-        PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
-
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-
-        factory = provider.createFactory("native", databaseService);
-
-        logger.info("Test setup completed for LISTEN_NOTIFY_ONLY edge case testing");
+        manager.start()
+                .onSuccess(v -> {
+                    // Create factory using the proper pattern
+                    PgDatabaseService databaseService = new PgDatabaseService(manager);
+                    PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    // Register native factory implementation
+                    PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("native", databaseService);
+                    logger.info("Test setup completed for LISTEN_NOTIFY_ONLY edge case testing");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
     }
 
     @AfterEach
@@ -120,9 +120,9 @@ class ListenNotifyOnlyEdgeCaseTest {
         // First, send messages BEFORE setting up the consumer
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        producer.send("Message 1 - Before Consumer").await();
-        producer.send("Message 2 - Before Consumer").await();
-        producer.send("Message 3 - Before Consumer").await();
+        producer.send("Message 1 - Before Consumer").onFailure(testContext::failNow);
+        producer.send("Message 2 - Before Consumer").onFailure(testContext::failNow);
+        producer.send("Message 3 - Before Consumer").onFailure(testContext::failNow);
 
         logger.info("Sent 3 messages before consumer setup");
 
@@ -141,7 +141,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             logger.info("📨 Received existing message {}: {}", count, message.getPayload());
             atLeastOneReceived.flag();
             return Future.succeededFuture();
-        });
+        }).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
             "Should receive at least 1 existing message via LISTEN_NOTIFY_ONLY mode");
@@ -174,7 +174,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             messageReceived.flag();
             return Future.succeededFuture();
         })
-        .onSuccess(ignored -> producer.send("Special characters test message"))
+        .onSuccess(ignored -> producer.send("Special characters test message").onFailure(testContext::failNow))
         .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
@@ -214,7 +214,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             messageReceived.flag();
             return Future.succeededFuture();
         })
-        .onSuccess(ignored -> producer.send(largePayload))
+        .onSuccess(ignored -> producer.send(largePayload).onFailure(testContext::failNow))
         .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
@@ -303,14 +303,14 @@ class ListenNotifyOnlyEdgeCaseTest {
             return promise.future();
         })
         .onSuccess(ignored -> {
-            producer.send("Message for shutdown test");
+            producer.send("Message for shutdown test").onFailure(testContext::failNow);
             // Give time for message to arrive and processing to start
             vertx.setTimer(1000, id2 -> {
                 logger.info("🔄 Closing consumer during message processing");
                 consumer.close();
                 producer.close();
                 testContext.verify(() -> {
-                    assertTrue(processedCount.get() >= 0, "Should handle shutdown gracefully");
+                    assertTrue(processingStarted.get(), "Consumer should have started processing before shutdown");
                 });
                 testComplete.flag();
             });
