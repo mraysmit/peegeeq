@@ -3,86 +3,97 @@ package dev.mars.peegeeq.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * Verifies that OutboxFactory and OutboxConsumerGroup APIs are safe to call from the
+ * Vert.x event loop thread — i.e. they do not perform blocking work synchronously.
+ *
+ * <p>Each test schedules an API call onto the event loop via {@link #invokeOnEventLoop}
+ * and asserts that no synchronous exception was thrown. Asynchronous failures in the
+ * returned {@code Future} are expected and intentionally ignored here; the concern is
+ * only that the call does not block or throw before returning.
+ */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class OutboxBlockingSafetyTest {
 
     @Test
-    void outboxFactoryBlockingApisFailFastOnEventLoopThread() throws Exception {
-        Vertx vertx = Vertx.vertx();
-        try {
-            OutboxFactory factory = new OutboxFactory(null);
+    void outboxFactoryBlockingApisFailFastOnEventLoopThread(Vertx vertx, VertxTestContext testContext) {
+        OutboxFactory factory = new OutboxFactory(null);
 
-            // isHealthy(), getStats(), createBrowser(), and close() are all reactive
-            // (return Future) and are safe to call from the event loop.
-            Throwable closeError = invokeOnEventLoop(vertx, () -> {
-                factory.close();
-                return null;
-            });
+        // isHealthy(), getStats(), createBrowser(), and close() are all reactive
+        // (return Future) and are safe to call from the event loop.
+        invokeOnEventLoop(vertx, () -> {
+            factory.close();
+            return null;
+        }).onComplete(testContext.succeeding(closeError -> testContext.verify(() -> {
             assertNull(closeError,
                     "close() should not throw on event loop; got: " + closeError);
-        } finally {
-            vertx.close().await();
-        }
+            testContext.completeNow();
+        })));
     }
 
     @Test
-    void outboxFactoryCreateBrowserOnEventLoopReturnsFutureWithoutThrowing() throws Exception {
+    void outboxFactoryCreateBrowserOnEventLoopReturnsFutureWithoutThrowing(Vertx vertx, VertxTestContext testContext) {
         // createBrowser() is now reactive (returns Future<QueueBrowser<T>>) and must NOT
         // throw synchronously on the event loop. Without a real DatabaseService the future
         // will fail asynchronously, but no synchronous exception is acceptable.
-        Vertx vertx = Vertx.vertx();
-        try {
-            OutboxFactory factory = new OutboxFactory(null);
+        OutboxFactory factory = new OutboxFactory(null);
 
-            Throwable thrown = invokeOnEventLoop(vertx, () -> factory.createBrowser("topic-a", String.class));
-
-            assertNull(thrown,
-                    "createBrowser() should not throw on event loop; got: " + thrown);
-        } finally {
-            vertx.close().await();
-        }
+        invokeOnEventLoop(vertx, () -> factory.createBrowser("topic-a", String.class))
+                .onComplete(testContext.succeeding(thrown -> testContext.verify(() -> {
+                    assertNull(thrown,
+                            "createBrowser() should not throw on event loop; got: " + thrown);
+                    testContext.completeNow();
+                })));
     }
 
     @Test
-    void outboxConsumerGroupStartWithSubscriptionOptionsIsNonBlockingAndSafeOnEventLoop() throws Exception {
+    void outboxConsumerGroupStartWithSubscriptionOptionsIsNonBlockingAndSafeOnEventLoop(Vertx vertx, VertxTestContext testContext) {
         // start(SubscriptionOptions) returns Future<Void> and is non-blocking,
         // so it should NOT throw on the event loop. Without a real DatabaseService
         // the start will fail asynchronously, but it must not throw synchronously.
-        Vertx vertx = Vertx.vertx();
-        try {
-            OutboxConsumerGroup<String> group = new OutboxConsumerGroup<>(
-                    "group-a",
-                    "topic-a",
-                    String.class,
-                    (dev.mars.peegeeq.api.database.DatabaseService) null,
-                    new ObjectMapper(),
-                    null,
-                    null);
+        OutboxConsumerGroup<String> group = new OutboxConsumerGroup<>(
+                "group-a",
+                "topic-a",
+                String.class,
+                (dev.mars.peegeeq.api.database.DatabaseService) null,
+                new ObjectMapper(),
+                null,
+                null);
 
-            Throwable thrown = invokeOnEventLoop(vertx, () -> {
-                group.start(SubscriptionOptions.builder().build());
-                return null;
-            });
-
-            // No synchronous exception should be thrown async failures are in the Future
+        invokeOnEventLoop(vertx, () -> {
+            group.start(SubscriptionOptions.builder().build());
+            return null;
+        }).onComplete(testContext.succeeding(thrown -> testContext.verify(() -> {
+            // No synchronous exception should be thrown; async failures are in the Future
             assertNull(thrown,
                     "start(SubscriptionOptions) should not throw on event loop; got: " + thrown);
-        } finally {
-            vertx.close().await();
-        }
+            testContext.completeNow();
+        })));
     }
 
-    private static <T> Throwable invokeOnEventLoop(Vertx vertx, java.util.concurrent.Callable<T> action) throws Exception {
+    /**
+     * Schedules {@code action} on the Vert.x event loop and captures any synchronous
+     * exception it throws. Returns a {@code Future} that resolves to:
+     * <ul>
+     *   <li>{@code null} — the action completed without throwing synchronously</li>
+     *   <li>a {@code Throwable} — the synchronous exception the action threw</li>
+     * </ul>
+     * The future itself never fails; exceptions are surfaced as a non-null result value
+     * so callers can assert on them with {@code assertNull}.
+     */
+    private static <T> Future<Throwable> invokeOnEventLoop(Vertx vertx, java.util.concurrent.Callable<T> action) {
         Promise<Throwable> outcome = Promise.promise();
         vertx.runOnContext(v -> {
             try {
@@ -92,14 +103,7 @@ class OutboxBlockingSafetyTest {
                 outcome.complete(t);
             }
         });
-        return outcome.future().await();
+        return outcome.future();
     }
 
-    private static void assertIllegalStateWithMessage(Throwable thrown, String expectedMessage) {
-        assertNotNull(thrown, "Expected an exception to be thrown");
-        assertInstanceOf(IllegalStateException.class, thrown,
-                "Expected IllegalStateException but got: " + thrown.getClass().getName());
-        assertTrue(thrown.getMessage().contains(expectedMessage),
-                "Expected message to contain: " + expectedMessage + ", but was: " + thrown.getMessage());
-    }
 }

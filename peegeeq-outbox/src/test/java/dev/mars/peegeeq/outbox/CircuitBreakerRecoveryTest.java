@@ -27,7 +27,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * Validates state transitions, recovery success rates, and proper behavior under various failure patterns.
  */
 @Tag(TestCategories.CORE)
-@Tag("demonstration")
+// BLOCKING-EXEMPT: LockSupport.parkNanos IS the test stimulus — it advances simulated
+// time past the circuit-breaker's reset timeout threshold to drive the state-machine
+// through the half-open → closed recovery transition. No reactive runtime is involved;
+// this is a time-based state-transition test (criterion 2: time-based state transition
+// in a non-reactive component).
+@Tag("blocking-exempt")
 public class CircuitBreakerRecoveryTest {
     private static final Logger logger = LoggerFactory.getLogger(CircuitBreakerRecoveryTest.class);
     
