@@ -255,8 +255,8 @@ class PeeGeeQConfigurationConsumerModeTest {
         });
 
         // Send messages to test visibility timeout behavior
-        producer.send("Visibility timeout message 1").await();
-        producer.send("Visibility timeout message 2").await();
+        producer.send("Visibility timeout message 1");
+        producer.send("Visibility timeout message 2");
 
         // Wait for messages to be processed
         boolean allProcessed = allDone.await(10, TimeUnit.SECONDS);
