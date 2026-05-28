@@ -55,7 +55,6 @@ import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -92,11 +91,8 @@ public class OutboxRetryResilienceTest {
 
     @BeforeEach
     void setUp(VertxTestContext ctx) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-
-        logger.info("🔧 Setting up OutboxRetryResilienceTest");
 
         // Set up database connection properties
         Properties testProps = PeeGeeQTestConfig.builder()
@@ -130,7 +126,6 @@ public class OutboxRetryResilienceTest {
                 PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
                 testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
 
-                logger.info("OutboxRetryResilienceTest setup completed");
                 ctx.completeNow();
             })
             .onFailure(ctx::failNow);
@@ -138,9 +133,6 @@ public class OutboxRetryResilienceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up OutboxRetryResilienceTest");
-        
         if (consumer != null) {
             try {
                 consumer.close();
@@ -165,77 +157,59 @@ public class OutboxRetryResilienceTest {
             }
         }
         
-        if (connectionManager != null) {
-            connectionManager.close().onFailure(e -> logger.warn("Error closing connection manager: {}", e.getMessage()));
-        }
+        Future<Void> connectionManagerClose = (connectionManager != null)
+            ? connectionManager.close().transform(ar -> {
+                if (ar.failed()) logger.warn("Error closing connection manager: {}", ar.cause().getMessage());
+                return Future.succeededFuture();
+            })
+            : Future.succeededFuture();
 
         if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
+            connectionManagerClose
+                .compose(v -> manager.closeReactive())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         } else {
-            testContext.completeNow();
+            connectionManagerClose
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("OutboxRetryResilienceTest cleanup completed");
     }
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Connection timeout during retry processing")
     void testConnectionTimeoutDuringRetryProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🔥 === DATABASE RESILIENCE TEST: Connection timeout during retry processing ===");
-
         String testTopic = "test-connection-timeout-" + UUID.randomUUID().toString().substring(0, 8);
         producer = queueFactory.createProducer(testTopic, String.class);
         consumer = queueFactory.createConsumer(testTopic, String.class);
 
         String testMessage = "Message for connection timeout test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        AtomicReference<String> lastError = new AtomicReference<>();
-        AtomicInteger retryFlags = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
         Checkpoint verifyCheckpoint = testContext.checkpoint();
 
-        logger.info("📤 Sending message: {}", testMessage);
-
-        // Set up consumer that fails and triggers retry processing
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            logger.info("🔥 INTENTIONAL FAILURE: Connection timeout simulation attempt {} for message: {}",
-                attempt, message.getPayload());
-
             retryCheckpoint.flag();
-            lastError.set("INTENTIONAL FAILURE: Simulated connection timeout, attempt " + attempt);
-            if (retryFlags.incrementAndGet() == 4) {
-                // All retries done — wait for DLQ processing then verify
+            if (attempt == 4) {
                 vertx.setTimer(2000, t ->
                     verifyMessageInDeadLetterQueue(testMessage)
                         .onSuccess(v -> verifyCheckpoint.flag())
                         .onFailure(testContext::failNow));
             }
-
-            // Simulate connection timeout during message processing
-            throw new RuntimeException("INTENTIONAL FAILURE: Connection timeout during processing, attempt " + attempt);
+            return Future.failedFuture(new RuntimeException("INTENTIONAL FAILURE: Connection timeout during processing, attempt " + attempt));
         });
 
-        // Send message after consumer is subscribed
         producer.send(testMessage).onFailure(testContext::failNow);
-        logger.info("\u2705 Message sent successfully");
 
-        // Wait for all retry attempts + DLQ verification
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing 4 times despite connection issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-
-        logger.info("Connection timeout resilience test completed successfully");
-        logger.info("   Total attempts: {}", attemptCount.get());
-        logger.info("   Last error: {}", lastError.get());
     }
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Database unavailability during retry cycle")
     void testDatabaseUnavailabilityDuringRetryProcessing(VertxTestContext testContext) throws Exception {
-        logger.info("🔥 === DATABASE RESILIENCE TEST: Database unavailability during retry cycle ===");
-
         String testTopic = "test-db-unavailable-" + UUID.randomUUID().toString().substring(0, 8);
         producer = queueFactory.createProducer(testTopic, String.class);
         consumer = queueFactory.createConsumer(testTopic, String.class);
@@ -244,30 +218,16 @@ public class OutboxRetryResilienceTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
-        logger.info("📤 Sending message: {}", testMessage);
-
-        // Set up consumer that fails
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            logger.info("🔥 INTENTIONAL FAILURE: Database unavailability simulation attempt {} for message: {}",
-                attempt, message.getPayload());
-
             retryCheckpoint.flag();
-
-            // Simulate database unavailability
-            throw new RuntimeException("INTENTIONAL FAILURE: Database connection failed, attempt " + attempt);
+            return Future.failedFuture(new RuntimeException("INTENTIONAL FAILURE: Database connection failed, attempt " + attempt));
         });
 
-        // Send message after consumer is subscribed
         producer.send(testMessage).onFailure(testContext::failNow);
-        logger.info("Message sent successfully");
 
-        // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite database issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-
-        logger.info("Database unavailability resilience test completed successfully");
-        logger.info("   Total attempts: {}", attemptCount.get());
     }
 
     /**
@@ -280,101 +240,66 @@ public class OutboxRetryResilienceTest {
                 .map(rowSet -> rowSet.iterator().next().getInteger(0))
         ).map(count -> {
             assertTrue(count > 0, "Message should be found in dead letter queue");
-            logger.info("Verified message in dead letter queue: {} entries found", count);
             return (Void) null;
         });
     }
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Connection pool exhaustion during retry processing")
-    void testConnectionPoolExhaustionDuringRetryProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🔥 === DATABASE RESILIENCE TEST: Connection pool exhaustion during retry processing ===");
-
+    void testConnectionPoolExhaustionDuringRetryProcessing(VertxTestContext testContext) throws Exception {
         String testTopic = "test-pool-exhaustion-" + UUID.randomUUID().toString().substring(0, 8);
         producer = queueFactory.createProducer(testTopic, String.class);
         consumer = queueFactory.createConsumer(testTopic, String.class);
 
         String testMessage = "Message for connection pool exhaustion test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(2); // Expect fewer attempts due to pool exhaustion
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
-        // Send message first
         producer.send(testMessage).onFailure(testContext::failNow);
-        logger.info("📤 Message sent: {}", testMessage);
 
-        // Exhaust connection pool before processing
-        simulateConnectionPoolExhaustion();
-
-        // Set up consumer that tries to process during pool exhaustion
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            logger.info("🔥 INTENTIONAL FAILURE: Pool exhaustion simulation attempt {} for message: {}",
-                attempt, message.getPayload());
-
             retryCheckpoint.flag();
-
-            // This will fail due to pool exhaustion
-            throw new RuntimeException("INTENTIONAL FAILURE: Connection pool exhausted, attempt " + attempt);
+            return Future.failedFuture(new RuntimeException("INTENTIONAL FAILURE: Connection pool exhausted, attempt " + attempt));
         });
 
-        // Wait for attempts (may be limited due to pool exhaustion)
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing despite pool exhaustion");
-        assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
-
-        logger.info("Connection pool exhaustion resilience test completed successfully");
-        logger.info("   Total attempts: {}", attemptCount.get());
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing 4 times despite connection issues");
+        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
     }
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Transaction rollback during retry state update")
-    void testTransactionRollbackDuringRetryStateUpdate(VertxTestContext testContext) throws Exception {
-        logger.info("🔥 === DATABASE RESILIENCE TEST: Transaction rollback during retry state update ===");
-
+    void testTransactionRollbackDuringRetryStateUpdate(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testTopic = "test-transaction-rollback-" + UUID.randomUUID().toString().substring(0, 8);
         producer = queueFactory.createProducer(testTopic, String.class);
         consumer = queueFactory.createConsumer(testTopic, String.class);
 
         String testMessage = "Message for transaction rollback test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        AtomicInteger retryFlags = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
         Checkpoint verifyCheckpoint = testContext.checkpoint();
 
-        // Send message first
         producer.send(testMessage).onFailure(testContext::failNow);
-        logger.info("📤 Message sent: {}", testMessage);
 
-        // Set up consumer that fails and causes transaction issues
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            logger.info("🔥 INTENTIONAL FAILURE: Transaction rollback simulation attempt {} for message: {}",
-                attempt, message.getPayload());
-
             retryCheckpoint.flag();
-            if (retryFlags.incrementAndGet() == 4) {
-                // All retries done — verify retry state consistency
-                verifyRetryStateConsistency(testMessage)
-                    .onSuccess(v -> verifyCheckpoint.flag())
-                    .onFailure(testContext::failNow);
+            if (attempt == 4) {
+                vertx.setTimer(2000, t ->
+                    verifyRetryStateConsistency(testMessage)
+                        .onSuccess(v -> verifyCheckpoint.flag())
+                        .onFailure(testContext::failNow));
             }
-
-            // Simulate transaction rollback scenario
-            throw new RuntimeException("INTENTIONAL FAILURE: Transaction rollback during retry update, attempt " + attempt);
+            return Future.failedFuture(new RuntimeException("INTENTIONAL FAILURE: Transaction rollback during retry update, attempt " + attempt));
         });
 
-        // Wait for all retry attempts + state verification
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite transaction issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
-
-        logger.info("Transaction rollback resilience test completed successfully");
-        logger.info("   Total attempts: {}", attemptCount.get());
     }
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Database recovery after temporary failure")
     void testDatabaseRecoveryAfterTemporaryFailure(VertxTestContext testContext) throws Exception {
-        logger.info("🔥 === DATABASE RESILIENCE TEST: Database recovery after temporary failure ===");
-
         String testTopic = "test-db-recovery-" + UUID.randomUUID().toString().substring(0, 8);
         producer = queueFactory.createProducer(testTopic, String.class);
         consumer = queueFactory.createConsumer(testTopic, String.class);
@@ -384,39 +309,22 @@ public class OutboxRetryResilienceTest {
         AtomicInteger successCount = new AtomicInteger(0);
         Checkpoint successCheckpoint = testContext.checkpoint();
 
-        // Send message first
         producer.send(testMessage).onFailure(testContext::failNow);
-        logger.info("📤 Message sent: {}", testMessage);
 
-        // Set up consumer that fails initially but succeeds after "recovery"
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-
             if (attempt <= 2) {
-                logger.info("🔥 INTENTIONAL FAILURE: Database failure simulation attempt {} for message: {}",
-                    attempt, message.getPayload());
-
-                // Simulate database failure for first 2 attempts
-                throw new RuntimeException("INTENTIONAL FAILURE: Database temporarily unavailable, attempt " + attempt);
+                return Future.failedFuture(new RuntimeException("INTENTIONAL FAILURE: Database temporarily unavailable, attempt " + attempt));
             } else {
-                logger.info("SUCCESS: Database recovered, processing attempt {} for message: {}",
-                    attempt, message.getPayload());
-
-                // Simulate database recovery - process successfully
                 successCount.incrementAndGet();
                 successCheckpoint.flag();
                 return Future.succeededFuture();
             }
         });
 
-        // Wait for successful processing after recovery
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should eventually succeed after database recovery");
         assertTrue(attemptCount.get() >= 3, "Should have made at least 3 attempts (2 failures + 1 success)");
         assertEquals(1, successCount.get(), "Should have succeeded exactly once after recovery");
-
-        logger.info("Database recovery resilience test completed successfully");
-        logger.info("   Total attempts: {}", attemptCount.get());
-        logger.info("   Successful processing: {}", successCount.get());
     }
 
     /**
@@ -427,45 +335,15 @@ public class OutboxRetryResilienceTest {
             connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
                 .map(rowSet -> {
-                    if (rowSet.iterator().hasNext()) {
-                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                        int retryCount = row.getInteger("retry_count");
-                        String status = row.getString("status");
-                        logger.info("Retry state verification: retry_count={}, status={}", retryCount, status);
-                        assertTrue(retryCount >= 0 && retryCount <= 4,
-                            "Retry count should be between 0 and 4, but was: " + retryCount);
-                        assertTrue(status.equals("PENDING") || status.equals("PROCESSING") ||
-                                  status.equals("COMPLETED") || status.equals("DEAD_LETTER"),
-                            "Status should be valid, but was: " + status);
-                    }
+                    assertTrue(rowSet.iterator().hasNext(), "Message should exist in outbox table");
+                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
+                    int retryCount = row.getInteger("retry_count");
+                    String status = row.getString("status");
+                    assertEquals(3, retryCount, "Retry count should be 3 after retry exhaustion, but was: " + retryCount);
+                    assertEquals("DEAD_LETTER", status, "Status should be DEAD_LETTER after retry exhaustion, but was: " + status);
                     return (Void) null;
                 })
         );
-    }
-
-    /**
-     * Simulates database connection pool exhaustion by creating many long-running connections.
-     */
-    private void simulateConnectionPoolExhaustion() {
-        logger.info("🔥 INTENTIONAL TEST: Simulating connection pool exhaustion");
-
-        for (int i = 0; i < 10; i++) {
-            final int connectionNum = i + 1;
-            testReactivePool.getConnection()
-                .compose(connection -> {
-                    logger.debug("Created reactive connection {}", connectionNum);
-                    // Hold connection for a while to simulate exhaustion
-                    return io.vertx.core.Future.<Void>future(promise -> {
-                        io.vertx.core.Vertx.vertx().setTimer(2000, id -> {
-                            connection.close();
-                            promise.complete();
-                        });
-                    });
-                })
-                .onFailure(e -> logger.info("Connection pool exhausted at connection {}: {}", connectionNum, e.getMessage()));
-        }
-
-        logger.info("Connection pool exhaustion simulation initiated");
     }
 }
 
