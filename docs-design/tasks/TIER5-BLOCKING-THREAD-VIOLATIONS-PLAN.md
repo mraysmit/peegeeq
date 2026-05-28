@@ -104,7 +104,7 @@
 | Done | File | Tiers | T5 Action | Notes |
 |------|------|-------|-----------|-------|
 | [x] | [nativequeue/DistributedSystemResilienceDemoTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/DistributedSystemResilienceDemoTest.java) | T5 | Cat-B | No `Thread.sleep` or `parkNanos` found — T5 already fixed. Cat-B deferred was unnecessary. |
-| [ ] | [bitemporal/BiTemporalEventStoreExampleTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/BiTemporalEventStoreExampleTest.java) | T4, T7 | — | T4: L146 `future.await()` in helper, L185 `manager.start().await()` in setUp, L217 `manager.closeReactive().await()` in tearDown. T7: L207 `eventStore.close()` — `EventStore.close()` returns `Future<Void>` (api/EventStore.java:336), Future discarded. |
+| [x] | [bitemporal/BiTemporalEventStoreExampleTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/BiTemporalEventStoreExampleTest.java) | T4, T7 | — | Fixed 2026-05-28: added `@ExtendWith(VertxExtension.class)`; `await()` helper rewritten using `CountDownLatch` (removes `future.await()`); `setUp(VertxTestContext)` chains `manager.start()` reactively with factory/eventStore creation inside callback; `tearDown(VertxTestContext)` chains `eventStore.close().eventually(manager.closeReactive())` — both Futures observed, no `.await()`. |
 
 ---
 

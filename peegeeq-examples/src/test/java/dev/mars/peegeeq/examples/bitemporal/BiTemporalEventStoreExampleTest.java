@@ -48,7 +48,12 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -113,6 +118,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-15
  * @version 4.0 (Investment Banking Back Office Trade Processing)
  */
+@ExtendWith(VertxExtension.class)
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class BiTemporalEventStoreExampleTest {
@@ -143,11 +149,25 @@ class BiTemporalEventStoreExampleTest {
     }
 
     private <T> T await(io.vertx.core.Future<T> future) {
-        return future.await();
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        future.onSuccess(v -> { result.set(v); latch.countDown(); })
+              .onFailure(e -> { error.set(e); latch.countDown(); });
+        try {
+            latch.await(30, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while awaiting future", e);
+        }
+        if (error.get() != null) {
+            throw new RuntimeException("Future failed", error.get());
+        }
+        return result.get();
     }
     
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up BiTemporalEventStoreExampleTest ===");
 
@@ -182,49 +202,42 @@ class BiTemporalEventStoreExampleTest {
         logger.info("Initializing PeeGeeQ manager and starting services");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-        logger.info("PeeGeeQ manager started successfully");
-
-        // Create event store with unique table name for test isolation
-        logger.info("Creating bi-temporal event store for TradeEvent");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
-        eventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
-        logger.info("Bi-temporal event store created successfully");
-        logger.info("=== Setup completed ===");
+        manager.start()
+            .onComplete(ctx.succeeding(v -> {
+                logger.info("PeeGeeQ manager started successfully");
+                logger.info("Creating bi-temporal event store for TradeEvent");
+                BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
+                eventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
+                logger.info("Bi-temporal event store created successfully");
+                logger.info("=== Setup completed ===");
+                ctx.completeNow();
+            }));
     }
     
     @AfterEach
-    void tearDown() {
-        logger.info("Tearing down: closing resources and manager");
+    void tearDown(VertxTestContext ctx) {
         logger.info("=== Tearing down BiTemporalEventStoreExampleTest ===");
         System.setOut(originalOut);
         System.setErr(originalErr);
 
-        // Clean up resources
-        if (eventStore != null) {
-            try {
-                logger.info("Closing bi-temporal event store");
-                eventStore.close();
-                logger.info("Event store closed successfully");
-            } catch (Exception e) {
-                logger.error("Error closing event store", e);
-            }
-        }
+        io.vertx.core.Future<Void> closeFuture = (eventStore != null)
+            ? eventStore.close()
+            : io.vertx.core.Future.succeededFuture();
 
-        if (manager != null) {
-            try {
-                logger.info("Stopping PeeGeeQ manager");
-                manager.closeReactive().await();
-                logger.info("PeeGeeQ manager stopped successfully");
-            } catch (Exception e) {
-                logger.error("Error stopping PeeGeeQ manager", e);
-            }
-        }
-
-        // Clear system properties
-        logger.info("Clearing system properties");
-        clearSystemProperties();
-        logger.info("=== Teardown completed ===");
+        closeFuture
+            .eventually(() -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
+            .onComplete(ar -> {
+                eventStore = null;
+                manager = null;
+                clearSystemProperties();
+                logger.info("=== Teardown completed ===");
+                if (ar.succeeded()) {
+                    ctx.completeNow();
+                } else {
+                    logger.error("Teardown failed", ar.cause());
+                    ctx.failNow(ar.cause());
+                }
+            });
     }
 
     /**
