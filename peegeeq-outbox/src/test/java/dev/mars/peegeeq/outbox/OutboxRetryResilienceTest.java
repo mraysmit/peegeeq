@@ -149,31 +149,16 @@ public class OutboxRetryResilienceTest {
             }
         }
         
-        if (queueFactory != null) {
-            try {
-                queueFactory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing queue factory: {}", e.getMessage());
-            }
-        }
-        
-        Future<Void> connectionManagerClose = (connectionManager != null)
-            ? connectionManager.close().transform(ar -> {
-                if (ar.failed()) logger.warn("Error closing connection manager: {}", ar.cause().getMessage());
-                return Future.succeededFuture();
-            })
-            : Future.succeededFuture();
-
-        if (manager != null) {
-            connectionManagerClose
-                .compose(v -> manager.closeReactive())
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            connectionManagerClose
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        }
+        (queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
+            .eventually(() -> connectionManager != null
+                ? connectionManager.close().transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing connection manager: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
+                })
+                : Future.<Void>succeededFuture())
+            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
