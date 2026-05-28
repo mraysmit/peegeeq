@@ -177,8 +177,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     })
                     .eventually(() -> group.close());
             })
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
@@ -203,12 +202,14 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             group.start(options)
                 .compose(v -> producer.send("New-Message"))
                 .compose(v -> vertx.timer(2000))
-                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    assertTrue(group.isActive());
-                    assertEquals(1, count.get(), "Consumer should process the newly sent message");
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    testContext.completeNow();
-                })));
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(1, count.get(), "Consumer should process the newly sent message");
+                    });
+                    return group.close();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
@@ -250,7 +251,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
             if (groupHolder[0] != null) {
-                assertTrue(groupHolder[0].close().succeeded(), "close should succeed");
+                groupHolder[0].close().onFailure(err -> logger.warn("group close failed", err));
             }
         }
 
@@ -290,13 +291,15 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options)
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    assertTrue(group.isActive());
-                    assertEquals(30, options.getHeartbeatIntervalSeconds());
-                    assertEquals(120, options.getHeartbeatTimeoutSeconds());
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    testContext.completeNow();
-                })));
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(30, options.getHeartbeatIntervalSeconds());
+                        assertEquals(120, options.getHeartbeatTimeoutSeconds());
+                    });
+                    return group.close();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
@@ -357,11 +360,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options)
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    assertTrue(group.isActive());
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    testContext.completeNow();
-                })));
+                .compose(v -> {
+                    testContext.verify(() -> assertTrue(group.isActive()));
+                    return group.close();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
@@ -415,7 +418,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
             if (groupHolder[0] != null) {
-                assertTrue(groupHolder[0].close().succeeded(), "close should succeed");
+                groupHolder[0].close().onFailure(err -> logger.warn("group close failed", err));
             }
         }
 
@@ -443,11 +446,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options)
                 .compose(v -> vertx.timer(2000))
-                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    assertTrue(group.isActive(), "Consumer should start successfully with future timestamp");
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    testContext.completeNow();
-                })));
+                .compose(v -> {
+                    testContext.verify(() -> assertTrue(group.isActive(), "Consumer should start successfully with future timestamp"));
+                    return group.close();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
@@ -501,12 +504,14 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options)
                 .compose(v -> vertx.timer(2000))
-                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    assertTrue(group.isActive());
-                    assertEquals(0, count.get(), "Should not receive any messages from empty topic");
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    testContext.completeNow();
-                })));
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(0, count.get(), "Should not receive any messages from empty topic");
+                    });
+                    return group.close();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
@@ -529,12 +534,14 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options)
                 .compose(v -> vertx.timer(2000))
-                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    assertTrue(group.isActive());
-                    assertEquals(0, count.get());
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    testContext.completeNow();
-                })));
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(0, count.get());
+                    });
+                    return group.close();
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
     }
@@ -597,17 +604,19 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                         .startPosition(StartPosition.FROM_NOW)
                         .build();
 
-                    return group.start(options).map(v2 -> {
-                        testContext.verify(() -> assertTrue(group.isActive()));
-                        assertTrue(group.close().succeeded(), "close should succeed");
-                        testContext.verify(() -> assertFalse(group.isActive()));
-                        return (Void) null;
-                    });
+                    return group.start(options)
+                        .compose(v2 -> {
+                            testContext.verify(() -> assertTrue(group.isActive()));
+                            return group.close();
+                        })
+                        .map(v2 -> {
+                            testContext.verify(() -> assertFalse(group.isActive()));
+                            return (Void) null;
+                        });
                 });
             }
             chain
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
 
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
@@ -725,13 +734,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options)
-                .map(v -> {
-                    assertTrue(group.close().succeeded(), "close should succeed");
+                .compose(v -> group.close())
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive());
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
 
@@ -744,15 +751,13 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults())
-                .map(v -> {
-                    assertTrue(group.close().succeeded(), "close should succeed");
-                    assertTrue(group.close().succeeded(), "second close should succeed");
-                    assertTrue(group.close().succeeded(), "third close should succeed");
+                .compose(v -> group.close())
+                .compose(v -> group.close())
+                .compose(v -> group.close())
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive());
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
 
@@ -765,9 +770,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults())
+                .compose(v -> group.close())
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    assertTrue(group.close().succeeded(), "close should succeed");
-
                     // start(options) returns failed Future (not throw) after close
                     group.start(SubscriptionOptions.defaults())
                         .onSuccess(v2 -> testContext.failNow("Should have failed after close"))
