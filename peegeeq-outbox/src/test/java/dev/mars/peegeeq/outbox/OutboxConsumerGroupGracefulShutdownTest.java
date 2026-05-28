@@ -36,6 +36,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -107,6 +108,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     // =========================================================================
 
     @Test
+    @Timeout(5)
     @DisplayName("stopGracefully on NEW group returns succeeded future")
     void stopGracefully_whenNotActive_returnsSuccess() {
         group = createGroup("not-active-group", "test-topic");
@@ -119,13 +121,11 @@ class OutboxConsumerGroupGracefulShutdownTest {
     void stopGracefully_whenClosed_returnsSuccess(VertxTestContext testContext) throws Exception {
         group = createGroup("closed-group", "test-topic");
         group.close()
-                .map(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     var future = group.stopGracefully();
                     assertTrue(future.succeeded(), "Should succeed on closed group");
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -135,16 +135,14 @@ class OutboxConsumerGroupGracefulShutdownTest {
         group = createGroup("idempotent-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
         group.start()
-                .map(v -> { assertTrue(group.isActive()); return v; })
+                .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> group.stopGracefully())
-                .map(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive(), "Group should be stopped after first call");
                     var second = group.stopGracefully();
                     assertTrue(second.succeeded(), "Second stopGracefully should succeed (idempotent)");
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -158,15 +156,13 @@ class OutboxConsumerGroupGracefulShutdownTest {
         group = createGroup("local-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
         group.start()
-                .map(v -> { assertTrue(group.isActive()); return v; })
+                .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> group.stopGracefully())
-                .map(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive(), "Group should be stopped");
                     // Group was started without SubscriptionOptions: stopGracefully completes without DB cancel
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -181,14 +177,12 @@ class OutboxConsumerGroupGracefulShutdownTest {
         group.addConsumer("c1", msg -> Future.succeededFuture());
         // Start with subscription options — creates the subscription in the DB
         group.start(SubscriptionOptions.builder().build())
-                .map(v -> { assertTrue(group.isActive()); return v; })
+                .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> group.stopGracefully())
-                .map(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive(), "Group should be stopped");
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -198,7 +192,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
         group = createGroup("no-sub-cancel-fail-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
         group.start()
-                .map(v -> { assertTrue(group.isActive()); return v; })
+                .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> {
                     // Force startedWithSubscription=true without actually creating a DB subscription,
                     // so the cancel call will fail (subscription not found in DB).
@@ -210,12 +204,10 @@ class OutboxConsumerGroupGracefulShutdownTest {
                     }
                     return group.stopGracefully();
                 })
-                .map(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive(), "Group should be stopped even when cancel fails");
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -226,16 +218,14 @@ class OutboxConsumerGroupGracefulShutdownTest {
         group.addConsumer("c1", msg -> Future.succeededFuture());
         // Start with subscription options, then stop (not gracefully), then verify stopGracefully is no-op
         group.start(SubscriptionOptions.builder().build())
-                .map(v -> { assertTrue(group.isActive()); return v; })
+                .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> group.stop())  // regular stop — does not cancel DB subscription
-                .map(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive());
                     var future = group.stopGracefully();
                     assertTrue(future.succeeded(), "Should succeed as no-op — group is already stopped");
-                    return (Void) null;
-                })
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
+                    testContext.completeNow();
+                })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
