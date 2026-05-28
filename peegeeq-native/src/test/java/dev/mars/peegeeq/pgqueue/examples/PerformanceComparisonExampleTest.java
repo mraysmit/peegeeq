@@ -58,6 +58,7 @@ import java.time.Instant;
 import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -145,17 +146,10 @@ class PerformanceComparisonExampleTest {
         logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Performance Comparison Test");
 
-        if (nativeFactory != null) {
-            nativeFactory.close();
-        }
-
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
+        (nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture())
+            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
         logger.info("Performance Comparison Test cleanup completed");
@@ -365,14 +359,13 @@ class PerformanceComparisonExampleTest {
             logger.info("📤 Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
 
             // Wait for processing to complete (with timeout)
-            boolean completed;
-            try {
-                vertx.timer(30000).onSuccess(id -> allProcessed.tryFail("Timeout waiting for all messages"));
-                allProcessed.future().await();
-                completed = true;
-            } catch (Exception e) {
-                completed = false;
-            }
+            AtomicBoolean succeededRef = new AtomicBoolean(false);
+            CountDownLatch completionLatch = new CountDownLatch(1);
+            vertx.setTimer(30000, id -> allProcessed.tryFail("Timeout waiting for all messages"));
+            allProcessed.future()
+                .onSuccess(v -> { succeededRef.set(true); completionLatch.countDown(); })
+                .onFailure(err -> completionLatch.countDown());
+            boolean completed = completionLatch.await(35, TimeUnit.SECONDS) && succeededRef.get();
             Instant endTime = Instant.now();
 
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();
