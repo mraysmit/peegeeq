@@ -86,6 +86,7 @@ class NativeQueueIntegrationTest {
     private QueueFactory queueFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
+    private final List<PgNativeQueueFactory> extraFactories = new ArrayList<>();
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
@@ -123,23 +124,27 @@ class NativeQueueIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        (queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
+        Future<Void> closeExtras = Future.succeededFuture();
+        for (PgNativeQueueFactory f : extraFactories) {
+            closeExtras = closeExtras.compose(v -> f.close());
+        }
+        closeExtras
+                .compose(v -> queueFactory != null ? queueFactory.close() : Future.<Void>succeededFuture())
                 .compose(v -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
                 .onSuccess(v -> {
                     manager = null;
                     testContext.completeNow();
                 })
                 .onFailure(err -> {
-                    logger.warn("Error during teardown: {}", err.getMessage());
                     manager = null;
-                    testContext.completeNow();
+                    testContext.failNow(err);
                 });
     }
 
 
 
     @Test
-    void testBasicNativeQueueProducerAndConsumer(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testBasicNativeQueueProducerAndConsumer(VertxTestContext testContext) throws Exception {
         String testMessage = "Hello, Native Queue!";
         Checkpoint received = testContext.checkpoint(1);
         AtomicInteger receivedCount = new AtomicInteger(0);
@@ -160,7 +165,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueWithHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueWithHeaders(VertxTestContext testContext) throws Exception {
         String testMessage = "Native queue message with headers";
         Map<String, String> headers = Map.of(
             "content-type", "text/plain",
@@ -190,7 +195,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueListenNotify(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueListenNotify(VertxTestContext testContext) throws Exception {
         // This test verifies that LISTEN/NOTIFY works for real-time message delivery
         String testMessage = "Real-time notification test";
         Checkpoint received = testContext.checkpoint(1);
@@ -209,7 +214,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueVisibilityTimeout(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testNativeQueueVisibilityTimeout(VertxTestContext testContext) throws InterruptedException {
         String testMessage = "Visibility timeout test";
         AtomicInteger processingAttempts = new AtomicInteger(0);
         Promise<Void> firstAttempt = Promise.promise();
@@ -228,7 +233,7 @@ class NativeQueueIntegrationTest {
             }
         }).onFailure(testContext::failNow);
 
-        producer.send(testMessage).onFailure(err -> logger.warn("Send failed: {}", err.getMessage()));
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Chain: wait for firstAttempt, then wait for secondAttempt, then verify
         firstAttempt.future()
@@ -243,19 +248,18 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueMultipleConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueMultipleConsumers(VertxTestContext testContext) throws Exception {
         int messageCount = 10;
         int consumerCount = 3;
         
         // Create additional consumers
         List<MessageConsumer<String>> consumers = new ArrayList<>();
-        List<PgNativeQueueFactory> additionalFactories = new ArrayList<>();
         consumers.add(consumer); // Add the existing consumer
 
         for (int i = 1; i < consumerCount; i++) {
             DatabaseService additionalDatabaseService = new PgDatabaseService(manager);
             PgNativeQueueFactory additionalFactory = new PgNativeQueueFactory(additionalDatabaseService);
-            additionalFactories.add(additionalFactory);
+            extraFactories.add(additionalFactory);
             consumers.add(additionalFactory.createConsumer("test-native-topic", String.class));
         }
 
@@ -284,16 +288,6 @@ class NativeQueueIntegrationTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         assertEquals(messageCount, totalReceived.get());
         assertEquals(messageCount, allReceivedMessages.size());
-
-        // Clean up additional consumers
-        for (int i = 1; i < consumers.size(); i++) {
-            consumers.get(i).close();
-        }
-
-        // Clean up additional factories
-        for (PgNativeQueueFactory factory : additionalFactories) {
-            factory.close().onFailure(err -> logger.warn("Factory close error: {}", err.getMessage()));
-        }
     }
 
     @Test
@@ -305,6 +299,7 @@ class NativeQueueIntegrationTest {
 
         DatabaseService databaseService2 = new PgDatabaseService(manager);
         PgNativeQueueFactory testQueueFactory = new PgNativeQueueFactory(databaseService2);
+        extraFactories.add(testQueueFactory);
         MessageConsumer<String> consumer2 = testQueueFactory.createConsumer("test-native-topic", String.class);
 
         // First consumer holds the lock until finishProcessing completes
@@ -327,13 +322,10 @@ class NativeQueueIntegrationTest {
                         if (processingCount.get() >= 1) {
                             vertx.cancelTimer(timerId[0]);
                             finishProcessing.tryComplete();
-                            vertx.setTimer(2000, id2 -> {
-                                consumer2.close();
-                                testQueueFactory.close()
-                                        .onFailure(err -> logger.warn("testQueueFactory close: {}", err.getMessage()));
-                                testContext.verify(() -> assertEquals(1, processingCount.get()));
+                            vertx.setTimer(2000, id2 -> testContext.verify(() -> {
+                                assertEquals(1, processingCount.get());
                                 testContext.completeNow();
-                            });
+                            }));
                         }
                     });
                 });
@@ -342,7 +334,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueFailureAndRetry(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testNativeQueueFailureAndRetry(VertxTestContext testContext) throws InterruptedException {
         String testMessage = "Retry test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
         Promise<Void> success = Promise.promise();
@@ -400,7 +392,8 @@ class NativeQueueIntegrationTest {
                     if (stats.totalMessages() > 0) {
                         inDlq.tryComplete();
                     }
-                });
+                })
+                .onFailure(err -> logger.warn("DLQ statistics query failed", err));
         });
         inDlq.future()
                 .onSuccess(v -> testContext.verify(() -> {
@@ -414,7 +407,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueMetricsIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueMetricsIntegration(VertxTestContext testContext) throws Exception {
         String testMessage = "Metrics integration test";
 
         // Subscribe consumer before sending so it receives the message
@@ -486,7 +479,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueConcurrentProducers(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueConcurrentProducers(VertxTestContext testContext) throws Exception {
         int producerCount = 3;
         int messagesPerProducer = 5;
         int totalMessages = producerCount * messagesPerProducer;

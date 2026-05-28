@@ -415,6 +415,11 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
             int effectiveBatch = Math.min(batchSize, remainingCapacity);
 
+            // Compute lock duration from configured visibility timeout; default 30 s
+            long lockDurationSeconds = (configuration != null)
+                    ? configuration.getQueueConfig().getVisibilityTimeout().toSeconds()
+                    : 30L;
+
             // Build SQL dynamically based on whether server-side filter is present
             ServerSideFilter filter = consumerConfig != null ? consumerConfig.getServerSideFilter() : null;
             String sql;
@@ -441,7 +446,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         .formatted(filterCondition);
 
                 // Build tuple with base params + filter params
-                Object[] baseParams = new Object[] { topic, effectiveBatch, 30 };
+                Object[] baseParams = new Object[] { topic, effectiveBatch, lockDurationSeconds };
                 java.util.List<Object> filterParams = filter.getParameters();
                 Object[] allParams = new Object[baseParams.length + filterParams.size()];
                 System.arraycopy(baseParams, 0, allParams, 0, baseParams.length);
@@ -467,7 +472,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         WHERE q.id = c.id
                         RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
                         """;
-                params = Tuple.of(topic, effectiveBatch, 30);
+                params = Tuple.of(topic, effectiveBatch, lockDurationSeconds);
             }
 
             // Use injected Vert.x instance; avoid creating new Vert.x inside existing
