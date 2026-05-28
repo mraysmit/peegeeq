@@ -1,7 +1,7 @@
 # Guard Tiers 4, 5, 7 — Audit and Remediation Plan
 
 **Date:** 2026-05-17  
-**Last updated:** 2026-05-27  
+**Last updated:** 2026-05-28  
 **Scope:** All files flagged by `OnSuccessExceptionSwallowingGuardTest` tiers 4, 5, and 7.
 
 ---
@@ -50,19 +50,19 @@
 | [x] | [OutboxConsumerGroupGracefulShutdownTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java) | T4, T7 | — | Fixed 2026-05-28: plan notes were stale — no `.await()` or bare `close()` remained. Violations fixed: 6× banned `.onSuccess(completeNow).onFailure(failNow)` replaced with `.onComplete(ctx.succeeding(...))`, 6× intermediate assertions in `.map()` wrapped in `ctx.verify()`, `@Timeout(5)` added to synchronous test. |
 | [x] | [OutboxConsumerGroupIntegrationTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupIntegrationTest.java) | T7 | — | T7 fixed: `consumerGroup.stop().compose(v -> consumerGroup.close())` — both chained, not discarded. |
 | [x] | [OutboxConsumerGroupReviewFixesTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupReviewFixesTest.java) | T7 | — | Fixed 2026-05-28: plan T7 notes (L95, 432, 492, 582) were stale — no bare discarded `close()` calls found. Only fix applied: removed trivial constant assertion `defaultMaxConcurrencyIsOne()` (tested `DEFAULT_MAX_CONCURRENCY == 1`, covered behaviourally by `groupMemberUsesDefaultConcurrency`). |
-| [ ] | [OutboxConsumerGroupSubscriptionEdgeCasesTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java) | T7 | — | 12 bare `group.close()` confirmed at L209, L297, L362, L448, L507, L535, L602, L728, L743, L744, L745, L760. |
+| [x] | [OutboxConsumerGroupSubscriptionEdgeCasesTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java) | T7 | — | Fixed 2026-05-28: 14 T7 violations fixed (12 `group.close().succeeded()` inside reactive callbacks moved to `.compose()` steps; 2 `groupHolder[0].close().succeeded()` after `awaitCompletion` replaced with `.onFailure()` observation); 4 banned `.onSuccess(completeNow).onFailure(failNow)` terminals replaced with `.onComplete(ctx.succeeding(...))`. Tests passed exit code 0. |
 | [x] | [OutboxConsumerGroupSubscriptionTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionTest.java) | T7 | — | T7 fixed: all 20 violations replaced with `group.close().onFailure(...)` or `.compose()` — Futures observed. |
 | [x] | [OutboxConsumerGroupTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupTest.java) | T7 | — | T7 fixed: L99 now `consumerGroup.close().onFailure(...)` — Future is observed. |
-| [ ] | [OutboxConsumerNullHandlerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerNullHandlerTest.java) | T7 | — | L109 `connectionManager.close()` |
-| [ ] | [OutboxRetryConcurrencyTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryConcurrencyTest.java) | T4, T7 | — | T7: L202 `connectionManager.close()`; T4: multiple `.await()` violations. |
-| [ ] | [OutboxRetryResilienceTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryResilienceTest.java) | T4, T7 | — | T7: L172 `connectionManager.close()`; T4: multiple `.await()` violations. |
-| [ ] | [ReactiveOutboxProducerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ReactiveOutboxProducerTest.java) | T4, T7 | — | T7: L114 `connectionManager.close()` (guard-verified 2026-05-18; T7 missing from original audit) |
+| [x] | [OutboxConsumerNullHandlerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerNullHandlerTest.java) | T7 | — | Plan note stale — no violations found: `consumer.close()` and `producer.close()` return `void` (AutoCloseable), not `Future<Void>`; tearDown uses standard `.onSuccess(completeNow).onFailure(failNow)` form. No changes needed. |
+| [x] | [OutboxRetryConcurrencyTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryConcurrencyTest.java) | T4, T7 | — | Fixed 2026-05-28: T4 plan notes stale (no `.await()` found). T7: one violation fixed — `outboxFactory.close()` Future was discarded in tearDown try-catch; now chained via `.eventually()` before manager/connectionManager close. |
+| [x] | [OutboxRetryResilienceTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryResilienceTest.java) | T4, T7 | — | Fixed 2026-05-28: T4 plan notes stale (no `.await()` found in test methods). T7: one violation fixed — `queueFactory.close()` (`QueueFactory.close()` returns `Future<Void>`) discarded in tearDown try-catch; chained via reactive `.eventually()` steps with manager/connectionManager. |
+| [x] | [ReactiveOutboxProducerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ReactiveOutboxProducerTest.java) | T4, T7 | — | Plan notes stale — `connectionManager.close()` is already inside `.eventually()` at L107 (properly observed). `producer.close()` returns `void` (AutoCloseable). No T4 or T7 violations found. No changes needed. |
 | [x] | [deadletter/DeadLetterQueueManagerCoverageTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/deadletter/DeadLetterQueueManagerCoverageTest.java) | T7 | — | T7 fixed: no bare `manager.close()` or `disabledManager.close()` calls found. |
 | [x] | [resilience/FilterRetryManagerTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/resilience/FilterRetryManagerTest.java) | T4, T5 | Cat-D | No T4 or T5 violations found — both already fixed. |
 | [x] | [examples/AutomaticTransactionManagementExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/AutomaticTransactionManagementExampleTest.java) | T5 | Cat-A | T5 fixed: no parkNanos. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remains — whitelisted form. |
 | [x] | [examples/JdbcIntegrationHybridExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/JdbcIntegrationHybridExampleTest.java) | T5 | Cat-A | T5 fixed: no parkNanos. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remains — whitelisted form. |
 | [x] | [examples/SystemPropertiesConfigurationExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/SystemPropertiesConfigurationExampleTest.java) | T5 | Cat-C | T5 fixed: no spin-loop. Only `CountDownLatch.await(30, TimeUnit.SECONDS)` remains — whitelisted form. |
-| [ ] | [examples/TransactionParticipationAdvancedExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/TransactionParticipationAdvancedExampleTest.java) | T4 | — | |
+| [x] | [examples/TransactionParticipationAdvancedExampleTest.java](../../peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/TransactionParticipationAdvancedExampleTest.java) | T4 | — | Plan notes stale — no `.await()` violations found anywhere in the file. `outboxFactory.close()` observed via `.onFailure()`; `vertxPool.close()` and `vertx.close()` observed post-`awaitCompletion` (no event loop needed). `orderProducer.close()` returns `void`. No changes needed. |
 
 ### `peegeeq-native`
 
@@ -70,25 +70,27 @@
 |------|------|-------|-----------|-------|
 | [x] | [ConsumerModeMetricsTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeMetricsTest.java) | T4 | — | No `.await()` violations found — T4 already fixed. |
 | [x] | [ConsumerModePerformanceTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePerformanceTest.java) | T4 | — | No `.await()` violations found — T4 already fixed. |
-| [ ] | [ConsumerModeTypeSafetyTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeTypeSafetyTest.java) | T4 | — | T4: L91 `manager.start().await()`, L106 `manager.closeReactive().await()`, L243 `producer.send(null).await()`, L279 `producer.send(...).await()`; L245, L281 are `CountDownLatch.await(timeout, unit)` — whitelisted. |
-| [ ] | [HybridModeEdgeCaseTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/HybridModeEdgeCaseTest.java) | T4 | — | |
-| [ ] | [JsonbConversionValidationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/JsonbConversionValidationTest.java) | T4 | — | |
-| [ ] | [ListenNotifyOnlyEdgeCaseTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ListenNotifyOnlyEdgeCaseTest.java) | T4 | — | |
+| [x] | [ConsumerModeTypeSafetyTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModeTypeSafetyTest.java) | T4 | — | Plan notes stale — no `.await()` violations found. `consumer.close()` and `producer.close()` return `void` (AutoCloseable). Only `CountDownLatch.await(timeout, unit)` present — whitelisted. No changes needed. |
+| [x] | [HybridModeEdgeCaseTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/HybridModeEdgeCaseTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [JsonbConversionValidationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/JsonbConversionValidationTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [ListenNotifyOnlyEdgeCaseTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ListenNotifyOnlyEdgeCaseTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
 | [x] | [MemoryAndResourceLeakTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MemoryAndResourceLeakTest.java) | T5 | T5 exempt | T5 sleeps inside `executeBlocking` — tag `@Tag("blocking-exempt")` kept (category 4). No T4 `.await()` violations found — T4 already fixed. |
 | [x] | [MultiConsumerModeTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MultiConsumerModeTest.java) | T4 | — | No `.await()` violations found — T4 already fixed. |
-| [ ] | [MultiTenantSchemaIsolationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MultiTenantSchemaIsolationTest.java) | T4 | — | |
+| [x] | [MultiTenantSchemaIsolationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/MultiTenantSchemaIsolationTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
 | [x] | [NativeQueueIntegrationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/NativeQueueIntegrationTest.java) | T4 | — | Fixed 2026-05-28 (prior session): T4 violations resolved; all 12 tests pass. |
-| [ ] | [PgNativeQueueConcurrentClaimIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConcurrentClaimIT.java) | T4 | — | |
-| [ ] | [PgNativeQueueConsumerClaimIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerClaimIT.java) | T4 | — | |
-| [ ] | [PgNativeQueueConsumerCleanupIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerCleanupIT.java) | T4 | — | |
-| [ ] | [PgNativeQueueFactoryIntegrationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueFactoryIntegrationTest.java) | T4 | — | |
-| [ ] | [PgNativeQueueShutdownTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueShutdownTest.java) | T4 | — | |
-| [ ] | [PollingOnlyEdgeCaseTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PollingOnlyEdgeCaseTest.java) | T4 | — | |
+| [x] | [PgNativeQueueConcurrentClaimIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConcurrentClaimIT.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [PgNativeQueueConsumerClaimIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerClaimIT.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [PgNativeQueueConsumerCleanupIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumerCleanupIT.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [PgNativeQueueFactoryIntegrationTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueFactoryIntegrationTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [PgNativeQueueShutdownTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PgNativeQueueShutdownTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [PollingOnlyEdgeCaseTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PollingOnlyEdgeCaseTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
 | [x] | [PostgreSQLErrorHandlingTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PostgreSQLErrorHandlingTest.java) | T4 | — | No `.await()` violations found — T4 already fixed. |
-| [ ] | [QueueFactoryConsumerModeTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/QueueFactoryConsumerModeTest.java) | T4 | — | |
-| [ ] | [RetryableErrorIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/RetryableErrorIT.java) | T4 | — | |
-| [ ] | [examples/MessagePriorityExampleTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/MessagePriorityExampleTest.java) | T4 | — | |
-| [ ] | [examples/NativeVsOutboxComparisonExampleTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/NativeVsOutboxComparisonExampleTest.java) | T4 | — | |
+| [x] | [QueueFactoryConsumerModeTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/QueueFactoryConsumerModeTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [RetryableErrorIT.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/RetryableErrorIT.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [examples/MessagePriorityExampleTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/MessagePriorityExampleTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [x] | [examples/NativeVsOutboxComparisonExampleTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/NativeVsOutboxComparisonExampleTest.java) | T4 | — | Plan note stale — no `.await()` violations found. No changes needed. |
+| [ ] | [examples/PerformanceComparisonExampleTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/PerformanceComparisonExampleTest.java) | T4 | — | **Newly discovered** — not in original audit. T4: L371 `allProcessed.future().await()`. |
+| [x] | [PeeGeeQConfigurationConsumerModeTest.java](../../peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PeeGeeQConfigurationConsumerModeTest.java) | T4 | — | Fixed 2026-05-28: T4 — L258-259 `producer.send(...).await()` in `testConfigurationVisibilityTimeoutIntegrationWithConsumerModes` only; removed `.await()` from both sends. All other tests use `CountDownLatch.await()` correctly. |
 
 ### `peegeeq-test-support`
 
@@ -102,7 +104,7 @@
 | Done | File | Tiers | T5 Action | Notes |
 |------|------|-------|-----------|-------|
 | [x] | [nativequeue/DistributedSystemResilienceDemoTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/DistributedSystemResilienceDemoTest.java) | T5 | Cat-B | No `Thread.sleep` or `parkNanos` found — T5 already fixed. Cat-B deferred was unnecessary. |
-| [ ] | [bitemporal/BiTemporalEventStoreExampleTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/BiTemporalEventStoreExampleTest.java) | T4 | — | |
+| [ ] | [bitemporal/BiTemporalEventStoreExampleTest.java](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/BiTemporalEventStoreExampleTest.java) | T4, T7 | — | T4: L146 `future.await()` in helper, L185 `manager.start().await()` in setUp, L217 `manager.closeReactive().await()` in tearDown. T7: L207 `eventStore.close()` — `EventStore.close()` returns `Future<Void>` (api/EventStore.java:336), Future discarded. |
 
 ---
 

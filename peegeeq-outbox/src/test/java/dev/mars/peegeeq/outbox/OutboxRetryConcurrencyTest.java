@@ -148,11 +148,8 @@ public class OutboxRetryConcurrencyTest {
             try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer: {}", e.getMessage()); }
         }
 
-        if (outboxFactory != null) {
-            try { outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing outbox factory: {}", e.getMessage()); }
-        }
-
-        (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
+        (outboxFactory != null ? outboxFactory.close() : Future.<Void>succeededFuture())
+            .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
             .eventually(() -> connectionManager != null
                 ? connectionManager.close()
                 : Future.<Void>succeededFuture())
