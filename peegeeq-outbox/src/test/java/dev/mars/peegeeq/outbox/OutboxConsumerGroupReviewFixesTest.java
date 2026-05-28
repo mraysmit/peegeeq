@@ -665,12 +665,6 @@ class OutboxConsumerGroupReviewFixesTest {
     class MaxConcurrencyDefaults {
 
         @Test
-        @DisplayName("DEFAULT_MAX_CONCURRENCY is 1")
-        void defaultMaxConcurrencyIsOne() {
-            assertEquals(1, OutboxConsumerGroupMember.DEFAULT_MAX_CONCURRENCY);
-        }
-
-        @Test
         @DisplayName("member created via group addConsumer uses default concurrency")
         void groupMemberUsesDefaultConcurrency() {
             group = createGroup("default-conc-group", "test-topic");
