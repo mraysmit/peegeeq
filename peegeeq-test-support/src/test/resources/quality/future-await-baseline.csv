@@ -4,16 +4,11 @@
 # To FIX a file: remediate it, then update or delete its row here in the same commit.
 # Baseline captured: 2026-05-18. Total allowed violations: 468.
 path,count
-peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/bitemporal/BiTemporalEventStoreExampleTest.java,3
-
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/examples/PerformanceComparisonExampleTest.java,1
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PeeGeeQConfigurationConsumerModeTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/BatchOperationsWithPropagationExampleTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/MessagePriorityExampleTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupIntegrationTest.java,6
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionTest.java,20
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupTest.java,9
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerNullHandlerTest.java,7
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerSurgicalCoverageTest.java,15
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxDeadLetterQueueTest.java,8
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxDirectExceptionHandlingTest.java,2
