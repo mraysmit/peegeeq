@@ -145,7 +145,7 @@ class MemoryAndResourceLeakTest {
 
     @Test
     void testSustainedHighLoadMemoryLeakDetection(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing sustained high-load memory leak detection");
+        logger.info(" Testing sustained high-load memory leak detection");
 
         String topicName = "test-memory-leak";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -264,7 +264,7 @@ class MemoryAndResourceLeakTest {
 
     @Test
     void testThreadLeakDetectionForRapidConsumerCreationDestruction(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing thread leak detection for rapid consumer creation/destruction");
+        logger.info(" Testing thread leak detection for rapid consumer creation/destruction");
 
         String topicName = "test-thread-leak";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -400,7 +400,7 @@ class MemoryAndResourceLeakTest {
 
     @Test
     void testResourceCleanupUnderStressConditions(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing resource cleanup under stress conditions");
+        logger.info(" Testing resource cleanup under stress conditions");
 
         String topicName = "test-resource-cleanup";
 
@@ -513,7 +513,7 @@ class MemoryAndResourceLeakTest {
 
     @Test
     void testMemoryUsageMonitoringDuringIntensiveOperations(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing memory usage monitoring during intensive operations");
+        logger.info(" Testing memory usage monitoring during intensive operations");
 
         String topicName = "test-memory-monitoring";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);

@@ -89,7 +89,7 @@ public class SSEErrorHandlingExample {
             logger.info("SSE Error Handling Example completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Error in SSE Error Handling Example", e);
+            logger.error(" Error in SSE Error Handling Example", e);
         } finally {
             // Cleanup resources
             if (httpClient != null) {
@@ -119,13 +119,13 @@ public class SSEErrorHandlingExample {
         // Wait for completion (with generous timeout for reconnection attempts)
         boolean completed = completionLatch.await(120, TimeUnit.SECONDS);
         if (!completed) {
-            logger.warn("⚠️ Error handling demo timed out");
+            logger.warn(" Error handling demo timed out");
         }
         
         logger.info("\n--- Final Statistics ---");
-        logger.info("📊 Total Messages Received: {}", messagesReceived.get());
-        logger.info("🔄 Total Reconnection Attempts: {}", reconnectionAttempts.get());
-        logger.info("🆔 Last Event ID: {}", lastEventId.get());
+        logger.info(" Total Messages Received: {}", messagesReceived.get());
+        logger.info(" Total Reconnection Attempts: {}", reconnectionAttempts.get());
+        logger.info(" Last Event ID: {}", lastEventId.get());
     }
     
     /**
@@ -140,7 +140,7 @@ public class SSEErrorHandlingExample {
         
         // Check if we've exceeded max attempts
         if (attemptNumber > MAX_ATTEMPTS) {
-            logger.error("❌ Max reconnection attempts ({}) reached, giving up", MAX_ATTEMPTS);
+            logger.error(" Max reconnection attempts ({}) reached, giving up", MAX_ATTEMPTS);
             completionLatch.countDown();
             return;
         }
@@ -149,9 +149,9 @@ public class SSEErrorHandlingExample {
         String sseUrl = "/api/v1/queues/" + SETUP_ID + "/" + QUEUE_NAME + "/stream";
         
         if (attemptNumber == 0) {
-            logger.info("📡 Initial connection to SSE endpoint: {}", sseUrl);
+            logger.info(" Initial connection to SSE endpoint: {}", sseUrl);
         } else {
-            logger.info("🔄 Reconnection attempt #{}/{}", attemptNumber, MAX_ATTEMPTS);
+            logger.info(" Reconnection attempt #{}/{}", attemptNumber, MAX_ATTEMPTS);
             reconnectionAttempts.incrementAndGet();
         }
         
@@ -162,7 +162,7 @@ public class SSEErrorHandlingExample {
                 String lastId = lastEventId.get();
                 if (lastId != null) {
                     req.putHeader("Last-Event-ID", lastId);
-                    logger.info("🆔 Reconnecting with Last-Event-ID: {}", lastId);
+                    logger.info(" Reconnecting with Last-Event-ID: {}", lastId);
                 }
                 return req.send();
             })
@@ -179,7 +179,7 @@ public class SSEErrorHandlingExample {
                     
                     // Simulate disconnection after 5 messages for demo purposes
                     if (messagesReceived.get() == 5 && attemptNumber == 0) {
-                        logger.info("🔌 Simulating disconnection for reconnection demo...");
+                        logger.info(" Simulating disconnection for reconnection demo...");
                         response.request().connection().close();
                     }
                     
@@ -193,7 +193,7 @@ public class SSEErrorHandlingExample {
                 
                 // Handle connection close
                 response.endHandler(v -> {
-                    logger.info("📡 SSE connection closed");
+                    logger.info(" SSE connection closed");
                     
                     // Don't reconnect if we've completed
                     if (messagesReceived.get() < 10) {
@@ -207,10 +207,10 @@ public class SSEErrorHandlingExample {
                 response.exceptionHandler(err -> {
                     if (!(err instanceof io.vertx.core.http.HttpClosedException)) {
                         ErrorType errorType = classifyError(err);
-                        logger.error("❌ SSE connection error ({}): {}", errorType, err.getMessage());
+                        logger.error(" SSE connection error ({}): {}", errorType, err.getMessage());
                         
                         if (errorType == ErrorType.PERMANENT) {
-                            logger.error("🛑 Permanent error detected, not retrying");
+                            logger.error(" Permanent error detected, not retrying");
                             completionLatch.countDown();
                         } else {
                             // Reconnect for transient errors
@@ -222,10 +222,10 @@ public class SSEErrorHandlingExample {
             })
             .onFailure(err -> {
                 ErrorType errorType = classifyError(err);
-                logger.error("❌ Failed to connect to SSE endpoint ({}): {}", errorType, err.getMessage());
+                logger.error(" Failed to connect to SSE endpoint ({}): {}", errorType, err.getMessage());
                 
                 if (errorType == ErrorType.PERMANENT) {
-                    logger.error("🛑 Permanent error detected, not retrying");
+                    logger.error(" Permanent error detected, not retrying");
                     completionLatch.countDown();
                 } else {
                     // Reconnect with exponential backoff
@@ -249,7 +249,7 @@ public class SSEErrorHandlingExample {
         int delay = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * (1 << (attemptNumber - 1)));
         delay += ThreadLocalRandom.current().nextInt(JITTER_MS);
         
-        logger.info("⏱️  Reconnecting in {} ms (attempt {}/{})", delay, attemptNumber, MAX_ATTEMPTS);
+        logger.info("  Reconnecting in {} ms (attempt {}/{})", delay, attemptNumber, MAX_ATTEMPTS);
         
         // Schedule reconnection
         vertx.setTimer(delay, id -> {
@@ -286,7 +286,7 @@ public class SSEErrorHandlingExample {
                             lastEventId.set(messageId);
                         }
                         
-                        logger.info("📨 Message #{}: {} (Last-Event-ID: {})", 
+                        logger.info(" Message #{}: {} (Last-Event-ID: {})", 
                                    count, messageId, lastEventId.get());
                     }
                 } catch (Exception e) {

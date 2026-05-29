@@ -279,7 +279,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
      * and logs a WARN (not an error), confirming graceful handling of missing records.
      *
      * <p><strong>INTENTIONAL WARN TEST:</strong> The next WARN log
-     * ('Dead letter message not found for deletion: 999999') is EXPECTED —
+     * ('Dead letter message not found for deletion: 999999') is EXPECTED 
      * this test deliberately deletes a non-existent ID to verify the not-found path.
      */
     @Test
@@ -340,7 +340,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
      * dead letter table has been renamed/dropped, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 4 ERROR logs
-     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED —
+     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED 
      * this test renames the table to simulate table unavailability for the sync wrapper paths.
      */
     @Test
@@ -361,7 +361,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
      * when the dead letter table is unavailable, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 4 ERROR logs
-     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED —
+     * ('Failed to retrieve dead letter messages ...', etc.) are EXPECTED 
      * this test renames the table to simulate unavailability for the async read API paths.
      */
     @Test
@@ -382,7 +382,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
      * when the dead letter table is unavailable, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 3 ERROR logs
-     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED —
+     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED 
      * this test renames the table to simulate unavailability for the async write API paths.
      */
     @Test
@@ -402,7 +402,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
      * dead letter table is unavailable, logging an ERROR for each call.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next 3 ERROR logs
-     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED —
+     * ('Failed to reprocess/delete/cleanup dead letter ...') are EXPECTED 
      * this test renames the table to simulate unavailability for the sync write wrapper paths.
      */
     @Test

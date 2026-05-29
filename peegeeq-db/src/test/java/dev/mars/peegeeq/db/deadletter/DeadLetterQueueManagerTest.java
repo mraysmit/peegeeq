@@ -298,7 +298,7 @@ class DeadLetterQueueManagerTest {
      * and logs a WARN (not an error), confirming graceful handling of missing records.
      *
      * <p><strong>INTENTIONAL WARN TEST:</strong> The next WARN log
-     * ('Dead letter message not found for deletion: 99999') is EXPECTED —
+     * ('Dead letter message not found for deletion: 99999') is EXPECTED 
      * this test deliberately deletes a non-existent ID to verify the not-found path.
      */
     @Test

@@ -119,7 +119,7 @@ class OutboxRetrySpringBootTest {
     
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧹 Cleaning up Retry Spring Boot Test");
+        logger.info(" Cleaning up Retry Spring Boot Test");
 
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
@@ -127,7 +127,7 @@ class OutboxRetrySpringBootTest {
                 consumer.close();
                 logger.info("Closed consumer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing consumer: {}", e.getMessage());
+                logger.error(" Error closing consumer: {}", e.getMessage());
             }
         }
         activeConsumers.clear();
@@ -138,7 +138,7 @@ class OutboxRetrySpringBootTest {
                 producer.close();
                 logger.info("Closed producer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing producer: {}", e.getMessage());
+                logger.error(" Error closing producer: {}", e.getMessage());
             }
         }
         activeProducers.clear();
@@ -146,7 +146,7 @@ class OutboxRetrySpringBootTest {
         peeGeeQManagerRef = peeGeeQManager;
 
         // Wait for connections to be fully released before next test
-        logger.info("⏳ Waiting for connections to be released...");
+        logger.info(" Waiting for connections to be released...");
         vertx.timer(2000).onComplete(testContext.succeeding(v -> {
             logger.info("Cleanup complete");
             testContext.completeNow();
@@ -198,7 +198,7 @@ class OutboxRetrySpringBootTest {
 
             // Fail first 2 attempts
             if (attempt <= 2) {
-                logger.info("❌ Simulating transient failure on attempt #{}", attempt);
+                logger.info(" Simulating transient failure on attempt #{}", attempt);
                 return Future.failedFuture(
                     new RuntimeException("Simulated transient failure"));
             }
@@ -207,7 +207,7 @@ class OutboxRetrySpringBootTest {
             logger.info("Successfully processed on attempt #{}", attempt);
             successCount.incrementAndGet();
             testContext.verify(() -> {
-                logger.info("📊 Retry Results:");
+                logger.info(" Retry Results:");
                 logger.info("  Total attempts: {}", attemptCount.get());
                 logger.info("  Successful processing: {}", successCount.get());
 
@@ -222,7 +222,7 @@ class OutboxRetrySpringBootTest {
         });
 
         // Send message
-        logger.info("📤 Sending message that will fail twice before succeeding");
+        logger.info(" Sending message that will fail twice before succeeding");
         producer.send("test-message").onFailure(testContext::failNow);
     }
     
@@ -259,7 +259,7 @@ class OutboxRetrySpringBootTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
-            logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
+            logger.info(" Simulating persistent failure on attempt #{}", attempt);
             if (attempt >= 4) {
                 retriesDone.tryComplete();
             }
@@ -268,14 +268,14 @@ class OutboxRetrySpringBootTest {
         });
 
         // Send message
-        logger.info("📤 Sending message that will always fail");
+        logger.info(" Sending message that will always fail");
         producer.send("failing-message").onFailure(testContext::failNow);
 
         // Wait for retries to settle, then a small grace period to ensure no extra retries fire.
         retriesDone.future()
             .compose(v -> vertx.timer(2000))
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                logger.info("📊 Max Retry Results:");
+                logger.info(" Max Retry Results:");
                 logger.info("  Total attempts: {}", attemptCount.get());
 
                 assertEquals(4, attemptCount.get(),

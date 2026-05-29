@@ -62,7 +62,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Integration tests for consumer groups functionality.
  *
- * <h2>Why these tests use {@code vertx.setPeriodic} — and why that is correct</h2>
+ * <h2>Why these tests use {@code vertx.setPeriodic}  and why that is correct</h2>
  *
  * <p>Most production code in this codebase uses composable {@code Future<T>} chains
  * ({@code .compose()}, {@code .map()}, {@code .transform()}) to sequence async work.
@@ -76,7 +76,7 @@ import org.slf4j.LoggerFactory;
  *       {@code start()} is called. That loop runs indefinitely at its own cadence,
  *       pulling messages from PostgreSQL and dispatching them to registered consumers.</li>
  *   <li>There is no {@code Future<T>} you can {@code .compose()} onto to learn when a
- *       specific message has been delivered — message delivery is a side effect observed
+ *       specific message has been delivered  message delivery is a side effect observed
  *       through the consumer lambda incrementing an {@code AtomicInteger} counter.</li>
  *   <li>Because the trigger is an externally-driven side effect rather than a returned
  *       {@code Future}, the only correct way to wait for it on the Vert.x event loop is
@@ -85,7 +85,7 @@ import org.slf4j.LoggerFactory;
  *
  * <h2>Why {@code vertx.setPeriodic} is not a spin-loop</h2>
  * <ul>
- *   <li>The test thread is <em>blocked</em> at {@code testContext.awaitCompletion()} —
+ *   <li>The test thread is <em>blocked</em> at {@code testContext.awaitCompletion()} 
  *       it is not looping or burning CPU.</li>
  *   <li>The periodic callback runs on the <em>Vert.x event loop</em> without blocking it;
  *       each firing is a lightweight condition check followed by an immediate return.</li>
@@ -97,7 +97,7 @@ import org.slf4j.LoggerFactory;
  * </ul>
  *
  * <h2>Role of {@code assertTrue(testContext.awaitCompletion(30, ...))} </h2>
- * <p>The periodic timer has no intrinsic upper bound — if the consumer never delivers,
+ * <p>The periodic timer has no intrinsic upper bound  if the consumer never delivers,
  * it would fire forever. {@code awaitCompletion(30, SECONDS)} is the hard safety
  * timeout: it caps the test at 30 seconds and converts a hang into an explicit
  * assertion failure rather than an indefinitely blocked build.
@@ -227,7 +227,7 @@ class ConsumerGroupTest {
         vertx.setPeriodic(200, id -> {
             ConsumerGroupStats stats = consumerGroup.getStats();
             if (stats.getTotalMessagesProcessed() >= 3) {
-                // Condition met — cancel the timer immediately so it does not fire again.
+                // Condition met  cancel the timer immediately so it does not fire again.
                 vertx.cancelTimer(id);
 
                 // Verify messages were processed
@@ -312,7 +312,7 @@ class ConsumerGroupTest {
             }
         });
 
-        // Hard timeout guard — see class-level Javadoc for rationale.
+        // Hard timeout guard  see class-level Javadoc for rationale.
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -358,7 +358,7 @@ class ConsumerGroupTest {
             }
         });
 
-        // Hard timeout guard — see class-level Javadoc for rationale.
+        // Hard timeout guard  see class-level Javadoc for rationale.
         assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));
     }
 
@@ -424,7 +424,7 @@ class ConsumerGroupTest {
             }
         });
 
-        // Hard timeout guard — see class-level Javadoc for rationale.
+        // Hard timeout guard  see class-level Javadoc for rationale.
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 

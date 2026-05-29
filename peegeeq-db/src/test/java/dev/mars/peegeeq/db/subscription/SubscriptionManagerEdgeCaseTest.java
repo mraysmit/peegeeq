@@ -34,10 +34,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * <p><b>CRITICAL INVARIANTS TESTED:</b>
  * <ul>
- *   <li>FROM_BEGINNING → start_from_message_id = 1</li>
- *   <li>FROM_NOW → start_from_message_id = maxId + 1</li>
- *   <li>FROM_MESSAGE_ID → exact message ID storage</li>
- *   <li>FROM_TIMESTAMP → exact timestamp storage</li>
+ *   <li>FROM_BEGINNING  start_from_message_id = 1</li>
+ *   <li>FROM_NOW  start_from_message_id = maxId + 1</li>
+ *   <li>FROM_MESSAGE_ID  exact message ID storage</li>
+ *   <li>FROM_TIMESTAMP  exact timestamp storage</li>
  *   <li>Subscription updates preserve data integrity</li>
  *   <li>Edge cases (ID=0, null handling, concurrent updates)</li>
  * </ul>

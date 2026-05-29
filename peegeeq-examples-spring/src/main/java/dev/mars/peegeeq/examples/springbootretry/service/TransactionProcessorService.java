@@ -125,14 +125,14 @@ public class TransactionProcessorService {
                 if ("TRANSIENT".equals(event.getFailureType())) {
                     transactionsRetried.incrementAndGet();
                     circuitBreaker.recordFailure();
-                    log.warn("⚠️ Transient failure (simulated): transactionId={}", event.getTransactionId());
+                    log.warn(" Transient failure (simulated): transactionId={}", event.getTransactionId());
                     throw new TransientFailureException("Network timeout (simulated)");
                 }
                 
                 if ("PERMANENT".equals(event.getFailureType())) {
                     permanentFailures.incrementAndGet();
                     circuitBreaker.recordFailure();
-                    log.error("❌ Permanent failure (simulated): transactionId={}", event.getTransactionId());
+                    log.error(" Permanent failure (simulated): transactionId={}", event.getTransactionId());
                     throw new PermanentFailureException("Invalid account (simulated)");
                 }
                 
@@ -174,7 +174,7 @@ public class TransactionProcessorService {
             })
             .map(v -> (Void) null)
             .onFailure(ex -> {
-                log.error("❌ Failed to process transaction: transactionId={}", event.getTransactionId(), ex);
+                log.error(" Failed to process transaction: transactionId={}", event.getTransactionId(), ex);
                 transactionsFailed.incrementAndGet();
             });
     }

@@ -16,7 +16,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * Verifies that OutboxFactory and OutboxConsumerGroup APIs are safe to call from the
- * Vert.x event loop thread — i.e. they do not perform blocking work synchronously.
+ * Vert.x event loop thread  i.e. they do not perform blocking work synchronously.
  *
  * <p>Each test schedules an API call onto the event loop via {@link #invokeOnEventLoop}
  * and asserts that no synchronous exception was thrown. Asynchronous failures in the
@@ -87,8 +87,8 @@ class OutboxBlockingSafetyTest {
      * Schedules {@code action} on the Vert.x event loop and captures any synchronous
      * exception it throws. Returns a {@code Future} that resolves to:
      * <ul>
-     *   <li>{@code null} — the action completed without throwing synchronously</li>
-     *   <li>a {@code Throwable} — the synchronous exception the action threw</li>
+     *   <li>{@code null}  the action completed without throwing synchronously</li>
+     *   <li>a {@code Throwable}  the synchronous exception the action threw</li>
      * </ul>
      * The future itself never fails; exceptions are surfaced as a non-null result value
      * so callers can assert on them with {@code assertNull}.

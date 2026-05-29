@@ -15,8 +15,8 @@ import org.slf4j.LoggerFactory;
  *
  * <pre>
  * GET /primary
- *   → HTTP 200  when pg_is_in_recovery() = false  (this node is the write primary)
- *   → HTTP 503  when pg_is_in_recovery() = true   (replica) or PostgreSQL is unreachable
+ *    HTTP 200  when pg_is_in_recovery() = false  (this node is the write primary)
+ *    HTTP 503  when pg_is_in_recovery() = true   (replica) or PostgreSQL is unreachable
  * </pre>
  *
  * HAProxy configuration:
@@ -29,12 +29,12 @@ import org.slf4j.LoggerFactory;
  *
  * Configuration keys (read from verticle config JsonObject):
  * <ul>
- *   <li>{@code pg.host}     — PostgreSQL host (default: localhost)</li>
- *   <li>{@code pg.port}     — PostgreSQL port (default: 5432)</li>
- *   <li>{@code pg.database} — database name (default: postgres)</li>
- *   <li>{@code pg.user}     — PostgreSQL user (default: haproxy_check)</li>
- *   <li>{@code pg.password} — password (default: empty)</li>
- *   <li>{@code http.port}   — HTTP listen port (default: 8008)</li>
+ *   <li>{@code pg.host}      PostgreSQL host (default: localhost)</li>
+ *   <li>{@code pg.port}      PostgreSQL port (default: 5432)</li>
+ *   <li>{@code pg.database}  database name (default: postgres)</li>
+ *   <li>{@code pg.user}      PostgreSQL user (default: haproxy_check)</li>
+ *   <li>{@code pg.password}  password (default: empty)</li>
+ *   <li>{@code http.port}    HTTP listen port (default: 8008)</li>
  * </ul>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -89,7 +89,7 @@ public class PgPrimaryCheckVerticle extends AbstractVerticle {
                 .compose(rows -> {
                     boolean isReplica = rows.iterator().next().getBoolean(0);
                     int statusCode = isReplica ? 503 : 200;
-                    logger.debug("pg_is_in_recovery={} → HTTP {}", isReplica, statusCode);
+                    logger.debug("pg_is_in_recovery={}  HTTP {}", isReplica, statusCode);
                     return Future.succeededFuture(statusCode);
                 })
                 .onSuccess(statusCode -> response.setStatusCode(statusCode).end())

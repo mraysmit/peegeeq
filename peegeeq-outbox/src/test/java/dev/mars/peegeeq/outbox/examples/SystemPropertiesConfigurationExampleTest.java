@@ -84,7 +84,7 @@ public class SystemPropertiesConfigurationExampleTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
         
-        logger.info("✓ System Properties Configuration Example Test setup completed");
+        logger.info(" System Properties Configuration Example Test setup completed");
     }
     
     @AfterEach
@@ -95,7 +95,7 @@ public class SystemPropertiesConfigurationExampleTest {
         // Restore original system properties
         restoreOriginalProperties();
         
-        logger.info("✓ System Properties Configuration Example Test teardown completed");
+        logger.info(" System Properties Configuration Example Test teardown completed");
     }
 
     /**
@@ -200,7 +200,7 @@ public class SystemPropertiesConfigurationExampleTest {
                 assertEquals(Integer.parseInt(batchSize), config.getQueueConfig().getBatchSize(),
                     "Batch size should match system property");
                 
-                logger.info("✓ Validated max-retries={}, batch-size={}", retries, batchSize);
+                logger.info(" Validated max-retries={}, batch-size={}", retries, batchSize);
             }
         }
         
@@ -211,7 +211,7 @@ public class SystemPropertiesConfigurationExampleTest {
      * Runs a complete scenario with the current system properties configuration.
      */
     private void runScenario(String scenarioName, String description) throws Exception {
-        logger.info("📋 Scenario: {} - {}", scenarioName, description);
+        logger.info(" Scenario: {} - {}", scenarioName, description);
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", buildConfigProperties());
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -242,13 +242,13 @@ public class SystemPropertiesConfigurationExampleTest {
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
-                logger.info("📨 [{}] Processed message {} in thread: {} - Content: {}",
+                logger.info(" [{}] Processed message {} in thread: {} - Content: {}",
                     scenarioName, count, Thread.currentThread().getName(), message.getPayload().content);
                 completionLatch.countDown();
                 return Future.succeededFuture();
             });
 
-            logger.info("📤 Sending 5 test messages for scenario: {}", scenarioName);
+            logger.info(" Sending 5 test messages for scenario: {}", scenarioName);
             for (int i = 1; i <= 5; i++) {
                 final int idx = i;
                 TestMessage message = new TestMessage(
@@ -263,14 +263,14 @@ public class SystemPropertiesConfigurationExampleTest {
 
                 producer.send(message, headers)
                     .onFailure(e -> logger.warn("Failed to send message {} for scenario {}", idx, scenarioName, e));
-                logger.debug("📤 Sent message {}", i);
+                logger.debug(" Sent message {}", i);
             }
 
             assertTrue(completionLatch.await(30, TimeUnit.SECONDS),
                 "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
 
-            logger.info("📊 Scenario Results: {} - Processed {} messages", scenarioName, processedCount.get());
+            logger.info(" Scenario Results: {} - Processed {} messages", scenarioName, processedCount.get());
 
             consumer.close();
             producer.close();
@@ -289,11 +289,11 @@ public class SystemPropertiesConfigurationExampleTest {
     private void logCurrentConfiguration(PeeGeeQConfiguration config) {
         var queueConfig = config.getQueueConfig();
         
-        logger.info("🔧 Current Configuration:");
-        logger.info("  📊 Max Retries: {} (peegeeq.queue.max-retries)", queueConfig.getMaxRetries());
-        logger.info("  ⏱️ Polling Interval: {} (peegeeq.queue.polling-interval)", queueConfig.getPollingInterval());
-        logger.info("  🧵 Consumer Threads: {} (peegeeq.consumer.threads)", queueConfig.getConsumerThreads());
-        logger.info("  📦 Batch Size: {} (peegeeq.queue.batch-size)", queueConfig.getBatchSize());
+        logger.info(" Current Configuration:");
+        logger.info("   Max Retries: {} (peegeeq.queue.max-retries)", queueConfig.getMaxRetries());
+        logger.info("   Polling Interval: {} (peegeeq.queue.polling-interval)", queueConfig.getPollingInterval());
+        logger.info("   Consumer Threads: {} (peegeeq.consumer.threads)", queueConfig.getConsumerThreads());
+        logger.info("   Batch Size: {} (peegeeq.queue.batch-size)", queueConfig.getBatchSize());
     }
 
     private void saveOriginalProperties() {

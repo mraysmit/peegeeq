@@ -1775,7 +1775,7 @@ class PgBiTemporalEventStoreComplexTest {
     // getAsOfTransactionTime.  Covers both positive and negative paths.
 
     /**
-     * Build a true chain A → B → C where each correction targets the previous
+     * Build a true chain A  B  C where each correction targets the previous
      * correction (not the root).  Verify version numbers are 1, 2, 3 with no
      * duplicates this is the bug the shallow query used to miss.
      */
@@ -1873,7 +1873,7 @@ class PgBiTemporalEventStoreComplexTest {
     /**
      * Sequential corrections from different entry points: corrections target A,
      * A, then B. With chain model enforcement, the system resolves the latest
-     * version for each, producing a linear chain A→B→C→D. Version numbers
+     * version for each, producing a linear chain ABCD. Version numbers
      * must be unique and sequential across the entire family.
      */
     @Test

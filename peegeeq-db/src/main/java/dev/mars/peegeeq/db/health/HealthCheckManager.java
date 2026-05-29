@@ -455,7 +455,7 @@ public class HealthCheckManager implements HealthService {
             return Future.succeededFuture(getOverallHealth());
         }
         // When the circuit breaker is OPEN the system is already known to be DOWN.
-        // Return the cached state immediately — no live probe needed.
+        // Return the cached state immediately  no live probe needed.
         // The CB manages its own half-open probe cycle; triggering an extra probe
         // here would block for the full health-check timeout before responding.
         if (circuitBreakerManager != null) {

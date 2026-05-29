@@ -190,7 +190,7 @@ public class SSEBatchingIntegrationTest {
                 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
                     
                     // Parse SSE events
                     if (data.contains("event: batch")) {
@@ -201,7 +201,7 @@ public class SSEBatchingIntegrationTest {
                                 String jsonData = lines[i].substring(6);
                                 JsonObject batchEvent = new JsonObject(jsonData);
                                 receivedBatch.set(batchEvent);
-                                logger.info("✓ Received batch event with {} messages", 
+                                logger.info(" Received batch event with {} messages", 
                                            batchEvent.getInteger("messageCount"));
                                 batchLatch.countDown();
                                 break;
@@ -225,7 +225,7 @@ public class SSEBatchingIntegrationTest {
             delay2.future().await();
         }
         
-        logger.info("✓ Sent {} messages via REST API", batchSize);
+        logger.info(" Sent {} messages via REST API", batchSize);
         
         // Wait for batch event
         assertTrue(batchLatch.await(10, TimeUnit.SECONDS), "Batch event should be received");
@@ -239,7 +239,7 @@ public class SSEBatchingIntegrationTest {
         assertNotNull(messages, "Batch messages array should not be null");
         assertEquals(batchSize, messages.size(), "Batch messages array should have " + batchSize + " elements");
         
-        logger.info("✓ Batch size configuration test passed");
+        logger.info(" Batch size configuration test passed");
         
         // Close connection
         responseRef.get().request().connection().close();
@@ -279,7 +279,7 @@ public class SSEBatchingIntegrationTest {
 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
 
                     // Parse SSE events
                     if (data.contains("event: batch")) {
@@ -291,7 +291,7 @@ public class SSEBatchingIntegrationTest {
                                 String jsonData = lines[i].substring(6);
                                 JsonObject batchEvent = new JsonObject(jsonData);
                                 receivedBatch.set(batchEvent);
-                                logger.info("✓ Received batch event with {} messages after timeout",
+                                logger.info(" Received batch event with {} messages after timeout",
                                            batchEvent.getInteger("messageCount"));
                                 batchLatch.countDown();
                                 break;
@@ -317,7 +317,7 @@ public class SSEBatchingIntegrationTest {
             delay2.future().await();
         }
 
-        logger.info("✓ Sent {} messages (less than batch size {})", messagesToSend, batchSize);
+        logger.info(" Sent {} messages (less than batch size {})", messagesToSend, batchSize);
 
         // Wait for batch event (should arrive after timeout)
         assertTrue(batchLatch.await(maxWaitTime + 5000, TimeUnit.MILLISECONDS),
@@ -335,7 +335,7 @@ public class SSEBatchingIntegrationTest {
         assertEquals(messagesToSend, batch.getInteger("messageCount"),
                     "Batch should contain " + messagesToSend + " messages");
 
-        logger.info("✓ Batch timeout test passed");
+        logger.info(" Batch timeout test passed");
 
         // Close connection
         responseRef.get().request().connection().close();
@@ -371,17 +371,17 @@ public class SSEBatchingIntegrationTest {
 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
 
                     // Count event types
                     if (data.contains("event: message")) {
                         messageEventCount.incrementAndGet();
                         messageLatch.countDown();
-                        logger.info("✓ Received individual message event ({}/{})",
+                        logger.info(" Received individual message event ({}/{})",
                                    messageEventCount.get(), messagesToSend);
                     } else if (data.contains("event: batch")) {
                         batchEventCount.incrementAndGet();
-                        logger.warn("❌ Received unexpected batch event");
+                        logger.warn(" Received unexpected batch event");
                     }
                 });
             })
@@ -400,7 +400,7 @@ public class SSEBatchingIntegrationTest {
             delay2.future().await();
         }
 
-        logger.info("✓ Sent {} messages via REST API", messagesToSend);
+        logger.info(" Sent {} messages via REST API", messagesToSend);
 
         // Wait for all messages
         assertTrue(messageLatch.await(10, TimeUnit.SECONDS), "All messages should be received");
@@ -410,7 +410,7 @@ public class SSEBatchingIntegrationTest {
                     "Should receive " + messagesToSend + " individual message events");
         assertEquals(0, batchEventCount.get(), "Should not receive any batch events when batchSize=1");
 
-        logger.info("✓ Single message mode test passed");
+        logger.info(" Single message mode test passed");
 
         // Close connection
         responseRef.get().request().connection().close();

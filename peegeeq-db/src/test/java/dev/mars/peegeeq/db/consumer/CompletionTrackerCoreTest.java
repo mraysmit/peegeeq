@@ -141,7 +141,7 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
         // Clean any stale data for this topic from a prior withReuse container run
         // Register as PUB_SUB so the insert trigger counts active subscriptions
         // Insert subscriptions BEFORE the message so the trigger counts them
-        // Insert the message: trigger fires, sees PUB_SUB, counts 2 ACTIVE subs → required_consumer_groups=2
+        // Insert the message: trigger fires, sees PUB_SUB, counts 2 ACTIVE subs  required_consumer_groups=2
         cleanTestTopic(topic)
             .compose(v -> insertTestTopic(topic, "PUB_SUB"))
             .compose(v -> insertSubscription(topic, "group1"))

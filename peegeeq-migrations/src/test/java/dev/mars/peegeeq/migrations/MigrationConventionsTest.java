@@ -235,7 +235,7 @@ class MigrationConventionsTest {
                 .as("Second migration run should succeed")
                 .isTrue();
         
-        log.info("✓ Migrations are repeatable - {} migrations executed in each run", firstRun.migrationsExecuted);
+        log.info(" Migrations are repeatable - {} migrations executed in each run", firstRun.migrationsExecuted);
     }
 
     @Test

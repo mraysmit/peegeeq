@@ -118,7 +118,7 @@ public class SubscriptionCreateAndBackfillIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
-    // Schema init is blocking (Flyway/JDBC) — delegated to a worker thread via executeBlocking.
+    // Schema init is blocking (Flyway/JDBC)  delegated to a worker thread via executeBlocking.
     private Future<Void> applyFanoutSchema(Vertx vertx) {
         return vertx.executeBlocking(() -> {
             logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);

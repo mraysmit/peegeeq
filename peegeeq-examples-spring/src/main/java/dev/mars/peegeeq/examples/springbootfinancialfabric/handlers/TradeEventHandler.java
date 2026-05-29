@@ -103,7 +103,7 @@ public class TradeEventHandler {
         
         TradeEvent trade = event.getPayload();
         
-        log.info("📊 Trade Captured: {} - {} {} shares of {} @ {} (Counterparty: {})",
+        log.info(" Trade Captured: {} - {} {} shares of {} @ {} (Counterparty: {})",
                 trade.getTradeId(),
                 trade.getTradeType(),
                 trade.getQuantity(),

@@ -40,7 +40,7 @@ public class TransactionParticipationTest {
     @Test
     @DisplayName("Test appendInTransaction method signatures exist and validate parameters")
     public void testAppendInTransactionMethodSignatures() {
-        logger.info("🧪 Testing appendInTransaction method signatures and parameter validation");
+        logger.info(" Testing appendInTransaction method signatures and parameter validation");
         
         // This test verifies that the method signatures exist and basic parameter validation works
         // We don't need a real database connection for this test - we're testing parameter validation
@@ -71,7 +71,7 @@ public class TransactionParticipationTest {
     @Test
     @DisplayName("Test parameter validation logic")
     public void testParameterValidation() {
-        logger.info("🧪 Testing parameter validation logic");
+        logger.info(" Testing parameter validation logic");
         
         // Test that our parameter validation constants and logic are correct
         String longString = "a".repeat(256); // 256 characters - should exceed limit

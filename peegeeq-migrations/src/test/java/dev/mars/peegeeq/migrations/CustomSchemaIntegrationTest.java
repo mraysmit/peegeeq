@@ -69,7 +69,7 @@ class CustomSchemaIntegrationTest {
         verifyTablesInSchema(customSchema);
         verifyTablesNotInPublicSchema();
         
-        log.info("✓ Migrations successfully deployed to custom schema via JDBC URL");
+        log.info(" Migrations successfully deployed to custom schema via JDBC URL");
     }
 
     @Test
@@ -101,7 +101,7 @@ class CustomSchemaIntegrationTest {
         log.info("  Verifying tables in configured schema...");
         verifyTablesInSchema(customSchema);
         
-        log.info("✓ Migrations successfully deployed to custom schema via defaultSchema config");
+        log.info(" Migrations successfully deployed to custom schema via defaultSchema config");
     }
 
     @Test
@@ -127,7 +127,7 @@ class CustomSchemaIntegrationTest {
         // Verify schemas are isolated (data in one doesn't affect the other)
         verifySchemaIsolation(schema1, schema2);
         
-        log.info("✓ Multiple schema isolation verified successfully");
+        log.info(" Multiple schema isolation verified successfully");
     }
 
     @Test
@@ -174,7 +174,7 @@ class CustomSchemaIntegrationTest {
             }
         }
         
-        log.info("✓ Flyway history table correctly placed in custom schema");
+        log.info(" Flyway history table correctly placed in custom schema");
     }
 
     @Test
@@ -208,7 +208,7 @@ class CustomSchemaIntegrationTest {
                     .isTrue();
         }
         
-        log.info("✓ Custom schema auto-created successfully");
+        log.info(" Custom schema auto-created successfully");
     }
 
     // Helper methods

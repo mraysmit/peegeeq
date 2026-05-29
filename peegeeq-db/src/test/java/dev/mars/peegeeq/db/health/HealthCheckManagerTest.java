@@ -366,7 +366,7 @@ class HealthCheckManagerTest {
     void testHealthCheckTimeout(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Health check timed out: slow') is EXPECTED this test deliberately creates a slow health check to verify timeout handling");
         
-        // Returns a Future that never completes — the HealthCheckManager's 300ms timeout
+        // Returns a Future that never completes  the HealthCheckManager's 300ms timeout
         // fires and produces a TimeoutException, which is the path under test.
         HealthCheck slowCheck = () -> Promise.<HealthStatus>promise().future();
         

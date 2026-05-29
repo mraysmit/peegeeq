@@ -28,7 +28,7 @@ public class ConfigurationDebugTest {
         logger.info("Batch size: {}", config.getQueueConfig().getBatchSize());
         logger.info("Visibility timeout: {}", config.getQueueConfig().getVisibilityTimeout());
 
-        // Phase 11: System property sweep removed — values come from config instance only
+        // Phase 11: System property sweep removed  values come from config instance only
         logger.info("Max retries (from config, not System): {}", config.getQueueConfig().getMaxRetries());
 
         // Check if the properties file is being loaded

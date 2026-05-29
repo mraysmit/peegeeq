@@ -24,7 +24,7 @@ public class PropertyNameValidationTest {
     
     @BeforeEach
     void setUp() {
-        // No System properties needed — tests use Properties overrides via 2-arg constructor
+        // No System properties needed  tests use Properties overrides via 2-arg constructor
     }
 
     @AfterEach

@@ -81,7 +81,7 @@ public class DeadConsumerDetectionJob {
     private final AtomicBoolean detectionInProgress = new AtomicBoolean(false);
     private volatile Future<Void> inFlightDetection = null;
 
-    // Trace context for the lifecycle of this job (start → stop)
+    // Trace context for the lifecycle of this job (start  stop)
     private volatile TraceCtx lifecycleTrace;
 
     // Cumulative stats across the lifetime of this job

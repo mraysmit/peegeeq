@@ -42,10 +42,10 @@ public class ExampleResourceLoaderDemo {
             System.out.println("   Length: " + paymentJson.length() + " characters");
             System.out.println("   Contains 'paymentId': " + paymentJson.contains("paymentId"));
             
-            System.out.println("\n🎉 All tests passed! ExampleResourceLoader is working correctly.");
+            System.out.println("\n All tests passed! ExampleResourceLoader is working correctly.");
             
         } catch (Exception e) {
-            System.err.println("❌ Error testing ExampleResourceLoader: " + e.getMessage());
+            System.err.println(" Error testing ExampleResourceLoader: " + e.getMessage());
             e.printStackTrace();
         }
     }

@@ -34,7 +34,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  * <p><b>Key Focus:</b> This example focuses on PeeGeeQ bi-temporal integration patterns,
  * not Spring Boot CRUD operations. It demonstrates:
  * <ul>
- *   <li>Reactive adapter pattern (CompletableFuture and Vert.x Future → Mono/Flux)</li>
+ *   <li>Reactive adapter pattern (CompletableFuture and Vert.x Future  Mono/Flux)</li>
  *   <li>Bi-temporal event appending with valid time</li>
  *   <li>Historical queries and point-in-time reconstruction</li>
  *   <li>Bi-temporal corrections with audit trail</li>
@@ -44,7 +44,7 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
  * <p><b>Use Case:</b> Back office trade settlement processing
  * <ul>
  *   <li>Submit settlement instructions to custodian</li>
- *   <li>Track settlement lifecycle (submitted → matched → confirmed/failed)</li>
+ *   <li>Track settlement lifecycle (submitted  matched  confirmed/failed)</li>
  *   <li>Query historical settlement states</li>
  *   <li>Correct settlement data with full audit trail</li>
  * </ul>

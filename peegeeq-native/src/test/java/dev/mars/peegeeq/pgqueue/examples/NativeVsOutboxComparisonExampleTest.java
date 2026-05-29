@@ -220,7 +220,7 @@ class NativeVsOutboxComparisonExampleTest {
     private void demonstrateArchitecturalDifferences() {
         logger.info("\n=== ARCHITECTURAL DIFFERENCES ===");
 
-        logger.info("\n🚀 Native LISTEN/NOTIFY Architecture:");
+        logger.info("\n Native LISTEN/NOTIFY Architecture:");
         logger.info("   Implementation Details:");
         logger.info("      - Uses PostgreSQL's built-in LISTEN/NOTIFY mechanism");
         logger.info("      - Establishes dedicated database connections for listening");
@@ -228,19 +228,19 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("      - No intermediate storage or persistence layer");
         logger.info("      - Minimal database schema requirements");
 
-        logger.info("   📊 Message Flow:");
+        logger.info("    Message Flow:");
         logger.info("      1. Producer sends NOTIFY command to PostgreSQL");
         logger.info("      2. PostgreSQL immediately notifies all listening connections");
         logger.info("      3. Consumers receive notifications in real-time");
         logger.info("      4. No database tables involved in message storage");
 
-        logger.info("   🎯 Best Use Cases:");
+        logger.info("    Best Use Cases:");
         logger.info("      - Real-time notifications and alerts");
         logger.info("      - Live dashboard updates");
         logger.info("      - System monitoring and health checks");
         logger.info("      - Chat applications and live feeds");
 
-        logger.info("\n📦 Outbox Pattern Architecture:");
+        logger.info("\n Outbox Pattern Architecture:");
         logger.info("   Implementation Details:");
         logger.info("      - Uses database tables to store messages");
         logger.info("      - Employs polling mechanism to check for new messages");
@@ -248,13 +248,13 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("      - Supports message retry and dead letter queues");
         logger.info("      - Requires additional database schema for message storage");
 
-        logger.info("   📊 Message Flow:");
+        logger.info("    Message Flow:");
         logger.info("      1. Producer inserts message into outbox table");
         logger.info("      2. Background polling process checks for new messages");
         logger.info("      3. Messages are delivered to consumers");
         logger.info("      4. Processed messages are marked as completed or deleted");
 
-        logger.info("   🎯 Best Use Cases:");
+        logger.info("    Best Use Cases:");
         logger.info("      - Financial transactions and payments");
         logger.info("      - Order processing and fulfillment");
         logger.info("      - Event sourcing and audit trails");
@@ -267,43 +267,43 @@ class NativeVsOutboxComparisonExampleTest {
     private void demonstratePerformanceCharacteristics() {
         logger.info("\n=== PERFORMANCE CHARACTERISTICS ===");
 
-        logger.info("\n⚡ Native LISTEN/NOTIFY Performance:");
-        logger.info("   🏆 Latency: Ultra-low (microseconds to milliseconds)");
+        logger.info("\n Native LISTEN/NOTIFY Performance:");
+        logger.info("    Latency: Ultra-low (microseconds to milliseconds)");
         logger.info("      - Direct PostgreSQL notification mechanism");
         logger.info("      - No polling overhead or delays");
         logger.info("      - Immediate delivery to active consumers");
 
-        logger.info("   🏆 Throughput: High (10,000+ messages/second)");
+        logger.info("    Throughput: High (10,000+ messages/second)");
         logger.info("      - Minimal processing overhead");
         logger.info("      - No database table operations for message delivery");
         logger.info("      - Limited mainly by network and connection capacity");
 
-        logger.info("   💾 Resource Usage: Low");
+        logger.info("    Resource Usage: Low");
         logger.info("      - Minimal memory footprint");
         logger.info("      - No message persistence overhead");
         logger.info("      - Requires dedicated database connections");
 
-        logger.info("\n📊 Outbox Pattern Performance:");
-        logger.info("   ⏱️ Latency: Moderate (seconds to minutes)");
+        logger.info("\n Outbox Pattern Performance:");
+        logger.info("    Latency: Moderate (seconds to minutes)");
         logger.info("      - Depends on polling interval configuration");
         logger.info("      - Additional database query overhead");
         logger.info("      - Processing time for message state management");
 
-        logger.info("   📈 Throughput: Moderate (1,000-5,000 messages/second)");
+        logger.info("    Throughput: Moderate (1,000-5,000 messages/second)");
         logger.info("      - Limited by database performance");
         logger.info("      - Polling frequency affects throughput");
         logger.info("      - Batch processing can improve efficiency");
 
-        logger.info("   💾 Resource Usage: Higher");
+        logger.info("    Resource Usage: Higher");
         logger.info("      - Message persistence storage requirements");
         logger.info("      - Polling process CPU and memory usage");
         logger.info("      - Database connection pool overhead");
 
-        logger.info("\n📊 Performance Comparison Summary:");
-        logger.info("   🚀 Native is typically 5-10x faster in latency");
-        logger.info("   🚀 Native can handle 2-5x higher throughput");
-        logger.info("   💰 Outbox uses 2-3x more system resources");
-        logger.info("   ⚖️ Trade-off: Speed vs Reliability");
+        logger.info("\n Performance Comparison Summary:");
+        logger.info("    Native is typically 5-10x faster in latency");
+        logger.info("    Native can handle 2-5x higher throughput");
+        logger.info("    Outbox uses 2-3x more system resources");
+        logger.info("    Trade-off: Speed vs Reliability");
     }
 
     /**
@@ -312,21 +312,21 @@ class NativeVsOutboxComparisonExampleTest {
     private void demonstrateReliabilityFeatures() {
         logger.info("\n=== RELIABILITY FEATURES ===");
 
-        logger.info("\n🚀 Native LISTEN/NOTIFY Reliability:");
+        logger.info("\n Native LISTEN/NOTIFY Reliability:");
         logger.info("   Strengths:");
         logger.info("      - Immediate delivery to active consumers");
         logger.info("      - No polling overhead or resource waste");
         logger.info("      - Real-time notifications with minimal delay");
         logger.info("      - Simple architecture with fewer failure points");
 
-        logger.info("   ❌ Limitations:");
+        logger.info("    Limitations:");
         logger.info("      - Messages lost if no consumers are listening");
         logger.info("      - No built-in retry mechanism for failed deliveries");
         logger.info("      - Requires persistent database connections");
         logger.info("      - Not suitable for guaranteed delivery scenarios");
         logger.info("      - Connection failures can result in message loss");
 
-        logger.info("\n📦 Outbox Pattern Reliability:");
+        logger.info("\n Outbox Pattern Reliability:");
         logger.info("   Strengths:");
         logger.info("      - Guaranteed at-least-once delivery");
         logger.info("      - Built-in retry mechanisms with exponential backoff");
@@ -335,16 +335,16 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("      - Supports dead letter queues for failed messages");
         logger.info("      - Transactional consistency with business operations");
 
-        logger.info("   ❌ Limitations:");
+        logger.info("    Limitations:");
         logger.info("      - Higher latency due to polling mechanism");
         logger.info("      - Increased database load and storage requirements");
         logger.info("      - Potential for duplicate message delivery");
         logger.info("      - More complex architecture and failure scenarios");
 
-        logger.info("\n🎯 Reliability Recommendations:");
-        logger.info("   💡 Use Native for: Non-critical, real-time notifications");
-        logger.info("   💡 Use Outbox for: Critical business transactions");
-        logger.info("   💡 Consider hybrid approaches for mixed requirements");
+        logger.info("\n Reliability Recommendations:");
+        logger.info("    Use Native for: Non-critical, real-time notifications");
+        logger.info("    Use Outbox for: Critical business transactions");
+        logger.info("    Consider hybrid approaches for mixed requirements");
     }
 
     /**
@@ -353,7 +353,7 @@ class NativeVsOutboxComparisonExampleTest {
     private void demonstrateScalabilityPatterns() {
         logger.info("\n=== SCALABILITY PATTERNS ===");
 
-        logger.info("\n🚀 Native LISTEN/NOTIFY Scalability:");
+        logger.info("\n Native LISTEN/NOTIFY Scalability:");
         logger.info("   Horizontal Scaling:");
         logger.info("      - Multiple consumers can listen to same channel");
         logger.info("      - Load balancing through consumer groups");
@@ -366,12 +366,12 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("      - Use connection multiplexing");
         logger.info("      - Tune network buffer sizes");
 
-        logger.info("   ⚠️ Scaling Limitations:");
+        logger.info("    Scaling Limitations:");
         logger.info("      - PostgreSQL connection limits");
         logger.info("      - Network bandwidth constraints");
         logger.info("      - Memory usage for connection management");
 
-        logger.info("\n📦 Outbox Pattern Scalability:");
+        logger.info("\n Outbox Pattern Scalability:");
         logger.info("   Horizontal Scaling:");
         logger.info("      - Multiple polling processes");
         logger.info("      - Partition tables by message type or date");
@@ -384,15 +384,15 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("      - Batch processing for higher throughput");
         logger.info("      - Use read replicas for polling operations");
 
-        logger.info("   ⚠️ Scaling Limitations:");
+        logger.info("    Scaling Limitations:");
         logger.info("      - Database performance bottlenecks");
         logger.info("      - Storage growth for message persistence");
         logger.info("      - Polling coordination complexity");
 
-        logger.info("\n📊 Scalability Comparison:");
-        logger.info("   🚀 Native scales better for high-frequency, low-latency scenarios");
-        logger.info("   📦 Outbox scales better for high-volume, reliable processing");
-        logger.info("   💡 Choose based on your specific scaling requirements");
+        logger.info("\n Scalability Comparison:");
+        logger.info("    Native scales better for high-frequency, low-latency scenarios");
+        logger.info("    Outbox scales better for high-volume, reliable processing");
+        logger.info("    Choose based on your specific scaling requirements");
     }
 
     /**
@@ -401,53 +401,53 @@ class NativeVsOutboxComparisonExampleTest {
     private void demonstrateFailureScenarios() {
         logger.info("\n=== FAILURE SCENARIOS ===");
 
-        logger.info("\n🔥 Common Failure Scenarios:");
+        logger.info("\n Common Failure Scenarios:");
 
         logger.info("\n   Scenario 1: No Active Consumers");
-        logger.info("   🚀 Native LISTEN/NOTIFY:");
-        logger.info("      ❌ Messages are lost permanently");
-        logger.info("      ❌ No retry or recovery mechanism");
-        logger.info("      ❌ Producer has no delivery confirmation");
-        logger.info("   📦 Outbox Pattern:");
+        logger.info("    Native LISTEN/NOTIFY:");
+        logger.info("       Messages are lost permanently");
+        logger.info("       No retry or recovery mechanism");
+        logger.info("       Producer has no delivery confirmation");
+        logger.info("    Outbox Pattern:");
         logger.info("      Messages remain in outbox table");
         logger.info("      Delivered when consumers become available");
         logger.info("      No message loss occurs");
 
         logger.info("\n   Scenario 2: Consumer Processing Failure");
-        logger.info("   🚀 Native LISTEN/NOTIFY:");
-        logger.info("      ❌ Message is lost if consumer fails");
-        logger.info("      ❌ No automatic retry mechanism");
-        logger.info("      ❌ Requires application-level error handling");
-        logger.info("   📦 Outbox Pattern:");
+        logger.info("    Native LISTEN/NOTIFY:");
+        logger.info("       Message is lost if consumer fails");
+        logger.info("       No automatic retry mechanism");
+        logger.info("       Requires application-level error handling");
+        logger.info("    Outbox Pattern:");
         logger.info("      Message remains unprocessed in table");
         logger.info("      Automatic retry with exponential backoff");
         logger.info("      Dead letter queue for persistent failures");
 
         logger.info("\n   Scenario 3: Database Connection Loss");
-        logger.info("   🚀 Native LISTEN/NOTIFY:");
-        logger.info("      ❌ Listening connection is lost");
-        logger.info("      ❌ Messages sent during outage are lost");
-        logger.info("      ❌ Requires connection recovery logic");
-        logger.info("   📦 Outbox Pattern:");
+        logger.info("    Native LISTEN/NOTIFY:");
+        logger.info("       Listening connection is lost");
+        logger.info("       Messages sent during outage are lost");
+        logger.info("       Requires connection recovery logic");
+        logger.info("    Outbox Pattern:");
         logger.info("      Messages continue to be stored");
         logger.info("      Processing resumes when connection restored");
         logger.info("      No message loss during outages");
 
         logger.info("\n   Scenario 4: High Load Conditions");
-        logger.info("   🚀 Native LISTEN/NOTIFY:");
-        logger.info("      ⚠️ May overwhelm slow consumers");
-        logger.info("      ⚠️ No built-in backpressure mechanism");
-        logger.info("      ⚠️ Risk of connection timeouts");
-        logger.info("   📦 Outbox Pattern:");
+        logger.info("    Native LISTEN/NOTIFY:");
+        logger.info("       May overwhelm slow consumers");
+        logger.info("       No built-in backpressure mechanism");
+        logger.info("       Risk of connection timeouts");
+        logger.info("    Outbox Pattern:");
         logger.info("      Natural backpressure through polling");
         logger.info("      Messages queue up safely in database");
         logger.info("      Processing rate can be controlled");
 
-        logger.info("\n🎯 Failure Handling Recommendations:");
-        logger.info("   💡 Native: Implement application-level retry and monitoring");
-        logger.info("   💡 Outbox: Configure appropriate retry policies and DLQ");
-        logger.info("   💡 Consider circuit breakers for both patterns");
-        logger.info("   💡 Monitor and alert on processing failures");
+        logger.info("\n Failure Handling Recommendations:");
+        logger.info("    Native: Implement application-level retry and monitoring");
+        logger.info("    Outbox: Configure appropriate retry policies and DLQ");
+        logger.info("    Consider circuit breakers for both patterns");
+        logger.info("    Monitor and alert on processing failures");
     }
 
     /**
@@ -456,7 +456,7 @@ class NativeVsOutboxComparisonExampleTest {
     private void provideTechnicalGuidance() {
         logger.info("\n=== TECHNICAL GUIDANCE & DECISION MATRIX ===");
 
-        logger.info("\n🎯 Choose Native LISTEN/NOTIFY when:");
+        logger.info("\n Choose Native LISTEN/NOTIFY when:");
         logger.info("   Real-time, low-latency messaging is critical (< 100ms)");
         logger.info("   You can tolerate occasional message loss");
         logger.info("   System load is predictable and manageable");
@@ -464,7 +464,7 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("   Resource usage must be minimized");
         logger.info("   Use cases: Live dashboards, real-time notifications, monitoring alerts");
 
-        logger.info("\n🎯 Choose Outbox Pattern when:");
+        logger.info("\n Choose Outbox Pattern when:");
         logger.info("   Message delivery guarantees are essential");
         logger.info("   You need audit trails and message persistence");
         logger.info("   System must handle variable or high loads");
@@ -472,47 +472,47 @@ class NativeVsOutboxComparisonExampleTest {
         logger.info("   Transactional consistency is important");
         logger.info("   Use cases: Financial transactions, order processing, event sourcing");
 
-        logger.info("\n⚖️ Decision Matrix:");
-        logger.info("   📊 Latency Requirements:");
+        logger.info("\n Decision Matrix:");
+        logger.info("    Latency Requirements:");
         logger.info("      - < 10ms: Native LISTEN/NOTIFY");
         logger.info("      - < 1s: Either (prefer Native)");
         logger.info("      - > 1s: Either (prefer Outbox)");
 
-        logger.info("   📊 Reliability Requirements:");
+        logger.info("    Reliability Requirements:");
         logger.info("      - Best effort: Native LISTEN/NOTIFY");
         logger.info("      - At-least-once: Outbox Pattern");
         logger.info("      - Exactly-once: Outbox + idempotency");
 
-        logger.info("   📊 Throughput Requirements:");
+        logger.info("    Throughput Requirements:");
         logger.info("      - < 1,000 msg/s: Either");
         logger.info("      - 1,000-10,000 msg/s: Prefer Native");
         logger.info("      - > 10,000 msg/s: Native (with careful design)");
 
-        logger.info("\n🏗️ Hybrid Approaches:");
-        logger.info("   💡 Use both patterns in the same system:");
+        logger.info("\n Hybrid Approaches:");
+        logger.info("    Use both patterns in the same system:");
         logger.info("      - Native for real-time notifications");
         logger.info("      - Outbox for critical business events");
         logger.info("      - Route messages based on importance and latency needs");
 
-        logger.info("\n🎯 Implementation Best Practices:");
-        logger.info("   🚀 Native LISTEN/NOTIFY:");
+        logger.info("\n Implementation Best Practices:");
+        logger.info("    Native LISTEN/NOTIFY:");
         logger.info("      - Implement connection recovery logic");
         logger.info("      - Use connection pooling wisely");
         logger.info("      - Monitor connection health");
         logger.info("      - Consider message deduplication");
 
-        logger.info("   📦 Outbox Pattern:");
+        logger.info("    Outbox Pattern:");
         logger.info("      - Optimize polling queries with proper indexes");
         logger.info("      - Implement exponential backoff for retries");
         logger.info("      - Use batch processing for efficiency");
         logger.info("      - Archive or delete old processed messages");
 
         logger.info("\nFinal Recommendations:");
-        logger.info("   💡 Start with the simpler Native approach if requirements allow");
-        logger.info("   💡 Migrate to Outbox when reliability becomes critical");
-        logger.info("   💡 Consider your team's expertise and operational capabilities");
-        logger.info("   💡 Test both approaches with realistic load patterns");
-        logger.info("   💡 Monitor and measure actual performance in your environment");
+        logger.info("    Start with the simpler Native approach if requirements allow");
+        logger.info("    Migrate to Outbox when reliability becomes critical");
+        logger.info("    Consider your team's expertise and operational capabilities");
+        logger.info("    Test both approaches with realistic load patterns");
+        logger.info("    Monitor and measure actual performance in your environment");
     }
 }
 

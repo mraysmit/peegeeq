@@ -114,10 +114,10 @@ class PostgreSQLErrorHandlingTest {
         logger.info("Test teardown completed");
     }
 
-    // Intention: verify that two competing consumers process messages successfully despite potential serialization conflicts (pg error 40001); no real conflict is forced — this tests the happy path under competition.
+    // Intention: verify that two competing consumers process messages successfully despite potential serialization conflicts (pg error 40001); no real conflict is forced  this tests the happy path under competition.
     @Test
     void testSerializationFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing PostgreSQL serialization failure recovery (40001 error code)");
+        logger.info(" Testing PostgreSQL serialization failure recovery (40001 error code)");
 
         String topicName = "test-serialization-failure";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -189,7 +189,7 @@ class PostgreSQLErrorHandlingTest {
     // Intention: verify that concurrent consumers detect and tolerate deadlock errors (pg error 40P01) without hanging; deadlocks are simulated via direct JDBC operations, and the test passes whether messages are processed or deadlocks are detected.
     @Test
     void testDeadlockDetectionAndRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing PostgreSQL deadlock detection and recovery");
+        logger.info(" Testing PostgreSQL deadlock detection and recovery");
 
         String topicName = "test-deadlock-recovery";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -252,10 +252,10 @@ class PostgreSQLErrorHandlingTest {
         });
     }
 
-    // Intention: verify that a statement timeout (deliberately triggered via SET statement_timeout='100ms') is caught and handled gracefully without crashing the consumer; the system must either process the message or absorb the timeout — both outcomes are valid.
+    // Intention: verify that a statement timeout (deliberately triggered via SET statement_timeout='100ms') is caught and handled gracefully without crashing the consumer; the system must either process the message or absorb the timeout  both outcomes are valid.
     @Test
     void testConnectionTimeoutHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing PostgreSQL connection timeout handling");
+        logger.info(" Testing PostgreSQL connection timeout handling");
 
         String topicName = "test-connection-timeout";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -308,7 +308,7 @@ class PostgreSQLErrorHandlingTest {
     // Intention: verify that a deliberately rolled-back transaction (first message always rolls back via direct JDBC) does not crash the consumer; the test passes as long as at least one message is processed or a rollback is observed.
     @Test
     void testTransactionRollbackAndRetryLogic(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing transaction rollback and retry logic");
+        logger.info(" Testing transaction rollback and retry logic");
 
         String topicName = "test-transaction-rollback";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -363,7 +363,7 @@ class PostgreSQLErrorHandlingTest {
     // Intention: verify that known PostgreSQL error codes (40001 serialization, 40P01 deadlock, 23505 unique violation, 08006 connection failure) are recognised and classified correctly; errors are triggered via direct JDBC simulation inside the message handler.
     @Test
     void testPostgreSQLSpecificErrorCodes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing PostgreSQL-specific error code handling");
+        logger.info(" Testing PostgreSQL-specific error code handling");
 
         String topicName = "test-error-codes";
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);

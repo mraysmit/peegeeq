@@ -111,7 +111,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testDetectsExpiredHeartbeat(VertxTestContext ctx) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD', detection run summary) are EXPECTED ÔÇö this test deliberately expires a heartbeat to verify dead consumer detection job");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD', detection run summary) are EXPECTED  this test deliberately expires a heartbeat to verify dead consumer detection job");
         String topic = "test-dead-detect-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "dead-group-1";
 
@@ -175,7 +175,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testDetectAllDeadAcrossTopics(VertxTestContext ctx) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED ÔÇö this test deliberately expires heartbeats across multiple topics");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED  this test deliberately expires heartbeats across multiple topics");
         String topic1 = "test-dead-all-1-" + UUID.randomUUID().toString().substring(0, 8);
         String topic2 = "test-dead-all-2-" + UUID.randomUUID().toString().substring(0, 8);
 
@@ -257,7 +257,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testRunDetectionOnce(VertxTestContext ctx) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED ÔÇö this test deliberately runs manual dead detection");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED  this test deliberately runs manual dead detection");
         String topic = "test-manual-detect-" + UUID.randomUUID().toString().substring(0, 8);
 
         topicConfigService.createTopic(TopicConfig.builder()
@@ -349,7 +349,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
 
     /**
      * Tests the full end-to-end pipeline through the scheduled job:
-     * detection ÔåÆ cleanup ÔåÆ messages unblocked.
+     * detection  cleanup  messages unblocked.
      */
     @Test
     void testEndToEndDetectCleanupPipeline(VertxTestContext ctx) {
@@ -390,7 +390,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 }))
                 .compose(messageIds -> verifyCompletedMessagesAndReturn(topic, messageIds))
                 .onSuccess(v -> {
-                    logger.info("End-to-end pipeline verified: detect ÔåÆ cleanup ÔåÆ auto-complete");
+                    logger.info("End-to-end pipeline verified: detect  cleanup  auto-complete");
                     ctx.completeNow();
                 })
                 .onFailure(ctx::failNow);
@@ -440,7 +440,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                             "Guard should skip overlapping runs. Expected <" + (expectedTicks * 3 / 4) +
                                     " but got " + runCount + " out of ~" + expectedTicks + " timer ticks");
                     assertEquals(0, failures,
-                            "No failures should occur ÔÇö guard prevents concurrent DB access");
+                            "No failures should occur  guard prevents concurrent DB access");
 
                     logger.info("Concurrent detection guard verified: {} runs (not ~100)", runCount);
                     ctx.completeNow();
@@ -621,7 +621,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         return getSubscriptionStatus(topic, "group-b")
                 .compose(status -> {
                     if ("DEAD".equals(status)) {
-                        // group-b is DEAD — the detection query has marked it dead.
+                        // group-b is DEAD  the detection query has marked it dead.
                         // Stop the job; stop() awaits inFlightDetection which covers the
                         // full detection+cleanup chain, so callers can safely verify
                         // message states without racing against cleanup writes.

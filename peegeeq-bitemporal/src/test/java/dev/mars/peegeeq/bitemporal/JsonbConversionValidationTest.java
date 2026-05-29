@@ -112,7 +112,7 @@ class JsonbConversionValidationTest {
     @Test
     @Order(1)
     void testSimpleStringPayloadStoredAsJsonb(VertxTestContext testContext) {
-        logger.info("🧪 Testing simple string payload JSONB storage...");
+        logger.info(" Testing simple string payload JSONB storage...");
 
         TestEvent testEvent = new TestEvent("ORDER-001", "ACTIVE", 100.0);
         String eventType = "test.simple.message";
@@ -147,7 +147,7 @@ class JsonbConversionValidationTest {
     @Test
     @Order(2)
     void testComplexObjectPayloadStoredAsJsonb(VertxTestContext testContext) {
-        logger.info("🧪 Testing complex object payload JSONB storage...");
+        logger.info(" Testing complex object payload JSONB storage...");
 
         // Create a complex test object
         TestEvent testEvent = new TestEvent("ORDER-JSONB-001", "PENDING", 1500.00);
@@ -186,7 +186,7 @@ class JsonbConversionValidationTest {
     @Test
     @Order(3)
     void testHeadersStoredAsJsonb(VertxTestContext testContext) {
-        logger.info("🧪 Testing headers JSONB storage...");
+        logger.info(" Testing headers JSONB storage...");
 
         TestEvent testEvent = new TestEvent("ORDER-HEADERS-001", "PROCESSING", 750.0);
         String eventType = "test.headers.message";

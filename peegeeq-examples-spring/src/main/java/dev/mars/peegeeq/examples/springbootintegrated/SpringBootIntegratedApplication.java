@@ -105,8 +105,8 @@ import org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration;
  * <p>Customer places an order:</p>
  * <ul>
  *   <li>Order saved to database</li>
- *   <li>Event sent to outbox → triggers shipping workflow</li>
- *   <li>Event appended to event store → audit trail</li>
+ *   <li>Event sent to outbox  triggers shipping workflow</li>
+ *   <li>Event appended to event store  audit trail</li>
  *   <li>All in single transaction</li>
  * </ul>
  * 

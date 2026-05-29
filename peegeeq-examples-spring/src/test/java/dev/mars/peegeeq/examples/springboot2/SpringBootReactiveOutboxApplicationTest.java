@@ -109,11 +109,11 @@ class SpringBootReactiveOutboxApplicationTest {
         logger.info("Testing that the application context loads successfully with WebFlux and R2DBC");
         
         // If we reach this point, the context loaded successfully
-        logger.info("✓ Application context loaded successfully");
-        logger.info("✓ PeeGeeQ Manager initialized");
-        logger.info("✓ R2DBC connection factory configured");
-        logger.info("✓ WebFlux (Netty) server started");
-        logger.info("✓ All reactive beans created and wired");
+        logger.info(" Application context loaded successfully");
+        logger.info(" PeeGeeQ Manager initialized");
+        logger.info(" R2DBC connection factory configured");
+        logger.info(" WebFlux (Netty) server started");
+        logger.info(" All reactive beans created and wired");
         
         // Additional verification could be added here by autowiring beans
         // and checking their state, but the context loading itself is the
@@ -137,14 +137,14 @@ class SpringBootReactiveOutboxApplicationTest {
         logger.info("Testing application startup and shutdown lifecycle");
         
         // The application is already started by the test framework
-        logger.info("✓ Application started successfully");
+        logger.info(" Application started successfully");
         
         // Verify we can access basic application properties
         String activeProfile = System.getProperty("spring.profiles.active", "test");
         logger.info("Active profile: {}", activeProfile);
         
-        logger.info("✓ Application is running and responsive");
-        logger.info("✓ Shutdown will be tested by test framework cleanup");
+        logger.info(" Application is running and responsive");
+        logger.info(" Shutdown will be tested by test framework cleanup");
         
         logger.info("=== Test Completed Successfully ===");
     }
@@ -165,20 +165,20 @@ class SpringBootReactiveOutboxApplicationTest {
         
         // Verify TestContainer is running
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
-        logger.info("✓ PostgreSQL TestContainer is running");
+        logger.info(" PostgreSQL TestContainer is running");
         
         // Verify connection details
         assertNotNull(postgres.getHost(), "Database host should not be null");
         assertNotNull(postgres.getFirstMappedPort(), "Database port should not be null");
         assertNotNull(postgres.getDatabaseName(), "Database name should not be null");
-        logger.info("✓ Database connection details are valid");
+        logger.info(" Database connection details are valid");
         
         logger.info("Database URL: jdbc:postgresql://{}:{}/{}", 
             postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
         logger.info("R2DBC URL: r2dbc:postgresql://{}:{}/{}", 
             postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
         
-        logger.info("✓ Both PeeGeeQ (Vert.x) and R2DBC can connect to the database");
+        logger.info(" Both PeeGeeQ (Vert.x) and R2DBC can connect to the database");
         logger.info("=== Test Completed Successfully ===");
     }
     
@@ -197,11 +197,11 @@ class SpringBootReactiveOutboxApplicationTest {
         logger.info("Testing that reactive components are properly configured");
         
         // The fact that the context loaded means all reactive components are configured
-        logger.info("✓ WebFlux (Netty) server is configured");
-        logger.info("✓ R2DBC connection factory is configured");
-        logger.info("✓ Reactive repositories are available");
-        logger.info("✓ ReactiveOutboxAdapter is configured");
-        logger.info("✓ Project Reactor is integrated");
+        logger.info(" WebFlux (Netty) server is configured");
+        logger.info(" R2DBC connection factory is configured");
+        logger.info(" Reactive repositories are available");
+        logger.info(" ReactiveOutboxAdapter is configured");
+        logger.info(" Project Reactor is integrated");
         
         logger.info("=== Test Completed Successfully ===");
     }

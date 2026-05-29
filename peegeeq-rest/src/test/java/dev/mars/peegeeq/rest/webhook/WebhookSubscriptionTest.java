@@ -78,57 +78,57 @@ class WebhookSubscriptionTest {
         logger.info("        Expected: '{}'", subscriptionId);
         logger.info("        Actual  : '{}'", subscription.getSubscriptionId());
         assertEquals(subscriptionId, subscription.getSubscriptionId());
-        logger.info("        ✓ MATCH");
+        logger.info("         MATCH");
         
         logger.info("  [4.2] setupId");
         logger.info("        Expected: '{}'", setupId);
         logger.info("        Actual  : '{}'", subscription.getSetupId());
         assertEquals(setupId, subscription.getSetupId());
-        logger.info("        ✓ MATCH");
+        logger.info("         MATCH");
         
         logger.info("  [4.3] queueName");
         logger.info("        Expected: '{}'", queueName);
         logger.info("        Actual  : '{}'", subscription.getQueueName());
         assertEquals(queueName, subscription.getQueueName());
-        logger.info("        ✓ MATCH");
+        logger.info("         MATCH");
         
         logger.info("  [4.4] webhookUrl");
         logger.info("        Expected: '{}'", webhookUrl);
         logger.info("        Actual  : '{}'", subscription.getWebhookUrl());
         assertEquals(webhookUrl, subscription.getWebhookUrl());
-        logger.info("        ✓ MATCH");
+        logger.info("         MATCH");
         
         logger.info("  [4.5] headers");
         logger.info("        Expected: {} (size: {})", headers, headers.size());
         logger.info("        Actual  : {} (size: {})", subscription.getHeaders(), subscription.getHeaders().size());
         assertEquals(headers, subscription.getHeaders());
-        logger.info("        ✓ MATCH");
+        logger.info("         MATCH");
         
         logger.info("  [4.6] filters");
         logger.info("        Expected: {} (size: {})", filters, filters.size());
         logger.info("        Actual  : {} (size: {})", subscription.getFilters(), subscription.getFilters().size());
         assertEquals(filters, subscription.getFilters());
-        logger.info("        ✓ MATCH");
+        logger.info("         MATCH");
         
         logger.info("  [4.7] status (default value check)");
         logger.info("        Expected: {}", WebhookSubscriptionStatus.ACTIVE);
         logger.info("        Actual  : {}", subscription.getStatus());
         assertEquals(WebhookSubscriptionStatus.ACTIVE, subscription.getStatus());
-        logger.info("        ✓ MATCH (default status is ACTIVE)");
+        logger.info("         MATCH (default status is ACTIVE)");
         
         logger.info("  [4.8] consecutiveFailures (default value check)");
         logger.info("        Expected: 0");
         logger.info("        Actual  : {}", subscription.getConsecutiveFailures());
         assertEquals(0, subscription.getConsecutiveFailures());
-        logger.info("        ✓ MATCH (default failures is 0)");
+        logger.info("         MATCH (default failures is 0)");
         
         logger.info("  [4.9] createdAt (non-null check)");
         logger.info("        Actual  : {}", subscription.getCreatedAt());
         assertNotNull(subscription.getCreatedAt());
-        logger.info("        ✓ NOT NULL (timestamp was set)");
+        logger.info("         NOT NULL (timestamp was set)");
         
         logger.info("\n" + "=".repeat(80));
-        logger.info("✓✓✓ TEST PASSED: testCreateSubscription - All {} assertions passed!", 9);
+        logger.info(" TEST PASSED: testCreateSubscription - All {} assertions passed!", 9);
         logger.info("=".repeat(80) + "\n");
     }
     
@@ -151,7 +151,7 @@ class WebhookSubscriptionTest {
         logger.info("  Expected: 0 (fresh subscription should have no failures)");
         logger.info("  Actual  : {}", initialFailures);
         assertEquals(0, initialFailures);
-        logger.info("  ✓ Initial failure count is correct");
+        logger.info("   Initial failure count is correct");
         
         logger.info("\n[STEP 3] Simulating webhook delivery failures");
         
@@ -160,21 +160,21 @@ class WebhookSubscriptionTest {
         subscription.incrementConsecutiveFailures();
         logger.info("        After : consecutiveFailures = {}", subscription.getConsecutiveFailures());
         assertEquals(1, subscription.getConsecutiveFailures());
-        logger.info("        ✓ Failure count incremented correctly (0 → 1)");
+        logger.info("         Failure count incremented correctly (0  1)");
         
         logger.info("  [3.2] Second delivery failure - incrementing again...");
         logger.info("        Before: consecutiveFailures = {}", subscription.getConsecutiveFailures());
         subscription.incrementConsecutiveFailures();
         logger.info("        After : consecutiveFailures = {}", subscription.getConsecutiveFailures());
         assertEquals(2, subscription.getConsecutiveFailures());
-        logger.info("        ✓ Failure count incremented correctly (1 → 2)");
+        logger.info("         Failure count incremented correctly (1  2)");
         
         logger.info("  [3.3] Third delivery failure - incrementing once more...");
         logger.info("        Before: consecutiveFailures = {}", subscription.getConsecutiveFailures());
         subscription.incrementConsecutiveFailures();
         logger.info("        After : consecutiveFailures = {}", subscription.getConsecutiveFailures());
         assertEquals(3, subscription.getConsecutiveFailures());
-        logger.info("        ✓ Failure count incremented correctly (2 → 3)");
+        logger.info("         Failure count incremented correctly (2  3)");
         logger.info("        NOTE: Circuit breaker threshold is 5 failures, currently at 3");
         
         logger.info("\n[STEP 4] Simulating successful delivery - resetting failures");
@@ -182,7 +182,7 @@ class WebhookSubscriptionTest {
         subscription.resetConsecutiveFailures();
         logger.info("  After reset : consecutiveFailures = {}", subscription.getConsecutiveFailures());
         assertEquals(0, subscription.getConsecutiveFailures());
-        logger.info("  ✓ Failure count reset correctly (3 → 0)");
+        logger.info("   Failure count reset correctly (3  0)");
         logger.info("  Circuit breaker is now reset, subscription can receive messages again");
         
         logger.info("\n[STEP 5] Verify idempotency - resetting again when already at 0");
@@ -190,10 +190,10 @@ class WebhookSubscriptionTest {
         subscription.resetConsecutiveFailures();
         logger.info("  After reset : consecutiveFailures = {}", subscription.getConsecutiveFailures());
         assertEquals(0, subscription.getConsecutiveFailures());
-        logger.info("  ✓ Reset is idempotent (0 → 0)");
+        logger.info("   Reset is idempotent (0  0)");
         
         logger.info("\n" + "=".repeat(80));
-        logger.info("✓✓✓ TEST PASSED: testFailureTracking - All {} assertions passed!", 6);
+        logger.info(" TEST PASSED: testFailureTracking - All {} assertions passed!", 6);
         logger.info("    Tested: initial state, 3 increments, reset, idempotency");
         logger.info("=".repeat(80) + "\n");
     }
@@ -202,7 +202,7 @@ class WebhookSubscriptionTest {
     void testStatusChanges() {
         logger.info("\n" + "=".repeat(80));
         logger.info("TEST: testStatusChanges");
-        logger.info("PURPOSE: Verify subscription status can transition between states (ACTIVE→PAUSED→FAILED→DELETED)");
+        logger.info("PURPOSE: Verify subscription status can transition between states (ACTIVEPAUSEDFAILEDDELETED)");
         logger.info("=".repeat(80));
         
         logger.info("\n[STEP 1] Creating test subscription...");
@@ -216,46 +216,46 @@ class WebhookSubscriptionTest {
         logger.info("  Expected: {}", WebhookSubscriptionStatus.ACTIVE);
         logger.info("  Actual  : {}", initialStatus);
         assertEquals(WebhookSubscriptionStatus.ACTIVE, initialStatus);
-        logger.info("  ✓ Default status is ACTIVE (ready to receive messages)");
+        logger.info("   Default status is ACTIVE (ready to receive messages)");
         
-        logger.info("\n[STEP 3] Transition: ACTIVE → PAUSED");
+        logger.info("\n[STEP 3] Transition: ACTIVE  PAUSED");
         logger.info("  Scenario: Admin temporarily pauses webhook delivery");
         logger.info("  Before: status = {}", subscription.getStatus());
         subscription.setStatus(WebhookSubscriptionStatus.PAUSED);
         logger.info("  After : status = {}", subscription.getStatus());
         assertEquals(WebhookSubscriptionStatus.PAUSED, subscription.getStatus());
-        logger.info("  ✓ Status changed to PAUSED (messages will queue but not deliver)");
+        logger.info("   Status changed to PAUSED (messages will queue but not deliver)");
         
-        logger.info("\n[STEP 4] Transition: PAUSED → ACTIVE (resume)");
+        logger.info("\n[STEP 4] Transition: PAUSED  ACTIVE (resume)");
         logger.info("  Scenario: Admin resumes webhook delivery");
         logger.info("  Before: status = {}", subscription.getStatus());
         subscription.setStatus(WebhookSubscriptionStatus.ACTIVE);
         logger.info("  After : status = {}", subscription.getStatus());
         assertEquals(WebhookSubscriptionStatus.ACTIVE, subscription.getStatus());
-        logger.info("  ✓ Status changed to ACTIVE (messages will deliver again)");
+        logger.info("   Status changed to ACTIVE (messages will deliver again)");
         
-        logger.info("\n[STEP 5] Transition: ACTIVE → FAILED");
+        logger.info("\n[STEP 5] Transition: ACTIVE  FAILED");
         logger.info("  Scenario: Circuit breaker triggered after 5 consecutive failures");
         logger.info("  Before: status = {}", subscription.getStatus());
         subscription.setStatus(WebhookSubscriptionStatus.FAILED);
         logger.info("  After : status = {}", subscription.getStatus());
         assertEquals(WebhookSubscriptionStatus.FAILED, subscription.getStatus());
-        logger.info("  ✓ Status changed to FAILED (automatic circuit breaker)");
+        logger.info("   Status changed to FAILED (automatic circuit breaker)");
         
-        logger.info("\n[STEP 6] Transition: FAILED → DELETED");
+        logger.info("\n[STEP 6] Transition: FAILED  DELETED");
         logger.info("  Scenario: Client deletes the failed subscription");
         logger.info("  Before: status = {}", subscription.getStatus());
         subscription.setStatus(WebhookSubscriptionStatus.DELETED);
         logger.info("  After : status = {}", subscription.getStatus());
         assertEquals(WebhookSubscriptionStatus.DELETED, subscription.getStatus());
-        logger.info("  ✓ Status changed to DELETED (subscription marked for cleanup)");
+        logger.info("   Status changed to DELETED (subscription marked for cleanup)");
         
         logger.info("\n[STEP 7] State transition summary:");
-        logger.info("  ACTIVE → PAUSED → ACTIVE → FAILED → DELETED");
+        logger.info("  ACTIVE  PAUSED  ACTIVE  FAILED  DELETED");
         logger.info("  All status transitions completed successfully");
         
         logger.info("\n" + "=".repeat(80));
-        logger.info("✓✓✓ TEST PASSED: testStatusChanges - All {} assertions passed!", 5);
+        logger.info(" TEST PASSED: testStatusChanges - All {} assertions passed!", 5);
         logger.info("    Tested all 4 status values and 5 transitions");
         logger.info("=".repeat(80) + "\n");
     }
@@ -300,7 +300,7 @@ class WebhookSubscriptionTest {
         boolean equalsResult = sub1.equals(sub2);
         logger.info("  Actual  : {}", equalsResult);
         assertEquals(sub1, sub2);
-        logger.info("  ✓ Equality test passed: subscriptions with same ID are equal");
+        logger.info("   Equality test passed: subscriptions with same ID are equal");
         
         logger.info("\n[STEP 3] Testing hashCode contract: sub1.hashCode() == sub2.hashCode()");
         logger.info("  Rule: If two objects are equal, they MUST have same hashCode");
@@ -310,14 +310,14 @@ class WebhookSubscriptionTest {
         logger.info("  sub2.hashCode(): {}", hash2);
         logger.info("  Match: {}", hash1 == hash2);
         assertEquals(hash1, hash2);
-        logger.info("  ✓ HashCode contract satisfied: equal objects have same hashCode");
+        logger.info("   HashCode contract satisfied: equal objects have same hashCode");
         
         logger.info("\n[STEP 4] Testing inequality: sub1.equals(sub3)");
         logger.info("  Expected: false (different subscriptionId)");
         boolean notEqualsResult = sub1.equals(sub3);
         logger.info("  Actual  : {}", notEqualsResult);
         assertNotEquals(sub1, sub3);
-        logger.info("  ✓ Inequality test passed: subscriptions with different IDs are not equal");
+        logger.info("   Inequality test passed: subscriptions with different IDs are not equal");
         
         logger.info("\n[STEP 5] Testing hashCode uniqueness: sub1.hashCode() != sub3.hashCode()");
         logger.info("  Note: Different objects SHOULD have different hashCodes (but not required)");
@@ -326,24 +326,24 @@ class WebhookSubscriptionTest {
         logger.info("  sub3.hashCode(): {}", hash3);
         logger.info("  Different: {}", hash1 != hash3);
         assertNotEquals(hash1, hash3);
-        logger.info("  ✓ HashCodes are different (good distribution)");
+        logger.info("   HashCodes are different (good distribution)");
         
         logger.info("\n[STEP 6] Additional contract tests");
         
         logger.info("  [6.1] Reflexivity: sub1.equals(sub1)");
         assertTrue(sub1.equals(sub1));
-        logger.info("        ✓ An object equals itself");
+        logger.info("         An object equals itself");
         
         logger.info("  [6.2] Symmetry: if sub1.equals(sub2), then sub2.equals(sub1)");
         assertTrue(sub1.equals(sub2) && sub2.equals(sub1));
-        logger.info("        ✓ Equality is symmetric");
+        logger.info("         Equality is symmetric");
         
         logger.info("  [6.3] Null comparison: sub1.equals(null)");
         assertFalse(sub1.equals(null));
-        logger.info("        ✓ Object is not equal to null");
+        logger.info("         Object is not equal to null");
         
         logger.info("\n" + "=".repeat(80));
-        logger.info("✓✓✓ TEST PASSED: testEqualsAndHashCode - All {} assertions passed!", 9);
+        logger.info(" TEST PASSED: testEqualsAndHashCode - All {} assertions passed!", 9);
         logger.info("    Verified: equality, hashCode contract, reflexivity, symmetry, null-safety");
         logger.info("=".repeat(80) + "\n");
     }
@@ -364,9 +364,9 @@ class WebhookSubscriptionTest {
             });
             logger.info("  Actual  : NullPointerException thrown");
             logger.info("  Message : '{}'", ex.getMessage());
-            logger.info("  ✓ Constructor properly validates subscriptionId is not null");
+            logger.info("   Constructor properly validates subscriptionId is not null");
         } catch (AssertionError e) {
-            logger.error("  ✗ FAILED: Constructor did not throw NullPointerException");
+            logger.error("   FAILED: Constructor did not throw NullPointerException");
             throw e;
         }
         
@@ -379,9 +379,9 @@ class WebhookSubscriptionTest {
             });
             logger.info("  Actual  : NullPointerException thrown");
             logger.info("  Message : '{}'", ex.getMessage());
-            logger.info("  ✓ Constructor properly validates setupId is not null");
+            logger.info("   Constructor properly validates setupId is not null");
         } catch (AssertionError e) {
-            logger.error("  ✗ FAILED: Constructor did not throw NullPointerException");
+            logger.error("   FAILED: Constructor did not throw NullPointerException");
             throw e;
         }
         
@@ -394,9 +394,9 @@ class WebhookSubscriptionTest {
             });
             logger.info("  Actual  : NullPointerException thrown");
             logger.info("  Message : '{}'", ex.getMessage());
-            logger.info("  ✓ Constructor properly validates queueName is not null");
+            logger.info("   Constructor properly validates queueName is not null");
         } catch (AssertionError e) {
-            logger.error("  ✗ FAILED: Constructor did not throw NullPointerException");
+            logger.error("   FAILED: Constructor did not throw NullPointerException");
             throw e;
         }
         
@@ -409,9 +409,9 @@ class WebhookSubscriptionTest {
             });
             logger.info("  Actual  : NullPointerException thrown");
             logger.info("  Message : '{}'", ex.getMessage());
-            logger.info("  ✓ Constructor properly validates webhookUrl is not null");
+            logger.info("   Constructor properly validates webhookUrl is not null");
         } catch (AssertionError e) {
-            logger.error("  ✗ FAILED: Constructor did not throw NullPointerException");
+            logger.error("   FAILED: Constructor did not throw NullPointerException");
             throw e;
         }
         
@@ -422,7 +422,7 @@ class WebhookSubscriptionTest {
             WebhookSubscription subscription = new WebhookSubscription(
                 "sub", "setup", "queue", "url", null, null);
             logger.info("  Actual  : Subscription created: {}", subscription);
-            logger.info("  ✓ Optional parameters (headers, filters) can be null");
+            logger.info("   Optional parameters (headers, filters) can be null");
         } catch (Exception e) {
             logger.info("  Note: Constructor may require non-null maps, which is also acceptable design");
             logger.info("  Exception: {}", e.getMessage());
@@ -430,14 +430,14 @@ class WebhookSubscriptionTest {
         
         logger.info("\n[STEP 6] Validation summary");
         logger.info("  Required fields validated:");
-        logger.info("    1. subscriptionId - ✓ Must not be null");
-        logger.info("    2. setupId        - ✓ Must not be null");
-        logger.info("    3. queueName      - ✓ Must not be null");
-        logger.info("    4. webhookUrl     - ✓ Must not be null");
+        logger.info("    1. subscriptionId -  Must not be null");
+        logger.info("    2. setupId        -  Must not be null");
+        logger.info("    3. queueName      -  Must not be null");
+        logger.info("    4. webhookUrl     -  Must not be null");
         logger.info("  This prevents invalid webhook subscriptions from being created");
         
         logger.info("\n" + "=".repeat(80));
-        logger.info("✓✓✓ TEST PASSED: testRequiredFieldsNotNull - All {} assertions passed!", 4);
+        logger.info(" TEST PASSED: testRequiredFieldsNotNull - All {} assertions passed!", 4);
         logger.info("    Verified fail-fast validation for all required constructor parameters");
         logger.info("=".repeat(80) + "\n");
     }

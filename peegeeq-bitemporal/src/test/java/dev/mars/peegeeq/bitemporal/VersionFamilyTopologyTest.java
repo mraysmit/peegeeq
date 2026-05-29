@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * work correctly with the enforced chain correction model.
  *
  * <p><b>Chain model:</b> each correction's {@code previous_version_id} always
- * points to the current latest version in the family (A→B→C→D). The system
+ * points to the current latest version in the family (ABCD). The system
  * enforces this regardless of which event ID the caller passes to
  * {@code appendCorrection}. Star and tree topologies are no longer possible
  * in production.</p>
@@ -199,14 +199,14 @@ class VersionFamilyTopologyTest {
         return promise.future();
     }
 
-    // ==================== Chain Topology: A → B → C ====================
+    // ==================== Chain Topology: A  B  C ====================
 
     @Test
-    @DisplayName("Chain: getAllVersions from root returns full chain A→B→C")
+    @DisplayName("Chain: getAllVersions from root returns full chain ABC")
     void chainTopologyGetAllVersionsFromRoot(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // A → B → C (each correction points to the previous, not root)
+        // A  B  C (each correction points to the previous, not root)
         eventStore.appendBuilder()
                 .eventType("ChainTest").payload(new TopologyEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> eventStore.appendCorrection(a.getEventId(), "ChainTest",
@@ -232,7 +232,7 @@ class VersionFamilyTopologyTest {
     }
 
     @Test
-    @DisplayName("Chain: getAllVersions from middle node B returns full chain A→B→C")
+    @DisplayName("Chain: getAllVersions from middle node B returns full chain ABC")
     void chainTopologyGetAllVersionsFromMiddle(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
@@ -263,7 +263,7 @@ class VersionFamilyTopologyTest {
     }
 
     @Test
-    @DisplayName("Chain: getAllVersions from leaf node C returns full chain A→B→C")
+    @DisplayName("Chain: getAllVersions from leaf node C returns full chain ABC")
     void chainTopologyGetAllVersionsFromLeaf(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
@@ -293,10 +293,10 @@ class VersionFamilyTopologyTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ==================== Deep Chain: A → B → C → D ====================
+    // ==================== Deep Chain: A  B  C  D ====================
 
     @Test
-    @DisplayName("Deep chain: 4-level chain A→B→C→D getAllVersions from any node returns all 4")
+    @DisplayName("Deep chain: 4-level chain ABCD getAllVersions from any node returns all 4")
     void deepChainGetAllVersionsFromLeaf(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
@@ -342,14 +342,14 @@ class VersionFamilyTopologyTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ==================== Chain Model: A → B → C → D (enforced) ====================
+    // ==================== Chain Model: A  B  C  D (enforced) ====================
 
     @Test
     @DisplayName("Chain: getAllVersions from any node returns all members")
     void chainModelGetAllVersionsFromAnyNode(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Chain model enforced: A(v1) → B(v2) → C(v3) → D(v4)
+        // Chain model enforced: A(v1)  B(v2)  C(v3)  D(v4)
         // Regardless of which event ID the caller passes to appendCorrection,
         // the system resolves the latest version as the predecessor.
         eventStore.appendBuilder()
@@ -391,7 +391,7 @@ class VersionFamilyTopologyTest {
     void chainTopologyGetAllVersionsFromSiblingBranch(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Chain model enforced: A(v1) → B(v2) → C(v3) → D(v4)
+        // Chain model enforced: A(v1)  B(v2)  C(v3)  D(v4)
         eventStore.appendBuilder()
                 .eventType("TreeSibling").payload(new TopologyEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> eventStore.appendCorrection(a.getEventId(), "TreeSibling",

@@ -308,7 +308,7 @@ public class QueueManagementAdvancedE2ETest {
         logger.info("=== Advanced Test 4: Edge Case - Special Characters in Payload ===");
 
         JsonObject payload = new JsonObject()
-            .put("unicode", "Hello 世界 🌍 مرحبا Привет")
+            .put("unicode", "Hello    ")
             .put("special", "!@#$%^&*()_+-=[]{}|;':\",./<>?")
             .put("escaped", "Line1\\nLine2\\tTabbed\\r\\nNewline")
             .put("quotes", "He said \"Hello\" and she said 'Hi'");

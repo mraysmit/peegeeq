@@ -232,7 +232,7 @@ public class BatchOperationsWithPropagationExampleTest {
         boolean sharedTransactionContext = true;
         
         // Simulate simple batch processing with shared transaction context
-        logger.info("📦 Testing simple batch processing...");
+        logger.info(" Testing simple batch processing...");
         List<OrderEvent> batchOrders = IntStream.range(1, batchSize + 1)
             .mapToObj(i -> new OrderEvent(
                 "simple-batch-" + i,
@@ -247,7 +247,7 @@ public class BatchOperationsWithPropagationExampleTest {
             processedItems++;
         }
         
-        logger.info("✓ Simple batch processing pattern tested");
+        logger.info(" Simple batch processing pattern tested");
         
         return new SimpleBatchResult(batchSize, processedItems, sharedTransactionContext);
     }
@@ -263,7 +263,7 @@ public class BatchOperationsWithPropagationExampleTest {
         boolean multiStageSuccessful = true;
         
         // Simulate multi-stage batch operations with validation
-        logger.info("🔄 Testing multi-stage batch operations...");
+        logger.info(" Testing multi-stage batch operations...");
         
         // Stage 1: Validation
         logger.debug("Stage 1: Batch validation");
@@ -277,7 +277,7 @@ public class BatchOperationsWithPropagationExampleTest {
         logger.debug("Stage 3: Batch completion");
         validationsPassed++;
         
-        logger.info("✓ Multi-stage batch operations pattern tested");
+        logger.info(" Multi-stage batch operations pattern tested");
         
         return new MultiStageResult(stages, validationsPassed, multiStageSuccessful);
     }
@@ -293,7 +293,7 @@ public class BatchOperationsWithPropagationExampleTest {
         boolean nestedOperationsSuccessful = true;
         
         // Simulate nested batch operations with different propagation strategies
-        logger.info("🔗 Testing nested batch operations...");
+        logger.info(" Testing nested batch operations...");
         
         // Level 1: CONTEXT propagation
         logger.debug("Level 1: TransactionPropagation.CONTEXT");
@@ -303,7 +303,7 @@ public class BatchOperationsWithPropagationExampleTest {
         logger.debug("Level 2: TransactionPropagation.NONE");
         propagationStrategies++;
         
-        logger.info("✓ Nested batch operations pattern tested");
+        logger.info(" Nested batch operations pattern tested");
         
         return new NestedBatchResult(nestedLevels, propagationStrategies, nestedOperationsSuccessful);
     }
@@ -320,7 +320,7 @@ public class BatchOperationsWithPropagationExampleTest {
         boolean chunkingSuccessful = true;
         
         // Simulate large batch processing with chunking
-        logger.info("📊 Testing large batch processing with chunking...");
+        logger.info(" Testing large batch processing with chunking...");
         
         for (int chunk = 0; chunk < chunks; chunk++) {
             int startIdx = chunk * chunkSize;
@@ -328,7 +328,7 @@ public class BatchOperationsWithPropagationExampleTest {
             logger.debug("Processing chunk {} ({} to {})", chunk + 1, startIdx, endIdx - 1);
         }
         
-        logger.info("✓ Large batch processing pattern tested");
+        logger.info(" Large batch processing pattern tested");
         
         return new LargeBatchResult(totalItems, chunks, chunkingSuccessful);
     }
@@ -344,7 +344,7 @@ public class BatchOperationsWithPropagationExampleTest {
         boolean errorHandlingSuccessful = true;
         
         // Simulate batch error handling and partial completion
-        logger.info("⚠️ Testing batch error handling...");
+        logger.info(" Testing batch error handling...");
         
         // Simulate some errors
         logger.debug("Handling batch error 1");
@@ -354,7 +354,7 @@ public class BatchOperationsWithPropagationExampleTest {
         logger.debug("Partial completion scenario");
         partialCompletions++;
         
-        logger.info("✓ Batch error handling pattern tested");
+        logger.info(" Batch error handling pattern tested");
         
         return new BatchErrorResult(errorsHandled, partialCompletions, errorHandlingSuccessful);
     }
@@ -371,7 +371,7 @@ public class BatchOperationsWithPropagationExampleTest {
         boolean optimizationSuccessful = true;
         
         // Simulate performance optimization techniques
-        logger.info("⚡ Testing performance optimization...");
+        logger.info(" Testing performance optimization...");
         
         // Technique 1: Batch size optimization
         logger.debug("Optimization technique 1: Batch size optimization");
@@ -388,7 +388,7 @@ public class BatchOperationsWithPropagationExampleTest {
         long processingTime = System.currentTimeMillis() - startTime;
         double throughputImprovement = Math.max(10.0, processingTime * 0.1); // Simulate improvement
         
-        logger.info("✓ Performance optimization pattern tested");
+        logger.info(" Performance optimization pattern tested");
         
         return new PerformanceOptimizationResult(optimizationTechniques, throughputImprovement, optimizationSuccessful);
     }

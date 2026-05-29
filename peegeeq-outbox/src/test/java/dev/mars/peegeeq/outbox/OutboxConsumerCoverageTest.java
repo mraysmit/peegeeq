@@ -103,8 +103,8 @@ class OutboxConsumerCoverageTest {
     void testHandlerReturnsNull(VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         // Verify the null-return error path by confirming the message is retried:
-        // null return → IllegalStateException → incrementRetryAndReset → status reset to PENDING
-        // → message re-delivered on next poll. Two handler invocations prove the retry cycle.
+        // null return  IllegalStateException  incrementRetryAndReset  status reset to PENDING
+        //  message re-delivered on next poll. Two handler invocations prove the retry cycle.
         AtomicInteger invocationCount = new AtomicInteger(0);
         Checkpoint retried = testContext.checkpoint();
 
@@ -124,8 +124,8 @@ class OutboxConsumerCoverageTest {
     void testHandlerThrowsDirectException(VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
         // Verify the thrown-exception error path by confirming the message is retried:
-        // thrown exception → Future.failedFuture(e) → incrementRetryAndReset → status reset to PENDING
-        // → message re-delivered on next poll. Two handler invocations prove the retry cycle.
+        // thrown exception  Future.failedFuture(e)  incrementRetryAndReset  status reset to PENDING
+        //  message re-delivered on next poll. Two handler invocations prove the retry cycle.
         AtomicInteger invocationCount = new AtomicInteger(0);
         Checkpoint retried = testContext.checkpoint();
 
@@ -203,7 +203,7 @@ class OutboxConsumerCoverageTest {
           .onFailure(testContext::failNow);
 
         // awaitCompletion blocks until the checkpoint fires (message processed) or timeout.
-        // close() is synchronous/void — safe to call in finally once all async work is settled.
+        // close() is synchronous/void  safe to call in finally once all async work is settled.
         try {
             assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
             assertEquals("test", received.get().getName());

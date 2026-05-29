@@ -47,8 +47,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *       correct setup database and its response serialisation.</li>
  *   <li><b>End-to-end retry exhaustion</b> a message published to an outbox
  *       queue whose webhook always returns 5xx must exhaust its retry budget
- *       (maxRetries=0 → single attempt) and then appear in the DLQ. This
- *       tests the full retry → DLQ promotion pipeline.</li>
+ *       (maxRetries=0  single attempt) and then appear in the DLQ. This
+ *       tests the full retry  DLQ promotion pipeline.</li>
  * </ol>
  */
 @ExtendWith(VertxExtension.class)
@@ -158,7 +158,7 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
     }
 
     // -------------------------------------------------------------------------
-    // Test 2 End-to-end retry exhaustion → DLQ promotion
+    // Test 2 End-to-end retry exhaustion  DLQ promotion
     // -------------------------------------------------------------------------
 
     /**
@@ -166,8 +166,8 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
      * its retry budget and is promoted to the dead letter queue.
      *
      * <h3>What is being tested</h3>
-     * The full pipeline: publish → delivery attempt → webhook returns 500 →
-     * retry_count(0) >= maxRetries(0) → moved to {@code dead_letter_queue}.
+     * The full pipeline: publish  delivery attempt  webhook returns 500 
+     * retry_count(0) >= maxRetries(0)  moved to {@code dead_letter_queue}.
      *
      * <h3>Prerequisites</h3>
      * This test requires the webhook subscription mechanism to be operational.
@@ -178,7 +178,7 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
      *
      * <h3>Test flow</h3>
      * <ol>
-     *   <li>Create a setup with {@code maxRetries=0} (first failure → DLQ immediately).</li>
+     *   <li>Create a setup with {@code maxRetries=0} (first failure  DLQ immediately).</li>
      *   <li>Register a webhook server that always returns HTTP 500.</li>
      *   <li>Publish a message via the REST API with a unique {@code correlationId}.</li>
      *   <li>Poll the DLQ REST API at 500ms intervals until the message appears there,

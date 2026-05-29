@@ -485,7 +485,7 @@ class EventSourcingCQRSDemoTest {
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up Event Sourcing & CQRS Demo Test");
 
-        // POLL INTERVAL — why this must be set explicitly
+        // POLL INTERVAL  why this must be set explicitly
         //
         // OutboxConsumer polls the outbox table on a periodic Vert.x timer.  The default
         // poll interval from PeeGeeQConfiguration is 5 seconds, which is appropriate for
@@ -564,7 +564,7 @@ class EventSourcingCQRSDemoTest {
      * 3. Event replay to reconstruct aggregate state
      * 4. Proper event versioning and ordering
      *
-     * ⚠️ IMPORTANT: This test includes several workarounds for demo purposes that would NOT
+     *  IMPORTANT: This test includes several workarounds for demo purposes that would NOT
      * be used in production systems:
      *
      * - Thread.sleep() calls to ensure command ordering (production would use proper ordering mechanisms)
@@ -586,12 +586,12 @@ class EventSourcingCQRSDemoTest {
         String eventQueue = "eventsourcing-events-queue-" + System.currentTimeMillis();
 
         // In-memory event store and aggregate cache for demo purposes
-        // 🚨 PRODUCTION NOTE: These would be replaced with proper persistence layers
+        //  PRODUCTION NOTE: These would be replaced with proper persistence layers
         Map<String, List<DomainEvent>> eventStore = new HashMap<>();
         Map<String, BankAccountAggregate> aggregates = new HashMap<>();
 
         // Counters and checkpoints for test coordination
-        // 🚨 TEST-ONLY: These are test-specific constructs for synchronization
+        //  TEST-ONLY: These are test-specific constructs for synchronization
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsStored = new AtomicInteger(0);
         Checkpoint commandCheckpoint = testContext.checkpoint(5);  // Expecting 5 commands
@@ -613,7 +613,7 @@ class EventSourcingCQRSDemoTest {
             try {
                 BankAccountAggregate aggregate;
 
-                // 🚨 WORKAROUND: Handle OpenAccount command specially to avoid race conditions
+                //  WORKAROUND: Handle OpenAccount command specially to avoid race conditions
                 // PRODUCTION NOTE: In real systems, this would be handled by proper aggregate repositories
                 // and command ordering mechanisms, not manual checks like this
                 if ("OpenAccount".equals(command.getCommandType())) {
@@ -632,7 +632,7 @@ class EventSourcingCQRSDemoTest {
                     aggregate.openAccount(command.getCommandId(), initialDeposit);
                 } else {
                     // For other commands, get existing aggregate
-                    // 🚨 PRODUCTION NOTE: Real systems would load aggregates from event store
+                    //  PRODUCTION NOTE: Real systems would load aggregates from event store
                     // by replaying all events for the aggregate, not from an in-memory cache
                     aggregate = aggregates.get(command.getAggregateId());
                     if (aggregate == null) {
@@ -664,7 +664,7 @@ class EventSourcingCQRSDemoTest {
                 }
 
                 // Mark events as committed (they've been published)
-                // 🚨 PRODUCTION NOTE: In real systems, this would be part of a transaction
+                //  PRODUCTION NOTE: In real systems, this would be part of a transaction
                 // ensuring events are both stored and published atomically
                 aggregate.markEventsAsCommitted();
 
@@ -672,11 +672,11 @@ class EventSourcingCQRSDemoTest {
 
             } catch (Exception e) {
                 logger.warn("Error processing command {}: {}", command.commandId, e.getMessage());
-                // 🚨 PRODUCTION NOTE: Real systems would have proper error handling,
+                //  PRODUCTION NOTE: Real systems would have proper error handling,
                 // dead letter queues, and retry mechanisms
             }
 
-            // 🚨 TEST-ONLY: Flag checkpoint for test synchronization
+            //  TEST-ONLY: Flag checkpoint for test synchronization
             commandCheckpoint.flag();
             return Future.succeededFuture();
         });
@@ -689,7 +689,7 @@ class EventSourcingCQRSDemoTest {
             logger.info("Storing event: {} v{} for aggregate: {}", event.eventType.eventName, event.version, event.aggregateId);
 
             // Store event in event store
-            // 🚨 PRODUCTION NOTE: Real event stores would:
+            //  PRODUCTION NOTE: Real event stores would:
             // - Ensure atomic writes with proper transactions
             // - Handle concurrency with optimistic locking
             // - Provide efficient querying by aggregate ID
@@ -697,7 +697,7 @@ class EventSourcingCQRSDemoTest {
             eventStore.computeIfAbsent(event.aggregateId, k -> new ArrayList<>()).add(event);
 
             eventsStored.incrementAndGet();
-            // 🚨 TEST-ONLY: Flag checkpoint for test synchronization
+            //  TEST-ONLY: Flag checkpoint for test synchronization
             eventCheckpoint.flag();
             return Future.succeededFuture();
         });
@@ -737,11 +737,11 @@ class EventSourcingCQRSDemoTest {
         freezeAccountData.put("reason", "Suspicious activity detected");
         Command freezeAccount = new Command("cmd-005", "FreezeAccount", accountId, freezeAccountData, "admin-001");
 
-        // COMMAND ORDERING — why a composed timer chain is required
+        // COMMAND ORDERING  why a composed timer chain is required
         //
         // The outbox pattern inserts messages into a database table; the consumer picks
         // them up on a periodic poll.  commandProducer.send() only guarantees that the
-        // row exists in the table — it makes no guarantee about when the consumer will
+        // row exists in the table  it makes no guarantee about when the consumer will
         // read it.
         //
         // If all five commands are inserted back-to-back (within milliseconds of each
@@ -750,21 +750,21 @@ class EventSourcingCQRSDemoTest {
         // guaranteed.  In practice, FreezeAccount has been observed before Deposit or
         // Withdraw, causing the aggregate to reject those commands with
         // "Cannot deposit/withdraw from frozen account" and leaving two event checkpoints
-        // permanently unflagged → the 30-second awaitCompletion() times out.
+        // permanently unflagged  the 30-second awaitCompletion() times out.
         //
         // THE STRATEGY
         // setUp sets peegeeq.queue.polling-interval=PT0.5S (500 ms).  Each send below
         // is delayed by 700 ms (200 ms margin over one poll cycle).  Because the timer
-        // chain is composed — each vertx.timer() starts only after the previous send
-        // Future completes — the timeline is:
+        // chain is composed  each vertx.timer() starts only after the previous send
+        // Future completes  the timeline is:
         //
-        //   t =    0 ms  openAccount inserted → immediate poll, processes it alone
-        //   t =  700 ms  deposit1    inserted → poll at t≈1000 ms, processes it alone
-        //   t = 1400 ms  withdraw1   inserted → poll at t≈1500 ms, processes it alone
-        //   t = 2100 ms  deposit2    inserted → poll at t≈2500 ms, processes it alone
-        //   t = 2800 ms  freezeAccount inserted → poll at t≈3000 ms, processes it alone
+        //   t =    0 ms  openAccount inserted  immediate poll, processes it alone
+        //   t =  700 ms  deposit1    inserted  poll at t1000 ms, processes it alone
+        //   t = 1400 ms  withdraw1   inserted  poll at t1500 ms, processes it alone
+        //   t = 2100 ms  deposit2    inserted  poll at t2500 ms, processes it alone
+        //   t = 2800 ms  freezeAccount inserted  poll at t3000 ms, processes it alone
         //
-        // Both checkpoints (5 commands, 5 events) complete in ≈ 3.5 seconds, well within
+        // Both checkpoints (5 commands, 5 events) complete in  3.5 seconds, well within
         // the 30-second awaitCompletion() budget.
         //
         // openAccount is sent as a separate fire-start (not inside the timer chain) so
@@ -788,7 +788,7 @@ class EventSourcingCQRSDemoTest {
         assertNotNull(accountEvents, "Should have events for account");
         assertEquals(5, accountEvents.size(), "Should have 5 events stored");
 
-        // 🚨 WORKAROUND: Sort events by version to ensure correct order
+        //  WORKAROUND: Sort events by version to ensure correct order
         // PRODUCTION NOTE: Real event stores guarantee ordering automatically
         // through sequence numbers, timestamps, or append-only logs
         accountEvents.sort((e1, e2) -> Long.compare(e1.version, e2.version));
@@ -825,7 +825,7 @@ class EventSourcingCQRSDemoTest {
 
         logger.info("Event Sourcing test completed successfully");
 
-        // 🎯 KEY BENEFITS DEMONSTRATED:
+        //  KEY BENEFITS DEMONSTRATED:
         // 1. Complete audit trail - every state change is recorded as an event
         // 2. Time travel - can reconstruct state at any point in time by replaying events
         // 3. Debugging - can replay events to understand exactly what happened
@@ -846,7 +846,7 @@ class EventSourcingCQRSDemoTest {
      * 3. Separation of concerns between writes and reads
      * 4. Different data structures for different purposes
      *
-     * ⚠️ IMPORTANT: This test includes the same workarounds as the Event Sourcing test
+     *  IMPORTANT: This test includes the same workarounds as the Event Sourcing test
      * that would NOT be used in production systems. See Event Sourcing test comments
      * for detailed explanations of these workarounds.
      */

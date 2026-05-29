@@ -82,7 +82,7 @@ public class RestApiExampleTest {
         vertx = Vertx.vertx();
         client = WebClient.create(vertx);
         
-        logger.info("✓ REST API Example Test setup completed");
+        logger.info(" REST API Example Test setup completed");
     }
     
     @AfterEach
@@ -94,7 +94,7 @@ public class RestApiExampleTest {
                 client.close();
                 logger.info("WebClient closed");
             } catch (Exception e) {
-                logger.warn("⚠️ Error closing WebClient", e);
+                logger.warn(" Error closing WebClient", e);
             }
         }
         
@@ -103,11 +103,11 @@ public class RestApiExampleTest {
                 vertx.close().await();
                 logger.info("Vert.x closed successfully");
             } catch (Exception e) {
-                logger.warn("⚠️ Error during Vert.x cleanup", e);
+                logger.warn(" Error during Vert.x cleanup", e);
             }
         }
         
-        logger.info("✓ REST API Example Test teardown completed");
+        logger.info(" REST API Example Test teardown completed");
     }
 
     /**
@@ -273,8 +273,8 @@ public class RestApiExampleTest {
                     .put("tableName", "user_events")
                     .put("biTemporalEnabled", false)));
         
-        logger.info("📋 Database setup request created: {}", setupRequest.getString("setupId"));
-        logger.info("✓ Database setup management demonstrated");
+        logger.info(" Database setup request created: {}", setupRequest.getString("setupId"));
+        logger.info(" Database setup management demonstrated");
         
         return setupRequest;
     }
@@ -298,8 +298,8 @@ public class RestApiExampleTest {
                     .put("quantity", 2)
                     .put("price", new BigDecimal("49.99").doubleValue())));
         
-        logger.info("📦 Order message created: {}", orderMessage.getString("orderId"));
-        logger.info("✓ Queue operations demonstrated");
+        logger.info(" Order message created: {}", orderMessage.getString("orderId"));
+        logger.info(" Queue operations demonstrated");
         
         return orderMessage;
     }
@@ -323,8 +323,8 @@ public class RestApiExampleTest {
                 .put("amount", new BigDecimal("99.99").doubleValue())
                 .put("status", "CREATED"));
         
-        logger.info("📝 Order event created: {}", orderEvent.getString("eventType"));
-        logger.info("✓ Event store operations demonstrated");
+        logger.info(" Order event created: {}", orderEvent.getString("eventType"));
+        logger.info(" Event store operations demonstrated");
         
         return orderEvent;
     }
@@ -350,8 +350,8 @@ public class RestApiExampleTest {
                     .put("status", "UP")
                     .put("activeStores", 2)));
         
-        logger.info("💚 Health status: {}", healthStatus.getString("status"));
-        logger.info("✓ Health and metrics demonstrated");
+        logger.info(" Health status: {}", healthStatus.getString("status"));
+        logger.info(" Health and metrics demonstrated");
         
         return healthStatus;
     }
@@ -373,8 +373,8 @@ public class RestApiExampleTest {
                 .put("maxRetries", 3)
                 .put("deadLetterQueue", "orders-dlq"));
         
-        logger.info("👥 Consumer group created: {}", consumerGroup.getString("groupId"));
-        logger.info("✓ Consumer group management demonstrated");
+        logger.info(" Consumer group created: {}", consumerGroup.getString("groupId"));
+        logger.info(" Consumer group management demonstrated");
         
         return consumerGroup;
     }

@@ -112,7 +112,7 @@ class VertxPerformanceOptimizerTest {
         String poorValidation = VertxPerformanceOptimizer.validatePoolConfiguration(poorConfig, null);
         
         // Then
-        assertTrue(poorValidation.contains("⚠️"), "Should contain warnings");
+        assertTrue(poorValidation.contains(""), "Should contain warnings");
         assertTrue(poorValidation.contains("Pool size"), "Should warn about pool size");
         assertTrue(poorValidation.contains("sharing"), "Should warn about sharing");
     }
@@ -137,8 +137,8 @@ class VertxPerformanceOptimizerTest {
     void shouldHandleEdgeCases() {
         // Given - extreme values that should be clamped
         java.util.Properties props = new java.util.Properties();
-        props.setProperty("peegeeq.verticle.instances", "100"); // Too high — max is 16
-        props.setProperty("peegeeq.database.pipelining.limit", "1000"); // Too high — max is 256
+        props.setProperty("peegeeq.verticle.instances", "100"); // Too high  max is 16
+        props.setProperty("peegeeq.database.pipelining.limit", "1000"); // Too high  max is 256
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
 
         // When

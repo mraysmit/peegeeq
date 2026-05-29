@@ -255,8 +255,8 @@ class PartitionedConsumerSafetyIntegrationTest {
                     group.start();
 
                     // Wait for the group to become ACTIVE (async join + engine start)
-                    // Partitioned startup involves: topic mode query → engine.start() → joinGroup
-                    // → initializeOffsets → startFetchLoop can take 5+ seconds on cold Testcontainers
+                    // Partitioned startup involves: topic mode query  engine.start()  joinGroup
+                    //  initializeOffsets  startFetchLoop can take 5+ seconds on cold Testcontainers
                     return databaseService.getVertx().timer(6000).mapEmpty()
                             .compose(delayed -> {
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
@@ -402,7 +402,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     group.start();
 
                     // Wait long enough for async partitioned startup to complete.
-                    // (topic-mode detection → engine.start() → joinGroup → empty → fetch loop)
+                    // (topic-mode detection  engine.start()  joinGroup  empty  fetch loop)
                     return databaseService.getVertx().timer(5000).mapEmpty()
                             .compose(delayed -> {
                                 // Engine should reach ACTIVE despite zero discovered partitions.
@@ -518,7 +518,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     //
     // This test locks in the documented operational caveat from:
     //   docs-design/analysis/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md
-    //   §"Operational Caveats & Lifecycle §1 and §3"
+    //   "Operational Caveats & Lifecycle 1 and 3"
     // If periodic rediscovery is added in future, this test must be updated
     // rather than silently passing under the new behaviour.
     // ========================================================================
@@ -556,7 +556,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     groupA.start();
 
                     // Wait for async partitioned startup to complete
-                    // (topic-mode detection → engine.start() → joinGroup → empty → fetch loop).
+                    // (topic-mode detection  engine.start()  joinGroup  empty  fetch loop).
                     return databaseService.getVertx().timer(5000).mapEmpty();
                 })
                 .compose(v -> {
@@ -578,7 +578,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     // Insert a message AFTER A has already joined this is the late-arrival case.
                     return insertOutboxMessage(topic, newPartition, "late-msg");
                 })
-                // Wait 3 fetch ticks (3 × DEFAULT_FETCH_INTERVAL_MS = 1 s).
+                // Wait 3 fetch ticks (3  DEFAULT_FETCH_INTERVAL_MS = 1 s).
                 // A's engine iterates an empty assignedPartitions map it cannot fetch
                 // for "acct-new" because that partition was never discovered at join time.
                 .compose(msgId -> databaseService.getVertx().timer(3000).map(msgId))

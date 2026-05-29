@@ -90,7 +90,7 @@ public class SSEConnectionManagementExample {
             long totalLatency = totalLatencyMs.get();
             long connectionTime = System.currentTimeMillis() - connectionStartTime.get();
             
-            logger.info("📊 Connection Statistics:");
+            logger.info(" Connection Statistics:");
             logger.info("   State: {}", state.get());
             logger.info("   Messages Received: {}", msgCount);
             logger.info("   Average Latency: {} ms", msgCount > 0 ? totalLatency / msgCount : 0);
@@ -120,7 +120,7 @@ public class SSEConnectionManagementExample {
             logger.info("SSE Connection Management Example completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Error in SSE Connection Management Example", e);
+            logger.error(" Error in SSE Connection Management Example", e);
         } finally {
             // Cleanup resources
             if (httpClient != null) {
@@ -145,7 +145,7 @@ public class SSEConnectionManagementExample {
         // Build SSE endpoint URL
         String sseUrl = "/api/v1/queues/" + SETUP_ID + "/" + QUEUE_NAME + "/stream";
         
-        logger.info("📡 Connecting to SSE endpoint: {}", sseUrl);
+        logger.info(" Connecting to SSE endpoint: {}", sseUrl);
         metrics.state.set(ConnectionState.CONNECTING);
         
         // Connect to SSE endpoint
@@ -180,12 +180,12 @@ public class SSEConnectionManagementExample {
                                     metrics.recordMessage(latency);
                                     
                                     int count = metrics.messagesReceived.get();
-                                    logger.info("📨 Message #{} received (latency: {} ms)", count, latency);
+                                    logger.info(" Message #{} received (latency: {} ms)", count, latency);
                                     
                                     // Update state to ACTIVE
                                     if (metrics.state.get() == ConnectionState.IDLE) {
                                         metrics.state.set(ConnectionState.ACTIVE);
-                                        logger.info("🔄 Connection state: IDLE → ACTIVE");
+                                        logger.info(" Connection state: IDLE  ACTIVE");
                                     }
                                 }
                             }
@@ -198,7 +198,7 @@ public class SSEConnectionManagementExample {
                 // Handle connection close
                 response.endHandler(v -> {
                     metrics.state.set(ConnectionState.CLOSED);
-                    logger.info("📡 SSE connection closed");
+                    logger.info(" SSE connection closed");
                     logger.info("   State: {}", metrics.state.get());
                     metrics.printStatistics();
                     completionLatch.countDown();
@@ -208,7 +208,7 @@ public class SSEConnectionManagementExample {
                 response.exceptionHandler(err -> {
                     if (!(err instanceof io.vertx.core.http.HttpClosedException)) {
                         metrics.state.set(ConnectionState.ERROR);
-                        logger.error("❌ SSE connection error: {}", err.getMessage());
+                        logger.error(" SSE connection error: {}", err.getMessage());
                         logger.info("   State: {}", metrics.state.get());
                     }
                     completionLatch.countDown();
@@ -222,7 +222,7 @@ public class SSEConnectionManagementExample {
             })
             .onFailure(err -> {
                 metrics.state.set(ConnectionState.ERROR);
-                logger.error("❌ Failed to connect to SSE endpoint: {}", err.getMessage());
+                logger.error(" Failed to connect to SSE endpoint: {}", err.getMessage());
                 logger.info("   State: {}", metrics.state.get());
                 completionLatch.countDown();
             });
@@ -230,7 +230,7 @@ public class SSEConnectionManagementExample {
         // Wait for completion
         boolean completed = completionLatch.await(CONNECTION_TIMEOUT_MS + 5000, TimeUnit.MILLISECONDS);
         if (!completed) {
-            logger.warn("⚠️ Connection management demo timed out");
+            logger.warn(" Connection management demo timed out");
             if (responseRef.get() != null) {
                 responseRef.get().request().connection().close();
             }
@@ -251,8 +251,8 @@ public class SSEConnectionManagementExample {
             
             if (idleTime > IDLE_TIMEOUT_MS && metrics.state.get() == ConnectionState.ACTIVE) {
                 metrics.state.set(ConnectionState.IDLE);
-                logger.info("⏸️  Connection idle for {} seconds", idleTime / 1000);
-                logger.info("   State: ACTIVE → IDLE");
+                logger.info("  Connection idle for {} seconds", idleTime / 1000);
+                logger.info("   State: ACTIVE  IDLE");
             }
             
             // Cancel timer if connection is closed
@@ -271,7 +271,7 @@ public class SSEConnectionManagementExample {
         vertx.setTimer(CONNECTION_TIMEOUT_MS, timerId -> {
             if (metrics.state.get() != ConnectionState.CLOSED && 
                 metrics.state.get() != ConnectionState.ERROR) {
-                logger.info("⏱️  Connection timeout reached ({} seconds)", CONNECTION_TIMEOUT_MS / 1000);
+                logger.info("  Connection timeout reached ({} seconds)", CONNECTION_TIMEOUT_MS / 1000);
                 logger.info("   Closing connection gracefully");
                 response.request().connection().close();
                 latch.countDown();

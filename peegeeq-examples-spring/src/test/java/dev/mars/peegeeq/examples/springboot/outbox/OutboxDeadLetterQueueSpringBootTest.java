@@ -120,7 +120,7 @@ class OutboxDeadLetterQueueSpringBootTest {
     
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧹 Cleaning up Dead Letter Queue Spring Boot Test");
+        logger.info(" Cleaning up Dead Letter Queue Spring Boot Test");
 
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
@@ -128,7 +128,7 @@ class OutboxDeadLetterQueueSpringBootTest {
                 consumer.close();
                 logger.info("Closed consumer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing consumer: {}", e.getMessage());
+                logger.error(" Error closing consumer: {}", e.getMessage());
             }
         }
         activeConsumers.clear();
@@ -139,7 +139,7 @@ class OutboxDeadLetterQueueSpringBootTest {
                 producer.close();
                 logger.info("Closed producer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing producer: {}", e.getMessage());
+                logger.error(" Error closing producer: {}", e.getMessage());
             }
         }
         activeProducers.clear();
@@ -147,7 +147,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         managerRef = manager;
 
         // Wait for connections to be fully released before next test
-        logger.info("⏳ Waiting for connections to be released...");
+        logger.info(" Waiting for connections to be released...");
         vertx.timer(2000).onComplete(testContext.succeeding(v -> {
             logger.info("Cleanup complete");
             testContext.completeNow();
@@ -197,7 +197,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
-            logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
+            logger.info(" Simulating persistent failure on attempt #{}", attempt);
             if (attempt >= 3) {
                 retriesDone.tryComplete();
             }
@@ -206,7 +206,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         });
 
         // Send poison message
-        logger.info("📤 Sending poison message that will always fail");
+        logger.info(" Sending poison message that will always fail");
         String poisonMessage = "poison-message-" + UUID.randomUUID();
         producer.send(poisonMessage).onFailure(testContext::failNow);
 
@@ -215,7 +215,7 @@ class OutboxDeadLetterQueueSpringBootTest {
             .compose(v -> manager.getDeadLetterQueueManager()
                 .getDeadLetterMessages(topicName, 10, 0))
             .onComplete(testContext.succeeding(dlqMessages -> testContext.verify(() -> {
-                logger.info("📊 DLQ Results:");
+                logger.info(" DLQ Results:");
                 logger.info("  Total attempts: {}", attemptCount.get());
                 logger.info("  Messages in DLQ: {}", dlqMessages.size());
 
@@ -261,7 +261,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         activeProducers.add(producer);
         activeConsumers.add(consumer);
 
-        // Track processing — each message: initial + 2 retries (max-retries=2 → 3 total attempts)
+        // Track processing  each message: initial + 2 retries (max-retries=2  3 total attempts)
         AtomicInteger processedCount = new AtomicInteger(0);
         int expectedTotalAttempts = messageCount * 3;
         io.vertx.core.Promise<Void> allAttemptsDone = io.vertx.core.Promise.promise();
@@ -277,7 +277,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         });
 
         // Send multiple poison messages
-        logger.info("📤 Sending {} poison messages", messageCount);
+        logger.info(" Sending {} poison messages", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             producer.send("poison-" + i).onFailure(testContext::failNow);
         }
@@ -287,7 +287,7 @@ class OutboxDeadLetterQueueSpringBootTest {
             .compose(v -> manager.getDeadLetterQueueManager()
                 .getDeadLetterMessages(topicName, 10, 0))
             .onComplete(testContext.succeeding(dlqMessages -> testContext.verify(() -> {
-                logger.info("📊 DLQ Inspection Results:");
+                logger.info(" DLQ Inspection Results:");
                 logger.info("  Total processing attempts: {}", processedCount.get());
                 logger.info("  Messages in DLQ: {}", dlqMessages.size());
 

@@ -29,7 +29,7 @@ import java.util.concurrent.CountDownLatch;
 
 
 /**
- * Demonstrates FULL distributed tracing flow across HTTP → Queue → Consumer → External Service.
+ * Demonstrates FULL distributed tracing flow across HTTP  Queue  Consumer  External Service.
  * <p>
  * This example shows:
  * 1. HTTP API receives request with traceparent header
@@ -117,11 +117,11 @@ public class FullDistributedTracingExample {
                     .sendJsonObject(message.getPayload())
                     .onSuccess(response -> {
                         logger.info("External service responded: {}", response.bodyAsString());
-                        logger.info("🎯 Order processing complete!");
+                        logger.info(" Order processing complete!");
                         promise.complete();
                     })
                     .onFailure(err -> {
-                        logger.error("❌ External service call failed", err);
+                        logger.error(" External service call failed", err);
                         promise.fail(err);
                     });
 
@@ -129,18 +129,18 @@ public class FullDistributedTracingExample {
         }).onFailure(err -> logger.error("Consumer subscription failed", err));
 
         logger.info("================================================================================");
-        logger.info("🚀 Full Distributed Tracing Example Started");
+        logger.info(" Full Distributed Tracing Example Started");
         logger.info("================================================================================");
-        logger.info("📍 REST API listening on: http://localhost:8080");
-        logger.info("📍 External service on: http://localhost:9090");
+        logger.info(" REST API listening on: http://localhost:8080");
+        logger.info(" External service on: http://localhost:9090");
         logger.info("");
-        logger.info("📝 Send a request with trace context:");
+        logger.info(" Send a request with trace context:");
         logger.info("   curl -X POST http://localhost:8080/orders \\");
         logger.info("     -H \"Content-Type: application/json\" \\");
         logger.info("     -H \"traceparent: 00-$(uuidgen | tr -d '-' | cut -c1-32)-$(uuidgen | tr -d '-' | cut -c1-16)-01\" \\");
         logger.info("     -d '{\"orderId\":\"12345\",\"amount\":100.00}'");
         logger.info("");
-        logger.info("🔍 Watch the logs - all services will show the same traceId!");
+        logger.info(" Watch the logs - all services will show the same traceId!");
         logger.info("================================================================================");
     }
 
@@ -238,7 +238,7 @@ public class FullDistributedTracingExample {
             logger.info(" Processing: {}", payload);
 
             // Simulate processing
-            logger.info("⚙️ External service processing...");
+            logger.info(" External service processing...");
 
             ctx.response()
                     .putHeader("Content-Type", "application/json")

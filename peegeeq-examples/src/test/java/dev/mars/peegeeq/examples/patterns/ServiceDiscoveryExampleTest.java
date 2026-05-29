@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Vert.x integration with service discovery infrastructure</li>
  * </ul>
  *
- * <p>Consul host/port are passed directly to {@link PeeGeeQServiceManager} via constructor —
+ * <p>Consul host/port are passed directly to {@link PeeGeeQServiceManager} via constructor 
  * no {@code System.setProperty} side-effects.
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -121,7 +121,7 @@ public class ServiceDiscoveryExampleTest {
     // Tests
     //
     // NOTE: The Service Manager backed by Consul is best-effort in this
-    // suite — non-2xx HTTP statuses are logged but do not fail the test,
+    // suite  non-2xx HTTP statuses are logged but do not fail the test,
     // matching the pre-existing behaviour of this integration scenario.
     // Where assertions are made, they apply only to the successful branch.
     // ---------------------------------------------------------------------
@@ -295,7 +295,7 @@ public class ServiceDiscoveryExampleTest {
     }
 
     /**
-     * Register a test instance. Errors are logged but do not fail the calling test —
+     * Register a test instance. Errors are logged but do not fail the calling test 
      * the same lenient behaviour the original test had, just expressed without latches.
      */
     private Future<Void> registerTestInstance(String instanceId, int port, String environment, String region) {

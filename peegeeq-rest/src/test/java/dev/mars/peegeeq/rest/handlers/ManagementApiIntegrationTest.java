@@ -427,7 +427,7 @@ public class ManagementApiIntegrationTest {
             .send()
             .onSuccess(response -> {
                 testContext.verify(() -> {
-                    // Accept 200 (deleted) or 404 (queue did not exist) — both are valid outcomes.
+                    // Accept 200 (deleted) or 404 (queue did not exist)  both are valid outcomes.
                     assertTrue(response.statusCode() == 200 || response.statusCode() == 404,
                         "Should return success or not found, got: " + response.statusCode());
 

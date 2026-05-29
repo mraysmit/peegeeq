@@ -213,9 +213,9 @@ public class TemporalRange {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append(startInclusive ? "[" : "(");
-        sb.append(start != null ? start.toString() : "-∞");
+        sb.append(start != null ? start.toString() : "-");
         sb.append(", ");
-        sb.append(end != null ? end.toString() : "+∞");
+        sb.append(end != null ? end.toString() : "+");
         sb.append(endInclusive ? "]" : ")");
         return sb.toString();
     }

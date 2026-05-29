@@ -50,10 +50,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that PgConnectionManager.closeAsync() logs at ERROR level (not WARN)
  * when pool close operations fail.
  *
- * <p>Covers WARN→ERROR change #10: pool close failures in closeAsync().</p>
+ * <p>Covers WARNERROR change #10: pool close failures in closeAsync().</p>
  *
- * Positive: trigger pool close failure → verify ERROR logged.
- * Negative: clean close → verify no ERROR logged.
+ * Positive: trigger pool close failure  verify ERROR logged.
+ * Negative: clean close  verify no ERROR logged.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers

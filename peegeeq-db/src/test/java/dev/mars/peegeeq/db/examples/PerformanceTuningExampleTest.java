@@ -77,7 +77,7 @@ public class PerformanceTuningExampleTest {
         // Configure properties for optimized performance
         containerProps = buildPerformanceProperties(postgres);
         
-        logger.info("✓ Performance Tuning Example Test setup completed");
+        logger.info(" Performance Tuning Example Test setup completed");
     }
     
     @AfterEach
@@ -87,12 +87,12 @@ public class PerformanceTuningExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    logger.info("✓ Performance Tuning Example Test teardown completed");
+                    logger.info(" Performance Tuning Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
         } else {
-            logger.info("✓ Performance Tuning Example Test teardown completed");
+            logger.info(" Performance Tuning Example Test teardown completed");
             testContext.completeNow();
         }
     }
@@ -272,13 +272,13 @@ public class PerformanceTuningExampleTest {
     private void demonstrateConnectionPoolOptimization(PeeGeeQManager manager) {
         logger.info("\n=== CONNECTION POOL OPTIMIZATION ===");
 
-        logger.info("🏊 Connection Pool Best Practices:");
-        logger.info("   • Size pool based on concurrent workload");
-        logger.info("   • Monitor pool utilization and wait times");
-        logger.info("   • Use connection validation");
-        logger.info("   • Configure appropriate timeouts");
+        logger.info(" Connection Pool Best Practices:");
+        logger.info("    Size pool based on concurrent workload");
+        logger.info("    Monitor pool utilization and wait times");
+        logger.info("    Use connection validation");
+        logger.info("    Configure appropriate timeouts");
         
-        logger.info("✓ Connection pool optimization demonstrated");
+        logger.info(" Connection pool optimization demonstrated");
     }
     
     /**
@@ -287,11 +287,11 @@ public class PerformanceTuningExampleTest {
     private PerformanceMetrics demonstrateThroughputOptimization() {
         logger.info("\n=== THROUGHPUT OPTIMIZATION ===");
 
-        logger.info("🚀 Throughput Optimization Strategies:");
-        logger.info("   • Use batch processing where possible");
-        logger.info("   • Optimize message serialization");
-        logger.info("   • Minimize database round trips");
-        logger.info("   • Use connection pooling effectively");
+        logger.info(" Throughput Optimization Strategies:");
+        logger.info("    Use batch processing where possible");
+        logger.info("    Optimize message serialization");
+        logger.info("    Minimize database round trips");
+        logger.info("    Use connection pooling effectively");
         
         // Simulate throughput optimization
         PerformanceMetrics metrics = new PerformanceMetrics();
@@ -299,7 +299,7 @@ public class PerformanceTuningExampleTest {
             metrics.recordMessage(5); // 5ms processing time
         }
         
-        logger.info("✓ Throughput optimization demonstrated");
+        logger.info(" Throughput optimization demonstrated");
         return metrics;
     }
     
@@ -309,11 +309,11 @@ public class PerformanceTuningExampleTest {
     private PerformanceMetrics demonstrateLatencyOptimization() {
         logger.info("\n=== LATENCY OPTIMIZATION ===");
 
-        logger.info("⚡ Latency Optimization Strategies:");
-        logger.info("   • Minimize message processing time");
-        logger.info("   • Use connection pooling effectively");
-        logger.info("   • Optimize database queries");
-        logger.info("   • Reduce serialization overhead");
+        logger.info(" Latency Optimization Strategies:");
+        logger.info("    Minimize message processing time");
+        logger.info("    Use connection pooling effectively");
+        logger.info("    Optimize database queries");
+        logger.info("    Reduce serialization overhead");
         
         // Simulate latency optimization
         PerformanceMetrics metrics = new PerformanceMetrics();
@@ -321,7 +321,7 @@ public class PerformanceTuningExampleTest {
         metrics.recordMessage(8); // Higher latency
         metrics.recordMessage(3); // Low latency
         
-        logger.info("✓ Latency optimization demonstrated");
+        logger.info(" Latency optimization demonstrated");
         return metrics;
     }
     
@@ -331,11 +331,11 @@ public class PerformanceTuningExampleTest {
     private PerformanceMetrics demonstrateBatchProcessingOptimization() {
         logger.info("\n=== BATCH PROCESSING OPTIMIZATION ===");
 
-        logger.info("📦 Batch Processing Benefits:");
-        logger.info("   • Reduced database round trips");
-        logger.info("   • Improved throughput");
-        logger.info("   • Better resource utilization");
-        logger.info("   • Lower per-message overhead");
+        logger.info(" Batch Processing Benefits:");
+        logger.info("    Reduced database round trips");
+        logger.info("    Improved throughput");
+        logger.info("    Better resource utilization");
+        logger.info("    Lower per-message overhead");
         
         // Simulate batch processing
         PerformanceMetrics metrics = new PerformanceMetrics();
@@ -343,7 +343,7 @@ public class PerformanceTuningExampleTest {
             metrics.recordMessage(3);
         }
         
-        logger.info("✓ Batch processing optimization demonstrated");
+        logger.info(" Batch processing optimization demonstrated");
         return metrics;
     }
     
@@ -353,11 +353,11 @@ public class PerformanceTuningExampleTest {
     private PerformanceMetrics demonstrateConcurrentProcessingOptimization() {
         logger.info("\n=== CONCURRENT PROCESSING OPTIMIZATION ===");
 
-        logger.info("🔄 Concurrent Processing Strategies:");
-        logger.info("   • Use multiple consumer threads");
-        logger.info("   • Implement proper thread safety");
-        logger.info("   • Balance load across threads");
-        logger.info("   • Monitor thread utilization");
+        logger.info(" Concurrent Processing Strategies:");
+        logger.info("    Use multiple consumer threads");
+        logger.info("    Implement proper thread safety");
+        logger.info("    Balance load across threads");
+        logger.info("    Monitor thread utilization");
         
         // Simulate concurrent processing
         PerformanceMetrics metrics = new PerformanceMetrics();
@@ -366,7 +366,7 @@ public class PerformanceTuningExampleTest {
         metrics.recordMessage(4);
         metrics.decrementActiveThreads();
         
-        logger.info("✓ Concurrent processing optimization demonstrated");
+        logger.info(" Concurrent processing optimization demonstrated");
         return metrics;
     }
     
@@ -376,13 +376,13 @@ public class PerformanceTuningExampleTest {
     private void demonstrateMemoryOptimization() {
         logger.info("\n=== MEMORY OPTIMIZATION ===");
 
-        logger.info("🧠 Memory Optimization Strategies:");
-        logger.info("   • Monitor heap usage");
-        logger.info("   • Optimize message serialization");
-        logger.info("   • Use object pooling where appropriate");
-        logger.info("   • Minimize object allocation");
+        logger.info(" Memory Optimization Strategies:");
+        logger.info("    Monitor heap usage");
+        logger.info("    Optimize message serialization");
+        logger.info("    Use object pooling where appropriate");
+        logger.info("    Minimize object allocation");
         
-        logger.info("✓ Memory optimization demonstrated");
+        logger.info(" Memory optimization demonstrated");
     }
     
     // Supporting classes

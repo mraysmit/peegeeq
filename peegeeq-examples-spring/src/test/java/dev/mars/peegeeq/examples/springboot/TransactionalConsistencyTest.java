@@ -356,7 +356,7 @@ class TransactionalConsistencyTest {
                     return Future.failedFuture("Expected database constraint failure but got success");
                 }))
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                logger.info("🎉 COMPREHENSIVE TRANSACTIONAL CONSISTENCY VERIFIED!");
+                logger.info(" COMPREHENSIVE TRANSACTIONAL CONSISTENCY VERIFIED!");
                 logger.info("The PeeGeeQ transactional outbox pattern maintains ACID properties");
                 logger.info("Database operations and outbox events are always consistent");
                 logger.info("No partial state is ever left behind in any scenario");

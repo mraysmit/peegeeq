@@ -64,7 +64,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * This test demonstrates configurable retry behavior with the peegeeq.queue.max-retries property,
  * showing how PeeGeeQ handles different failure scenarios and retry strategies.
  * 
- * <h2>⚠️ INTENTIONAL FAILURES - This Test Contains Expected Errors</h2>
+ * <h2> INTENTIONAL FAILURES - This Test Contains Expected Errors</h2>
  * <p>This test class deliberately triggers various failure conditions to demonstrate proper retry behavior.
  * The following errors are <b>INTENTIONAL</b> and expected:</p>
  * <ul>
@@ -101,9 +101,9 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Error Log Messages</h2>
  * <p>The following ERROR/WARN log messages are <b>EXPECTED</b> and indicate proper retry handling:</p>
  * <ul>
- *   <li>"💥 Attempt X - Simulated failure" - Expected for retry testing</li>
- *   <li>"❌ Processing failed for message" - Expected for failure scenarios</li>
- *   <li>"💀 Message failed after maximum retries" - Expected for always-failing processors</li>
+ *   <li>" Attempt X - Simulated failure" - Expected for retry testing</li>
+ *   <li>" Processing failed for message" - Expected for failure scenarios</li>
+ *   <li>" Message failed after maximum retries" - Expected for always-failing processors</li>
  * </ul>
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -155,7 +155,7 @@ class RetryAndFailureHandlingExampleTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Retry and Failure Handling Example Test");
+        logger.info(" Cleaning up Retry and Failure Handling Example Test");
         
         if (queueFactory != null) {
             queueFactory.close();
@@ -222,11 +222,11 @@ class RetryAndFailureHandlingExampleTest {
      * @return true if the scenario completed within timeout, false otherwise
      */
     private Future<Void> runFailureScenario(String scenarioName, MessageProcessor processor, int expectedMaxRetries) {
-        logger.info("🧪 INTENTIONAL FAILURE SCENARIO: {} - Max retries: {}", scenarioName, expectedMaxRetries);
+        logger.info(" INTENTIONAL FAILURE SCENARIO: {} - Max retries: {}", scenarioName, expectedMaxRetries);
 
         // Log current configuration
         var config = manager.getConfiguration().getQueueConfig();
-        logger.info("🔧 Configuration: maxRetries={}, pollingInterval={}, threads={}, batchSize={}",
+        logger.info(" Configuration: maxRetries={}, pollingInterval={}, threads={}, batchSize={}",
             config.getMaxRetries(), config.getPollingInterval(),
             config.getConsumerThreads(), config.getBatchSize());
 
@@ -241,9 +241,9 @@ class RetryAndFailureHandlingExampleTest {
         consumer.subscribe(message -> {
             return processor.process(message)
                 .onFailure(err -> {
-                    logger.error("🎯 INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
+                    logger.error(" INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
                         message.getPayload().id, err.getMessage());
-                    logger.info("   📋 This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
+                    logger.info("    This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
                     latch.tryComplete();
                 })
                 .onSuccess(v -> {
@@ -265,7 +265,7 @@ class RetryAndFailureHandlingExampleTest {
         headers.put("scenario", scenarioName);
         headers.put("expectedRetries", String.valueOf(expectedMaxRetries));
 
-        logger.info("📤 Sending message that will fail initially: {}", message.id);
+        logger.info(" Sending message that will fail initially: {}", message.id);
         return producer.send(message, headers)
             .compose(v -> latch.future())
             .onSuccess(v -> {
@@ -303,9 +303,9 @@ class RetryAndFailureHandlingExampleTest {
         @Override
         public Future<Void> process(Message<FailureTestMessage> message) {
             int attempt = attemptCount.incrementAndGet();
-            logger.warn("🎯 INTENTIONAL TEST FAILURE: Attempt {} - Simulated failure for message: {}",
+            logger.warn(" INTENTIONAL TEST FAILURE: Attempt {} - Simulated failure for message: {}",
                 attempt, message.getPayload().id);
-            logger.info("   📋 This failure demonstrates retry mechanism and dead letter queue behavior");
+            logger.info("    This failure demonstrates retry mechanism and dead letter queue behavior");
             return Future.failedFuture(new RuntimeException("Simulated processing failure (attempt " + attempt + ")"));
         }
     }
@@ -328,9 +328,9 @@ class RetryAndFailureHandlingExampleTest {
             int attempt = attemptCount.incrementAndGet();
 
             if (attempt <= failuresBeforeSuccess) {
-                logger.warn("🎯 INTENTIONAL TEST FAILURE: Attempt {} - Simulated failure for message: {} (will succeed on attempt {})",
+                logger.warn(" INTENTIONAL TEST FAILURE: Attempt {} - Simulated failure for message: {} (will succeed on attempt {})",
                     attempt, message.getPayload().id, failuresBeforeSuccess + 1);
-                logger.info("   📋 This failure demonstrates eventual success after configured failures");
+                logger.info("    This failure demonstrates eventual success after configured failures");
                 return Future.failedFuture(new RuntimeException("Simulated processing failure (attempt " + attempt + ")"));
             } else {
                 logger.info("EXPECTED SUCCESS: Attempt {} - Successfully processed message: {}",

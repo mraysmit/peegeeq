@@ -250,24 +250,24 @@ class SpringBootBitemporalApplicationTest {
             )
             .compose(allTransactions -> {
                 assertEquals(4, allTransactions.size(), "Should have 3 recorded + 1 corrected = 4 total");
-                logger.info("✓ queryTransactionsByAccount: Found {} transactions", allTransactions.size());
+                logger.info(" queryTransactionsByAccount: Found {} transactions", allTransactions.size());
                 return transactionService.queryRecordedTransactions(accountId);
             })
             .compose(recordedOnly -> {
                 assertEquals(3, recordedOnly.size(), "Should have 3 recorded transactions");
                 assertTrue(recordedOnly.stream().allMatch(e -> "TransactionRecorded".equals(e.getEventType())));
-                logger.info("✓ queryRecordedTransactions: Found {} recorded transactions", recordedOnly.size());
+                logger.info(" queryRecordedTransactions: Found {} recorded transactions", recordedOnly.size());
                 return transactionService.queryCorrectedTransactions(accountId);
             })
             .compose(correctedOnly -> {
                 assertEquals(1, correctedOnly.size(), "Should have 1 corrected transaction");
                 assertTrue(correctedOnly.stream().allMatch(e -> "TransactionCorrected".equals(e.getEventType())));
-                logger.info("✓ queryCorrectedTransactions: Found {} corrected transactions", correctedOnly.size());
+                logger.info(" queryCorrectedTransactions: Found {} corrected transactions", correctedOnly.size());
                 return transactionService.queryTransactionsByAccountAndType(accountId, "TransactionRecorded");
             })
             .onComplete(testContext.succeeding(recordedDirect -> testContext.verify(() -> {
                 assertEquals(3, recordedDirect.size(), "Direct query should match convenience method");
-                logger.info("✓ queryTransactionsByAccountAndType: Found {} transactions", recordedDirect.size());
+                logger.info(" queryTransactionsByAccountAndType: Found {} transactions", recordedDirect.size());
                 logger.info("=== Domain-Specific Query Methods Test Passed ===");
                 logger.info("Demonstrated patterns:");
                 logger.info("  1. queryTransactionsByAccount(accountId) - wraps EventQuery.forAggregate() [async]");

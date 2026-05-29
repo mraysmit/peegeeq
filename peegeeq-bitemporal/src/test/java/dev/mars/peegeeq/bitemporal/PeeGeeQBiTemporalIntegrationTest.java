@@ -108,7 +108,7 @@ class PeeGeeQBiTemporalIntegrationTest {
                 .property("peegeeq.database.pool.max-size", "15")
                 .build();
 
-        logger.info("🚀 Using optimized configuration for integration test: batch-size=50, polling=200ms, threads=4");
+        logger.info(" Using optimized configuration for integration test: batch-size=50, polling=200ms, threads=4");
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
@@ -404,7 +404,7 @@ class PeeGeeQBiTemporalIntegrationTest {
     }
 
     @Test
-    @DisplayName("End-to-End Integration: PeeGeeQ → Consumer → Bi-temporal Store → Subscription")
+    @DisplayName("End-to-End Integration: PeeGeeQ  Consumer  Bi-temporal Store  Subscription")
     void testEndToEndIntegration(Vertx vertx, VertxTestContext ctx) throws Exception {
         logger.info("Starting end-to-end integration test...");
 
@@ -538,7 +538,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         }
 
         logger.info("End-to-end integration test completed successfully");
-        logger.info("Summary: {} PeeGeeQ messages → {} persisted events → {} subscription notifications",
+        logger.info("Summary: {} PeeGeeQ messages  {} persisted events  {} subscription notifications",
                    peeGeeQMessages.size(), persistedEvents.size(), subscribedEvents.size());
     }
 }

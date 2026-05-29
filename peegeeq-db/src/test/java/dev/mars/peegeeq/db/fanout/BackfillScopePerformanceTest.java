@@ -59,7 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Maintain acceptable throughput (>= 1 000 msgs/s) for 50k+ messages</li>
  *   <li>{@code ALL_RETAINED} correctly increments {@code required_consumer_groups}
  *       on COMPLETED messages (regression guard for the incrementSql bug)</li>
- *   <li>Both scopes perform comparably — ALL_RETAINED should not be dramatically slower</li>
+ *   <li>Both scopes perform comparably  ALL_RETAINED should not be dramatically slower</li>
  * </ul>
  *
  * <p>Classification: PERFORMANCE + INTEGRATION TEST</p>

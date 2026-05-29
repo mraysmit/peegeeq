@@ -105,7 +105,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @Test
     void testPollingIntervalPropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing polling interval property integration");
+        logger.info(" Testing polling interval property integration");
 
         String topicName = "test-polling-interval-property";
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -132,7 +132,7 @@ class ConsumerModePropertyIntegrationTest {
 
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
-                    logger.info("📨 Property integration processed: {}", message.getPayload());
+                    logger.info(" Property integration processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })
@@ -157,7 +157,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @Test
     void testBatchSizePropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing batch size property integration");
+        logger.info(" Testing batch size property integration");
 
         String topicName = "test-batch-size-property";
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -185,7 +185,7 @@ class ConsumerModePropertyIntegrationTest {
 
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
-                    logger.info("📨 Batch property processed: {}", message.getPayload());
+                    logger.info(" Batch property processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })
@@ -215,7 +215,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @Test
     void testVisibilityTimeoutPropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing visibility timeout property integration");
+        logger.info(" Testing visibility timeout property integration");
 
         String topicName = "test-visibility-timeout-property";
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -242,7 +242,7 @@ class ConsumerModePropertyIntegrationTest {
 
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
-                    logger.info("📨 Visibility timeout processed: {}", message.getPayload());
+                    logger.info(" Visibility timeout processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })
@@ -267,7 +267,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @Test
     void testMultiplePropertyCombinations(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing multiple property combinations");
+        logger.info(" Testing multiple property combinations");
 
         String topicName = "test-multiple-properties";
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -295,7 +295,7 @@ class ConsumerModePropertyIntegrationTest {
 
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
-                    logger.info("📨 Multiple properties processed: {}", message.getPayload());
+                    logger.info(" Multiple properties processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })
@@ -325,7 +325,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @Test
     void testPropertyOverrideScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing property override scenarios");
+        logger.info(" Testing property override scenarios");
 
         String topicName = "test-property-override";
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -352,7 +352,7 @@ class ConsumerModePropertyIntegrationTest {
 
                 consumer.subscribe(message -> {
                     processedCount.incrementAndGet();
-                    logger.info("📨 Property override processed: {}", message.getPayload());
+                    logger.info(" Property override processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })

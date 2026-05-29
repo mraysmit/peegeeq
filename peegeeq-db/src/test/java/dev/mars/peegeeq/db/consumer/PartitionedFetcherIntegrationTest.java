@@ -99,7 +99,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.1: Fetch Returns Messages in ID Order
-    // 10 messages inserted → fetch returns ids in ascending order.
+    // 10 messages inserted  fetch returns ids in ascending order.
     // ========================================================================
 
     @Test
@@ -140,7 +140,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.2: Fetch Starts After Committed Offset
-    // Offset committed at id 5 → fetch returns only messages with id > 5.
+    // Offset committed at id 5  fetch returns only messages with id > 5.
     // ========================================================================
 
     @Test
@@ -182,7 +182,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.3: Fetch Respects Batch Size
-    // 20 messages, batchSize=5 → returns exactly 5.
+    // 20 messages, batchSize=5  returns exactly 5.
     // ========================================================================
 
     @Test
@@ -210,7 +210,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.4: Fetch Only Matching Partition
-    // Messages in partition A and B → fetch(A) returns only A's messages.
+    // Messages in partition A and B  fetch(A) returns only A's messages.
     // ========================================================================
 
     @Test
@@ -246,7 +246,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.5: Fetch NULL Message Group Uses __default__ Partition
-    // Messages with NULL message_group → fetchable via '__default__' partition.
+    // Messages with NULL message_group  fetchable via '__default__' partition.
     // ========================================================================
 
     @Test
@@ -317,7 +317,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.7: Fetch Rejects Stale Generation
-    // Fetch with old generation → empty result (fenced).
+    // Fetch with old generation  empty result (fenced).
     // ========================================================================
 
     @Test
@@ -349,7 +349,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.8: SKIP LOCKED Prevents Double Delivery
-    // Manually lock some rows in one transaction, then fetch in another →
+    // Manually lock some rows in one transaction, then fetch in another 
     // fetcher skips the locked rows.
     // ========================================================================
 
@@ -421,7 +421,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.9: Fetch Empty Partition Returns Empty List
-    // No pending messages → returns empty list, no error.
+    // No pending messages  returns empty list, no error.
     // ========================================================================
 
     @Test
@@ -484,7 +484,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 3.11: Sequential Delivery Within Partition
-    // Fetch batch, commit, fetch next → no gaps, no reordering.
+    // Fetch batch, commit, fetch next  no gaps, no reordering.
     // ========================================================================
 
     @Test
@@ -592,8 +592,8 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
     // Test 3.13: Rebalance During Inflight Batch Old Owner Fenced
     // Consumer A fetches batch with gen=1, sets pending. Rebalance bumps gen
-    // to 2. A tries to commit with gen=1 → rejected. B fetches from
-    // committed_offset → gets same messages.
+    // to 2. A tries to commit with gen=1  rejected. B fetches from
+    // committed_offset  gets same messages.
     // ========================================================================
 
     @Test
@@ -625,12 +625,12 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
                     long lastIdA = pair[0];
                     int gen2 = (int) pair[1];
 
-                    // A tries to commit with stale gen=1 → REJECTED
+                    // A tries to commit with stale gen=1  REJECTED
                     return offsetManager.commitOffset(topic, groupName, partition, lastIdA, gen1)
                             .compose(committed -> {
                                 assertFalse(committed, "Stale commit with gen=1 must be rejected");
 
-                                // B fetches with gen=2 → starts from committed_offset=0
+                                // B fetches with gen=2  starts from committed_offset=0
                                 return fetcher.fetch(topic, groupName, partition, 10, gen2);
                             })
                             .map(batchB -> {
@@ -788,7 +788,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
     // Test 3.16: Fetch After Generation Bump Ignores Stale Pending
     // Consumer A fetches with gen=1, pending_offset=50. Generation bumped
-    // to 2 (pending cleared). Consumer B fetches with gen=2 → starts from
+    // to 2 (pending cleared). Consumer B fetches with gen=2  starts from
     // committed_offset (not stale pending_offset=50).
     // ========================================================================
 

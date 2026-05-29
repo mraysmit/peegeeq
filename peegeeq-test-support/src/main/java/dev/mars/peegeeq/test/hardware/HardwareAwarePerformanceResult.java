@@ -177,10 +177,10 @@ public class HardwareAwarePerformanceResult {
             sb.append(String.format("  %s\n", getResourceUsageSummary()));
             
             if (hasResourceConstraints()) {
-                sb.append("\n🚨 WARNING: Resource constraints detected!\n");
+                sb.append("\n WARNING: Resource constraints detected!\n");
                 sb.append("  Performance results may be affected by system limitations.\n");
             } else if (hasHighResourceUsage()) {
-                sb.append("\n⚠️  High resource usage detected.\n");
+                sb.append("\n  High resource usage detected.\n");
                 sb.append("  Consider monitoring for potential bottlenecks.\n");
             }
         }

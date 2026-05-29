@@ -1072,7 +1072,7 @@ test.describe('Event Store Workflow', () => {
 
     test('should cleanup test event store', async ({ request }) => {
       // Delete event store via API
-      const apiUrl = `http://127.0.0.1:8080/api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}`
+      const apiUrl = `http://127.0.0.1:8088/api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}`
 
       try {
         const response = await request.delete(apiUrl)

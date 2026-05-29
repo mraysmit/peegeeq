@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory;
  * {@code "%s.outbox".formatted(schema)} without quoting the schema identifier.
  * While {@code PgConnectionManager.normalizeSearchPath()} rejects non-alphanumeric
  * characters (hyphens, etc.), SQL reserved words like "order", "select", "table"
- * pass validation they are valid Java identifiers made of letters only —
+ * pass validation they are valid Java identifiers made of letters only 
  * but generate malformed SQL when used unquoted as schema identifiers.</p>
  *
  * <p>For example, schema "order" produces {@code FROM order.outbox} which PostgreSQL

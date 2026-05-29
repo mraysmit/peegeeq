@@ -97,7 +97,7 @@ public class IntegrationPatternsExampleTest {
                 OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) factoryProvider);
                 // Create outbox factory for testing
                 outboxFactory = factoryProvider.createFactory("outbox", databaseService, new HashMap<>());
-                logger.info("✓ Integration Patterns Example Test setup completed");
+                logger.info(" Integration Patterns Example Test setup completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -119,7 +119,7 @@ public class IntegrationPatternsExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    logger.info("✓ Integration Patterns Example Test teardown completed");
+                    logger.info(" Integration Patterns Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(err -> {
@@ -127,7 +127,7 @@ public class IntegrationPatternsExampleTest {
                     testContext.completeNow();
                 });
         } else {
-            logger.info("✓ Integration Patterns Example Test teardown completed");
+            logger.info(" Integration Patterns Example Test teardown completed");
             testContext.completeNow();
         }
     }
@@ -154,7 +154,7 @@ public class IntegrationPatternsExampleTest {
         // Set up request processor (simulates order service)
         requestConsumer.subscribe(message -> {
             IntegrationMessage request = message.getPayload();
-            logger.info("📨 Processing request: {} from {}", request.getMessageId(), request.getSource());
+            logger.info(" Processing request: {} from {}", request.getMessageId(), request.getSource());
             
             // Simulate processing with non-blocking delay
             Promise<Void> promise = Promise.promise();
@@ -188,7 +188,7 @@ public class IntegrationPatternsExampleTest {
         // Set up reply processor (simulates client service)
         replyConsumer.subscribe(message -> {
             IntegrationMessage reply = message.getPayload();
-            logger.info("📬 Received reply: {} for correlation: {}", 
+            logger.info(" Received reply: {} for correlation: {}", 
                 reply.getMessageId(), reply.getCorrelationId());
             
             receivedReplies.incrementAndGet();
@@ -212,7 +212,7 @@ public class IntegrationPatternsExampleTest {
             );
             
             requestProducer.send(request);
-            logger.info("📨 Sent request: {} with correlation: {}", request.getMessageId(), correlationId);
+            logger.info(" Sent request: {} with correlation: {}", request.getMessageId(), correlationId);
         }
         
         // Wait for processing - increased timeout for integration test
@@ -261,7 +261,7 @@ public class IntegrationPatternsExampleTest {
         // Email service subscriber
         emailService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
-            logger.info("📧 Email Service received: {} - {}", event.getMessageType(), event.getMessageId());
+            logger.info(" Email Service received: {} - {}", event.getMessageType(), event.getMessageId());
             emailEvents.incrementAndGet();
             checkpoint.flag();
             return Future.succeededFuture();
@@ -286,7 +286,7 @@ public class IntegrationPatternsExampleTest {
         });
 
         // Publish events to all subscriber queues (simulating pub-sub with outbox pattern)
-        logger.info("📢 Publishing customer events to all subscribers...");
+        logger.info(" Publishing customer events to all subscribers...");
         String[] eventTypes = {"CUSTOMER_CREATED", "CUSTOMER_UPDATED", "CUSTOMER_DELETED"};
 
         for (int i = 0; i < eventTypes.length; i++) {
@@ -363,19 +363,19 @@ public class IntegrationPatternsExampleTest {
             String country = order.getHeaders().get("country");
             String priority = order.getHeaders().get("priority");
 
-            logger.info("🚦 Routing order: {} (country: {}, priority: {})",
+            logger.info(" Routing order: {} (country: {}, priority: {})",
                 order.getMessageId(), country, priority);
 
             try {
                 if ("express".equals(priority)) {
                     expressProducer.send(order);
-                    logger.info("⚡ Routed to express: {}", order.getMessageId());
+                    logger.info(" Routed to express: {}", order.getMessageId());
                 } else if ("US".equals(country)) {
                     domesticProducer.send(order);
                     logger.info("Routed to domestic: {}", order.getMessageId());
                 } else {
                     internationalProducer.send(order);
-                    logger.info("🌍 Routed to international: {}", order.getMessageId());
+                    logger.info(" Routed to international: {}", order.getMessageId());
                 }
             } catch (Exception e) {
                 logger.error("Failed to route message: {}", order.getMessageId(), e);

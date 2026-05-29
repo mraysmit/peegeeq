@@ -126,7 +126,7 @@ public class PgClientFactoryTest {
             factory.createClient("test-client", connectionConfig, null),
             "Should throw NullPointerException for null poolConfig");
             
-        logger.info("✓ All input validation tests passed");
+        logger.info(" All input validation tests passed");
     }
 
     @Test
@@ -151,7 +151,7 @@ public class PgClientFactoryTest {
         assertTrue(retrieved.isPresent(), "Client should be retrievable");
         assertSame(client1, retrieved.get(), "Retrieved client should be same instance");
         
-        logger.info("✓ Idempotency test passed");
+        logger.info(" Idempotency test passed");
     }
 
     @Test
@@ -181,7 +181,7 @@ public class PgClientFactoryTest {
         assertTrue(foundPool.isPresent(), "Pool should be found after client creation");
         assertNotNull(foundPool.get(), "Pool should not be null");
         
-        logger.info("✓ getClient and getPool tests passed");
+        logger.info(" getClient and getPool tests passed");
     }
 
     @Test
@@ -204,7 +204,7 @@ public class PgClientFactoryTest {
         assertTrue(factory.getAvailableClients().contains(client1Id), "Should contain first client ID");
         assertTrue(factory.getAvailableClients().contains(client2Id), "Should contain second client ID");
         
-        logger.info("✓ Available clients test passed");
+        logger.info(" Available clients test passed");
     }
 
     @Test
@@ -252,7 +252,7 @@ public class PgClientFactoryTest {
             new PgClientFactory((PgConnectionManager) null),
             "Should throw NullPointerException for null PgConnectionManager");
             
-        logger.info("✓ Constructor validation test passed");
+        logger.info(" Constructor validation test passed");
     }
 
     @Test
@@ -280,7 +280,7 @@ public class PgClientFactoryTest {
         assertEquals(connectionConfig.getPort(), retrievedConnConfig.getPort(), "Port should match");
         assertEquals(poolConfig.getMaxSize(), retrievedPoolConfig.getMaxSize(), "Pool size should match");
 
-        logger.info("✓ Configuration retrieval test passed");
+        logger.info(" Configuration retrieval test passed");
     }
 
     @Test
@@ -308,7 +308,7 @@ public class PgClientFactoryTest {
         assertTrue(pool2.isPresent(), "Pool should still exist");
         assertSame(pool.get(), pool2.get(), "Should be same pool instance (no double creation)");
 
-        logger.info("✓ No double pool creation test passed - bug fixed!");
+        logger.info(" No double pool creation test passed - bug fixed!");
     }
 
     @Test
@@ -333,7 +333,7 @@ public class PgClientFactoryTest {
         // Verify pool is functional
         assertNotNull(poolFromClient, "Pool should not be null");
 
-        logger.info("✓ PgClient pool access test passed - no stale references!");
+        logger.info(" PgClient pool access test passed - no stale references!");
     }
 
     @Test
@@ -353,7 +353,7 @@ public class PgClientFactoryTest {
         assertTrue(exception.getMessage().contains("No reactive pool found for client: " + clientId),
             "Exception message should indicate missing pool");
 
-        logger.info("✓ PgClient pool access failure test passed - proper error handling!");
+        logger.info(" PgClient pool access failure test passed - proper error handling!");
     }
 
     @Test
@@ -382,6 +382,6 @@ public class PgClientFactoryTest {
         Pool poolViaClient2 = client.getReactivePool();
         assertSame(poolViaClient, poolViaClient2, "Multiple calls should return same instance");
 
-        logger.info("✓ Pool management pattern test passed - following markdown recommendations!");
+        logger.info(" Pool management pattern test passed - following markdown recommendations!");
     }
 }

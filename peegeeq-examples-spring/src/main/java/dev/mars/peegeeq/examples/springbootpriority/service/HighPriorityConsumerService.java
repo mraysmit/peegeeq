@@ -111,7 +111,7 @@ public class HighPriorityConsumerService {
 
         // This should only be HIGH or CRITICAL due to filter
         if (priority != Priority.HIGH && priority != Priority.CRITICAL) {
-            log.warn("⚠️ [HIGH+] Non-high-priority message received (filter bypass?): tradeId={}, priority={}",
+            log.warn(" [HIGH+] Non-high-priority message received (filter bypass?): tradeId={}, priority={}",
                 event.getTradeId(), priority);
             messagesFiltered.incrementAndGet();
             return Future.succeededFuture(null);
@@ -153,7 +153,7 @@ public class HighPriorityConsumerService {
                 return (Void) null;
             })
             .onFailure(ex -> {
-                log.error("❌ [HIGH+] Failed to process message: tradeId={}, priority={}",
+                log.error(" [HIGH+] Failed to process message: tradeId={}, priority={}",
                     event.getTradeId(), priority, ex);
                 messagesFailed.incrementAndGet();
             });
@@ -169,10 +169,10 @@ public class HighPriorityConsumerService {
         long daysUntilSettlement = java.time.temporal.ChronoUnit.DAYS.between(today, settlementDate);
 
         if (daysUntilSettlement <= 0) {
-            log.warn("⚠️ SETTLEMENT CUTOFF: Trade {} settles TODAY - Immediate processing required",
+            log.warn(" SETTLEMENT CUTOFF: Trade {} settles TODAY - Immediate processing required",
                 event.getTradeId());
         } else if (daysUntilSettlement == 1) {
-            log.warn("⚠️ SETTLEMENT CUTOFF: Trade {} settles TOMORROW - Priority processing required",
+            log.warn(" SETTLEMENT CUTOFF: Trade {} settles TOMORROW - Priority processing required",
                 event.getTradeId());
         }
     }
@@ -188,7 +188,7 @@ public class HighPriorityConsumerService {
 
         if (daysUntilSettlement <= 1) {
             // In production: send alert to operations team
-            log.error("🔔 CUTOFF ALERT: Trade {} processed with {} days until settlement - Monitor closely",
+            log.error(" CUTOFF ALERT: Trade {} processed with {} days until settlement - Monitor closely",
                 event.getTradeId(), daysUntilSettlement);
         }
     }

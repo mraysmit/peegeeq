@@ -145,7 +145,7 @@ class BiTemporalEventStoreExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        logger.info("🧹 Cleaning up Bi-Temporal Event Store Example Test");
+        logger.info(" Cleaning up Bi-Temporal Event Store Example Test");
 
         Future<Void> closeChain = Future.succeededFuture();
         if (eventStore != null) {
@@ -207,7 +207,7 @@ class BiTemporalEventStoreExampleTest {
                         assertNotNull(event.getValidTime(), "Valid time should be set");
                         assertNotNull(event.getTransactionTime(), "Transaction time should be set");
                         assertNotNull(event.getPayload(), "Event payload should be present");
-                        logger.info("📋 Event: {} - Valid Time: {}, Transaction Time: {}",
+                        logger.info(" Event: {} - Valid Time: {}, Transaction Time: {}",
                                 event.getPayload().getOrderId(), event.getValidTime(), event.getTransactionTime());
                     }
                     logger.info("Append-only event storage test completed successfully!");
@@ -231,7 +231,7 @@ class BiTemporalEventStoreExampleTest {
                 .validTime(originalValidTime)
                 .execute()
                 .compose(v -> {
-                    logger.info("📋 Original event stored: {}", originalEvent);
+                    logger.info(" Original event stored: {}", originalEvent);
                     return eventStore.appendBuilder()
                             .eventType("OrderUpdated")
                             .payload(correctedEvent)
@@ -240,7 +240,7 @@ class BiTemporalEventStoreExampleTest {
                 })
                 .compose(v -> eventStore.query(EventQuery.all()))
                 .onComplete(testContext.succeeding(allVersions -> testContext.verify(() -> {
-                    logger.info("📋 Corrected event stored: {}", correctedEvent);
+                    logger.info(" Corrected event stored: {}", correctedEvent);
                     List<BiTemporalEvent<OrderEvent>> order004Events = allVersions.stream()
                             .filter(event -> "order-004".equals(event.getPayload().getOrderId()))
                             .toList();
@@ -252,7 +252,7 @@ class BiTemporalEventStoreExampleTest {
                     assertNotEquals(version1.getTransactionTime(), version2.getTransactionTime(),
                             "Versions should have different transaction times");
                     logger.info("Event corrections and versioning test completed successfully!");
-                    logger.info("   📊 Preserved audit trail with {} versions", order004Events.size());
+                    logger.info("    Preserved audit trail with {} versions", order004Events.size());
                     testContext.completeNow();
                 })));
     }
@@ -289,7 +289,7 @@ class BiTemporalEventStoreExampleTest {
                     assertEquals(1, rangeView.size(), "Range query should show 1 event");
                     assertEquals("order-006", rangeView.get(0).getPayload().getOrderId(), "Should be order-006");
                     logger.info("Historical queries and point-in-time views test completed successfully!");
-                    logger.info("   📊 Point-in-time view: {} events, Range view: {} events",
+                    logger.info("    Point-in-time view: {} events, Range view: {} events",
                             pointInTimeView.size(), rangeView.size());
                     testContext.completeNow();
                 })));
@@ -304,7 +304,7 @@ class BiTemporalEventStoreExampleTest {
 
         Future<Void> subscription = eventStore.subscribe(null, message -> {
             BiTemporalEvent<OrderEvent> eventRecord = message.getPayload();
-            logger.info("📡 Real-time event received: {}", eventRecord.getPayload().getOrderId());
+            logger.info(" Real-time event received: {}", eventRecord.getPayload().getOrderId());
             return Future.<Void>succeededFuture();
         });
 
@@ -322,7 +322,7 @@ class BiTemporalEventStoreExampleTest {
                     assertEquals("order-008", storedEvent1.getPayload().getOrderId());
                     assertEquals("order-009", storedEvent2.getPayload().getOrderId());
                     logger.info("Real-time event subscriptions test completed successfully!");
-                    logger.info("   📊 Subscription setup and event storage verified");
+                    logger.info("    Subscription setup and event storage verified");
                     testContext.completeNow();
                 })));
     }
@@ -353,7 +353,7 @@ class BiTemporalEventStoreExampleTest {
                     assertEquals("PROCESSING", payload.getStatus(), "Status should match");
                     assertInstanceOf(OrderEvent.class, payload, "Payload should be OrderEvent type");
                     logger.info("Type-safe event handling test completed successfully!");
-                    logger.info("   📋 Event details: {}", payload);
+                    logger.info("    Event details: {}", payload);
                     testContext.completeNow();
                 })));
     }

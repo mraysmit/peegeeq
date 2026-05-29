@@ -81,7 +81,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 .property("peegeeq.migration.auto-migrate", "true")
                 .build();
         createBiTemporalEventLogTable();
-        logger.info("✓ ReactiveNotificationHandler integration test setup completed");
+        logger.info(" ReactiveNotificationHandler integration test setup completed");
         testContext.completeNow();
     }
 

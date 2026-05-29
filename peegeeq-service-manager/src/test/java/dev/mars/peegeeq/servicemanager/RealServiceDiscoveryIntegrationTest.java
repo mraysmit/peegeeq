@@ -72,7 +72,7 @@ class RealServiceDiscoveryIntegrationTest {
 
     @BeforeAll
     static void setUpConsul() {
-        logger.info("🚀 Setting up shared Consul container for all tests");
+        logger.info(" Setting up shared Consul container for all tests");
 
         // Wait for Consul to be fully ready
         logger.info("Consul container ready at {}:{}", consul.getHost(), consul.getFirstMappedPort());
@@ -98,7 +98,7 @@ class RealServiceDiscoveryIntegrationTest {
 
     @AfterAll
     static void tearDownConsul() {
-        logger.info("🧹 Cleaning up shared Consul resources");
+        logger.info(" Cleaning up shared Consul resources");
 
         if (staticConsulClient != null) {
             staticConsulClient.close();
@@ -128,10 +128,10 @@ class RealServiceDiscoveryIntegrationTest {
         consulClient.putValue(testNamespace + "/setup", "test-initialized")
                 .onComplete(result -> {
                     if (result.succeeded()) {
-                        logger.info("🔧 Test setup completed with namespace: {}", testNamespace);
+                        logger.info(" Test setup completed with namespace: {}", testNamespace);
                         testContext.completeNow();
                     } else {
-                        logger.error("❌ Failed to initialize test namespace", result.cause());
+                        logger.error(" Failed to initialize test namespace", result.cause());
                         testContext.failNow(result.cause());
                     }
                 });
@@ -154,9 +154,9 @@ class RealServiceDiscoveryIntegrationTest {
 
         cleanupPromise.future().onComplete(result -> {
             if (result.succeeded()) {
-                logger.info("🧹 Test cleanup completed for namespace: {}", testNamespace);
+                logger.info(" Test cleanup completed for namespace: {}", testNamespace);
             } else {
-                logger.warn("⚠️ Test cleanup had issues for namespace: {}", testNamespace, result.cause());
+                logger.warn(" Test cleanup had issues for namespace: {}", testNamespace, result.cause());
             }
             // Don't close the shared consulClient - it's reused across tests
             testContext.completeNow();
@@ -171,7 +171,7 @@ class RealServiceDiscoveryIntegrationTest {
                         if (deleteResult.succeeded()) {
                             logger.debug("Cleaned up KV namespace: {}", testNamespace);
                         } else {
-                            logger.warn("⚠️ Failed to clean up KV namespace: {}", testNamespace, deleteResult.cause());
+                            logger.warn(" Failed to clean up KV namespace: {}", testNamespace, deleteResult.cause());
                         }
                         promise.complete();
                     });
@@ -201,9 +201,9 @@ class RealServiceDiscoveryIntegrationTest {
                 int expectedPort = (int) ((Object[]) result)[1];
 
                 assertNotNull(instances);
-                logger.info("🔍 Discovery returned {} instances", instances.size());
+                logger.info(" Discovery returned {} instances", instances.size());
                 if (instances.isEmpty()) {
-                    logger.warn("❌ No instances discovered - health checks may have failed");
+                    logger.warn(" No instances discovered - health checks may have failed");
                 } else {
                     logger.info("Discovered instances: {}",
                             instances.stream().map(PeeGeeQInstance::getInstanceId).toList());
@@ -297,7 +297,7 @@ class RealServiceDiscoveryIntegrationTest {
 
     @Test
     void testConsulFailureAndRecovery(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing Consul failure and recovery scenarios");
+        logger.info(" Testing Consul failure and recovery scenarios");
 
         // First, register a service normally
         startHealthyPeeGeeQService(vertx)

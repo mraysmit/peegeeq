@@ -57,7 +57,7 @@ public class ServiceDiscoveryExampleTest {
         vertx = Vertx.vertx();
         client = WebClient.create(vertx);
         
-        logger.info("✓ Service Discovery Example Test setup completed");
+        logger.info(" Service Discovery Example Test setup completed");
     }
     
     @AfterEach
@@ -69,7 +69,7 @@ public class ServiceDiscoveryExampleTest {
                 client.close();
                 logger.info("WebClient closed");
             } catch (Exception e) {
-                logger.warn("⚠️ Error closing WebClient", e);
+                logger.warn(" Error closing WebClient", e);
             }
         }
         
@@ -78,11 +78,11 @@ public class ServiceDiscoveryExampleTest {
                 vertx.close().await();
                 logger.info("Vert.x closed successfully");
             } catch (Exception e) {
-                logger.warn("⚠️ Error during Vert.x cleanup", e);
+                logger.warn(" Error during Vert.x cleanup", e);
             }
         }
         
-        logger.info("✓ Service Discovery Example Test teardown completed");
+        logger.info(" Service Discovery Example Test teardown completed");
     }
 
     /**
@@ -182,7 +182,7 @@ public class ServiceDiscoveryExampleTest {
         logger.info("\n--- Service Manager Health ---");
         
         // Simulate service manager health check
-        logger.info("🏥 Checking Service Manager health...");
+        logger.info(" Checking Service Manager health...");
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(100, id -> delay.complete());
         delay.future().await();
@@ -191,7 +191,7 @@ public class ServiceDiscoveryExampleTest {
         String status = "UP";
         long responseTime = 25; // 25ms response time
         
-        logger.info("✓ Service Manager health check completed");
+        logger.info(" Service Manager health check completed");
         logger.info("   Status: {}, Response time: {}ms", status, responseTime);
         
         return new ServiceHealthResult(isHealthy, status, responseTime);
@@ -205,7 +205,7 @@ public class ServiceDiscoveryExampleTest {
         
         // Simulate instance registration
         String instanceId = "peegeeq-instance-" + System.currentTimeMillis();
-        logger.info("📝 Registering instance: {}", instanceId);
+        logger.info(" Registering instance: {}", instanceId);
         
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(50, id -> delay.complete());
@@ -214,7 +214,7 @@ public class ServiceDiscoveryExampleTest {
         boolean registrationSuccessful = true;
         int registeredInstances = 3; // Simulate 3 registered instances
         
-        logger.info("✓ Instance registration completed");
+        logger.info(" Instance registration completed");
         logger.info("   Instance: {}, Total registered: {}", instanceId, registeredInstances);
         
         return new InstanceRegistrationResult(instanceId, registeredInstances, registrationSuccessful);
@@ -228,7 +228,7 @@ public class ServiceDiscoveryExampleTest {
         
         // Simulate federated management
         String federationId = "peegeeq-federation-" + System.currentTimeMillis();
-        logger.info("🌐 Setting up federation: {}", federationId);
+        logger.info(" Setting up federation: {}", federationId);
         
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(100, id -> delay.complete());
@@ -237,7 +237,7 @@ public class ServiceDiscoveryExampleTest {
         int federatedInstances = 3;
         int managementOperations = 5; // Simulate 5 management operations
         
-        logger.info("✓ Federated management setup completed");
+        logger.info(" Federated management setup completed");
         logger.info("   Federation: {}, Instances: {}, Operations: {}", 
             federationId, federatedInstances, managementOperations);
         
@@ -251,17 +251,17 @@ public class ServiceDiscoveryExampleTest {
         logger.info("\n--- Instance Management ---");
         
         // Simulate instance management operations
-        logger.info("⚖️ Testing load balancing...");
+        logger.info(" Testing load balancing...");
         Promise<Void> delay1 = Promise.promise();
         vertx.setTimer(50, id -> delay1.complete());
         delay1.future().await();
         
-        logger.info("🔄 Testing failover scenarios...");
+        logger.info(" Testing failover scenarios...");
         Promise<Void> delay2 = Promise.promise();
         vertx.setTimer(50, id -> delay2.complete());
         delay2.future().await();
         
-        logger.info("📊 Monitoring instance health...");
+        logger.info(" Monitoring instance health...");
         Promise<Void> delay3 = Promise.promise();
         vertx.setTimer(50, id -> delay3.complete());
         delay3.future().await();
@@ -270,7 +270,7 @@ public class ServiceDiscoveryExampleTest {
         int loadBalancingOperations = 10;
         boolean failoverTested = true;
         
-        logger.info("✓ Instance management completed");
+        logger.info(" Instance management completed");
         logger.info("   Active instances: {}, Load balancing operations: {}", 
             activeInstances, loadBalancingOperations);
         

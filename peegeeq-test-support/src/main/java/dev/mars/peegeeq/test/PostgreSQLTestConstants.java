@@ -32,7 +32,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
  *     .withUsername("test_user")
  *     .withPassword("test_password");
  * 
- * // ❌ WRONG - Don't hardcode versions
+ * //  WRONG - Don't hardcode versions
  * PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:15")
  * ```
  * 

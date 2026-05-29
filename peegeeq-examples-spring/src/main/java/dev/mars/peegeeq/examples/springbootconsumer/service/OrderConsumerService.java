@@ -184,7 +184,7 @@ public class OrderConsumerService {
             })
             .map(v -> (Void) null)
             .onFailure(ex -> {
-                log.error("❌ Failed to process message: orderId={}", event.getOrderId(), ex);
+                log.error(" Failed to process message: orderId={}", event.getOrderId(), ex);
                 messagesFailed.incrementAndGet();
             });
     }

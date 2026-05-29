@@ -90,7 +90,7 @@ public class OutboxMessageOrderingSpringBootTest {
 
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
-        logger.info("🧹 Cleaning up Message Ordering Spring Boot Test");
+        logger.info(" Cleaning up Message Ordering Spring Boot Test");
         
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
@@ -98,7 +98,7 @@ public class OutboxMessageOrderingSpringBootTest {
                 consumer.close();
                 logger.info("Closed consumer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing consumer: {}", e.getMessage());
+                logger.error(" Error closing consumer: {}", e.getMessage());
             }
         }
         activeConsumers.clear();
@@ -109,13 +109,13 @@ public class OutboxMessageOrderingSpringBootTest {
                 producer.close();
                 logger.info("Closed producer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing producer: {}", e.getMessage());
+                logger.error(" Error closing producer: {}", e.getMessage());
             }
         }
         activeProducers.clear();
         
         // Wait for connections to be fully released before next test
-        logger.info("⏳ Waiting for connections to be released...");
+        logger.info(" Waiting for connections to be released...");
         vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
             peeGeeQManagerRef = peeGeeQManager;
             logger.info("Cleanup complete");
@@ -156,7 +156,7 @@ public class OutboxMessageOrderingSpringBootTest {
         consumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             processedOrder.add(order.getSequence());
-            logger.info("📦 Processed message sequence: {}", order.getSequence());
+            logger.info(" Processed message sequence: {}", order.getSequence());
             checkpoint.flag();
             return Future.succeededFuture();
         });
@@ -168,7 +168,7 @@ public class OutboxMessageOrderingSpringBootTest {
         // Send messages in sequence with delays to ensure distinct created_at timestamps.
         // 50ms between sends: with millisecond DB precision and async commits, 2ms is too small
         // and can produce duplicate timestamps within the same poll batch, breaking FIFO order.
-        logger.info("📤 Sending 10 messages in sequence");
+        logger.info(" Sending 10 messages in sequence");
         Future<Void> sendChain = Future.succeededFuture();
         for (int i = 1; i <= 10; i++) {
             final int seq = i;
@@ -185,7 +185,7 @@ public class OutboxMessageOrderingSpringBootTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed within 15 seconds");
         
         // Verify FIFO ordering
-        logger.info("📊 FIFO Ordering Results:");
+        logger.info(" FIFO Ordering Results:");
         logger.info("   Expected order: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]");
         logger.info("   Actual order:   {}", processedOrder);
         
@@ -227,7 +227,7 @@ public class OutboxMessageOrderingSpringBootTest {
             String group = order.getCustomerId();
             groupOrders.computeIfAbsent(group, k -> Collections.synchronizedList(new ArrayList<>()))
                 .add(order.getSequence());
-            logger.info("📦 Processed message sequence: {} for group: {}", order.getSequence(), group);
+            logger.info(" Processed message sequence: {} for group: {}", order.getSequence(), group);
             checkpoint.flag();
             return Future.succeededFuture();
         });
@@ -237,7 +237,7 @@ public class OutboxMessageOrderingSpringBootTest {
         activeProducers.add(producer);
         
         // Send messages for 3 different groups (customer IDs)
-        logger.info("📤 Sending messages for 3 different customer groups");
+        logger.info(" Sending messages for 3 different customer groups");
         String[] customers = {"customer-A", "customer-B", "customer-C"};
         final int[] sequenceHolder = {1};
 
@@ -262,7 +262,7 @@ public class OutboxMessageOrderingSpringBootTest {
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
         
         // Verify ordering within each group
-        logger.info("📊 Message Group Ordering Results:");
+        logger.info(" Message Group Ordering Results:");
         for (String customer : customers) {
             List<Integer> order = groupOrders.get(customer);
             logger.info("   Group {}: {}", customer, order);
@@ -308,7 +308,7 @@ public class OutboxMessageOrderingSpringBootTest {
             String group = order.getCustomerId();
             groupCounts.computeIfAbsent(group, k -> new AtomicInteger(0)).incrementAndGet();
             totalProcessed.incrementAndGet();
-            logger.info("📦 Processed message for group: {} (total: {})", group, totalProcessed.get());
+            logger.info(" Processed message for group: {} (total: {})", group, totalProcessed.get());
             checkpoint.flag();
             return Future.succeededFuture();
         });
@@ -318,7 +318,7 @@ public class OutboxMessageOrderingSpringBootTest {
         activeProducers.add(producer);
         
         // Send messages for 4 different groups rapidly
-        logger.info("📤 Sending 20 messages across 4 groups rapidly");
+        logger.info(" Sending 20 messages across 4 groups rapidly");
         String[] groups = {"group-1", "group-2", "group-3", "group-4"};
         
         for (int i = 1; i <= 20; i++) {
@@ -332,7 +332,7 @@ public class OutboxMessageOrderingSpringBootTest {
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
         
         // Verify all messages were processed
-        logger.info("📊 Concurrent Processing Results:");
+        logger.info(" Concurrent Processing Results:");
         logger.info("   Total messages processed: {}", totalProcessed.get());
         assertEquals(20, totalProcessed.get(), "Should have processed 20 messages");
         

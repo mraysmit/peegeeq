@@ -189,7 +189,7 @@ class OrderServiceTest {
 
         StepVerifier.create(orderIdMono)
             .expectNextMatches(orderId -> {
-                logger.info("✓ Order created with ID: {}", orderId);
+                logger.info(" Order created with ID: {}", orderId);
                 return orderId != null && !orderId.isEmpty();
             })
             .expectComplete()
@@ -217,7 +217,7 @@ class OrderServiceTest {
 
         StepVerifier.create(orderIdMono)
             .expectNextMatches(orderId -> {
-                logger.info("✓ Order created with validation, ID: {}", orderId);
+                logger.info(" Order created with validation, ID: {}", orderId);
                 return orderId != null && !orderId.isEmpty();
             })
             .expectComplete()
@@ -253,7 +253,7 @@ class OrderServiceTest {
 
         StepVerifier.create(orderMono)
             .expectNextMatches(order -> {
-                logger.info("✓ Order found: {}", order.getId());
+                logger.info(" Order found: {}", order.getId());
                 return order.getId().equals(orderId)
                     && order.getCustomerId().equals("CUST-SVC-003");
             })
@@ -279,7 +279,7 @@ class OrderServiceTest {
             .expectComplete()
             .verify(Duration.ofSeconds(10));
 
-        logger.info("✓ Non-existent order correctly returned empty Mono");
+        logger.info(" Non-existent order correctly returned empty Mono");
         logger.info("=== Test Completed Successfully ===");
     }
 
@@ -310,7 +310,7 @@ class OrderServiceTest {
 
         StepVerifier.create(orderMono)
             .expectNextMatches(order -> {
-                logger.info("✓ Order found for customer: {}", order.getCustomerId());
+                logger.info(" Order found for customer: {}", order.getCustomerId());
                 return order.getCustomerId().equals(customerId);
             })
             .expectComplete()
@@ -348,7 +348,7 @@ class OrderServiceTest {
             .expectComplete()
             .verify(Duration.ofSeconds(10));
 
-        logger.info("✓ Order validated successfully");
+        logger.info(" Order validated successfully");
         logger.info("=== Test Completed Successfully ===");
     }
 
@@ -375,7 +375,7 @@ class OrderServiceTest {
             .expectComplete()
             .verify(Duration.ofSeconds(5));
 
-        logger.info("✓ Reactive operation completed within expected time");
+        logger.info(" Reactive operation completed within expected time");
         logger.info("=== Test Completed Successfully ===");
     }
 
@@ -387,8 +387,8 @@ class OrderServiceTest {
         logger.info("=== Test: Service Autowired ===");
 
         assertNotNull(orderService, "OrderService should be autowired");
-        logger.info("✓ OrderService is properly autowired");
-        logger.info("✓ Reactive service layer is working");
+        logger.info(" OrderService is properly autowired");
+        logger.info(" Reactive service layer is working");
 
         logger.info("=== Test Completed Successfully ===");
     }

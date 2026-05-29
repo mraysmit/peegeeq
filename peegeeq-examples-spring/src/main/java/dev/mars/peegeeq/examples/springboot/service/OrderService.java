@@ -133,7 +133,7 @@ public class OrderService {
                 ).map(v -> id);
             })
             .onSuccess(id -> log.info("Order {} created successfully with all events", id))
-            .onFailure(error -> log.error("❌ Order creation failed, transaction will rollback: {}", error.getMessage()));
+            .onFailure(error -> log.error(" Order creation failed, transaction will rollback: {}", error.getMessage()));
 
         });
     }
@@ -180,15 +180,15 @@ public class OrderService {
 
                 // Business validation that might fail
                 if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
-                    log.info("🧪 INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
+                    log.info(" INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
                     return Future.failedFuture(
-                        new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
+                        new RuntimeException(" INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
                 }
 
                 if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
-                    log.info("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
+                    log.info(" INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
                     return Future.failedFuture(
-                        new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
+                        new RuntimeException(" INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
                 }
 
                 // Step 2: Save order
@@ -202,10 +202,10 @@ public class OrderService {
             .onSuccess(id -> log.info("Order {} created successfully with business validation", id))
             .onFailure(error -> {
                 String errorMessage = error.getMessage();
-                if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                    log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                if (errorMessage != null && errorMessage.contains(" INTENTIONAL TEST FAILURE:")) {
+                    log.info(" TRANSACTION ROLLBACK: {}", errorMessage);
                 } else {
-                    log.error("❌ TRANSACTION ROLLBACK: Order creation failed: {}", errorMessage);
+                    log.error(" TRANSACTION ROLLBACK: Order creation failed: {}", errorMessage);
                 }
             });
 
@@ -246,12 +246,12 @@ public class OrderService {
             .onSuccess(id -> log.info("Order {} created successfully with database constraints", id))
             .onFailure(error -> {
                 String errorMessage = error.getMessage();
-                if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                    log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                if (errorMessage != null && errorMessage.contains(" INTENTIONAL TEST FAILURE:")) {
+                    log.info(" TRANSACTION ROLLBACK: {}", errorMessage);
                 } else if (errorMessage != null && errorMessage.contains("Database constraint violation")) {
-                    log.info("❌ TRANSACTION ROLLBACK: {}", errorMessage);
+                    log.info(" TRANSACTION ROLLBACK: {}", errorMessage);
                 } else {
-                    log.error("❌ TRANSACTION ROLLBACK: Database operation failed: {}", errorMessage);
+                    log.error(" TRANSACTION ROLLBACK: Database operation failed: {}", errorMessage);
                 }
             });
 
@@ -282,7 +282,7 @@ public class OrderService {
             .compose(v -> orderEventProducer.sendInExistingTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection))
             .map(v -> orderId)
             .onSuccess(id -> log.info("TRANSACTION SUCCESS: Order {} and all events committed together", id))
-            .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
+            .onFailure(error -> log.error(" TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
 
         });
     }

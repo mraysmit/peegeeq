@@ -115,7 +115,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @Test
     void testConfigurationBatchSizeIntegrationWithConsumerModes() throws Exception {
-        logger.info("🧪 Testing PeeGeeQConfiguration batch size integration with consumer modes");
+        logger.info(" Testing PeeGeeQConfiguration batch size integration with consumer modes");
 
         // Recreate configuration with custom batch size
         Properties testMethodProps = PeeGeeQTestConfig.builder()
@@ -168,7 +168,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @Test
     void testConfigurationPollingIntervalIntegrationWithConsumerModes() throws Exception {
-        logger.info("🧪 Testing PeeGeeQConfiguration polling interval integration with consumer modes");
+        logger.info(" Testing PeeGeeQConfiguration polling interval integration with consumer modes");
 
         // Recreate configuration with custom polling interval
         Properties testMethodProps = PeeGeeQTestConfig.builder()
@@ -220,7 +220,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @Test
     void testConfigurationVisibilityTimeoutIntegrationWithConsumerModes() throws Exception {
-        logger.info("🧪 Testing PeeGeeQConfiguration visibility timeout integration with consumer modes");
+        logger.info(" Testing PeeGeeQConfiguration visibility timeout integration with consumer modes");
 
         // Recreate configuration with custom visibility timeout
         Properties testMethodProps = PeeGeeQTestConfig.builder()
@@ -271,7 +271,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @Test
     void testConfigurationConsumerThreadsIntegrationWithConsumerModes() throws Exception {
-        logger.info("🧪 Testing PeeGeeQConfiguration consumer threads integration with consumer modes");
+        logger.info(" Testing PeeGeeQConfiguration consumer threads integration with consumer modes");
 
         // Recreate configuration with custom consumer threads
         Properties testMethodProps = PeeGeeQTestConfig.builder()
@@ -326,7 +326,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @Test
     void testMultipleConfigurationPropertiesIntegrationWithConsumerModes() throws Exception {
-        logger.info("🧪 Testing multiple PeeGeeQConfiguration properties integration with consumer modes");
+        logger.info(" Testing multiple PeeGeeQConfiguration properties integration with consumer modes");
 
         // Recreate configuration with multiple custom properties
         Properties testMethodProps = PeeGeeQTestConfig.builder()
@@ -392,7 +392,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @Test
     void testConfigurationDefaultValuesWithConsumerModes() throws Exception {
-        logger.info("🧪 Testing PeeGeeQConfiguration default values with consumer modes");
+        logger.info(" Testing PeeGeeQConfiguration default values with consumer modes");
 
         // Create configuration with defaults
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", PeeGeeQTestConfig.builder()

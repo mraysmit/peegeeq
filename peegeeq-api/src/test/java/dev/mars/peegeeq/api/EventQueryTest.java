@@ -149,8 +149,8 @@ class EventQueryTest {
 
         range = new TemporalRange();
         str = range.toString();
-        assertTrue(str.contains("-∞"));
-        assertTrue(str.contains("+∞"));
+        assertTrue(str.contains("-"));
+        assertTrue(str.contains("+"));
     }
 
     @Test

@@ -83,9 +83,9 @@ public class RunMigrations {
             String schema = System.getenv().getOrDefault("DB_SCHEMA", "public");
             boolean cleanOnStart = Boolean.parseBoolean(System.getenv().getOrDefault("DB_CLEAN_ON_START", "false"));
 
-            System.out.println("╔════════════════════════════════════════════════════════════════╗");
-            System.out.println("║           PeeGeeQ Database Migration Runner                    ║");
-            System.out.println("╚════════════════════════════════════════════════════════════════╝");
+            System.out.println("");
+            System.out.println("           PeeGeeQ Database Migration Runner                    ");
+            System.out.println("");
             System.out.println();
             System.out.println("Command:  " + command);
             System.out.println("Database: " + maskPassword(jdbcUrl));
@@ -109,16 +109,16 @@ public class RunMigrations {
             switch (command) {
                 case "migrate":
                     if (cleanOnStart) {
-                        System.out.println("⚠️  WARNING: DB_CLEAN_ON_START=true - Cleaning database!");
-                        System.out.println("⚠️  This will DELETE ALL DATA!");
+                        System.out.println("  WARNING: DB_CLEAN_ON_START=true - Cleaning database!");
+                        System.out.println("  This will DELETE ALL DATA!");
                         System.out.println();
                         flyway.clean();
-                        System.out.println("✓ Database cleaned");
+                        System.out.println(" Database cleaned");
                         System.out.println();
                     }
                     
                     MigrateResult result = flyway.migrate();
-                    System.out.println("✓ Migration completed successfully");
+                    System.out.println(" Migration completed successfully");
                     System.out.println("  Migrations executed: " + result.migrationsExecuted);
                     System.out.println("  Target version:      " + (result.targetSchemaVersion != null ? result.targetSchemaVersion : "latest"));
                     break;
@@ -126,7 +126,7 @@ public class RunMigrations {
                 case "info":
                     MigrationInfoService info = flyway.info();
                     System.out.println("Migration Status:");
-                    System.out.println("─────────────────────────────────────────────────────────────────");
+                    System.out.println("");
                     for (MigrationInfo migration : info.all()) {
                         System.out.printf("%-10s | %-40s | %s%n",
                                 migration.getVersion(),
@@ -137,42 +137,42 @@ public class RunMigrations {
                     
                 case "validate":
                     flyway.validate();
-                    System.out.println("✓ Validation successful - all migrations are consistent");
+                    System.out.println(" Validation successful - all migrations are consistent");
                     break;
                     
                 case "baseline":
                     flyway.baseline();
-                    System.out.println("✓ Database baselined successfully");
+                    System.out.println(" Database baselined successfully");
                     break;
                     
                 case "repair":
                     flyway.repair();
-                    System.out.println("✓ Metadata table repaired successfully");
+                    System.out.println(" Metadata table repaired successfully");
                     break;
                     
                 case "clean":
                     if (!cleanOnStart) {
-                        System.err.println("❌ ERROR: 'clean' command requires DB_CLEAN_ON_START=true");
+                        System.err.println(" ERROR: 'clean' command requires DB_CLEAN_ON_START=true");
                         System.err.println("   This is a safety measure to prevent accidental data loss");
                         System.exit(1);
                     }
                     flyway.clean();
-                    System.out.println("✓ Database cleaned successfully");
+                    System.out.println(" Database cleaned successfully");
                     break;
                     
                 default:
-                    System.err.println("❌ ERROR: Unknown command: " + command);
+                    System.err.println(" ERROR: Unknown command: " + command);
                     System.err.println("   Valid commands: migrate, info, validate, baseline, repair, clean");
                     System.exit(1);
             }
             
             System.out.println();
-            System.out.println("✓ Operation completed successfully");
+            System.out.println(" Operation completed successfully");
             System.exit(0);
             
         } catch (Exception e) {
             System.err.println();
-            System.err.println("❌ ERROR: Migration failed");
+            System.err.println(" ERROR: Migration failed");
             System.err.println("   " + e.getMessage());
             e.printStackTrace();
             System.exit(1);

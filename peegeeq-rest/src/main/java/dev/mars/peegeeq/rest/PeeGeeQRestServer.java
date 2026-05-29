@@ -152,11 +152,11 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         }
 
         if (config.allowedOrigins().size() == 1 && "*".equals(config.allowedOrigins().get(0))) {
-            logger.warn("⚠️  SECURITY WARNING: CORS is configured to allow ALL origins (wildcard '*'). " +
+            logger.warn("  SECURITY WARNING: CORS is configured to allow ALL origins (wildcard '*'). " +
                     "This is acceptable for development/testing but NOT recommended for production. " +
                     "Consider specifying explicit allowed origins in production environments.");
         } else {
-            logger.info("✓ CORS configuration validated: {} allowed origin(s)", config.allowedOrigins().size());
+            logger.info(" CORS configuration validated: {} allowed origin(s)", config.allowedOrigins().size());
             config.allowedOrigins().forEach(origin -> logger.debug("  - Allowed origin: {}", origin));
         }
     }
@@ -552,10 +552,10 @@ public class PeeGeeQRestServer extends AbstractVerticle {
             Throwable failure = ctx.failure();
             String message = failure != null ? failure.getMessage() : "Internal Server Error";
 
-            // Throwable + 5xx = handler bug — ERROR with full stack trace.
-            // Throwable + 4xx = expected rejection with cause (e.g. not found) — DEBUG, no stack trace.
-            // No throwable + 5xx = explicit ctx.fail(5xx) with no cause — WARN.
-            // No throwable + 4xx = explicit ctx.fail(4xx) — DEBUG.
+            // Throwable + 5xx = handler bug  ERROR with full stack trace.
+            // Throwable + 4xx = expected rejection with cause (e.g. not found)  DEBUG, no stack trace.
+            // No throwable + 5xx = explicit ctx.fail(5xx) with no cause  WARN.
+            // No throwable + 4xx = explicit ctx.fail(4xx)  DEBUG.
             if (failure != null && status >= 500) {
                 logger.error("Unhandled exception in route [{} {}] status={}",
                         ctx.request().method(), ctx.request().path(), status, failure);

@@ -47,7 +47,7 @@ import java.util.Properties;
  * </ul>
  *
  * <p>Plain JUnit 5 + Vert.x JUnit 5. All async setup/teardown is coordinated through
- * {@link VertxTestContext} — no blocking bridges, no {@code System.setProperty} side-effects.
+ * {@link VertxTestContext}  no blocking bridges, no {@code System.setProperty} side-effects.
  */
 @Testcontainers
 @ExtendWith(VertxExtension.class)
@@ -124,7 +124,7 @@ public abstract class FundsCustodyTestBase {
         // Fresh container reference each test (in case of restart between classes).
         postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
-        // Build config from the container — no System.setProperty side-effects.
+        // Build config from the container  no System.setProperty side-effects.
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
             .property("peegeeq.health-check.queue-checks-enabled", "false")
             .build();

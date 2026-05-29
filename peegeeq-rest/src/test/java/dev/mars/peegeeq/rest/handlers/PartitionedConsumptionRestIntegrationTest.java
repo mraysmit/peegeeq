@@ -95,7 +95,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     void setupServer(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Partitioned Consumption REST Integration Test ===");
 
-        // Initialize schema directly on the container's default database (clean DB → Flyway runs all migrations)
+        // Initialize schema directly on the container's default database (clean DB  Flyway runs all migrations)
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
         setupId = "partitioned-test-setup";

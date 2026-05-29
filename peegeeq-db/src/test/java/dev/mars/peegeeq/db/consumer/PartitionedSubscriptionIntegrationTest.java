@@ -149,7 +149,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
 
     // ========================================================================
     // Test 5.2: Join Partitioned Group Rejects REFERENCE_COUNTING Topic
-    // REFERENCE_COUNTING topic → IllegalArgumentException.
+    // REFERENCE_COUNTING topic  IllegalArgumentException.
     // ========================================================================
 
     @Test
@@ -181,7 +181,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
 
     // ========================================================================
     // Test 5.3: Leave Partitioned Group Triggers Rebalance
-    // Leave → remaining instance gets all partitions.
+    // Leave  remaining instance gets all partitions.
     // ========================================================================
 
     @Test
@@ -257,7 +257,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
 
     // ========================================================================
     // Test 5.5: Fetch Partitioned Rejects Unassigned Partition
-    // Fetch partition not assigned to caller → error.
+    // Fetch partition not assigned to caller  error.
     // ========================================================================
 
     @Test
@@ -330,7 +330,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
 
     // ========================================================================
     // Test 5.7: Commit Offset Stale Generation Returns False
-    // Commit after rebalance with old gen → false.
+    // Commit after rebalance with old gen  false.
     // ========================================================================
 
     @Test
@@ -352,7 +352,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                                 return subscriptionManager.fetchPartitioned(topic, groupName, "part-1", 3, oldGeneration)
                                         .compose(messages -> {
                                             long lastId = messages.get(messages.size() - 1).getLong("id");
-                                            // Second instance joins → triggers rebalance → new generation
+                                            // Second instance joins  triggers rebalance  new generation
                                             return subscriptionManager.joinPartitionedGroup(topic, groupName, "instance-2")
                                                     .compose(assignments2 -> {
                                                         // Try to commit with the OLD generation
@@ -414,7 +414,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
 
     // ========================================================================
     // Test 5.9: End-to-End Join, Fetch, Commit, Leave
-    // Full lifecycle: join → fetch → commit → leave.
+    // Full lifecycle: join  fetch  commit  leave.
     // ========================================================================
 
     @Test

@@ -1010,7 +1010,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         Objects.requireNonNull(eventId, "Event ID cannot be null");
 
         // Walk up the correction chain to find the root, then walk down to collect all descendants.
-        // Uses RECURSIVE CTE to handle chains of arbitrary depth (A→B→C→D...).
+        // Uses RECURSIVE CTE to handle chains of arbitrary depth (ABCD...).
         String sql = """
                 WITH RECURSIVE ancestors AS (
                     SELECT event_id, previous_version_id
@@ -1276,7 +1276,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         eventBusInstanceRegistry.computeIfPresent(eventBusInstanceKey,
             (key, existing) -> existing == this ? null : existing);
 
-        // Close resources sequentially: notification handler → reactive pool → pipelined client.
+        // Close resources sequentially: notification handler  reactive pool  pipelined client.
         // .eventually() ensures subsequent closes run regardless of earlier failures.
         // The notification handler is closed first via .compose() so its error propagates;
         // pool and client use .eventually() for best-effort cleanup with errors logged.
@@ -1637,7 +1637,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             logger.debug("Could not get pool size from configuration, using default: {}", e.getMessage());
         }
 
-        // Default based on PostgreSQL best practices: connections ≈ (2 × CPU cores) + disk spindles.
+        // Default based on PostgreSQL best practices: connections  (2  CPU cores) + disk spindles.
         // For most deployments 20 is a safe default; override via PeeGeeQManager config.
         int defaultSize = 20;
         logger.info("Using default pool size: {} (override via PeeGeeQManager configuration)", defaultSize);

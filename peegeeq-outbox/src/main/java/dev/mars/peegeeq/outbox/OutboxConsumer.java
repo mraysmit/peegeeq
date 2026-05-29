@@ -77,7 +77,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // PgClientFactory)
     private final String clientId;
 
-    // Tenant schema name — used to qualify all SQL table references
+    // Tenant schema name  used to qualify all SQL table references
     private final String schemaName;
 
     // Vert.x instance for timer-based polling
@@ -119,7 +119,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
-        // null schema → unqualified SQL (relies on search_path); non-null → schema-qualified SQL
+        // null schema  unqualified SQL (relies on search_path); non-null  schema-qualified SQL
         this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
 
         logger.info(
@@ -152,7 +152,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.vertx = Objects.requireNonNull(databaseService.getVertx(),
-                "DatabaseService.getVertx() must not return null — provide a running Vertx instance");
+                "DatabaseService.getVertx() must not return null  provide a running Vertx instance");
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -160,7 +160,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
-        // null schema → unqualified SQL (relies on search_path); non-null → schema-qualified SQL
+        // null schema  unqualified SQL (relies on search_path); non-null  schema-qualified SQL
         this.schemaName = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
 
         logger.info(

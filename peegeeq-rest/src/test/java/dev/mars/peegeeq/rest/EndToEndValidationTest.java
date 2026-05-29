@@ -263,7 +263,7 @@ class EndToEndValidationTest {
     void testDocumentationAndValidation() {
         logger.info("=== End-to-End Validation Test Documentation ===");
         logger.info("");
-        logger.info("🔹 This test suite validates:");
+        logger.info(" This test suite validates:");
         logger.info("  - REST API endpoints are accessible and functional");
         logger.info("  - Management API provides correct data structures");
         logger.info("  - Health checks return proper status information");
@@ -271,14 +271,14 @@ class EndToEndValidationTest {
         logger.info("  - Server can start and stop cleanly");
         logger.info("  - All major components integrate properly");
         logger.info("");
-        logger.info("🔹 Test Coverage:");
+        logger.info(" Test Coverage:");
         logger.info("  - Health Check API: /api/v1/health");
         logger.info("  - Management Overview: /api/v1/management/overview");
         logger.info("  - Management Queues: /api/v1/management/queues");
         logger.info("  - Metrics Endpoint: /metrics");
         logger.info("  - Server Lifecycle: startup/shutdown");
         logger.info("");
-        logger.info("🔹 Validation Results:");
+        logger.info(" Validation Results:");
         logger.info("  - All endpoints return expected HTTP status codes");
         logger.info("  - Response formats match API specifications");
         logger.info("  - JSON structures contain required fields");

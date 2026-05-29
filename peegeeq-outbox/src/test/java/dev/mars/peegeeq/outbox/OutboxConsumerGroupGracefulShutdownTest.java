@@ -175,7 +175,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     void stopGracefully_withSubscription_cancelsAndStops(VertxTestContext testContext) throws Exception {
         group = createGroup("sub-group", "test-topic");
         group.addConsumer("c1", msg -> Future.succeededFuture());
-        // Start with subscription options — creates the subscription in the DB
+        // Start with subscription options  creates the subscription in the DB
         group.start(SubscriptionOptions.builder().build())
                 .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
                 .compose(v -> group.stopGracefully())
@@ -219,11 +219,11 @@ class OutboxConsumerGroupGracefulShutdownTest {
         // Start with subscription options, then stop (not gracefully), then verify stopGracefully is no-op
         group.start(SubscriptionOptions.builder().build())
                 .map(v -> { testContext.verify(() -> assertTrue(group.isActive())); return v; })
-                .compose(v -> group.stop())  // regular stop — does not cancel DB subscription
+                .compose(v -> group.stop())  // regular stop  does not cancel DB subscription
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertFalse(group.isActive());
                     var future = group.stopGracefully();
-                    assertTrue(future.succeeded(), "Should succeed as no-op — group is already stopped");
+                    assertTrue(future.succeeded(), "Should succeed as no-op  group is already stopped");
                     testContext.completeNow();
                 })));
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

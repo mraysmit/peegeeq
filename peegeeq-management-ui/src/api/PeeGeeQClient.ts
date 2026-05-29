@@ -122,7 +122,7 @@ export class PeeGeeQClient {
         body?: unknown,
         queryParams?: Record<string, string | number | boolean | undefined>
     ): Promise<T> {
-        const urlString = getVersionedApiUrl(path, this.config.baseUrl);
+        const urlString = getVersionedApiUrl(path);
         const url = new URL(urlString);
 
         if (queryParams) {

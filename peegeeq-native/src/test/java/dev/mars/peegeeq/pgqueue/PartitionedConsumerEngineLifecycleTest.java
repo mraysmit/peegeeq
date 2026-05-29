@@ -454,7 +454,7 @@ class PartitionedConsumerEngineLifecycleTest {
     }
 
     // ========================================================================
-    // isOffsetWatermarkTopic static method, no pool → failed future
+    // isOffsetWatermarkTopic static method, no pool  failed future
     // ========================================================================
 
     @Nested
@@ -462,7 +462,7 @@ class PartitionedConsumerEngineLifecycleTest {
     class IsOffsetWatermarkTopic {
 
         @Test
-        @DisplayName("no pool → failed future with IllegalStateException")
+        @DisplayName("no pool  failed future with IllegalStateException")
         void noPool_failedFuture() {
             Future<Boolean> result = PartitionedConsumerEngine.isOffsetWatermarkTopic(
                     connectionManager, "test-svc", "any-topic");

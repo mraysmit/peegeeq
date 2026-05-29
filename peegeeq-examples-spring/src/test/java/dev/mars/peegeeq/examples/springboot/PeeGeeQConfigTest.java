@@ -227,11 +227,11 @@ class PeeGeeQConfigTest {
         assertNull(System.getProperty("peegeeq.database.password"),
                 "peegeeq.database.password must not be set as a System property");
 
-        // The manager must still be fully started — config was passed via the 2-arg constructor
+        // The manager must still be fully started  config was passed via the 2-arg constructor
         assertTrue(peeGeeQManager.isStarted(),
                 "PeeGeeQ Manager must be started even without System properties");
 
-        logger.info("System properties isolation verified — no peegeeq.* System properties set");
+        logger.info("System properties isolation verified  no peegeeq.* System properties set");
         logger.info("System properties test passed");
     }
     

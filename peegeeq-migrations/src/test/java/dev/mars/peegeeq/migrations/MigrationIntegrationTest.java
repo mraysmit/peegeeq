@@ -84,7 +84,7 @@ class MigrationIntegrationTest {
         assertThat(result.migrationsExecuted).isGreaterThan(0);
         assertThat(result.warnings).isEmpty();
         
-        log.info("✓ Migration execution successful");
+        log.info(" Migration execution successful");
     }
 
     @Test
@@ -101,7 +101,7 @@ class MigrationIntegrationTest {
         assertThat(secondResult.success).isTrue();
         assertThat(secondResult.migrationsExecuted).isZero(); // No new migrations on second run
         
-        log.info("✓ Migrations are idempotent - no changes on second run");
+        log.info(" Migrations are idempotent - no changes on second run");
     }
 
     @Test
@@ -130,7 +130,7 @@ class MigrationIntegrationTest {
                 .as("All required tables should exist")
                 .containsAll(expectedTables);
         
-        log.info("✓ All {} required tables verified (including V010 tables)", expectedTables.size());
+        log.info(" All {} required tables verified (including V010 tables)", expectedTables.size());
     }
 
     @Test
@@ -163,7 +163,7 @@ class MigrationIntegrationTest {
                 );
         }
         
-        log.info("✓ All V010 fanout columns verified");
+        log.info(" All V010 fanout columns verified");
     }
 
     @Test
@@ -200,7 +200,7 @@ class MigrationIntegrationTest {
                 );
         }
         
-        log.info("✓ outbox_topics table structure verified");
+        log.info(" outbox_topics table structure verified");
     }
 
     @Test
@@ -240,7 +240,7 @@ class MigrationIntegrationTest {
                 );
         }
         
-        log.info("✓ outbox_topic_subscriptions table structure verified");
+        log.info(" outbox_topic_subscriptions table structure verified");
     }
 
     @Test
@@ -283,7 +283,7 @@ class MigrationIntegrationTest {
                 );
         }
 
-        log.info("✓ bitemporal_subscriptions table structure verified");
+        log.info(" bitemporal_subscriptions table structure verified");
     }
 
     @Test
@@ -315,7 +315,7 @@ class MigrationIntegrationTest {
                 .doesNotContain("outbox_message_id", "consumer_group_name");
         }
         
-        log.info("✓ Column rename verified - using message_id and group_name");
+        log.info(" Column rename verified - using message_id and group_name");
     }
 
     @Test

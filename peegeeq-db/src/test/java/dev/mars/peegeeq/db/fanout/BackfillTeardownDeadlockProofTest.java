@@ -132,7 +132,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     }
 
     /**
-     * DELIBERATELY BROKEN teardown — uses a broad LIKE predicate that covers ALL
+     * DELIBERATELY BROKEN teardown  uses a broad LIKE predicate that covers ALL
      * concurrent tests' topics.
      *
      * <p>When multiple test methods run in parallel and one finishes first, this
@@ -161,7 +161,7 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Three concurrent test methods — all use the shared "deadlock-probe-" prefix
+    // Three concurrent test methods  all use the shared "deadlock-probe-" prefix
     // ========================================================================
 
     @Test

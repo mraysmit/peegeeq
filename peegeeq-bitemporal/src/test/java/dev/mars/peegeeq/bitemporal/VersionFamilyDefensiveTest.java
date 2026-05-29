@@ -211,7 +211,7 @@ class VersionFamilyDefensiveTest {
     void crossFamilyIsolationGetAllVersions(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Create family A: root-A → corr-A1 → corr-A2
+        // Create family A: root-A  corr-A1  corr-A2
         eventStore.appendBuilder()
                 .eventType("FamilyA").payload(new DefensiveEvent("rootA", "family-A-root", 1)).validTime(t).execute()
                 .compose(rootA -> eventStore.appendCorrection(rootA.getEventId(), "FamilyA",
@@ -220,7 +220,7 @@ class VersionFamilyDefensiveTest {
                 .compose(a -> eventStore.appendCorrection(a.getValue().getEventId(), "FamilyA",
                         new DefensiveEvent("corrA2", "family-A-corr2", 3), t, "correct A again")
                         .map(corrA2 -> a.getKey()))
-                // Create family B: root-B → corr-B1
+                // Create family B: root-B  corr-B1
                 .compose(rootA -> eventStore.appendBuilder()
                         .eventType("FamilyB").payload(new DefensiveEvent("rootB", "family-B-root", 100)).validTime(t).execute()
                         .map(rootB -> Map.entry(rootA, rootB)))
@@ -269,7 +269,7 @@ class VersionFamilyDefensiveTest {
     void crossFamilyIsolationGetAsOfTransactionTime(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Family A: root-A → corr-A1
+        // Family A: root-A  corr-A1
         eventStore.appendBuilder()
                 .eventType("IsoA").payload(new DefensiveEvent("isoA", "family-A", 1)).validTime(t).execute()
                 .compose(rootA -> eventStore.appendCorrection(rootA.getEventId(), "IsoA",
@@ -553,7 +553,7 @@ class VersionFamilyDefensiveTest {
     void getAsOfTransactionTimeWithTreeTopology(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // A(v1) → B(v2, prev=A), A → C(v3, prev=A), B → D(v4, prev=B)
+        // A(v1)  B(v2, prev=A), A  C(v3, prev=A), B  D(v4, prev=B)
         eventStore.appendBuilder()
                 .eventType("TreeAsOf").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> delay(50).compose(d ->
@@ -691,7 +691,7 @@ class VersionFamilyDefensiveTest {
     void independentFamiliesHaveIndependentVersionNumbers(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Family 1: root → 2 corrections (versions 1, 2, 3)
+        // Family 1: root  2 corrections (versions 1, 2, 3)
         eventStore.appendBuilder()
                 .eventType("IndepA").payload(new DefensiveEvent("a1", "family-A", 1)).validTime(t).execute()
                 .compose(rootA -> eventStore.appendCorrection(rootA.getEventId(), "IndepA",
@@ -699,7 +699,7 @@ class VersionFamilyDefensiveTest {
                         .compose(c1 -> eventStore.appendCorrection(c1.getEventId(), "IndepA",
                                 new DefensiveEvent("a3", "family-A-v3", 3), t, "corr 2"))
                         .map(c2 -> rootA))
-                // Family 2: root → 1 correction (versions 1, 2)
+                // Family 2: root  1 correction (versions 1, 2)
                 .compose(rootA -> eventStore.appendBuilder()
                         .eventType("IndepB").payload(new DefensiveEvent("b1", "family-B", 10)).validTime(t).execute()
                         .compose(rootB -> eventStore.appendCorrection(rootB.getEventId(), "IndepB",
@@ -936,7 +936,7 @@ class VersionFamilyDefensiveTest {
     void chainModelGetAllVersionsFromMiddle(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Chain model: system enforces A→B→C→D regardless of which event ID caller passes
+        // Chain model: system enforces ABCD regardless of which event ID caller passes
         eventStore.appendBuilder()
                 .eventType("StarMid").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(root -> eventStore.appendCorrection(root.getEventId(), "StarMid",
@@ -976,7 +976,7 @@ class VersionFamilyDefensiveTest {
         Instant t = Instant.now();
 
         // Chain model: system resolves latest version for each correction.
-        // Regardless of which event ID caller passes, the chain is: A→B→C→D→E
+        // Regardless of which event ID caller passes, the chain is: ABCDE
         eventStore.appendBuilder()
                 .eventType("MixedWide").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> eventStore.appendCorrection(a.getEventId(), "MixedWide",
@@ -1027,7 +1027,7 @@ class VersionFamilyDefensiveTest {
     void consistencyBetweenMethodsAcrossTopologies(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Build a chain: A → B → C (chain model enforced)
+        // Build a chain: A  B  C (chain model enforced)
         eventStore.appendBuilder()
                 .eventType("ConsistCheck").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(root -> eventStore.appendCorrection(root.getEventId(), "ConsistCheck",

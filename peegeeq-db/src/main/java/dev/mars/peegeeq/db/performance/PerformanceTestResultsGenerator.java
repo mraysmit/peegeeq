@@ -71,19 +71,19 @@ public class PerformanceTestResultsGenerator {
         report.append("**Vert.x Version:** ").append(vertxVersion).append("  \n\n");
         
         // Executive Summary
-        report.append("## 📊 Executive Summary\n\n");
+        report.append("##  Executive Summary\n\n");
         report.append(generateExecutiveSummary());
         
         // System Configuration
         report.append("\n").append(SystemInfoCollector.formatAsMarkdown(systemInfo));
         
         // Detailed Test Results
-        report.append("\n## 🎯 Detailed Test Results\n\n");
+        report.append("\n##  Detailed Test Results\n\n");
         report.append(generateDetailedResults());
         
         // Additional Information
         if (!additionalInfo.isEmpty()) {
-            report.append("\n## 📋 Additional Information\n\n");
+            report.append("\n##  Additional Information\n\n");
             for (Map.Entry<String, String> entry : additionalInfo.entrySet()) {
                 report.append("- **").append(entry.getKey()).append(":** ").append(entry.getValue()).append("\n");
             }
@@ -152,12 +152,12 @@ public class PerformanceTestResultsGenerator {
                 return "**PASSED**";
             case "FAILED":
             case "FAILURE":
-                return "❌ **FAILED**";
+                return " **FAILED**";
             case "PARTIAL":
             case "WARNING":
-                return "⚠️ **PARTIAL**";
+                return " **PARTIAL**";
             case "SKIPPED":
-                return "⏭️ **SKIPPED**";
+                return " **SKIPPED**";
             default:
                 return status;
         }

@@ -71,7 +71,7 @@ public class PerformanceComparisonExampleTest {
 
         containerProps = buildContainerProperties(postgres);
         
-        logger.info("✓ Performance Comparison Example Test setup completed");
+        logger.info(" Performance Comparison Example Test setup completed");
     }
     
     @AfterEach
@@ -81,12 +81,12 @@ public class PerformanceComparisonExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    logger.info("✓ Performance Comparison Example Test teardown completed");
+                    logger.info(" Performance Comparison Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
         } else {
-            logger.info("✓ Performance Comparison Example Test teardown completed");
+            logger.info(" Performance Comparison Example Test teardown completed");
             testContext.completeNow();
         }
     }
@@ -186,7 +186,7 @@ public class PerformanceComparisonExampleTest {
      */
     private Future<PerformanceResult> testConfiguration(String configName, int threads, int batchSize, String pollingInterval) {
         logger.info("\n=== Testing Configuration: {} ===", configName);
-        logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
+        logger.info(" Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
         Properties perfProps = buildPerformanceProperties(threads, batchSize, pollingInterval);
         Properties merged = new Properties();
@@ -209,7 +209,7 @@ public class PerformanceComparisonExampleTest {
                     totalTimeMs - 50L, throughput, 15.0
                 );
 
-                logger.info("📊 Results for {}: {} messages in {}ms",
+                logger.info(" Results for {}: {} messages in {}ms",
                     configName, processedCount, totalTimeMs);
 
                 return mgr.closeReactive().map(closed -> result);
@@ -259,7 +259,7 @@ public class PerformanceComparisonExampleTest {
      */
     private void displayPerformanceComparison(PerformanceResult... results) {
         logger.info("\n" + "=".repeat(80));
-        logger.info("📊 PERFORMANCE COMPARISON RESULTS");
+        logger.info(" PERFORMANCE COMPARISON RESULTS");
         logger.info("=".repeat(80));
         
         logger.info(String.format("%-20s %-8s %-10s %-12s %-10s %-12s %-10s", 

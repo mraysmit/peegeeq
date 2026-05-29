@@ -52,28 +52,28 @@ public class NativeQueuePerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public Future<Results> execute(PerformanceTestConfig config) {
-        logger.info("⚡ Starting native queue performance test suite");
+        logger.info(" Starting native queue performance test suite");
         
         Results results = new Results();
         
         try {
             // Test 1: LISTEN/NOTIFY performance
-            logger.info("📡 Testing LISTEN/NOTIFY performance");
+            logger.info(" Testing LISTEN/NOTIFY performance");
             double listenNotifyThroughput = testListenNotifyPerformance(config);
             results.addSuccess();
             
             // Test 2: Consumer mode comparison
-            logger.info("🔄 Testing consumer mode performance");
+            logger.info(" Testing consumer mode performance");
             double hybridModeLatency = testConsumerModePerformance(config);
             results.addSuccess();
             
             // Test 3: Producer-consumer throughput
-            logger.info("🔄 Testing producer-consumer throughput");
+            logger.info(" Testing producer-consumer throughput");
             double producerConsumerThroughput = testProducerConsumerThroughput(config);
             results.addSuccess();
             
             // Test 4: Message processing latency
-            logger.info("⏱️ Testing message processing latency");
+            logger.info(" Testing message processing latency");
             LatencyMetrics latencyMetrics = testMessageProcessingLatency(config);
             results.addSuccess();
             
@@ -96,7 +96,7 @@ public class NativeQueuePerformanceTestSuite implements PerformanceTestSuite {
             logger.info("Native queue performance test suite completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Native queue performance test suite failed", e);
+            logger.error(" Native queue performance test suite failed", e);
             results.addFailure("NativeQueueTestSuite", e);
         }
         
@@ -170,7 +170,7 @@ public class NativeQueuePerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public void cleanup() {
-        logger.info("🧹 Cleaning up native queue performance test suite");
+        logger.info(" Cleaning up native queue performance test suite");
         // Cleanup resources, close connections, etc.
     }
 }

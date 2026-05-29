@@ -561,7 +561,7 @@ public class SubscriptionManager implements SubscriptionService {
                     boolean resurrected = "DEAD".equals(oldStatus) && "ACTIVE".equals(newStatus);
                     if (resurrected) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.info("Consumer group '{}' on topic '{}' resurrected: DEAD → ACTIVE via heartbeat",
+                            logger.info("Consumer group '{}' on topic '{}' resurrected: DEAD  ACTIVE via heartbeat",
                                        groupName, topic);
                         }
                     }

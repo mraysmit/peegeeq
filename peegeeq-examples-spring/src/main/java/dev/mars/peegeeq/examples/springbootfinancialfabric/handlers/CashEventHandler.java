@@ -96,7 +96,7 @@ public class CashEventHandler {
         
         CashMovementEvent cashMovement = event.getPayload();
         
-        log.info("💰 Cash Movement Completed: {} - {} {} in {} (Account: {})",
+        log.info(" Cash Movement Completed: {} - {} {} in {} (Account: {})",
                 cashMovement.getMovementId(),
                 cashMovement.getMovementType(),
                 cashMovement.getAmount(),

@@ -151,7 +151,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
-    // Test 6.1: Consumer start on OFFSET_WATERMARK topic → automatically
+    // Test 6.1: Consumer start on OFFSET_WATERMARK topic  automatically
     // calls joinPartitionedGroup and receives partition assignments.
     // ========================================================================
 
@@ -217,7 +217,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
-    // Test 6.2: Consumer close → calls leavePartitionedGroup, partition
+    // Test 6.2: Consumer close  calls leavePartitionedGroup, partition
     // assignments removed when last instance leaves.
     // ========================================================================
 
@@ -416,7 +416,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
-    // Test 6.5: Generation bump → old consumer stops fetching revoked partitions.
+    // Test 6.5: Generation bump  old consumer stops fetching revoked partitions.
     // After rebalance, the old engine's generation is stale and fetches are rejected.
     // ========================================================================
 
@@ -492,7 +492,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
-    // Test 6.6: 2 consumers → each processes different partitions concurrently.
+    // Test 6.6: 2 consumers  each processes different partitions concurrently.
     // ========================================================================
 
     @Test
@@ -627,8 +627,8 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
-    // Test 6.8: After all groups commit past message → watermark advances
-    // → message swept to COMPLETED.
+    // Test 6.8: After all groups commit past message  watermark advances
+    //  message swept to COMPLETED.
     // ========================================================================
 
     @Test
@@ -1010,7 +1010,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
     // ========================================================================
     // Test 6.12: Fetch + business write + offset commit in same PG transaction.
-    // Commit → both visible. Rollback → neither visible.
+    // Commit  both visible. Rollback  neither visible.
     // ========================================================================
 
     @Test
@@ -1076,7 +1076,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     int cnt = rows2.iterator().next().getInteger("cnt");
                                                     assertTrue(cnt > 0,
                                                             "Business result row should exist after txn commit");
-                                                    logger.info("TEST 6.12 PASSED: txn commit → offset=100, business rows={}", cnt);
+                                                    logger.info("TEST 6.12 PASSED: txn commit  offset=100, business rows={}", cnt);
                                                     return (Void) null;
                                                 });
                                             })
@@ -1129,7 +1129,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                 return offsetManager.initializeOffset(topic, groupName, "zombie-part", genA)
                                         .compose(initOff -> {
                                             // Simulate network partition: A stops heartbeating
-                                            // Rebalance: B joins → gen bumps
+                                            // Rebalance: B joins  gen bumps
                                             return assignmentService.leaveGroup(topic, groupName, "consumer-A")
                                                     .compose(v2 -> assignmentService.joinGroup(topic, groupName, "consumer-B"));
                                         })

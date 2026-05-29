@@ -164,7 +164,7 @@ public class OrderController {
                 return ResponseEntity.ok(response);
             })
             .onErrorResume(error -> {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
+                log.error(" TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
                 CreateOrderResponse response = new CreateOrderResponse(null,
                     "Database operation failed and was rolled back: " + error.getMessage());
@@ -200,7 +200,7 @@ public class OrderController {
                 return ResponseEntity.ok(response);
             })
             .onErrorResume(error -> {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
+                log.error(" TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
                 CreateOrderResponse response = new CreateOrderResponse(null,
                     "Order creation with multiple events failed and was rolled back: " + error.getMessage());

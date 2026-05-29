@@ -40,7 +40,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * 
  * Use Case:
  * End-to-end equity trade lifecycle:
- * Trading → Custody → Treasury → Position Management → Regulatory Reporting
+ * Trading  Custody  Treasury  Position Management  Regulatory Reporting
  * 
  * Run with:
  * mvn spring-boot:run -pl peegeeq-examples \

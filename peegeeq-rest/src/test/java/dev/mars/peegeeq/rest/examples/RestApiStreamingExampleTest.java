@@ -83,7 +83,7 @@ public class RestApiStreamingExampleTest {
         httpClient = vertx.createHttpClient();
         wsClient = vertx.createWebSocketClient();
         
-        logger.info("✓ REST API Streaming Example Test setup completed");
+        logger.info(" REST API Streaming Example Test setup completed");
     }
     
     @AfterEach
@@ -95,7 +95,7 @@ public class RestApiStreamingExampleTest {
                 client.close();
                 logger.info("WebClient closed");
             } catch (Exception e) {
-                logger.warn("⚠️ Error closing WebClient", e);
+                logger.warn(" Error closing WebClient", e);
             }
         }
         
@@ -104,7 +104,7 @@ public class RestApiStreamingExampleTest {
                 httpClient.close();
                 logger.info("HttpClient closed");
             } catch (Exception e) {
-                logger.warn("⚠️ Error closing HttpClient", e);
+                logger.warn(" Error closing HttpClient", e);
             }
         }
         
@@ -113,7 +113,7 @@ public class RestApiStreamingExampleTest {
                 wsClient.close();
                 logger.info("WebSocketClient closed");
             } catch (Exception e) {
-                logger.warn("⚠️ Error closing WebSocketClient", e);
+                logger.warn(" Error closing WebSocketClient", e);
             }
         }
         
@@ -122,11 +122,11 @@ public class RestApiStreamingExampleTest {
                 vertx.close().await();
                 logger.info("Vert.x closed successfully");
             } catch (Exception e) {
-                logger.warn("⚠️ Error during Vert.x cleanup", e);
+                logger.warn(" Error during Vert.x cleanup", e);
             }
         }
         
-        logger.info("✓ REST API Streaming Example Test teardown completed");
+        logger.info(" REST API Streaming Example Test teardown completed");
     }
 
     /**
@@ -254,7 +254,7 @@ public class RestApiStreamingExampleTest {
         boolean connectionEstablished = true;
         
         // Simulate WebSocket streaming
-        logger.info("🔌 Establishing WebSocket connection...");
+        logger.info(" Establishing WebSocket connection...");
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(100, id -> delay.complete());
         delay.future().await();
@@ -262,10 +262,10 @@ public class RestApiStreamingExampleTest {
         // Simulate receiving messages
         for (int i = 0; i < 5; i++) {
             messagesReceived.incrementAndGet();
-            logger.debug("📨 WebSocket message received: {}", i + 1);
+            logger.debug(" WebSocket message received: {}", i + 1);
         }
         
-        logger.info("✓ WebSocket streaming demonstrated");
+        logger.info(" WebSocket streaming demonstrated");
         
         return new StreamingResult("WebSocket", messagesReceived.get(), connectionEstablished, null);
     }
@@ -280,7 +280,7 @@ public class RestApiStreamingExampleTest {
         boolean connectionEstablished = true;
         
         // Simulate SSE streaming
-        logger.info("📡 Establishing SSE connection...");
+        logger.info(" Establishing SSE connection...");
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(100, id -> delay.complete());
         delay.future().await();
@@ -288,10 +288,10 @@ public class RestApiStreamingExampleTest {
         // Simulate receiving SSE messages
         for (int i = 0; i < 3; i++) {
             messagesReceived.incrementAndGet();
-            logger.debug("📻 SSE message received: event-{}", i + 1);
+            logger.debug(" SSE message received: event-{}", i + 1);
         }
         
-        logger.info("✓ Server-Sent Events demonstrated");
+        logger.info(" Server-Sent Events demonstrated");
         
         return new StreamingResult("SSE", messagesReceived.get(), connectionEstablished, null);
     }
@@ -307,7 +307,7 @@ public class RestApiStreamingExampleTest {
         String filterCriteria = "priority=HIGH";
         
         // Simulate filtered streaming
-        logger.info("🔍 Establishing filtered streaming connection...");
+        logger.info(" Establishing filtered streaming connection...");
         logger.info("   Filter criteria: {}", filterCriteria);
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(100, id -> delay.complete());
@@ -316,10 +316,10 @@ public class RestApiStreamingExampleTest {
         // Simulate receiving filtered messages
         for (int i = 0; i < 2; i++) {
             messagesReceived.incrementAndGet();
-            logger.debug("🎯 Filtered message received: high-priority-{}", i + 1);
+            logger.debug(" Filtered message received: high-priority-{}", i + 1);
         }
         
-        logger.info("✓ Streaming with filtering demonstrated");
+        logger.info(" Streaming with filtering demonstrated");
         
         return new StreamingResult("Filtered", messagesReceived.get(), connectionEstablished, filterCriteria);
     }
@@ -335,24 +335,24 @@ public class RestApiStreamingExampleTest {
         boolean errorHandlingTested = true;
         
         // Simulate connection lifecycle
-        logger.info("🔗 Creating connections...");
+        logger.info(" Creating connections...");
         connectionsCreated = 3;
         Promise<Void> delay1 = Promise.promise();
         vertx.setTimer(50, id -> delay1.complete());
         delay1.future().await();
         
-        logger.info("❌ Testing error handling...");
+        logger.info(" Testing error handling...");
         Promise<Void> delay2 = Promise.promise();
         vertx.setTimer(50, id -> delay2.complete());
         delay2.future().await();
         
-        logger.info("🔌 Closing connections...");
+        logger.info(" Closing connections...");
         connectionsClosed = 3;
         Promise<Void> delay3 = Promise.promise();
         vertx.setTimer(50, id -> delay3.complete());
         delay3.future().await();
         
-        logger.info("✓ Connection management demonstrated");
+        logger.info(" Connection management demonstrated");
         
         return new ConnectionManagementResult(connectionsCreated, connectionsClosed, errorHandlingTested);
     }
@@ -368,20 +368,20 @@ public class RestApiStreamingExampleTest {
         int messagesDistributed = 15;
         
         // Simulate consumer group streaming
-        logger.info("👥 Setting up consumer group: {}", groupId);
+        logger.info(" Setting up consumer group: {}", groupId);
         logger.info("   Consumer count: {}", consumerCount);
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(100, id -> delay.complete());
         delay.future().await();
         
         // Simulate message distribution
-        logger.info("📤 Distributing messages to consumers...");
+        logger.info(" Distributing messages to consumers...");
         for (int i = 0; i < messagesDistributed; i++) {
             int consumerId = i % consumerCount;
-            logger.debug("📨 Message {} → Consumer {}", i + 1, consumerId);
+            logger.debug(" Message {}  Consumer {}", i + 1, consumerId);
         }
         
-        logger.info("✓ Real-time consumer groups demonstrated");
+        logger.info(" Real-time consumer groups demonstrated");
         
         return new ConsumerGroupResult(groupId, consumerCount, messagesDistributed);
     }

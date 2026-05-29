@@ -148,7 +148,7 @@ public class AllTradesConsumerService {
             })
             .map(v -> (Void) null)
             .onFailure(ex -> {
-                log.error("❌ [ALL-CRITICAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
+                log.error(" [ALL-CRITICAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
                 messagesFailed.incrementAndGet();
             });
     }
@@ -177,7 +177,7 @@ public class AllTradesConsumerService {
             })
             .map(v -> (Void) null)
             .onFailure(ex -> {
-                log.error("❌ [ALL-HIGH] Failed to process message: tradeId={}", event.getTradeId(), ex);
+                log.error(" [ALL-HIGH] Failed to process message: tradeId={}", event.getTradeId(), ex);
                 messagesFailed.incrementAndGet();
             });
     }
@@ -206,7 +206,7 @@ public class AllTradesConsumerService {
             })
             .map(v -> (Void) null)
             .onFailure(ex -> {
-                log.error("❌ [ALL-NORMAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
+                log.error(" [ALL-NORMAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
                 messagesFailed.incrementAndGet();
             });
     }

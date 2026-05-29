@@ -64,10 +64,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * infinite PENDING loop (retry_count never incremented).</p>
  *
  * <ul>
- *   <li>TC-1: filter exception → retry_count increments (not stuck at 0)</li>
- *   <li>TC-2: filter exception exhausts max retries → dead_letter_queue entry, outbox DEAD_LETTER</li>
- *   <li>TC-3: circuit breaker OPEN → retry_count stops incrementing (CB protection intact)</li>
- *   <li>TC-6: DLQ write is atomic — exactly one DLQ entry, outbox status consistent</li>
+ *   <li>TC-1: filter exception  retry_count increments (not stuck at 0)</li>
+ *   <li>TC-2: filter exception exhausts max retries  dead_letter_queue entry, outbox DEAD_LETTER</li>
+ *   <li>TC-3: circuit breaker OPEN  retry_count stops incrementing (CB protection intact)</li>
+ *   <li>TC-6: DLQ write is atomic  exactly one DLQ entry, outbox status consistent</li>
  * </ul>
  */
 @Tag(TestCategories.INTEGRATION)
@@ -138,11 +138,11 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
     }
 
     // =========================================================================
-    // TC-1: Filter exception → retry_count increments
+    // TC-1: Filter exception  retry_count increments
     // =========================================================================
 
     @Test
-    @DisplayName("TC-1: filter exception propagates to retry handler — retry_count increments")
+    @DisplayName("TC-1: filter exception propagates to retry handler  retry_count increments")
     void tc1_filterExceptionIncrementsRetryCount(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== TC-1: filter exception propagates to retry handler ===");
 
@@ -162,13 +162,13 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
                 .compose(v -> awaitDatabaseCondition(vertx,
                         () -> queryRetryCountAsync(testTopic).map(rc -> rc > 0),
                         10_000,
-                        "retry_count should have incremented after filter exception — " +
+                        "retry_count should have incremented after filter exception  " +
                         "if still 0 the exception was swallowed (old bug)"))
                 .compose(v -> queryRetryCountAsync(testTopic))
                 .onSuccess(retryCount -> testContext.verify(() -> {
                     assertTrue(retryCount > 0,
                             "retry_count should be > 0 after filter exception, was " + retryCount +
-                            " — exception was swallowed (old bug present)");
+                            "  exception was swallowed (old bug present)");
                     logger.info("TC-1 PASSED: retry_count={}, outbox has been retried", retryCount);
                     testContext.completeNow();
                 }))
@@ -178,13 +178,13 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
     }
 
     // =========================================================================
-    // TC-2: Filter exception exhausts retries → dead_letter_queue + DEAD_LETTER
+    // TC-2: Filter exception exhausts retries  dead_letter_queue + DEAD_LETTER
     // =========================================================================
 
     @Test
-    @DisplayName("TC-2: filter exception exhausts retries — message moves to dead_letter_queue")
+    @DisplayName("TC-2: filter exception exhausts retries  message moves to dead_letter_queue")
     void tc2_filterExceptionExhaustsRetries_movesToDLQ(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== TC-2: filter exception exhausts retries → DLQ ===");
+        logger.info("=== TC-2: filter exception exhausts retries  DLQ ===");
 
         startManager("2")
                 .compose(v -> {
@@ -201,7 +201,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
                 .compose(v -> awaitDatabaseCondition(vertx,
                         () -> queryStatusAsync(testTopic).map("DEAD_LETTER"::equals),
                         20_000,
-                        "outbox status should be DEAD_LETTER after exhausting retries — " +
+                        "outbox status should be DEAD_LETTER after exhausting retries  " +
                         "if still PENDING the exception was swallowed (old bug)"))
                 .compose(v -> queryRetryCountAsync(testTopic))
                 .compose(retryCount -> {
@@ -221,19 +221,19 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
     }
 
     // =========================================================================
-    // TC-3: Circuit breaker OPEN → retry_count stops incrementing
+    // TC-3: Circuit breaker OPEN  retry_count stops incrementing
     // =========================================================================
 
     @Test
-    @DisplayName("TC-3: circuit breaker OPEN — retry_count does not increment further")
+    @DisplayName("TC-3: circuit breaker OPEN  retry_count does not increment further")
     void tc3_circuitBreakerOpen_retryCountStopsIncrementing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== TC-3: circuit breaker OPEN — retry_count stops incrementing ===");
+        logger.info("=== TC-3: circuit breaker OPEN  retry_count stops incrementing ===");
 
         // max-retries=50: the message must survive long enough for CB to open.
         // Default CB: failureThreshold=5, minimumRequests=10.
         // With polling-interval=100ms and all attempts failing, CB opens after ~10 cycles (1s).
-        // After CB opens: acceptsMessage() returns false (no exception) → MessageFilteredException
-        // → resetFilteredMessageToPending() → retry_count stays the same.
+        // After CB opens: acceptsMessage() returns false (no exception)  MessageFilteredException
+        //  resetFilteredMessageToPending()  retry_count stays the same.
         AtomicInteger retryCountAtCbOpen = new AtomicInteger(-1);
 
         startManager("50")
@@ -258,8 +258,8 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
                             return false;
                         }),
                         15_000,
-                        "retry_count should reach 10 — takes ~1s with polling-interval=100ms"))
-                // Wait 2 more seconds (≈20 additional polling cycles) — CB is OPEN, no increments expected
+                        "retry_count should reach 10  takes ~1s with polling-interval=100ms"))
+                // Wait 2 more seconds (20 additional polling cycles)  CB is OPEN, no increments expected
                 .compose(v -> vertx.timer(2000))
                 .compose(v -> queryRetryCountAsync(testTopic))
                 .onSuccess(finalRetryCount -> testContext.verify(() -> {
@@ -270,7 +270,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
                     // CB OPEN means no further filter invocations, so retry_count should not grow.
                     // Allow a margin of +2 for any in-flight cycles at the moment CB opened.
                     assertTrue(finalRetryCount <= capturedAtOpen + 2,
-                            "retry_count should stop incrementing when CB is OPEN — " +
+                            "retry_count should stop incrementing when CB is OPEN  " +
                             "was " + capturedAtOpen + " at CB open, is " + finalRetryCount +
                             " after 2s (20 polling cycles). CB protection appears broken.");
 
@@ -284,11 +284,11 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
     }
 
     // =========================================================================
-    // TC-6: DLQ write is atomic — outbox + dead_letter_queue are consistent
+    // TC-6: DLQ write is atomic  outbox + dead_letter_queue are consistent
     // =========================================================================
 
     @Test
-    @DisplayName("TC-6: DLQ write is atomic — exactly one DLQ entry, outbox status DEAD_LETTER consistent")
+    @DisplayName("TC-6: DLQ write is atomic  exactly one DLQ entry, outbox status DEAD_LETTER consistent")
     void tc6_dlqWriteIsAtomic(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== TC-6: DLQ write atomicity ===");
 
@@ -329,7 +329,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
     }
 
     // =========================================================================
-    // Async DB helpers — all return Future<T>, no blocking
+    // Async DB helpers  all return Future<T>, no blocking
     // =========================================================================
 
     private Future<Integer> queryRetryCountAsync(String topic) {
@@ -360,7 +360,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
     }
 
     // =========================================================================
-    // Async polling — Supplier<Future<Boolean>> variant, no event-loop blocking
+    // Async polling  Supplier<Future<Boolean>> variant, no event-loop blocking
     // =========================================================================
 
     /**
@@ -384,7 +384,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
                     }
                     if (System.currentTimeMillis() > deadline) {
                         String reason = ar.failed()
-                                ? " — condition threw: " + ar.cause().getMessage()
+                                ? "  condition threw: " + ar.cause().getMessage()
                                 : " (timed out)";
                         return Future.failedFuture(new AssertionError(failureMessage + reason));
                     }

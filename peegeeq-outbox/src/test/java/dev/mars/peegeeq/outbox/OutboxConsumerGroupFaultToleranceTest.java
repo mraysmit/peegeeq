@@ -69,11 +69,11 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>These tests exercise failure paths that can only be tested with a real database:
  * <ul>
- *   <li>F2 DB connection loss during polling → poll loop self-heals</li>
- *   <li>F4 Handler fails mid-batch → remaining messages still processed</li>
- *   <li>F3 Hung handler blocks poll loop → documented blocking behavior</li>
- *   <li>F5 stop() called while handler is in-flight → clean shutdown</li>
- *   <li>F6 All consumers fail → retry/DLQ pipeline engaged</li>
+ *   <li>F2 DB connection loss during polling  poll loop self-heals</li>
+ *   <li>F4 Handler fails mid-batch  remaining messages still processed</li>
+ *   <li>F3 Hung handler blocks poll loop  documented blocking behavior</li>
+ *   <li>F5 stop() called while handler is in-flight  clean shutdown</li>
+ *   <li>F6 All consumers fail  retry/DLQ pipeline engaged</li>
  * </ul>
  */
 @Tag(TestCategories.INTEGRATION)
@@ -216,7 +216,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F4 Handler fails mid-batch → remaining messages still processed
+    // F4 Handler fails mid-batch  remaining messages still processed
     // ========================================================================
 
     @Nested
@@ -420,11 +420,11 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F6 All consumers fail → retry/DLQ pipeline
+    // F6 All consumers fail  retry/DLQ pipeline
     // ========================================================================
 
     @Nested
-    @DisplayName("F6: Handler failure → retry/DLQ pipeline")
+    @DisplayName("F6: Handler failure  retry/DLQ pipeline")
     class RetryAndDlqPipeline {
 
         @Test

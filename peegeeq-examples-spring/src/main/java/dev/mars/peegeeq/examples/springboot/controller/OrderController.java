@@ -149,11 +149,11 @@ public class OrderController {
                 if (ar.succeeded()) return Future.succeededFuture(ar.result());
                 Throwable error = ar.cause();
                 String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
-                if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
-                    log.info("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
+                if (errorMessage != null && errorMessage.contains(" INTENTIONAL TEST FAILURE:")) {
+                    log.info(" TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
                         request.getCustomerId(), errorMessage);
                 } else {
-                    log.error("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
+                    log.error(" TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
                         request.getCustomerId(), errorMessage, error);
                 }
                 return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -192,7 +192,7 @@ public class OrderController {
             .transform(ar -> {
                 if (ar.succeeded()) return Future.succeededFuture(ar.result());
                 Throwable error = ar.cause();
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
+                log.error(" TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
                 return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .<CreateOrderResponse>body(new CreateOrderResponse(null,
@@ -233,7 +233,7 @@ public class OrderController {
             .transform(ar -> {
                 if (ar.succeeded()) return Future.succeededFuture(ar.result());
                 Throwable error = ar.cause();
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
+                log.error(" TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
                 return Future.succeededFuture(ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                         .<CreateOrderResponse>body(new CreateOrderResponse(null,

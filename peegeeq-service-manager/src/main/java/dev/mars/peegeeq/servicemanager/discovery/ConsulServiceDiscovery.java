@@ -93,8 +93,8 @@ public class ConsulServiceDiscovery {
 
                 serviceOptions.setCheckOptions(healthCheck);
 
-                logger.info("🔍 Registering service with health check URL: {}", healthUrl);
-                logger.info("🔍 Health check interval: 10s");
+                logger.info(" Registering service with health check URL: {}", healthUrl);
+                logger.info(" Health check interval: 10s");
             } else if ("test-unhealthy".equals(instance.getEnvironment())) {
                 // For test-unhealthy environment, add a failing health check
                 CheckOptions healthCheck = new CheckOptions()
@@ -102,9 +102,9 @@ public class ConsulServiceDiscovery {
                         .setInterval("10s");
 
                 serviceOptions.setCheckOptions(healthCheck);
-                logger.info("🔍 Registering service with failing health check (test-unhealthy environment)");
+                logger.info(" Registering service with failing health check (test-unhealthy environment)");
             } else {
-                logger.info("🔍 Registering service without health check (test environment)");
+                logger.info(" Registering service without health check (test environment)");
             }
             
             // Register with Consul
@@ -163,17 +163,17 @@ public class ConsulServiceDiscovery {
         
         logger.debug("Discovering PeeGeeQ instances from Consul");
         
-        logger.info("🔍 Querying Consul for healthy services with name: {}", PEEGEEQ_SERVICE_NAME);
+        logger.info(" Querying Consul for healthy services with name: {}", PEEGEEQ_SERVICE_NAME);
 
         // First, let's see ALL services (healthy and unhealthy) for debugging
         consulClient.healthServiceNodes(PEEGEEQ_SERVICE_NAME, false)
             .onSuccess(allResult -> {
-                logger.info("🔍 DEBUG: Total services (healthy + unhealthy): {}", allResult.getList().size());
+                logger.info(" DEBUG: Total services (healthy + unhealthy): {}", allResult.getList().size());
                 allResult.getList().forEach(entry -> {
-                    logger.info("🔍 DEBUG: Service {} has {} health checks",
+                    logger.info(" DEBUG: Service {} has {} health checks",
                             entry.getService().getId(), entry.getChecks().size());
                     entry.getChecks().forEach(check -> {
-                        logger.info("🔍 DEBUG: Check status: {}, output: {}",
+                        logger.info(" DEBUG: Check status: {}, output: {}",
                                 check.getStatus(), check.getOutput());
                     });
                 });
@@ -185,15 +185,15 @@ public class ConsulServiceDiscovery {
                 try {
                     List<PeeGeeQInstance> instances = new ArrayList<>();
 
-                    logger.info("🔍 Consul returned {} service entries", result.getList().size());
+                    logger.info(" Consul returned {} service entries", result.getList().size());
 
                     for (io.vertx.ext.consul.ServiceEntry serviceEntry : result.getList()) {
-                        logger.info("🔍 Processing service entry: {}", serviceEntry.getService().getId());
-                        logger.info("🔍 Service health checks: {}", serviceEntry.getChecks().size());
+                        logger.info(" Processing service entry: {}", serviceEntry.getService().getId());
+                        logger.info(" Service health checks: {}", serviceEntry.getChecks().size());
 
                         // Log health check details
                         serviceEntry.getChecks().forEach(check -> {
-                            logger.info("🔍 Health check - Status: {}, Output: {}",
+                            logger.info(" Health check - Status: {}, Output: {}",
                                     check.getStatus(), check.getOutput());
                         });
 
@@ -205,7 +205,7 @@ public class ConsulServiceDiscovery {
                         }
                     }
 
-                    logger.info("🔍 Discovered {} healthy PeeGeeQ instances", instances.size());
+                    logger.info(" Discovered {} healthy PeeGeeQ instances", instances.size());
                     promise.complete(instances);
 
                 } catch (Exception e) {

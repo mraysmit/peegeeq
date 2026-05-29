@@ -46,7 +46,7 @@ public class PerformanceTestRunner {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTestRunner.class);
     
     public static void main(String[] args) {
-        logger.info("🚀 Starting PeeGeeQ Performance Test Harness");
+        logger.info(" Starting PeeGeeQ Performance Test Harness");
         
         try {
             // Parse command line arguments
@@ -72,12 +72,12 @@ public class PerformanceTestRunner {
                     System.exit(results.hasFailures() ? 1 : 0);
                 })
                 .onFailure(err -> {
-                    logger.error("❌ Performance test execution failed", err);
+                    logger.error(" Performance test execution failed", err);
                     System.exit(1);
                 });
             
         } catch (Exception e) {
-            logger.error("❌ Performance test execution failed", e);
+            logger.error(" Performance test execution failed", e);
             System.exit(1);
         }
     }
@@ -135,50 +135,50 @@ public class PerformanceTestRunner {
     
     private static void printSummary(PerformanceTestSuite.Results results, Duration totalDuration, String reportPath) {
         System.out.println();
-        System.out.println("═══════════════════════════════════════════════════════════════");
-        System.out.println("🎯 PEEGEEQ PERFORMANCE TEST SUMMARY");
-        System.out.println("═══════════════════════════════════════════════════════════════");
+        System.out.println("");
+        System.out.println(" PEEGEEQ PERFORMANCE TEST SUMMARY");
+        System.out.println("");
         System.out.println();
         
-        System.out.printf("📊 Total Tests Executed: %d%n", results.getTotalTests());
+        System.out.printf(" Total Tests Executed: %d%n", results.getTotalTests());
         System.out.printf("Successful Tests: %d%n", results.getSuccessfulTests());
-        System.out.printf("❌ Failed Tests: %d%n", results.getFailedTests());
-        System.out.printf("⏱️  Total Duration: %s%n", formatDuration(totalDuration));
+        System.out.printf(" Failed Tests: %d%n", results.getFailedTests());
+        System.out.printf("  Total Duration: %s%n", formatDuration(totalDuration));
         System.out.println();
         
         // Print key performance metrics
         if (results.getBitemporalResults() != null) {
-            System.out.println("🔄 Bi-temporal Performance:");
+            System.out.println(" Bi-temporal Performance:");
             System.out.printf("   Query Performance: %.0f events/sec%n", results.getBitemporalResults().getQueryThroughput());
             System.out.printf("   Append Performance: %.0f events/sec%n", results.getBitemporalResults().getAppendThroughput());
         }
         
         if (results.getOutboxResults() != null) {
-            System.out.println("📤 Outbox Performance:");
+            System.out.println(" Outbox Performance:");
             System.out.printf("   Send Throughput: %.0f msg/sec%n", results.getOutboxResults().getSendThroughput());
             System.out.printf("   Total Throughput: %.0f msg/sec%n", results.getOutboxResults().getTotalThroughput());
         }
         
         if (results.getNativeResults() != null) {
-            System.out.println("⚡ Native Queue Performance:");
+            System.out.println(" Native Queue Performance:");
             System.out.printf("   Message Processing: %.2f ms avg latency%n", results.getNativeResults().getAverageLatency());
             System.out.printf("   Throughput: %.0f msg/sec%n", results.getNativeResults().getThroughput());
         }
         
         if (results.getDatabaseResults() != null) {
-            System.out.println("🗄️  Database Performance:");
+            System.out.println("  Database Performance:");
             System.out.printf("   Query Performance: %.0f queries/sec%n", results.getDatabaseResults().getQueryThroughput());
             System.out.printf("   Average Latency: %.2f ms%n", results.getDatabaseResults().getAverageLatency());
         }
         
         System.out.println();
-        System.out.printf("📋 Detailed Report: %s%n", reportPath);
-        System.out.println("═══════════════════════════════════════════════════════════════");
+        System.out.printf(" Detailed Report: %s%n", reportPath);
+        System.out.println("");
         
         if (results.hasFailures()) {
-            System.out.println("⚠️  Some tests failed. Check the detailed report for more information.");
+            System.out.println("  Some tests failed. Check the detailed report for more information.");
         } else {
-            System.out.println("🎉 All performance tests completed successfully!");
+            System.out.println(" All performance tests completed successfully!");
         }
     }
     

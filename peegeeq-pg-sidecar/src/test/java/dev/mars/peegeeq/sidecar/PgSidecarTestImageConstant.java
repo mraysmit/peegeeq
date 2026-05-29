@@ -4,7 +4,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 /**
  * PostgreSQL Docker image used in peegeeq-pg-sidecar tests.
- * Delegates to the project-wide constant — do not hardcode the tag here.
+ * Delegates to the project-wide constant  do not hardcode the tag here.
  */
 final class PgSidecarTestImageConstant {
 

@@ -28,7 +28,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * INFRASTRUCTURE TEST: Self-Contained Demo Runner and Container Management
  *
- * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *   NOTE: This test does NOT create or test any message queues.
  *
  * WHAT THIS TESTS:
  * - PostgreSQL TestContainer startup and configuration

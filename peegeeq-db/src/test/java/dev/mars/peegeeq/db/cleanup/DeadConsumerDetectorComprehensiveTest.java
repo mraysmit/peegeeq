@@ -263,11 +263,11 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
     /**
      * Creates 5 consumers on one topic with a mix of states:
      * <ol>
-     *   <li>ACTIVE + expired heartbeat → should be detected (DEAD)</li>
-     *   <li>PAUSED + expired heartbeat → should be detected (DEAD)</li>
-     *   <li>ACTIVE + fresh heartbeat → should NOT be detected</li>
-     *   <li>Already DEAD (set directly via SQL) → should NOT be re-detected</li>
-     *   <li>CANCELLED → should NOT be detected</li>
+     *   <li>ACTIVE + expired heartbeat  should be detected (DEAD)</li>
+     *   <li>PAUSED + expired heartbeat  should be detected (DEAD)</li>
+     *   <li>ACTIVE + fresh heartbeat  should NOT be detected</li>
+     *   <li>Already DEAD (set directly via SQL)  should NOT be re-detected</li>
+     *   <li>CANCELLED  should NOT be detected</li>
      * </ol>
      * Exactly 2 of the 5 should be detected.
      */
@@ -277,25 +277,25 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
 
         createTopic(topic)
                 .compose(v -> {
-                    // 1. ACTIVE + expired → should be detected
+                    // 1. ACTIVE + expired  should be detected
                     return subscribe(topic, "active-expired", 60)
                             .compose(vv -> setHeartbeatInPast(topic, "active-expired", 120));
                 })
                 .compose(v -> {
-                    // 2. PAUSED + expired → should be detected
+                    // 2. PAUSED + expired  should be detected
                     return subscribe(topic, "paused-expired", 60)
                             .compose(vv -> subscriptionManager.pause(topic, "paused-expired"))
                             .compose(vv -> setHeartbeatInPast(topic, "paused-expired", 120));
                 })
                 .compose(v -> subscribe(topic, "active-healthy", 300))
                 .compose(v -> {
-                    // 4. Already DEAD (set directly) → NOT re-detected
+                    // 4. Already DEAD (set directly)  NOT re-detected
                     return subscribe(topic, "already-dead", 60)
                             .compose(vv -> setHeartbeatInPast(topic, "already-dead", 120))
                             .compose(vv -> setStatus(topic, "already-dead", "DEAD"));
                 })
                 .compose(v -> {
-                    // 5. CANCELLED → NOT detected
+                    // 5. CANCELLED  NOT detected
                     return subscribe(topic, "cancelled", 60)
                             .compose(vv -> subscriptionManager.cancel(topic, "cancelled"))
                             .compose(vv -> setHeartbeatInPast(topic, "cancelled", 120));
@@ -488,19 +488,19 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                                 // Assert deltas (using >= to handle potential parallel test interference)
                                 assertTrue(after.activeCount() >= before.activeCount() + 1,
                                         "Active count should increase by at least 1, was "
-                                                + before.activeCount() + " → " + after.activeCount());
+                                                + before.activeCount() + "  " + after.activeCount());
                                 assertTrue(after.pausedCount() >= before.pausedCount() + 1,
                                         "Paused count should increase by at least 1, was "
-                                                + before.pausedCount() + " → " + after.pausedCount());
+                                                + before.pausedCount() + "  " + after.pausedCount());
                                 assertTrue(after.cancelledCount() >= before.cancelledCount() + 1,
                                         "Cancelled count should increase by at least 1, was "
-                                                + before.cancelledCount() + " → " + after.cancelledCount());
+                                                + before.cancelledCount() + "  " + after.cancelledCount());
                                 assertTrue(after.deadCount() >= before.deadCount() + 1,
                                         "Dead count should increase by at least 1, was "
-                                                + before.deadCount() + " → " + after.deadCount());
+                                                + before.deadCount() + "  " + after.deadCount());
                                 assertTrue(after.totalCount() >= before.totalCount() + 4,
                                         "Total count should increase by at least 4, was "
-                                                + before.totalCount() + " → " + after.totalCount());
+                                                + before.totalCount() + "  " + after.totalCount());
                                 assertTrue(after.hasDeadSubscriptions(), "Should report dead subscriptions present");
 
                                 logger.info("Subscription summary validated: active={}, paused={}, dead={}, cancelled={}",
@@ -565,8 +565,8 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
      * <p>Scenario:</p>
      * <ul>
      *   <li>Subscribe with 60s timeout</li>
-     *   <li>Set heartbeat to 55s ago (within timeout) → NOT detected</li>
-     *   <li>Set heartbeat to 65s ago (past timeout) → detected</li>
+     *   <li>Set heartbeat to 55s ago (within timeout)  NOT detected</li>
+     *   <li>Set heartbeat to 65s ago (past timeout)  detected</li>
      * </ul>
      */
     @Test
