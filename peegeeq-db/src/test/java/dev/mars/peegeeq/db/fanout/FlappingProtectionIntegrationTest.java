@@ -305,7 +305,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     }
 
     /**
-     * Classic flapping pattern: miss → recover → miss → recover → miss.
+     * Classic flapping pattern: miss  recover  miss  recover  miss.
      * Each recovery resets the consecutive miss count, so the consumer
      * should never reach the threshold despite multiple total misses.
      *
@@ -360,7 +360,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * to zero. Without this, a reactivated consumer inherits stale miss
      * state and gets killed prematurely.
      *
-     * <p>subscribe() ON CONFLICT upserts DEAD → ACTIVE and resets
+     * <p>subscribe() ON CONFLICT upserts DEAD  ACTIVE and resets
      * last_heartbeat_at, but currently has no concept of consecutive_misses.
      * This test proves the miss count must be reset on resubscription.</p>
      */
@@ -405,7 +405,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     }
 
     /**
-     * updateHeartbeat() has built-in DEAD → ACTIVE auto-resurrection SQL.
+     * updateHeartbeat() has built-in DEAD  ACTIVE auto-resurrection SQL.
      * When this resurrection occurs, the consecutive miss count must also
      * reset to zero. This is a different code path from resubscribe().
      */
@@ -422,7 +422,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
                 .compose(result -> getSubscriptionStatus(topic, groupName).map(status -> {
                     testContext.verify(() -> assertEquals("ACTIVE", status,
-                            "Precondition: heartbeat should auto-resurrect DEAD → ACTIVE"));
+                            "Precondition: heartbeat should auto-resurrect DEAD  ACTIVE"));
                     return (Void) null;
                 }))
                 // Now miss one heartbeat

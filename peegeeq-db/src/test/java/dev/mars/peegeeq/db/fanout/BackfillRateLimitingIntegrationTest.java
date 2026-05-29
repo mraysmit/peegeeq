@@ -119,7 +119,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         String groupNoDelay = "group-nodelay";
         String groupDelay = "group-delay";
         int messageCount = 30;
-        int batchSize = 10; // 3 batches → 2 inter-batch pauses
+        int batchSize = 10; // 3 batches  2 inter-batch pauses
         long delayMs = 100L;
 
         // Setup both topics with initial subscribers + messages
@@ -155,7 +155,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 long delayElapsed = times[1];
 
                 // With 3 batches and 100ms delay between batches, delayed should be
-                // at least 150ms longer (conservative to avoid flakiness 2 delays × 75ms margin)
+                // at least 150ms longer (conservative to avoid flakiness 2 delays  75ms margin)
                 long minimumDifference = 150L;
                 long actualDifference = delayElapsed - noDelayElapsed;
 

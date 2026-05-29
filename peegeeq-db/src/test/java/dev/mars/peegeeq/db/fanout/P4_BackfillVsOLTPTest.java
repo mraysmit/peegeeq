@@ -69,8 +69,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li>Message completion ({@code markCompleted}) uses {@code Future.all()} for concurrent
  *       batch processing instead of serial recursive {@code .compose()} per message, which
  *       was too slow to keep consumers draining ahead of publishers.</li>
- *   <li>Idle/stall detection limits are kept moderate (1000–2000 rounds) so failures surface
- *       quickly rather than silently waiting 30–60s before reporting a stalled loop.</li>
+ *   <li>Idle/stall detection limits are kept moderate (10002000 rounds) so failures surface
+ *       quickly rather than silently waiting 3060s before reporting a stalled loop.</li>
  *   <li>In the second test, the OLTP consumer group is subscribed <em>after</em> historical
  *       messages are seeded so it only sees newly-published messages (subscribing before
  *       seeding caused consumed &gt; published assertion mismatches).</li>

@@ -80,7 +80,7 @@ public class SSEFilteringExample {
             logger.info("SSE Filtering Example completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Error in SSE Filtering Example", e);
+            logger.error(" Error in SSE Filtering Example", e);
         } finally {
             // Cleanup resources
             if (httpClient != null) {
@@ -105,7 +105,7 @@ public class SSEFilteringExample {
         // Build SSE URL with messageType filter
         String sseUrl = "/api/v1/queues/" + SETUP_ID + "/" + QUEUE_NAME + "/stream?messageType=OrderCreated";
         
-        logger.info("📡 Connecting with filter: messageType=OrderCreated");
+        logger.info(" Connecting with filter: messageType=OrderCreated");
         logger.info("   URL: {}", sseUrl);
         
         connectAndReceive(httpClient, sseUrl, messagesReceived, latch, 5);
@@ -113,7 +113,7 @@ public class SSEFilteringExample {
         // Wait for completion
         latch.await(30, TimeUnit.SECONDS);
         
-        logger.info("📊 Received {} OrderCreated messages", messagesReceived.get());
+        logger.info(" Received {} OrderCreated messages", messagesReceived.get());
     }
     
     /**
@@ -130,7 +130,7 @@ public class SSEFilteringExample {
         String sseUrl = "/api/v1/queues/" + SETUP_ID + "/" + QUEUE_NAME + 
                        "/stream?headers.region=US-WEST&headers.priority=HIGH";
         
-        logger.info("📡 Connecting with filters:");
+        logger.info(" Connecting with filters:");
         logger.info("   region=US-WEST");
         logger.info("   priority=HIGH");
         logger.info("   URL: {}", sseUrl);
@@ -140,7 +140,7 @@ public class SSEFilteringExample {
         // Wait for completion
         latch.await(30, TimeUnit.SECONDS);
         
-        logger.info("📊 Received {} messages matching header filters", messagesReceived.get());
+        logger.info(" Received {} messages matching header filters", messagesReceived.get());
     }
     
     /**
@@ -158,7 +158,7 @@ public class SSEFilteringExample {
         String sseUrl = "/api/v1/queues/" + SETUP_ID + "/" + QUEUE_NAME + 
                        "/stream?batchSize=5&maxWaitTime=2000";
         
-        logger.info("📡 Connecting with batching:");
+        logger.info(" Connecting with batching:");
         logger.info("   batchSize=5");
         logger.info("   maxWaitTime=2000ms");
         logger.info("   URL: {}", sseUrl);
@@ -182,7 +182,7 @@ public class SSEFilteringExample {
                                     int batchNum = batchesReceived.incrementAndGet();
                                     totalMessages.addAndGet(messageCount);
                                     
-                                    logger.info("📦 Batch #{}: {} messages", batchNum, messageCount);
+                                    logger.info(" Batch #{}: {} messages", batchNum, messageCount);
                                     
                                     if (batchNum >= 3) {
                                         response.request().connection().close();
@@ -212,7 +212,7 @@ public class SSEFilteringExample {
         // Wait for completion
         latch.await(30, TimeUnit.SECONDS);
         
-        logger.info("📊 Received {} batches containing {} total messages", 
+        logger.info(" Received {} batches containing {} total messages", 
                    batchesReceived.get(), totalMessages.get());
     }
     
@@ -225,7 +225,7 @@ public class SSEFilteringExample {
         
         String consumerGroup = "demo-processors";
         
-        logger.info("📡 Connecting with consumer group: {}", consumerGroup);
+        logger.info(" Connecting with consumer group: {}", consumerGroup);
         logger.info("   Multiple consumers in the same group will share messages");
         
         AtomicInteger messagesReceived = new AtomicInteger(0);
@@ -242,7 +242,7 @@ public class SSEFilteringExample {
         // Wait for completion
         latch.await(30, TimeUnit.SECONDS);
         
-        logger.info("📊 Consumer group '{}' received {} messages", consumerGroup, messagesReceived.get());
+        logger.info(" Consumer group '{}' received {} messages", consumerGroup, messagesReceived.get());
         logger.info("   Note: Other consumers in the same group would receive different messages");
     }
     
@@ -263,7 +263,7 @@ public class SSEFilteringExample {
                     // Count data events
                     if (data.contains("\"type\":\"data\"")) {
                         int count = messagesReceived.incrementAndGet();
-                        logger.info("📨 Message #{} received", count);
+                        logger.info(" Message #{} received", count);
                         
                         if (count >= targetCount) {
                             response.request().connection().close();

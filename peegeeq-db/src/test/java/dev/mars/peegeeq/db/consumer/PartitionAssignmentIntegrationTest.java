@@ -228,7 +228,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
                 .compose(v -> insertOutboxMessage(topic, "part-1"))
-                // First join → generation should be 1
+                // First join  generation should be 1
                 .compose(v -> assignmentService.joinGroup(topic, groupName, instanceId))
                 .compose(assignments -> {
                     assertEquals(1, assignments.get(0).generation(),
@@ -238,7 +238,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                 .compose(gen1 -> {
                     assertEquals(1, gen1,
                             "Subscription rebalance_generation should be 1 after first join");
-                    // Second join → generation should be 2
+                    // Second join  generation should be 2
                     return assignmentService.joinGroup(topic, groupName, instanceId);
                 })
                 .compose(assignments -> {
@@ -572,9 +572,9 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> createSubscription(topic, groupName))
                 .compose(v -> insertOutboxMessage(topic, "part-1"))
                 .compose(v -> insertOutboxMessage(topic, "part-2"))
-                // First join → gen 1
+                // First join  gen 1
                 .compose(v -> assignmentService.joinGroup(topic, groupName, "inst-1"))
-                // Second join → gen 2 (rebalance deletes gen-1 rows)
+                // Second join  gen 2 (rebalance deletes gen-1 rows)
                 .compose(v -> assignmentService.joinGroup(topic, groupName, "inst-2"))
                 // All assignment rows should be gen 2
                 .compose(v -> getAssignmentGenerations(topic, groupName))
@@ -743,7 +743,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Helper: Get all assignments for a (topic, group) as partition→instance map
+    // Helper: Get all assignments for a (topic, group) as partitioninstance map
     // ========================================================================
 
     private Future<Map<String, String>> getAllAssignments(String topic, String groupName) {
@@ -969,7 +969,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                             .compose(offset -> offsetManager.commitOffset(topic, groupName, partition, 5, gen1))
                             .compose(committed -> {
                                 assertTrue(committed, "First commit at gen=1 must succeed");
-                                // Now instance-B joins, triggering rebalance → bumps generation
+                                // Now instance-B joins, triggering rebalance  bumps generation
                                 return assignmentService.joinGroup(topic, groupName, "instance-B");
                             })
                             .compose(newAssignments -> {

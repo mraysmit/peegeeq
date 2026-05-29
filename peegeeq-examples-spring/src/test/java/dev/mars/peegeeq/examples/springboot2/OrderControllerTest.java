@@ -195,7 +195,7 @@ class OrderControllerTest {
             .expectBody(CreateOrderResponse.class)
             .value(response -> {
                 assertNotNull(response.getOrderId(), "Order ID should not be null");
-                logger.info("✓ Order created successfully with ID: {}", response.getOrderId());
+                logger.info(" Order created successfully with ID: {}", response.getOrderId());
             });
 
         logger.info("=== Test Completed Successfully ===");
@@ -227,7 +227,7 @@ class OrderControllerTest {
             .expectBody(CreateOrderResponse.class)
             .value(response -> {
                 assertNotNull(response.getOrderId(), "Order ID should not be null");
-                logger.info("✓ Order created with validation, ID: {}", response.getOrderId());
+                logger.info(" Order created with validation, ID: {}", response.getOrderId());
             });
 
         logger.info("=== Test Completed Successfully ===");
@@ -275,7 +275,7 @@ class OrderControllerTest {
             .value(order -> {
                 assertEquals(orderId, order.getId(), "Order ID should match");
                 assertEquals("CUST-003", order.getCustomerId(), "Customer ID should match");
-                logger.info("✓ Order retrieved successfully: {}", order.getId());
+                logger.info(" Order retrieved successfully: {}", order.getId());
             });
 
         logger.info("=== Test Completed Successfully ===");
@@ -294,7 +294,7 @@ class OrderControllerTest {
             .exchange()
             .expectStatus().isNotFound();
 
-        logger.info("✓ Non-existent order correctly returned 404");
+        logger.info(" Non-existent order correctly returned 404");
         logger.info("=== Test Completed Successfully ===");
     }
 
@@ -313,7 +313,7 @@ class OrderControllerTest {
             .expectBody(String.class)
             .value(health -> {
                 assertTrue(health.contains("healthy"), "Health check should return healthy status");
-                logger.info("✓ Health check response: {}", health);
+                logger.info(" Health check response: {}", health);
             });
 
         logger.info("=== Test Completed Successfully ===");
@@ -357,7 +357,7 @@ class OrderControllerTest {
             .expectBody(String.class)
             .value(message -> {
                 assertTrue(message.contains("validated"), "Response should indicate validation");
-                logger.info("✓ Order validated: {}", message);
+                logger.info(" Order validated: {}", message);
             });
 
         logger.info("=== Test Completed Successfully ===");
@@ -371,8 +371,8 @@ class OrderControllerTest {
         logger.info("=== Test: WebTestClient Configuration ===");
 
         assertNotNull(webTestClient, "WebTestClient should be autowired");
-        logger.info("✓ WebTestClient is properly configured");
-        logger.info("✓ Reactive testing infrastructure is working");
+        logger.info(" WebTestClient is properly configured");
+        logger.info(" Reactive testing infrastructure is working");
 
         logger.info("=== Test Completed Successfully ===");
     }

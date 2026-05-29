@@ -391,9 +391,9 @@ export interface PurgeQueueResult {
 export interface SetupStatusInfo {
   setupId: string;
   status: DatabaseSetupStatus;
-  databaseConnected: boolean;
-  queueCount: number;
-  eventStoreCount: number;
+  databaseConnected?: boolean;
+  queueCount?: number;
+  eventStoreCount?: number;
   lastHealthCheck?: string; // ISO-8601 timestamp
 }
 

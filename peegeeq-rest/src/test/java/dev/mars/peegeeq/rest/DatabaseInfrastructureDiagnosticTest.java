@@ -150,9 +150,9 @@ class DatabaseInfrastructureDiagnosticTest {
                         }
 
                         logger.info("========== REQUIRED TABLES CHECK ==========");
-                        logger.info("  queue_messages: {}", hasQueueMessages ? "✓ EXISTS" : "✗ MISSING");
-                        logger.info("  outbox: {}", hasOutbox ? "✓ EXISTS" : "✗ MISSING");
-                        logger.info("  dead_letter_queue: {}", hasDeadLetterQueue ? "✓ EXISTS" : "✗ MISSING");
+                        logger.info("  queue_messages: {}", hasQueueMessages ? " EXISTS" : " MISSING");
+                        logger.info("  outbox: {}", hasOutbox ? " EXISTS" : " MISSING");
+                        logger.info("  dead_letter_queue: {}", hasDeadLetterQueue ? " EXISTS" : " MISSING");
 
                         return Future.succeededFuture();
                     });

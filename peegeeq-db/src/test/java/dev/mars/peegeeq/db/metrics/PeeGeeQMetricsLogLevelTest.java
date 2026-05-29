@@ -59,10 +59,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests that PeeGeeQMetrics.persistMetrics() logs at ERROR level (not WARN)
  * for non-connection persist failures.
  *
- * <p>Covers WARN→ERROR change #11: non-connection persist failure in persistMetrics().</p>
+ * <p>Covers WARNERROR change #11: non-connection persist failure in persistMetrics().</p>
  *
- * Positive: trigger SQL failure (missing table) → verify ERROR logged.
- * Negative: persist with proper table → verify no ERROR logged.
+ * Positive: trigger SQL failure (missing table)  verify ERROR logged.
+ * Negative: persist with proper table  verify no ERROR logged.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers

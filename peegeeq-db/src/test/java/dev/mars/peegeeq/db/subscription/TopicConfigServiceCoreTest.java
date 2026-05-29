@@ -202,7 +202,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
      * logging an ERROR.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Topic configuration not found: \'test-topic-nonexistent\'') is EXPECTED —
+     * ('Topic configuration not found: \'test-topic-nonexistent\'') is EXPECTED 
      * this test deliberately updates a topic that was never created to verify the not-found error path.
      */
     @Test
@@ -287,7 +287,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
      * (no error thrown) when the topic does not exist, while logging a WARN.
      *
      * <p><strong>INTENTIONAL WARN TEST:</strong> The next WARN log
-     * ('Topic configuration not found for deletion: \'test-topic-delete-nonexistent\'') is EXPECTED —
+     * ('Topic configuration not found for deletion: \'test-topic-delete-nonexistent\'') is EXPECTED 
      * this test deliberately deletes a non-existent topic to verify idempotent delete behaviour.
      */
     @Test

@@ -66,7 +66,7 @@ public class MultiConfigurationExampleTest {
         // Initialize multi-configuration manager
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
 
-        logger.info("✓ Multi Configuration Example Test setup completed");
+        logger.info(" Multi Configuration Example Test setup completed");
     }
 
     private PeeGeeQConfiguration testConfig() {
@@ -83,7 +83,7 @@ public class MultiConfigurationExampleTest {
             : Future.succeededFuture();
 
         close.onSuccess(v -> {
-            logger.info("✓ Multi Configuration Example Test teardown completed");
+            logger.info(" Multi Configuration Example Test teardown completed");
             testContext.completeNow();
         }).onFailure(testContext::failNow);
     }
@@ -118,7 +118,7 @@ public class MultiConfigurationExampleTest {
                 assertTrue(configNames.contains("low-latency"));
                 assertTrue(configNames.contains("reliable"));
                 assertTrue(configNames.contains("development"));
-                logger.info("✓ Multiple configuration registration validated successfully");
+                logger.info(" Multiple configuration registration validated successfully");
                 testContext.completeNow();
             })));
     }
@@ -141,7 +141,7 @@ public class MultiConfigurationExampleTest {
                 assertNotNull(configManager.getConfiguration("config2"));
                 assertNotNull(configManager.getDatabaseService("config1"));
                 assertNotNull(configManager.getDatabaseService("config2"));
-                logger.info("✓ Configuration lifecycle management validated successfully");
+                logger.info(" Configuration lifecycle management validated successfully");
                 testContext.completeNow();
             })));
     }
@@ -163,7 +163,7 @@ public class MultiConfigurationExampleTest {
                 assertNotNull(config);
                 assertEquals("default", config.getProfile());
                 logger.info("High-throughput configuration validated - would create queue with batch-size=100, polling-interval=100ms");
-                logger.info("✓ High-throughput configuration validated successfully");
+                logger.info(" High-throughput configuration validated successfully");
                 testContext.completeNow();
             })));
     }
@@ -184,7 +184,7 @@ public class MultiConfigurationExampleTest {
                 PeeGeeQConfiguration config = configManager.getConfiguration("low-latency");
                 assertNotNull(config);
                 logger.info("Low-latency configuration validated - would create queue with batch-size=1, polling-interval=10ms");
-                logger.info("✓ Low-latency configuration validated successfully");
+                logger.info(" Low-latency configuration validated successfully");
                 testContext.completeNow();
             })));
     }
@@ -205,7 +205,7 @@ public class MultiConfigurationExampleTest {
                 PeeGeeQConfiguration config = configManager.getConfiguration("reliable");
                 assertNotNull(config);
                 logger.info("Reliable configuration validated - would create queue with max-retries=10, dead-letter-enabled=true");
-                logger.info("✓ Reliable configuration validated successfully");
+                logger.info(" Reliable configuration validated successfully");
                 testContext.completeNow();
             })));
     }
@@ -228,7 +228,7 @@ public class MultiConfigurationExampleTest {
                 logger.info("Custom configuration builder validated - would create queue with:");
                 logger.info("  batch-size=5, polling-interval={}ms, max-retries=3", pollingInterval.toMillis());
                 logger.info("  visibility-timeout={}s, dead-letter-enabled=true", visibilityTimeout.getSeconds());
-                logger.info("✓ Custom configuration builder validated successfully");
+                logger.info(" Custom configuration builder validated successfully");
                 testContext.completeNow();
             })));
     }
@@ -267,7 +267,7 @@ public class MultiConfigurationExampleTest {
             configManager.getConfiguration("non-existent");
         });
         
-        logger.info("✓ Configuration error handling validated successfully");
+        logger.info(" Configuration error handling validated successfully");
     }
 
 }

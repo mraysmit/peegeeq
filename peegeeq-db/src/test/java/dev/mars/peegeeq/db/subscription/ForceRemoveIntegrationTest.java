@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Integration tests for {@link SubscriptionManager#forceRemoveConsumerGroup(String, String)}.
  *
  * <p>Tests the full force-remove lifecycle against a real PostgreSQL database:
- * subscribe → force-remove → verify subscription CANCELLED and messages unblocked.</p>
+ * subscribe  force-remove  verify subscription CANCELLED and messages unblocked.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-04-04

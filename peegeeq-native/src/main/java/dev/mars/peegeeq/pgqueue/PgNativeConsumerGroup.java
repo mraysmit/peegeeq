@@ -60,8 +60,8 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     /**
      * Lifecycle states for the consumer group. Transitions:
      * <pre>
-     *   NEW → STARTING → ACTIVE → STOPPING → NEW (restartable)
-     *   Any state → CLOSED (terminal)
+     *   NEW  STARTING  ACTIVE  STOPPING  NEW (restartable)
+     *   Any state  CLOSED (terminal)
      * </pre>
      */
     enum State { NEW, STARTING, ACTIVE, STOPPING, CLOSED }

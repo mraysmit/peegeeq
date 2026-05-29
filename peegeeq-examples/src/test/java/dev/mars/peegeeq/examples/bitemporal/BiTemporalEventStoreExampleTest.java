@@ -65,7 +65,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * trade lifecycle from capture to settlement with full regulatory compliance.
  *
  * BUSINESS DOMAIN: Investment Banking Back Office Operations
- * - Trade Lifecycle Management: Capture → Enrichment → Validation → Settlement
+ * - Trade Lifecycle Management: Capture  Enrichment  Validation  Settlement
  * - Regulatory Compliance: MiFID II, Dodd-Frank, Basel III audit requirements
  * - Operational Risk Management: Settlement failures, retry processing, position reconciliation
  * - Real-time Risk Monitoring: Position tracking, limit monitoring, counterparty exposure
@@ -558,7 +558,7 @@ class BiTemporalEventStoreExampleTest {
      * This represents the core business process of investment bank back offices.
      *
      * REGULATORY CONTEXT: MiFID II, Dodd-Frank compliance with complete audit trail
-     * OPERATIONAL CONTEXT: Trade capture → Enrichment → Validation → Settlement
+     * OPERATIONAL CONTEXT: Trade capture  Enrichment  Validation  Settlement
      */
     @Test
     void testCompleteTradeLifecycleProcessing() throws Exception {
@@ -706,7 +706,7 @@ class BiTemporalEventStoreExampleTest {
             "Settlement time must be after capture time for temporal consistency");
 
         logger.info("Complete trade lifecycle processing with full audit trail completed successfully");
-        logger.info("Trade {} processed through all stages: CAPTURED → ENRICHED → VALIDATED → SETTLED", tradeId);
+        logger.info("Trade {} processed through all stages: CAPTURED  ENRICHED  VALIDATED  SETTLED", tradeId);
     }
 
     /**
@@ -1006,7 +1006,7 @@ class BiTemporalEventStoreExampleTest {
             "Settlement audit trail must contain all operational stages");
 
         logger.info("Complete settlement failure and operational risk management completed successfully");
-        logger.info("Settlement lifecycle: INSTRUCTED → FAILED → RETRY → SETTLED with full risk management");
+        logger.info("Settlement lifecycle: INSTRUCTED  FAILED  RETRY  SETTLED with full risk management");
     }
 
     // ========== INVESTMENT BANKING TRADE PROCESSING DOMAIN MODELS ==========

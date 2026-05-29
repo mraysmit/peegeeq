@@ -127,7 +127,7 @@ class EventBusDistributionEquivalenceTest {
     private Pool verificationPool;
 
     private String resolveSchema() {
-        // Schema is always "public" for this test — set via peegeeq-default.properties.
+        // Schema is always "public" for this test  set via peegeeq-default.properties.
         // Phase 11 removed the System property sweep from PeeGeeQConfiguration.loadProperties()
         // so System.getProperty("peegeeq.database.schema") can no longer inject a value here.
         return "public";
@@ -365,7 +365,7 @@ class EventBusDistributionEquivalenceTest {
     }
 
     // ========================================================================
-    // Correlation ID fallback: null correlationId → falls back to eventId
+    // Correlation ID fallback: null correlationId  falls back to eventId
     // ========================================================================
 
     @Test

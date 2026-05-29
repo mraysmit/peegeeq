@@ -132,7 +132,7 @@ public class CircuitBreakerService {
     private void openCircuit() {
         state.set(State.OPEN);
         circuitOpenedTime.set(System.currentTimeMillis());
-        log.error("⚠️ Circuit breaker OPENED - rejecting requests for {} ms", 
+        log.error(" Circuit breaker OPENED - rejecting requests for {} ms", 
             properties.getCircuitBreakerResetMs());
     }
     

@@ -207,9 +207,9 @@ public class OutboxProducerPoolThresholdTest {
                 maxSize, maxWaitQueueSize, formulaThreshold);
             logger.info("  Empirical     : {} concurrent sends", empiricalThreshold[0]);
             if (empiricalThreshold[0] == formulaThreshold) {
-                logger.info("  Verdict       : EMPIRICAL MATCHES FORMULA ✓");
+                logger.info("  Verdict       : EMPIRICAL MATCHES FORMULA ");
             } else {
-                logger.warn("  Verdict       : MISMATCH — empirical={}, formula={}",
+                logger.warn("  Verdict       : MISMATCH  empirical={}, formula={}",
                     empiricalThreshold[0], formulaThreshold);
             }
             assertEquals(formulaThreshold, empiricalThreshold[0],

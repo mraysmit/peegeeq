@@ -52,28 +52,28 @@ public class BitemporalPerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public Future<Results> execute(PerformanceTestConfig config) {
-        logger.info("🔄 Starting bi-temporal performance test suite");
+        logger.info(" Starting bi-temporal performance test suite");
         
         Results results = new Results();
         
         try {
             // Test 1: Individual append performance
-            logger.info("📝 Testing individual event append performance");
+            logger.info(" Testing individual event append performance");
             double individualAppendThroughput = testIndividualAppendPerformance(config);
             results.addSuccess();
             
             // Test 2: Batch append performance
-            logger.info("📦 Testing batch event append performance");
+            logger.info(" Testing batch event append performance");
             double batchAppendThroughput = testBatchAppendPerformance(config);
             results.addSuccess();
             
             // Test 3: Query performance
-            logger.info("🔍 Testing temporal query performance");
+            logger.info(" Testing temporal query performance");
             double queryThroughput = testQueryPerformance(config);
             results.addSuccess();
             
             // Test 4: Concurrent operations
-            logger.info("⚡ Testing concurrent operation performance");
+            logger.info(" Testing concurrent operation performance");
             double concurrentThroughput = testConcurrentOperations(config);
             results.addSuccess();
             
@@ -99,7 +99,7 @@ public class BitemporalPerformanceTestSuite implements PerformanceTestSuite {
             logger.info("Bi-temporal performance test suite completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Bi-temporal performance test suite failed", e);
+            logger.error(" Bi-temporal performance test suite failed", e);
             results.addFailure("BitemporalTestSuite", e);
         }
         
@@ -171,7 +171,7 @@ public class BitemporalPerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public void cleanup() {
-        logger.info("🧹 Cleaning up bi-temporal performance test suite");
+        logger.info(" Cleaning up bi-temporal performance test suite");
         // Cleanup resources, close connections, etc.
     }
 }

@@ -81,7 +81,7 @@ public class DeadLetterRequeueIntegrationTest {
 
         RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
         server = new PeeGeeQRestServer(testConfig, setupService);
-        // Schema init is blocking (Flyway/JDBC) — must run on a worker thread, not the event loop.
+        // Schema init is blocking (Flyway/JDBC)  must run on a worker thread, not the event loop.
         vertx.executeBlocking(() -> {
             PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 SchemaComponent.OUTBOX,

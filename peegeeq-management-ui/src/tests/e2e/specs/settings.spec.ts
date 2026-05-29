@@ -82,7 +82,7 @@ test.describe('Settings', () => {
 
       // Reload page and verify saved value
       await page.reload()
-      await expect(page.getByTestId('api-url-input')).toHaveValue('http://127.0.0.1:8088')
+      await expect(page.getByTestId('api-url-input')).toHaveValue('http://localhost:9090')
 
       // Reset to defaults for cleanup
       await page.getByTestId('reset-settings-btn').click()

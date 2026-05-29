@@ -119,7 +119,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
      * for this performance scenario. The test executes <em>five sequential group-count
      * iterations</em> (N = 1, 2, 4, 8, 16), each publishing 500 messages and consuming
      * them via individual DB round trips with completion marking. Worst-case total DB
-     * operations exceed 18 000 (500 inserts + up to 8 000 completions × 16 groups).
+     * operations exceed 18 000 (500 inserts + up to 8 000 completions  16 groups).
      * On a Testcontainers PostgreSQL instance this reliably exceeds 30 s.
      * The 240 s budget is derived from observed consume durations scaling linearly
      * with group count (N=1: 6 s, N=2: 11 s, N=4: 22 s, N=8: 41 s, N=16: ~82 s),
@@ -214,7 +214,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
                 long publishDurationMs = publishEnd[0] - publishStart[0];
                 long consumeDurationMs = consumeEnd[0] - consumeStart[0];
                 // Per-group throughput: how fast each group processed its own 500 messages.
-                // Groups run sequentially so perGroupTime ≈ consumeDuration/N.
+                // Groups run sequentially so perGroupTime  consumeDuration/N.
                 // Formula: messageCount / (consumeDuration / N) = messageCount*N / consumeDuration.
                 // A roughly constant value across N confirms each group's performance is stable.
                 double perGroupThroughput = (messageCount * (double) groupCount * 1000.0) / consumeDurationMs;

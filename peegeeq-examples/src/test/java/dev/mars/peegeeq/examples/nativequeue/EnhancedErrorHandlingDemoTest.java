@@ -89,7 +89,7 @@ class EnhancedErrorHandlingDemoTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        logger.info("🔧 Setting up EnhancedErrorHandlingDemoTest");
+        logger.info(" Setting up EnhancedErrorHandlingDemoTest");
 
         // Initialize error counters
         for (ErrorType errorType : ErrorType.values()) {
@@ -112,7 +112,7 @@ class EnhancedErrorHandlingDemoTest {
                 .build();
 
         // Initialize database schema for enhanced error handling test
-        logger.info("🔧 Initializing database schema for enhanced error handling test");
+        logger.info(" Initializing database schema for enhanced error handling test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
@@ -138,7 +138,7 @@ class EnhancedErrorHandlingDemoTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up EnhancedErrorHandlingDemoTest");
+        logger.info(" Cleaning up EnhancedErrorHandlingDemoTest");
         (manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
@@ -148,7 +148,7 @@ class EnhancedErrorHandlingDemoTest {
     @Test
     @DisplayName("Demonstrate Enhanced Error Handling with Retry and DLQ")
     void demonstrateEnhancedErrorHandling(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
-        logger.info("🚀 Step 1: Demonstrating enhanced error handling patterns");
+        logger.info(" Step 1: Demonstrating enhanced error handling patterns");
         
         // Create producers and consumers for main queue and DLQ
         MessageProducer<OrderEvent> producer = queueFactory.createProducer("error-orders", OrderEvent.class);
@@ -160,7 +160,7 @@ class EnhancedErrorHandlingDemoTest {
             OrderEvent order = message.getPayload();
             ErrorType errorType = ErrorType.valueOf(message.getHeaders().getOrDefault("error_type", "RECOVERABLE"));
 
-            logger.info("📦 Processing order with potential {} error: {}", errorType, order.getOrderId());
+            logger.info(" Processing order with potential {} error: {}", errorType, order.getOrderId());
 
             return processOrderWithErrorHandling(order, errorType, message.getHeaders());
         });
@@ -168,7 +168,7 @@ class EnhancedErrorHandlingDemoTest {
         // Subscribe DLQ consumer
         dlqConsumer.subscribe(message -> {
             OrderEvent order = message.getPayload();
-            logger.warn("💀 Processing DLQ message: {} (reason: {})",
+            logger.warn(" Processing DLQ message: {} (reason: {})",
                 order.getOrderId(), message.getHeaders().get("dlq_reason"));
 
             dlqMessages.incrementAndGet();
@@ -189,7 +189,7 @@ class EnhancedErrorHandlingDemoTest {
             
             producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with TRANSIENT_NETWORK error: {}", order.getOrderId());
+                logger.debug(" Sent order with TRANSIENT_NETWORK error: {}", order.getOrderId());
             }));
         }
         
@@ -204,7 +204,7 @@ class EnhancedErrorHandlingDemoTest {
             
             producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with INVALID_DATA error: {}", order.getOrderId());
+                logger.debug(" Sent order with INVALID_DATA error: {}", order.getOrderId());
             }));
         }
         
@@ -219,7 +219,7 @@ class EnhancedErrorHandlingDemoTest {
             
             producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with EXTERNAL_SERVICE error: {}", order.getOrderId());
+                logger.debug(" Sent order with EXTERNAL_SERVICE error: {}", order.getOrderId());
             }));
         }
         
@@ -234,7 +234,7 @@ class EnhancedErrorHandlingDemoTest {
             
             producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent order with RECOVERABLE error: {}", order.getOrderId());
+                logger.debug(" Sent order with RECOVERABLE error: {}", order.getOrderId());
             }));
         }
         
@@ -249,7 +249,7 @@ class EnhancedErrorHandlingDemoTest {
             
             producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
-                logger.debug("📤 Sent successful order: {}", order.getOrderId());
+                logger.debug(" Sent successful order: {}", order.getOrderId());
             }));
         }
         
@@ -262,7 +262,7 @@ class EnhancedErrorHandlingDemoTest {
                 dlqConsumer.close();
 
                 // Report results
-                logger.info("📊 Error Handling Results:");
+                logger.info(" Error Handling Results:");
                 logger.info("  Total produced: {}", totalMessagesProduced.get());
                 logger.info("  Total consumed: {}", totalMessagesConsumed.get());
                 logger.info("  Total retries: {}", totalRetries.get());
@@ -306,7 +306,7 @@ class EnhancedErrorHandlingDemoTest {
                         totalRetries.incrementAndGet();
                         if (totalRetries.get() % 3 == 0) {
                             // Eventually succeed after retries
-                            logger.info("🔄 Network error recovered for order: {}", order.getOrderId());
+                            logger.info(" Network error recovered for order: {}", order.getOrderId());
                             successfulRecoveries.incrementAndGet();
                             totalMessagesConsumed.incrementAndGet();
                             return Future.succeededFuture();
@@ -315,14 +315,14 @@ class EnhancedErrorHandlingDemoTest {
                         
                     case INVALID_DATA:
                         // Invalid data - send to DLQ immediately
-                        logger.warn("💀 Invalid data detected, sending to DLQ: {}", order.getOrderId());
+                        logger.warn(" Invalid data detected, sending to DLQ: {}", order.getOrderId());
                         return Future.failedFuture(new IllegalArgumentException("Invalid order data - DLQ"));
                         
                     case EXTERNAL_SERVICE:
                         // External service failure - circuit breaker
                         totalRetries.incrementAndGet();
                         if (totalRetries.get() > 5) {
-                            logger.warn("🔌 Circuit breaker opened for external service");
+                            logger.warn(" Circuit breaker opened for external service");
                             return Future.failedFuture(new RuntimeException("Circuit breaker open"));
                         }
                         return Future.failedFuture(new RuntimeException("External service unavailable"));
@@ -331,7 +331,7 @@ class EnhancedErrorHandlingDemoTest {
                         // Standard recoverable error
                         totalRetries.incrementAndGet();
                         if (totalRetries.get() % 2 == 0) {
-                            logger.info("🔄 Recoverable error resolved for order: {}", order.getOrderId());
+                            logger.info(" Recoverable error resolved for order: {}", order.getOrderId());
                             successfulRecoveries.incrementAndGet();
                             totalMessagesConsumed.incrementAndGet();
                             return Future.succeededFuture();

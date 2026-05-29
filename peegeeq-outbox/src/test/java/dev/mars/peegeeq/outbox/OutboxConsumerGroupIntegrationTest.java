@@ -233,7 +233,7 @@ public class OutboxConsumerGroupIntegrationTest {
         vertx.timer(2000).await();
         
         assertEquals(0, processedCount.get(), "Message should not have been processed");
-        // With no-eligible-consumer handling (MessageFilteredException → reset to PENDING),
+        // With no-eligible-consumer handling (MessageFilteredException  reset to PENDING),
         // the message may be polled and filtered multiple times before the test checks.
         assertTrue(consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
             "At least 1 message should have been filtered, got: " +

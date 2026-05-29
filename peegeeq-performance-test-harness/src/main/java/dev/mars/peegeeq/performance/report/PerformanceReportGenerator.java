@@ -65,11 +65,11 @@ public class PerformanceReportGenerator {
             // Write report to file
             Files.writeString(reportPath, reportContent);
             
-            logger.info("📋 Performance report generated: {}", reportPath.toAbsolutePath());
+            logger.info(" Performance report generated: {}", reportPath.toAbsolutePath());
             return reportPath.toAbsolutePath().toString();
             
         } catch (IOException e) {
-            logger.error("❌ Failed to generate performance report", e);
+            logger.error(" Failed to generate performance report", e);
             return "Error generating report: " + e.getMessage();
         }
     }
@@ -81,7 +81,7 @@ public class PerformanceReportGenerator {
         report.append("# PeeGeeQ Performance Test Report\n\n");
         report.append("**Generated:** ").append(timestamp.replace("_", " ")).append("\n");
         report.append("**Total Duration:** ").append(formatDuration(totalDuration)).append("\n");
-        report.append("**Test Status:** ").append(results.hasFailures() ? "❌ FAILED" : "PASSED").append("\n\n");
+        report.append("**Test Status:** ").append(results.hasFailures() ? " FAILED" : "PASSED").append("\n\n");
         
         // Executive Summary
         report.append("## Executive Summary\n\n");
@@ -99,7 +99,7 @@ public class PerformanceReportGenerator {
         
         if (results.getBitemporalResults() != null) {
             var bt = results.getBitemporalResults();
-            report.append("### 🔄 Bi-temporal Event Store\n");
+            report.append("###  Bi-temporal Event Store\n");
             report.append("- **Query Performance:** ").append(String.format("%.0f events/sec", bt.getQueryThroughput())).append("\n");
             report.append("- **Append Performance:** ").append(String.format("%.0f events/sec", bt.getAppendThroughput())).append("\n");
             report.append("- **Query Latency:** ").append(String.format("%.2f ms", bt.getAverageQueryLatency())).append("\n");
@@ -108,7 +108,7 @@ public class PerformanceReportGenerator {
         
         if (results.getOutboxResults() != null) {
             var ob = results.getOutboxResults();
-            report.append("### 📤 Outbox Pattern\n");
+            report.append("###  Outbox Pattern\n");
             report.append("- **Send Throughput:** ").append(String.format("%.0f msg/sec", ob.getSendThroughput())).append("\n");
             report.append("- **Total Throughput:** ").append(String.format("%.0f msg/sec", ob.getTotalThroughput())).append("\n");
             report.append("- **Average Latency:** ").append(String.format("%.2f ms", ob.getAverageLatency())).append("\n");
@@ -117,7 +117,7 @@ public class PerformanceReportGenerator {
         
         if (results.getNativeResults() != null) {
             var nq = results.getNativeResults();
-            report.append("### ⚡ Native Queue\n");
+            report.append("###  Native Queue\n");
             report.append("- **Throughput:** ").append(String.format("%.0f msg/sec", nq.getThroughput())).append("\n");
             report.append("- **Average Latency:** ").append(String.format("%.2f ms", nq.getAverageLatency())).append("\n");
             report.append("- **Max Latency:** ").append(String.format("%.2f ms", nq.getMaxLatency())).append("\n");
@@ -126,7 +126,7 @@ public class PerformanceReportGenerator {
         
         if (results.getDatabaseResults() != null) {
             var db = results.getDatabaseResults();
-            report.append("### 🗄️ Database Core\n");
+            report.append("###  Database Core\n");
             report.append("- **Query Throughput:** ").append(String.format("%.0f queries/sec", db.getQueryThroughput())).append("\n");
             report.append("- **Average Latency:** ").append(String.format("%.2f ms", db.getAverageLatency())).append("\n");
             report.append("- **Pool Utilization:** ").append(String.format("%.1f%%", db.getConnectionPoolUtilization())).append("\n");
@@ -152,7 +152,7 @@ public class PerformanceReportGenerator {
         
         // Failures (if any)
         if (results.hasFailures()) {
-            report.append("## ❌ Test Failures\n\n");
+            report.append("##  Test Failures\n\n");
             for (String failure : results.getFailures()) {
                 report.append("- ").append(failure).append("\n");
             }

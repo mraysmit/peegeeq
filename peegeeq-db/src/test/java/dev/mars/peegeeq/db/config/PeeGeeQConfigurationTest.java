@@ -349,7 +349,7 @@ public class PeeGeeQConfigurationTest {
 
     @Test
     void testPlaceholderResolutionLeavesUnknownVarUnchangedWhenNoDefault() {
-        // ${UNSET_VAR} with no default and env var not set → value kept as-is
+        // ${UNSET_VAR} with no default and env var not set  value kept as-is
         // We override the host with a known placeholder that has no default, then verify
         // the raw placeholder string is preserved (and the WARN is logged).
         Properties overrides = new Properties();

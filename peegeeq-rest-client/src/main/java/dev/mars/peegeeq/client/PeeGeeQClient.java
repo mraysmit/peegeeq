@@ -510,7 +510,7 @@ public interface PeeGeeQClient extends AutoCloseable {
     /**
      * Deletes an event store from a setup (Standard REST API).
      *
-     * <p>⭐ <b>RECOMMENDED</b> for programmatic access - uses separate parameters without composite ID parsing.</p>
+     * <p> <b>RECOMMENDED</b> for programmatic access - uses separate parameters without composite ID parsing.</p>
      *
      * <p><b>Endpoint:</b> {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName}</p>
      *

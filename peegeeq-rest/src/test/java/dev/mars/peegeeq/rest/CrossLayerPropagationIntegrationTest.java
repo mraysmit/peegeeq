@@ -59,13 +59,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests the complete flow between all architectural layers as defined in 
  * PEEGEEQ_CALL_PROPAGATION_DESIGN.md:
  * 
- * 1. REST → Runtime → Native/Outbox → Database (Message Production)
- * 2. Database → Native/Outbox → Handler Callback (Message Consumption)
- * 3. Handler Exception → Retry Logic → DLQ (Error Handling)
- * 4. REST → Consumer Group → Member Distribution (Consumer Groups)
+ * 1. REST  Runtime  Native/Outbox  Database (Message Production)
+ * 2. Database  Native/Outbox  Handler Callback (Message Consumption)
+ * 3. Handler Exception  Retry Logic  DLQ (Error Handling)
+ * 4. REST  Consumer Group  Member Distribution (Consumer Groups)
  * 
  * These tests address the gaps identified in the design document where
- * existing tests only verify REST → Database but not the complete
+ * existing tests only verify REST  Database but not the complete
  * consumption and error handling flows.
  * 
  * Classification: INTEGRATION TEST
@@ -208,7 +208,7 @@ public class CrossLayerPropagationIntegrationTest {
         cleanup.onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
 
-    // ========== Test 1: REST → Database → SSE Consumer ==========
+    // ========== Test 1: REST  Database  SSE Consumer ==========
 
     /**
      * Test 1: Complete Message Production and Consumption Flow via SSE
@@ -220,12 +220,12 @@ public class CrossLayerPropagationIntegrationTest {
      * 4. SSE consumer receives the message via streaming
      * 5. Message payload and headers are correctly propagated
      *
-     * This addresses the gap where existing tests only verify REST → Database
+     * This addresses the gap where existing tests only verify REST  Database
      * but not the consumption flow through the REST layer.
      */
     @Test
     @Order(1)
-    @DisplayName("Test 1: REST → Producer → Database → SSE Consumer")
+    @DisplayName("Test 1: REST  Producer  Database  SSE Consumer")
     void testCompleteMessageProductionAndConsumptionFlow(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Test 1: Complete Message Production and Consumption Flow via SSE ===");
 
@@ -286,7 +286,7 @@ public class CrossLayerPropagationIntegrationTest {
             assertNotNull(receivedPayload.get(), "Received payload should not be null");
             assertTrue(receivedPayload.get().contains("testValue"),
                 "Payload should contain the test value");
-            logger.info("Complete flow verified: REST → Producer → DB → SSE Consumer");
+            logger.info("Complete flow verified: REST  Producer  DB  SSE Consumer");
         });
 
         // Close SSE connection
@@ -307,7 +307,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Verify DLQ list returns proper response format
      * 3. Verify DLQ count endpoint works
      *
-     * This tests the REST → Service → Database flow for DLQ operations.
+     * This tests the REST  Service  Database flow for DLQ operations.
      */
     @Test
     @Order(2)
@@ -359,7 +359,7 @@ public class CrossLayerPropagationIntegrationTest {
      * Verifies that when multiple SSE consumers subscribe to the same queue,
      * messages are delivered to all consumers (broadcast pattern for SSE).
      *
-     * This tests the REST → SSE streaming cross-layer flow.
+     * This tests the REST  SSE streaming cross-layer flow.
      */
     @Test
     @Order(3)
@@ -461,7 +461,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Check queue stats endpoint returns proper counts
      * 3. Verify stats reflect the messages sent
      *
-     * This tests the REST → Service → Database flow for queue statistics.
+     * This tests the REST  Service  Database flow for queue statistics.
      */
     @Test
     @Order(4)
@@ -518,7 +518,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Verify messages are accepted with priority
      * 3. Verify priority is stored in database (via direct query)
      *
-     * This tests the REST → Handler → Producer → Database flow for priority.
+     * This tests the REST  Handler  Producer  Database flow for priority.
      */
     @Test
     @Order(5)
@@ -595,7 +595,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Check component health list endpoint
      * 3. Verify health status reflects database connectivity
      *
-     * This tests the REST → HealthHandler → HealthService → Database flow.
+     * This tests the REST  HealthHandler  HealthService  Database flow.
      */
     @Test
     @Order(6)
@@ -652,7 +652,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 1. List subscriptions for a topic
      * 2. Verify subscription endpoints are accessible
      *
-     * This tests the REST → SubscriptionHandler → SubscriptionManager → Database flow.
+     * This tests the REST  SubscriptionHandler  SubscriptionManager  Database flow.
      */
     @Test
     @Order(7)
@@ -695,7 +695,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Verify response includes the correlation ID
      * 3. Verify correlation ID is stored in database
      *
-     * This tests the REST → Handler → Producer → Database flow for correlation ID.
+     * This tests the REST  Handler  Producer  Database flow for correlation ID.
      */
     @Test
     @Order(8)
@@ -746,7 +746,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Verify response includes the message group
      * 3. Verify message group is stored in database
      *
-     * This tests the REST → Handler → Producer → Database flow for message grouping.
+     * This tests the REST  Handler  Producer  Database flow for message grouping.
      */
     @Test
     @Order(9)
@@ -797,7 +797,7 @@ public class CrossLayerPropagationIntegrationTest {
      * 2. Verify response includes header count
      * 3. Verify headers are stored in database
      *
-     * This tests the REST → Handler → Producer → Database flow for headers.
+     * This tests the REST  Handler  Producer  Database flow for headers.
      */
     @Test
     @Order(10)

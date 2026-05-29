@@ -312,7 +312,7 @@ class OutboxOffsetWatermarkOrderingTest {
             return Future.succeededFuture();
         });
 
-        // No messageGroup → all rows funnel through the `__default__` partition.
+        // No messageGroup  all rows funnel through the `__default__` partition.
         Future<Void> sendChain = Future.succeededFuture();
         for (int i = 0; i < total; i++) {
             String payload = "msg-" + i;
@@ -325,7 +325,7 @@ class OutboxOffsetWatermarkOrderingTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                 "Should receive all " + total + " messages within timeout");
 
-        // Single-partition serial delivery → producer order is preserved.
+        // Single-partition serial delivery  producer order is preserved.
         assertEquals(total, received.size(), "should receive all messages");
         for (int i = 0; i < total; i++) {
             assertEquals("msg-" + i, received.get(i),

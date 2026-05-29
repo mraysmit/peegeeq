@@ -81,13 +81,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Tests:</p>
  * <ul>
- *   <li><b>2a</b> {@code testPartitionedOrdering_eventsPerAggregateInOrder} —
- *       3 aggregates × 5 events. Per-aggregate version order is strictly ascending
+ *   <li><b>2a</b> {@code testPartitionedOrdering_eventsPerAggregateInOrder} 
+ *       3 aggregates  5 events. Per-aggregate version order is strictly ascending
  *       at the consumer.</li>
- *   <li><b>2b</b> {@code testPartitionedOrdering_differentAggregatesProcessedConcurrently} —
- *       2 aggregates × 3 slow events each. Total elapsed time is well under the
+ *   <li><b>2b</b> {@code testPartitionedOrdering_differentAggregatesProcessedConcurrently} 
+ *       2 aggregates  3 slow events each. Total elapsed time is well under the
  *       serialised baseline.</li>
- *   <li><b>2c</b> {@code testPartitionedOrdering_defaultPartition_noMessageGroup} —
+ *   <li><b>2c</b> {@code testPartitionedOrdering_defaultPartition_noMessageGroup} 
  *       producer sends without {@code messageGroup}. Only the {@code __default__}
  *       partition assignment exists; messages still arrive in producer order.</li>
  *   <li><b>2d</b> {@code testPartitionedOrdering_idempotentRedelivery} consumer
@@ -215,7 +215,7 @@ class PartitionedOrderingDemoTest {
         });
 
         // Send all events first (interleaved across aggregates), then start the group,
-        // then await arrival, assert, and stop the group — all as one composed chain.
+        // then await arrival, assert, and stop the group  all as one composed chain.
         configureOffsetWatermarkTopic(topic, groupName)
                 .compose(cfg -> {
                     Future<Void> sendChain = Future.succeededFuture();
@@ -339,7 +339,7 @@ class PartitionedOrderingDemoTest {
                     long lastA  = lastAt.get(aggIds.get(0)).get();
                     long firstB = firstAt.get(aggIds.get(1)).get();
                     long lastB  = lastAt.get(aggIds.get(1)).get();
-                    logger.info("2b partition windows: {}=[{}..{}] (Δ={} ms), {}=[{}..{}] (Δ={} ms)",
+                    logger.info("2b partition windows: {}=[{}..{}] (={} ms), {}=[{}..{}] (={} ms)",
                             aggIds.get(0), firstA, lastA, lastA - firstA,
                             aggIds.get(1), firstB, lastB, lastB - firstB);
                     boolean overlap = (firstA < lastB) && (firstB < lastA);
@@ -368,7 +368,7 @@ class PartitionedOrderingDemoTest {
     //   2. All 5 messages are received in send order.
     // ------------------------------------------------------------------
     @Test
-    @DisplayName("2c no messageGroup → __default__ partition serial order")
+    @DisplayName("2c no messageGroup  __default__ partition serial order")
     void testPartitionedOrdering_defaultPartition_noMessageGroup(
             Vertx vertx, VertxTestContext testContext) {
         String topic = "pod-2c-" + UUID.randomUUID().toString().substring(0, 8);
@@ -445,8 +445,8 @@ class PartitionedOrderingDemoTest {
     // them, and stops it gracefully (committing the offset). Then sends a
     // second batch of 3 messages, starts a new consumer group with the same
     // (topic, groupName), and asserts:
-    //   1. Only the second batch is delivered (versions 4–6); the first batch
-    //      (versions 1–3) is not redelivered.
+    //   1. Only the second batch is delivered (versions 46); the first batch
+    //      (versions 13) is not redelivered.
     //   2. Second batch arrives in send order.
     // ------------------------------------------------------------------
     @Test
@@ -458,7 +458,7 @@ class PartitionedOrderingDemoTest {
 
         MessageProducer<AggEvent> producer = factory.createProducer(topic, AggEvent.class);
 
-        // --- First batch: versions 1–3 ---
+        // --- First batch: versions 13 ---
         int firstBatch = 3;
         ConsumerGroup<AggEvent> group1 = factory.createConsumerGroup(groupName, topic, AggEvent.class);
         List<Long> received1 = Collections.synchronizedList(new ArrayList<>());
@@ -477,7 +477,7 @@ class PartitionedOrderingDemoTest {
             return Future.succeededFuture();
         });
 
-        // --- Second batch: versions 4–6 ---
+        // --- Second batch: versions 46 ---
         int secondBatch = 3;
         ConsumerGroup<AggEvent> group2 = factory.createConsumerGroup(groupName, topic, AggEvent.class);
         List<Long> received2 = Collections.synchronizedList(new ArrayList<>());
@@ -515,7 +515,7 @@ class PartitionedOrderingDemoTest {
                         assertEquals((long) (i + 1), (long) received1.get(i),
                                 "first batch out-of-order at position " + i);
                     }
-                    // Stop group1 gracefully — this commits the offset so a new consumer starts after message 3.
+                    // Stop group1 gracefully  this commits the offset so a new consumer starts after message 3.
                     return group1.stopGracefully()
                             .onFailure(err -> logger.warn("group1 stopGracefully error: {}", err.getMessage()))
                             .transform(ar -> Future.<Void>succeededFuture());

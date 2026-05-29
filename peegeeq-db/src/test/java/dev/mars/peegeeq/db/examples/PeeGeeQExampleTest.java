@@ -66,7 +66,7 @@ public class PeeGeeQExampleTest {
 
         containerProps = buildContainerProperties(postgres);
         
-        logger.info("✓ PeeGeeQ Example Test setup completed");
+        logger.info(" PeeGeeQ Example Test setup completed");
     }
     
     @AfterEach

@@ -63,7 +63,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * This test demonstrates the advanced usage pattern: Error Handling and Rollback Scenarios
  * following the patterns outlined in Section "Advanced Usage Patterns - 2. Error Handling and Rollback Scenarios".
  *
- * <h2>⚠️ INTENTIONAL FAILURES - This Test Contains Expected Errors</h2>
+ * <h2> INTENTIONAL FAILURES - This Test Contains Expected Errors</h2>
  * <p>This test class deliberately triggers various error conditions to demonstrate proper rollback behavior.
  * The following errors are <b>INTENTIONAL</b> and expected:</p>
  * <ul>
@@ -142,7 +142,7 @@ public class ErrorHandlingRollbackExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start()
             .onSuccess(v -> {
-                logger.info("✓ PeeGeeQ Manager started");
+                logger.info(" PeeGeeQ Manager started");
                 // Create outbox factory
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -153,7 +153,7 @@ public class ErrorHandlingRollbackExampleTest {
                 processingProducer = (OutboxProducer<ProcessingEvent>) outboxFactory.createProducer("processing", ProcessingEvent.class);
                 // Initialize business service
                 businessService = new BusinessService();
-                logger.info("✓ Setup completed successfully");
+                logger.info(" Setup completed successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -166,12 +166,12 @@ public class ErrorHandlingRollbackExampleTest {
         
         if (orderProducer != null) {
             orderProducer.close();
-            logger.info("✓ Order producer closed");
+            logger.info(" Order producer closed");
         }
         
         if (processingProducer != null) {
             processingProducer.close();
-            logger.info("✓ Processing producer closed");
+            logger.info(" Processing producer closed");
         }
         
         Future<Void> closeFuture = (manager != null)
@@ -180,8 +180,8 @@ public class ErrorHandlingRollbackExampleTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    logger.info("✓ PeeGeeQ Manager stopped");
-                    logger.info("✓ Cleanup completed");
+                    logger.info(" PeeGeeQ Manager stopped");
+                    logger.info(" Cleanup completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -205,7 +205,7 @@ public class ErrorHandlingRollbackExampleTest {
         processOrderWithErrorHandling(successOrder)
             .compose(result -> {
                 testContext.verify(() -> {
-                    logger.info("✓ Successful order processed: {}", result);
+                    logger.info(" Successful order processed: {}", result);
                     assertNotNull(result);
                     assertTrue(result.contains("ERROR-SUCCESS-001"));
                 });
@@ -223,8 +223,8 @@ public class ErrorHandlingRollbackExampleTest {
                         assertTrue(ar.failed(), "Order should have failed");
                         Throwable error = ar.cause();
                         logger.info("INTENTIONAL FAILURE: Order correctly failed and rolled back as expected");
-                        logger.info("   📋 Error details: {}", error.getMessage());
-                        logger.info("   🎯 This failure demonstrates proper business rule validation and automatic rollback");
+                        logger.info("    Error details: {}", error.getMessage());
+                        logger.info("    This failure demonstrates proper business rule validation and automatic rollback");
 
                         testContext.verify(() -> {
                             String errorMessage = error.getMessage();
@@ -238,7 +238,7 @@ public class ErrorHandlingRollbackExampleTest {
                     });
             })
             .onSuccess(v -> {
-                logger.info("✓ Basic error handling with automatic rollback tested successfully");
+                logger.info(" Basic error handling with automatic rollback tested successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -260,7 +260,7 @@ public class ErrorHandlingRollbackExampleTest {
             .compose(v -> testValidationFailure("ZERO-AMOUNT-001", "CUSTOMER-VALID", BigDecimal.ZERO, "Amount must be positive"))
             .compose(v -> testValidationFailure("DUPLICATE-ORDER-001", "CUSTOMER-VALID", BigDecimal.valueOf(500.00), "Duplicate order ID"))
             .onSuccess(v -> {
-                logger.info("✓ Business logic validation failures tested successfully");
+                logger.info(" Business logic validation failures tested successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -283,7 +283,7 @@ public class ErrorHandlingRollbackExampleTest {
         processMultiStageOrder(successOrder, false)
             .compose(result -> {
                 testContext.verify(() -> {
-                    logger.info("✓ Multi-stage operation completed successfully: {}", result);
+                    logger.info(" Multi-stage operation completed successfully: {}", result);
                     assertNotNull(result);
                     assertTrue(result.contains("MULTI-SUCCESS-001"));
                 });
@@ -301,8 +301,8 @@ public class ErrorHandlingRollbackExampleTest {
                         assertTrue(ar.failed(), "Multi-stage operation should have failed");
                         Throwable error = ar.cause();
                         logger.info("INTENTIONAL FAILURE: Multi-stage operation correctly failed and rolled back as expected");
-                        logger.info("   📋 Error details: {}", error.getMessage());
-                        logger.info("   🎯 This failure demonstrates proper multi-stage rollback when any stage fails");
+                        logger.info("    Error details: {}", error.getMessage());
+                        logger.info("    This failure demonstrates proper multi-stage rollback when any stage fails");
 
                         testContext.verify(() -> {
                             String errorMessage = error.getMessage();
@@ -316,7 +316,7 @@ public class ErrorHandlingRollbackExampleTest {
                     });
             })
             .onSuccess(v -> {
-                logger.info("✓ Multi-stage operations with rollback tested successfully");
+                logger.info(" Multi-stage operations with rollback tested successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -344,8 +344,8 @@ public class ErrorHandlingRollbackExampleTest {
                 .map(ignored -> result)
             )
             .onFailure(error -> {
-                logger.error("🎯 INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
-                logger.info("   📋 This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
+                logger.error(" INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
+                logger.info("    This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
             })
             .map(result -> (String) result)
             .otherwise(error -> { throw new RuntimeException("Order processing failed", error); })
@@ -363,12 +363,12 @@ public class ErrorHandlingRollbackExampleTest {
      * @param expectedError The expected error message (for documentation)
      */
     private Future<Void> testValidationFailure(String orderId, String customerId, BigDecimal amount, String expectedError) {
-        logger.info("🧪 Testing INTENTIONAL validation failure: {} - Expected: {}", orderId, expectedError);
+        logger.info(" Testing INTENTIONAL validation failure: {} - Expected: {}", orderId, expectedError);
 
         OrderEvent order = new OrderEvent(orderId, customerId, amount);
         return processOrderWithBusinessValidation(order)
             .map(success -> {
-                fail("❌ UNEXPECTED SUCCESS: Order should have failed but succeeded: " + success);
+                fail(" UNEXPECTED SUCCESS: Order should have failed but succeeded: " + success);
                 return (Void) null;
             })
             .transform(ar -> {
@@ -379,8 +379,8 @@ public class ErrorHandlingRollbackExampleTest {
                     logger.info("INTENTIONAL FAILURE: Validation correctly failed as expected: {}", expectedError);
                 } else {
                     logger.info("INTENTIONAL FAILURE: Validation failed with wrapped error (still expected)");
-                    logger.info("   📋 Actual error: {}", e.getMessage());
-                    logger.info("   🎯 This demonstrates proper error handling and rollback behavior");
+                    logger.info("    Actual error: {}", e.getMessage());
+                    logger.info("    This demonstrates proper error handling and rollback behavior");
                 }
                 return Future.succeededFuture();
             });
@@ -413,8 +413,8 @@ public class ErrorHandlingRollbackExampleTest {
                 .map(ignored -> result)
             )
             .onFailure(error -> {
-                logger.error("🎯 INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
-                logger.info("   📋 This error demonstrates proper validation failure handling and automatic rollback");
+                logger.error(" INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
+                logger.info("    This error demonstrates proper validation failure handling and automatic rollback");
             })
             .map(result -> (String) result)
             .otherwise(error -> { throw new RuntimeException("Business validation failed", error); })
@@ -459,8 +459,8 @@ public class ErrorHandlingRollbackExampleTest {
                     .map(ignored -> "Multi-stage processing completed for order " + order.getOrderId());
             })
             .onFailure(error -> {
-                logger.error("🎯 INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
-                logger.info("   📋 This error demonstrates proper multi-stage rollback when any stage fails");
+                logger.error(" INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
+                logger.info("    This error demonstrates proper multi-stage rollback when any stage fails");
             })
             .map(result -> (String) result)
             .otherwise(error -> { throw new RuntimeException("Multi-stage processing failed", error); })

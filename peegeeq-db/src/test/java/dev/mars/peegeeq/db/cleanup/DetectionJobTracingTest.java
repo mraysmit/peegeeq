@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests for tracing propagation in DeadConsumerDetectionJob.
  *
  * <p>Verifies that trace context is correctly propagated through the
- * entire detection→cleanup→summary compose chain, ensuring all log
+ * entire detectioncleanupsummary compose chain, ensuring all log
  * operations include traceId/spanId in MDC.</p>
  */
 @Tag(TestCategories.CORE)

@@ -26,7 +26,7 @@ async function globalSetup() {
     console.error('   Error:', error instanceof Error ? error.message : String(error))
     console.error('\n   Please start the PeeGeeQ REST server before running e2e tests:')
     console.error('   1. cd peegeeq-rest')
-    console.error('   2. mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8080"')
+    console.error('   2. mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8088"')
     console.error('\n   Or use the provided test scripts in the peegeeq-rest module.\n')
     process.exit(1)
   }

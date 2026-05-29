@@ -208,7 +208,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     }
 
     /**
-     * 🔄 **Round Robin Load Balancing Test**
+     *  **Round Robin Load Balancing Test**
      *
      * **Purpose**: Demonstrates even distribution of messages across multiple consumers
      * using ConsumerGroup's built-in round-robin load balancing.
@@ -222,8 +222,8 @@ class ConsumerGroupLoadBalancingDemoTest {
      * - Scalable consumer management
      * - Built-in fault tolerance
      *
-     * **🚨 DEMO PATTERN**: This test uses simple round-robin without weights.
-     * **🚨 PRODUCTION NOTE**: Real systems would consider consumer capacity,
+     * ** DEMO PATTERN**: This test uses simple round-robin without weights.
+     * ** PRODUCTION NOTE**: Real systems would consider consumer capacity,
      * health checks, and dynamic scaling.
      */
     @Test
@@ -242,7 +242,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
 
-        // 🔄 **Create ConsumerGroup for Round-Robin Distribution**
+        //  **Create ConsumerGroup for Round-Robin Distribution**
         // ConsumerGroup automatically provides round-robin load balancing
         roundRobinGroupToCleanup = queueFactory.createConsumerGroup(
             "RoundRobinGroup", queueName, WorkItem.class);
@@ -254,7 +254,7 @@ class ConsumerGroupLoadBalancingDemoTest {
             ConsumerMetrics metrics = new ConsumerMetrics(consumerId, 1); // Equal weight
             consumerMetrics.add(metrics);
 
-            // 🔄 **Round-Robin Handler**: Each consumer processes messages equally
+            //  **Round-Robin Handler**: Each consumer processes messages equally
             MessageHandler<WorkItem> roundRobinHandler = message -> {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
@@ -271,7 +271,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 });
             };
 
-            // 🔄 **Add Consumer without Filter**: Enables automatic round-robin distribution
+            //  **Add Consumer without Filter**: Enables automatic round-robin distribution
             // No MessageFilter means all consumers are eligible for all messages
             roundRobinGroup.addConsumer(consumerId, roundRobinHandler);
         }
@@ -280,7 +280,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         roundRobinGroup.start()
             .onFailure(testContext::failNow)
             .onSuccess(v -> {
-                // 📤 **Send work items for round-robin distribution**
+                //  **Send work items for round-robin distribution**
                 logger.info("Sending {} work items for round-robin distribution...", numMessages);
 
                 for (int i = 0; i < numMessages; i++) {
@@ -317,7 +317,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                       " processed " + processed + ", expected ~" + expectedPerConsumer);
         }
 
-        // 🧹 Cleanup is handled in tearDown to ensure it completes before manager.closeReactive().
+        //  Cleanup is handled in tearDown to ensure it completes before manager.closeReactive().
         logger.info("Round Robin Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);
     }
@@ -413,7 +413,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     }
 
     /**
-     * 🔗 **Sticky Session Load Balancing Test**
+     *  **Sticky Session Load Balancing Test**
      *
      * **Purpose**: Demonstrates session affinity where messages from the same session
      * are always processed by the same consumer to maintain stateful processing.
@@ -427,8 +427,8 @@ class ConsumerGroupLoadBalancingDemoTest {
      * - Prevents session data corruption from concurrent processing
      * - Supports user session management, shopping carts, etc.
      *
-     * **🚨 DEMO PATTERN**: This test uses pre-assigned session-to-consumer mapping.
-     * **🚨 PRODUCTION NOTE**: Real systems would use consistent hashing or dynamic
+     * ** DEMO PATTERN**: This test uses pre-assigned session-to-consumer mapping.
+     * ** PRODUCTION NOTE**: Real systems would use consistent hashing or dynamic
      * session assignment with proper failover handling.
      */
     @Test
@@ -442,8 +442,8 @@ class ConsumerGroupLoadBalancingDemoTest {
         int messagesPerSession = 5;
         int totalMessages = numSessions * messagesPerSession;
 
-        // 🚨 DEMO PATTERN: Pre-assign sessions to consumers for predictable testing
-        // 🚨 PRODUCTION NOTE: Use consistent hashing or dynamic assignment with failover
+        //  DEMO PATTERN: Pre-assign sessions to consumers for predictable testing
+        //  PRODUCTION NOTE: Use consistent hashing or dynamic assignment with failover
         Map<String, String> sessionToConsumerMapping = new HashMap<>();
         sessionToConsumerMapping.put("session-1", "sticky-consumer-1");
         sessionToConsumerMapping.put("session-2", "sticky-consumer-2");
@@ -455,7 +455,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
 
-        // 🔗 **Create ConsumerGroup for Session Affinity**
+        //  **Create ConsumerGroup for Session Affinity**
         // Following the established pattern from AdvancedProducerConsumerGroupTest
         ConsumerGroup<WorkItem> stickyGroup = queueFactory.createConsumerGroup(
             "StickySessionGroup", queueName, WorkItem.class);
@@ -468,7 +468,7 @@ class ConsumerGroupLoadBalancingDemoTest {
             ConsumerMetrics metrics = new ConsumerMetrics(consumerId, 1);
             consumerMetricsMap.put(consumerId, metrics);
 
-            // 🔗 **Session Affinity Handler**: Each consumer only processes its assigned session
+            //  **Session Affinity Handler**: Each consumer only processes its assigned session
             MessageHandler<WorkItem> sessionHandler = message -> {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
@@ -485,7 +485,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 });
             };
 
-            // 🔗 **Add Consumer with Session Filter**: Only processes messages for this session
+            //  **Add Consumer with Session Filter**: Only processes messages for this session
             // This ensures true session affinity - no race conditions or wrong assignments
             stickyGroup.addConsumer(consumerId, sessionHandler,
                 MessageFilter.byHeader("sessionId", sessionId));
@@ -495,8 +495,8 @@ class ConsumerGroupLoadBalancingDemoTest {
         stickyGroup.start()
             .onFailure(testContext::failNow)
             .onSuccess(v -> {
-                // 📤 **Send work items with session affinity headers**
-                // 🚨 KEY PATTERN: Set sessionId in message headers for MessageFilter.byHeader() routing
+                //  **Send work items with session affinity headers**
+                //  KEY PATTERN: Set sessionId in message headers for MessageFilter.byHeader() routing
                 logger.info("Sending {} work items with session affinity...", totalMessages);
 
                 for (int session = 0; session < numSessions; session++) {
@@ -512,7 +512,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                         WorkItem work = new WorkItem("sticky-work-" + session + "-" + msg,
                                                    sessionId, 150, 5, workData);
 
-                        // 🔗 **Critical**: Set sessionId in message headers for filtering
+                        //  **Critical**: Set sessionId in message headers for filtering
                         // This is what enables MessageFilter.byHeader("sessionId", sessionId) to work
                         Map<String, String> headers = new HashMap<>();
                         headers.put("sessionId", sessionId);
@@ -548,7 +548,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertEquals(numSessions, sessionToConsumerMapping.size(),
                     "Should have mapping for all sessions");
 
-        // 🧹 **Cleanup ConsumerGroup**: Proper resource management
+        //  **Cleanup ConsumerGroup**: Proper resource management
         stickyGroup.stopGracefully()
             .compose(v -> stickyGroup.close())
             .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));

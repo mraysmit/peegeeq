@@ -127,7 +127,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                             logger.info("Database setup created: {}", setupId);
                             String jdbcUrl = String.format("jdbc:postgresql://%s:%d/%s",
                                 postgres.getHost(), postgres.getMappedPort(5432), newDbName);
-                            // Schema init is blocking (Flyway/JDBC) — must run on a worker thread.
+                            // Schema init is blocking (Flyway/JDBC)  must run on a worker thread.
                             return vertx.executeBlocking(() -> {
                                 logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);
                                 PeeGeeQTestSchemaInitializer.initializeSchema(jdbcUrl,
@@ -713,7 +713,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals("FROM_BEGINNING", options.getString("startPosition"),
                            "Start position should be updated to FROM_BEGINNING");
 
-                logger.info("Subscription update FROM_NOW → FROM_BEGINNING verified");
+                logger.info("Subscription update FROM_NOW  FROM_BEGINNING verified");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -879,7 +879,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
         webClient.post(TEST_PORT, "localhost", createGroupPath)
             .sendJsonObject(createGroupRequest)
             .compose(createResponse -> {
-                logger.info("✓ Step 1: Consumer group created");
+                logger.info(" Step 1: Consumer group created");
 
                 // Set subscription with FROM_BEGINNING
                 JsonObject subscriptionOptions = new JsonObject()
@@ -888,12 +888,12 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 String setOptionsPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
                                                      setupId, QUEUE_NAME, groupName);
 
-                logger.info("✓ Step 2: Setting FROM_BEGINNING");
+                logger.info(" Step 2: Setting FROM_BEGINNING");
                 return webClient.post(TEST_PORT, "localhost", setOptionsPath)
                     .sendJsonObject(subscriptionOptions);
             })
             .compose(setResponse -> {
-                logger.info("✓ Step 3: Subscription created, verifying response");
+                logger.info(" Step 3: Subscription created, verifying response");
 
                 // Accept 200 (success) or 500 (subscription table not available)
                 int status = setResponse.statusCode();
@@ -915,11 +915,11 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 // Retrieve via GET API
                 String getPath = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
                                               setupId, QUEUE_NAME, groupName);
-                logger.info("✓ Step 4: Retrieving via GET API");
+                logger.info(" Step 4: Retrieving via GET API");
                 return webClient.get(TEST_PORT, "localhost", getPath).send();
             })
             .compose(getResponse -> {
-                logger.info("✓ Step 5: Verifying GET response");
+                logger.info(" Step 5: Verifying GET response");
 
                 JsonObject options = getResponse.bodyAsJsonObject()
                     .getJsonObject("subscriptionOptions");
@@ -931,7 +931,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 String ssePath = String.format("/api/v1/queues/%s/%s/stream?consumerGroup=%s",
                                               setupId, QUEUE_NAME, groupName);
 
-                logger.info("✓ Step 6: Connecting via SSE");
+                logger.info(" Step 6: Connecting via SSE");
                 return httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
                     .compose(request -> {
                         request.putHeader("Accept", "text/event-stream");
@@ -939,7 +939,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     });
             })
             .onSuccess(sseResponse -> {
-                logger.info("✓ Step 7: Reading SSE configured event");
+                logger.info(" Step 7: Reading SSE configured event");
 
                 StringBuilder sseData = new StringBuilder();
                 AtomicBoolean sseCompleted = new AtomicBoolean(false);
@@ -971,7 +971,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                 }
 
                                 String sseStartPosition = configuredEvent.getString("startPosition");
-                                logger.info("✓ Step 8: SSE configured event shows startPosition: {}", sseStartPosition);
+                                logger.info(" Step 8: SSE configured event shows startPosition: {}", sseStartPosition);
 
                                 assertEquals("FROM_BEGINNING", sseStartPosition,
                                            "SSE MUST use FROM_BEGINNING from subscription");
@@ -1030,7 +1030,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
             .onFailure(throwable -> {
                 // Ignore "Test completed early" failures - these are expected when subscription table is not available
                 if (throwable.getMessage() != null && throwable.getMessage().contains("Test completed early")) {
-                    logger.info("✓ Test completed early (expected path)");
+                    logger.info(" Test completed early (expected path)");
                     // Test already called completeNow(), so don't call failNow()
                 } else {
                     if (testCompleted.compareAndSet(false, true)) {

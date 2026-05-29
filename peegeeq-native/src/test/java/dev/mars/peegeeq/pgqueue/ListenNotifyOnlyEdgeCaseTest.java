@@ -113,7 +113,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @Test
     void testExistingMessagesProcessingAfterListenSetup(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing existing messages processing after LISTEN setup");
+        logger.info(" Testing existing messages processing after LISTEN setup");
 
         String topicName = "test-existing-messages";
 
@@ -138,7 +138,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received existing message {}: {}", count, message.getPayload());
+            logger.info(" Received existing message {}: {}", count, message.getPayload());
             atLeastOneReceived.flag();
             return Future.succeededFuture();
         }).onFailure(testContext::failNow);
@@ -155,7 +155,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @Test
     void testChannelNameSpecialCharacters(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing channel name with special characters");
+        logger.info(" Testing channel name with special characters");
 
         String topicName = "test-special_chars.with-numbers123";
 
@@ -188,7 +188,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @Test
     void testLargePayloadProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing large payload processing");
+        logger.info(" Testing large payload processing");
 
         String topicName = "test-large-payload";
 
@@ -228,7 +228,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @Test
     void testConcurrentProducerScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing concurrent producer scenarios");
+        logger.info(" Testing concurrent producer scenarios");
 
         String topicName = "test-concurrent-producers";
 
@@ -248,7 +248,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received concurrent message {}: {}", count, message.getPayload());
+            logger.info(" Received concurrent message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         })
@@ -276,7 +276,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
     @Test
     void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing shutdown during message processing");
+        logger.info(" Testing shutdown during message processing");
 
         String topicName = "test-shutdown-during-processing";
 
@@ -297,7 +297,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(2000, tid -> {
                 processedCount.incrementAndGet();
-                logger.info("📨 Processed message: {}", message.getPayload());
+                logger.info(" Processed message: {}", message.getPayload());
                 promise.complete();
             });
             return promise.future();
@@ -306,7 +306,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             producer.send("Message for shutdown test").onFailure(testContext::failNow);
             // Give time for message to arrive and processing to start
             vertx.setTimer(1000, id2 -> {
-                logger.info("🔄 Closing consumer during message processing");
+                logger.info(" Closing consumer during message processing");
                 consumer.close();
                 producer.close();
                 testContext.verify(() -> {

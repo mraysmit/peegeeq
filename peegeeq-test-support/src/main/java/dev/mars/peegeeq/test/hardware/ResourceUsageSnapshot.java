@@ -230,7 +230,7 @@ public class ResourceUsageSnapshot {
             
             // Resource usage warnings
             if (isHighResourceUsage()) {
-                sb.append("\n⚠️  HIGH RESOURCE USAGE DETECTED:\n");
+                sb.append("\n  HIGH RESOURCE USAGE DETECTED:\n");
                 if (peakCpuUsage > 80.0) {
                     sb.append(String.format("  - High CPU usage: %.1f%%\n", peakCpuUsage));
                 }
@@ -246,7 +246,7 @@ public class ResourceUsageSnapshot {
             }
             
             if (hasResourceConstraints()) {
-                sb.append("\n🚨 RESOURCE CONSTRAINTS DETECTED:\n");
+                sb.append("\n RESOURCE CONSTRAINTS DETECTED:\n");
                 sb.append("  Performance results may be affected by resource limitations!\n");
             }
         } else {

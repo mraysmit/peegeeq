@@ -68,7 +68,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * Specifically targets:
  * - markMessageFailed() - 0% coverage (38 instructions)
  * - Error handler lambdas - 0% coverage (~93 instructions)
- * - processAvailableMessages() edge cases - 33% → 80% (+92 instructions)
+ * - processAvailableMessages() edge cases - 33%  80% (+92 instructions)
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -140,7 +140,7 @@ public class OutboxConsumerFailureHandlingTest {
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));
-        // Do NOT close vertx — VertxExtension manages its lifecycle
+        // Do NOT close vertx  VertxExtension manages its lifecycle
     }
 
     /**
@@ -296,7 +296,7 @@ public class OutboxConsumerFailureHandlingTest {
 
     /**
      * Test parsePayloadFromJsonObject() with edge cases.
-     * Current coverage: 64% → Target: 80%+
+     * Current coverage: 64%  Target: 80%+
      */
     @Test
     void testParsePayloadFromJsonObject_EdgeCases(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {

@@ -405,7 +405,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // Idempotency key normalization empty/whitespace → null
+    // Idempotency key normalization empty/whitespace  null
     // =========================================================================
 
     @Test

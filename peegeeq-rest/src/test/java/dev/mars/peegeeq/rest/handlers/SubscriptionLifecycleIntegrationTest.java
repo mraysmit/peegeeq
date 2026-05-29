@@ -110,7 +110,7 @@ public class SubscriptionLifecycleIntegrationTest {
      * This must be done AFTER the REST API creates the database because the REST API
      * drops and recreates the database, removing any previously applied schema.
      */
-    // Schema init is blocking (Flyway/JDBC) — delegated to a worker thread via executeBlocking.
+    // Schema init is blocking (Flyway/JDBC)  delegated to a worker thread via executeBlocking.
     private Future<Void> applyFanoutSchema(Vertx vertx) {
         return vertx.executeBlocking(() -> {
             logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);

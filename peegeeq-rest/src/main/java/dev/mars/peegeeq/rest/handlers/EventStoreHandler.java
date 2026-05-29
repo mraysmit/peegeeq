@@ -151,7 +151,7 @@ public class EventStoreHandler {
                     } else {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug("🚫 EXPECTED: Setup not found for event store: {} (setup: {})", eventStoreName, setupId);
+                            logger.debug(" EXPECTED: Setup not found for event store: {} (setup: {})", eventStoreName, setupId);
                             sendError(ctx, 404, "Setup not found: " + setupId);
                         } else {
                             logger.error("Error storing event '{}' in event store '{}': {}", eventRequest.getEventType(), eventStoreName, throwable.getMessage(), throwable);
@@ -260,7 +260,7 @@ public class EventStoreHandler {
                     } else {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug("🚫 EXPECTED: Setup not found for event store query: {} (setup: {})", eventStoreName, setupId);
+                            logger.debug(" EXPECTED: Setup not found for event store query: {} (setup: {})", eventStoreName, setupId);
                             sendError(ctx, 404, "Setup not found: " + setupId);
                         } else if (cause instanceof IllegalArgumentException) {
                             logger.warn("Invalid query parameters for event store {}: {}", eventStoreName, cause.getMessage());
@@ -730,7 +730,7 @@ public class EventStoreHandler {
                 .onFailure(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("🚫 EXPECTED: Setup not found for getting event versions: {} (setup: {})",
+                        logger.debug(" EXPECTED: Setup not found for getting event versions: {} (setup: {})",
                                    eventStoreName, setupId);
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
@@ -825,7 +825,7 @@ public class EventStoreHandler {
                 .onFailure(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("🚫 EXPECTED: Setup not found for temporal event query: {} (setup: {})",
+                        logger.debug(" EXPECTED: Setup not found for temporal event query: {} (setup: {})",
                                    eventStoreName, setupId);
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
@@ -964,7 +964,7 @@ public class EventStoreHandler {
                                 String errorMessage = cause.getMessage();
 
                                 if (errorMessage != null && errorMessage.contains("not found")) {
-                                    logger.debug("🚫 EXPECTED: Original event not found: {}", originalEventId);
+                                    logger.debug(" EXPECTED: Original event not found: {}", originalEventId);
                                     sendError(ctx, 404, "Original event not found: " + originalEventId);
                                 } else {
                                     logger.error("Error appending correction to event {} in event store {}: {}",
@@ -976,7 +976,7 @@ public class EventStoreHandler {
                     .onFailure(throwable -> {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug("🚫 EXPECTED: Setup not found for correction: {} (setup: {})",
+                            logger.debug(" EXPECTED: Setup not found for correction: {} (setup: {})",
                                        eventStoreName, setupId);
                             sendError(ctx, 404, "Setup not found: " + setupId);
                         } else {

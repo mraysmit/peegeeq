@@ -7,11 +7,11 @@ import { test, expect } from '@playwright/test'
  */
 test.describe('WebSocket and SSE Connection Status', () => {
   test('should show WebSocket and SSE as Connected on Overview page', async ({ page }) => {
-    // First ensure we have the correct backend config (127.0.0.1:8080)
+    // First ensure we have the correct backend config (127.0.0.1:8088)
     await page.goto('/settings')
     await page.waitForLoadState('load')
     
-    // Reset to defaults to ensure we're using 127.0.0.1:8080
+    // Reset to defaults to ensure we're using 127.0.0.1:8088
     await page.getByTestId('reset-settings-btn').click()
     await expect(page.getByText(/Configuration reset to defaults/)).toBeVisible({ timeout: 3000 })
     

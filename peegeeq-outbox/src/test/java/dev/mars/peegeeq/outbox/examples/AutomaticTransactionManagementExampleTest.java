@@ -227,7 +227,7 @@ public class AutomaticTransactionManagementExampleTest {
         boolean transactionManagementEnabled = true;
         
         // Simulate basic automatic transaction management
-        logger.info("🔄 Testing sendInOwnTransaction operations...");
+        logger.info(" Testing sendInOwnTransaction operations...");
         for (int i = 0; i < 3; i++) {
             OrderEvent order = new OrderEvent(
                 "auto-tx-" + (i + 1),
@@ -240,10 +240,10 @@ public class AutomaticTransactionManagementExampleTest {
         }
         
         // Simulate rollback scenario
-        logger.info("↩️ Testing automatic rollback scenario...");
+        logger.info(" Testing automatic rollback scenario...");
         automaticRollbacks = 1;
         
-        logger.info("✓ Basic automatic transaction management pattern tested");
+        logger.info(" Basic automatic transaction management pattern tested");
         
         return new AutomaticTransactionResult(transactionsCompleted, automaticRollbacks, transactionManagementEnabled);
     }
@@ -259,14 +259,14 @@ public class AutomaticTransactionManagementExampleTest {
         boolean propagationSuccessful = true;
         
         // Simulate TransactionPropagation.CONTEXT usage
-        logger.info("🔗 Testing TransactionPropagation.CONTEXT...");
+        logger.info(" Testing TransactionPropagation.CONTEXT...");
         for (int i = 0; i < 2; i++) {
             logger.debug("Processing layered service call {}", i + 1);
             contextPropagations++;
             layeredServices++;
         }
         
-        logger.info("✓ Transaction propagation context pattern tested");
+        logger.info(" Transaction propagation context pattern tested");
         
         return new PropagationContextResult(contextPropagations, layeredServices, propagationSuccessful);
     }
@@ -282,7 +282,7 @@ public class AutomaticTransactionManagementExampleTest {
         boolean batchTransactionSuccessful = true;
         
         // Simulate batch operations with shared transaction context
-        logger.info("📦 Testing batch operations with shared context...");
+        logger.info(" Testing batch operations with shared context...");
         List<OrderEvent> batchOrders = IntStream.range(1, 6)
             .mapToObj(i -> new OrderEvent(
                 "batch-order-" + i,
@@ -298,7 +298,7 @@ public class AutomaticTransactionManagementExampleTest {
         }
         sharedContexts = 1; // One shared context for the batch
         
-        logger.info("✓ Batch operations with shared context pattern tested");
+        logger.info(" Batch operations with shared context pattern tested");
         
         return new BatchOperationsResult(batchOperations, sharedContexts, batchTransactionSuccessful);
     }
@@ -314,7 +314,7 @@ public class AutomaticTransactionManagementExampleTest {
         boolean fullParameterSupport = true;
         
         // Simulate full parameter support with propagation
-        logger.info("⚙️ Testing full parameter automatic transactions...");
+        logger.info(" Testing full parameter automatic transactions...");
         
         // Test different propagation modes
         TransactionPropagation[] modes = {
@@ -328,7 +328,7 @@ public class AutomaticTransactionManagementExampleTest {
             parametersSupported += 3; // Simulate 3 parameters per mode
         }
         
-        logger.info("✓ Full parameter automatic transactions pattern tested");
+        logger.info(" Full parameter automatic transactions pattern tested");
         
         return new FullParameterResult(parametersSupported, propagationModes, fullParameterSupport);
     }
@@ -345,7 +345,7 @@ public class AutomaticTransactionManagementExampleTest {
         boolean performanceValidated = true;
         
         // Simulate performance validation
-        logger.info("📊 Testing automatic transaction performance...");
+        logger.info(" Testing automatic transaction performance...");
         int messageCount = 10;
         
         for (int i = 0; i < messageCount; i++) {
@@ -362,7 +362,7 @@ public class AutomaticTransactionManagementExampleTest {
         long processingTime = System.currentTimeMillis() - startTime;
         double throughputMeasured = (double) messageCount / (processingTime / 1000.0);
         
-        logger.info("✓ Performance validation pattern tested");
+        logger.info(" Performance validation pattern tested");
         
         return new PerformanceValidationResult(performanceTests, throughputMeasured, performanceValidated);
     }

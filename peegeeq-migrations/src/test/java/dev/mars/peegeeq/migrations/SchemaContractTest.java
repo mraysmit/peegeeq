@@ -58,7 +58,7 @@ public class SchemaContractTest {
         flyway.clean();
         flyway.migrate();
 
-        log.info("✓ Migrations applied for contract testing");
+        log.info(" Migrations applied for contract testing");
     }
 
     /**
@@ -95,7 +95,7 @@ public class SchemaContractTest {
         validateCheckConstraint("queue_messages", "status", 
             List.of("AVAILABLE", "LOCKED", "PROCESSED", "FAILED", "DEAD_LETTER"));
         
-        log.info("✓ queue_messages table contract validated");
+        log.info(" queue_messages table contract validated");
     }
 
     /**
@@ -137,7 +137,7 @@ public class SchemaContractTest {
         validateCheckConstraint("outbox", "status", 
             List.of("PENDING", "PROCESSING", "COMPLETED", "FAILED", "DEAD_LETTER"));
         
-        log.info("✓ outbox table contract validated");
+        log.info(" outbox table contract validated");
     }
 
     /**
@@ -166,7 +166,7 @@ public class SchemaContractTest {
 
         validateTableColumns("dead_letter_queue", requiredColumns);
         
-        log.info("✓ dead_letter_queue table contract validated");
+        log.info(" dead_letter_queue table contract validated");
     }
 
     /**
@@ -217,7 +217,7 @@ public class SchemaContractTest {
         );
         validateTableColumns("outbox_consumer_groups", consumerGroupsColumns);
 
-        log.info("✓ V010 fanout tables contract validated");
+        log.info(" V010 fanout tables contract validated");
     }
 
     @Test
@@ -244,7 +244,7 @@ public class SchemaContractTest {
 
         validateTableColumns("bitemporal_subscriptions", durableColumns);
 
-        log.info("✓ V012 bitemporal durable subscriptions contract validated");
+        log.info(" V012 bitemporal durable subscriptions contract validated");
     }
 
     /**
@@ -285,13 +285,13 @@ public class SchemaContractTest {
                         assertThat(rs.next())
                             .as("Critical index %s must exist", indexName)
                             .isTrue();
-                        log.info("  ✓ Index exists: {}", indexName);
+                        log.info("   Index exists: {}", indexName);
                     }
                 }
             }
         }
 
-        log.info("✓ All critical indexes validated");
+        log.info(" All critical indexes validated");
     }
 
     /**
@@ -322,13 +322,13 @@ public class SchemaContractTest {
                         assertThat(rs.next())
                             .as("Required function %s must exist", functionName)
                             .isTrue();
-                        log.info("  ✓ Function exists: {}", functionName);
+                        log.info("   Function exists: {}", functionName);
                     }
                 }
             }
         }
 
-        log.info("✓ All required functions validated");
+        log.info(" All required functions validated");
     }
 
     // ========== Helper Methods ==========
@@ -367,7 +367,7 @@ public class SchemaContractTest {
                         tableName, columnName, expectedType, actualType)
                     .isEqualTo(expectedType);
 
-                log.debug("  ✓ {}.{} : {}", tableName, columnName, actualType);
+                log.debug("   {}.{} : {}", tableName, columnName, actualType);
             }
         }
     }
@@ -387,7 +387,7 @@ public class SchemaContractTest {
                 try (PreparedStatement stmt = conn.prepareStatement(insertSql)) {
                     stmt.setString(1, value);
                     stmt.executeUpdate();
-                    log.debug("  ✓ {}.{} accepts value: {}", tableName, columnName, value);
+                    log.debug("   {}.{} accepts value: {}", tableName, columnName, value);
                 }
             }
 

@@ -99,7 +99,7 @@ public class SettlementEventHandler {
         
         SettlementInstructionEvent instruction = event.getPayload();
         
-        log.info("📤 Settlement Instruction Submitted: {} - Trade: {}, Custodian: {}, Settlement Date: {}",
+        log.info(" Settlement Instruction Submitted: {} - Trade: {}, Custodian: {}, Settlement Date: {}",
                 instruction.getInstructionId(),
                 instruction.getTradeId(),
                 instruction.getCustodian(),

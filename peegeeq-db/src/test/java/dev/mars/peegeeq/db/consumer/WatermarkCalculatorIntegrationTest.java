@@ -104,7 +104,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.1: Calculate Watermark Single Group
-    // One group with 3 partitions at offsets 10/20/30 → watermark = 10 (minimum).
+    // One group with 3 partitions at offsets 10/20/30  watermark = 10 (minimum).
     // ========================================================================
 
     @Test
@@ -133,8 +133,8 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 4.2: Calculate Watermark Multiple Groups → Global Min
-    // Group A min=100, Group B min=50 → watermark = 50.
+    // Test 4.2: Calculate Watermark Multiple Groups  Global Min
+    // Group A min=100, Group B min=50  watermark = 50.
     // ========================================================================
 
     @Test
@@ -145,13 +145,13 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
         int generation = 1;
 
         createTopic(topic)
-                // Group A: partitions at 100, 200 → min = 100
+                // Group A: partitions at 100, 200  min = 100
                 .compose(v -> createSubscription(topic, "group-A", "ACTIVE"))
                 .compose(v -> offsetManager.initializeOffset(topic, "group-A", "part-1", generation))
                 .compose(v -> offsetManager.commitOffset(topic, "group-A", "part-1", 100L, generation))
                 .compose(v -> offsetManager.initializeOffset(topic, "group-A", "part-2", generation))
                 .compose(v -> offsetManager.commitOffset(topic, "group-A", "part-2", 200L, generation))
-                // Group B: partitions at 50, 150 → min = 50
+                // Group B: partitions at 50, 150  min = 50
                 .compose(v -> createSubscription(topic, "group-B", "ACTIVE"))
                 .compose(v -> offsetManager.initializeOffset(topic, "group-B", "part-1", generation))
                 .compose(v -> offsetManager.commitOffset(topic, "group-B", "part-1", 50L, generation))
@@ -168,7 +168,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.3: Calculate Watermark Excludes Dead Groups
-    // Active group at 100, DEAD group at 10 → watermark = 100, not pinned by dead.
+    // Active group at 100, DEAD group at 10  watermark = 100, not pinned by dead.
     // ========================================================================
 
     @Test
@@ -198,8 +198,8 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 4.4: Calculate Watermark No Active Groups → Returns Zero
-    // No active subscriptions → watermark = 0.
+    // Test 4.4: Calculate Watermark No Active Groups  Returns Zero
+    // No active subscriptions  watermark = 0.
     // ========================================================================
 
     @Test
@@ -221,7 +221,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.5: Advance Watermark Only Moves Forward
-    // Watermark at 100, calculate returns 50 → stays 100.
+    // Watermark at 100, calculate returns 50  stays 100.
     // ========================================================================
 
     @Test
@@ -277,7 +277,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.7: Sweep Marks Messages Below Watermark as COMPLETED
-    // 20 messages, watermark=10 → messages 1-10 become COMPLETED, 11-20 unchanged.
+    // 20 messages, watermark=10  messages 1-10 become COMPLETED, 11-20 unchanged.
     // ========================================================================
 
     @Test
@@ -292,7 +292,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                 .compose(ids -> {
                     idsRef.set(ids);
                     // Sweep up to the 10th message id
-                    long watermark = ids.get(9); // 0-indexed → 10th message
+                    long watermark = ids.get(9); // 0-indexed  10th message
                     return calculator.sweep(topic, watermark);
                 })
                 .compose(sweptCount -> {
@@ -327,7 +327,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.8: Sweep Is Idempotent
-    // Run sweep twice → same result, no errors.
+    // Run sweep twice  same result, no errors.
     // ========================================================================
 
     @Test
@@ -358,7 +358,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.9: Sweep Does Not Touch Other Topics
-    // Topic A watermark=100, Topic B watermark=10 → only topic A's messages swept.
+    // Topic A watermark=100, Topic B watermark=10  only topic A's messages swept.
     // ========================================================================
 
     @Test
@@ -442,7 +442,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.11: WatermarkJob Runs Periodic Sweep
-    // Start job → after interval, watermark advances and messages swept.
+    // Start job  after interval, watermark advances and messages swept.
     // ========================================================================
 
     @Test
@@ -492,7 +492,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
 
     // ========================================================================
     // Test 4.12: WatermarkJob Stop Cancels Timer
-    // Start then stop → no more sweeps fire after stop.
+    // Start then stop  no more sweeps fire after stop.
     // ========================================================================
 
     @Test

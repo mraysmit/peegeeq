@@ -67,7 +67,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * This test demonstrates advanced error handling strategies including retry patterns, circuit breakers,
  * dead letter queue management, error classification, and poison message handling.
  * 
- * <h2>⚠️ INTENTIONAL FAILURES - This Test Contains Expected Errors</h2>
+ * <h2> INTENTIONAL FAILURES - This Test Contains Expected Errors</h2>
  * <p>This test class deliberately triggers various error conditions to demonstrate proper error handling.
  * The following errors are <b>INTENTIONAL</b> and expected:</p>
  * <ul>

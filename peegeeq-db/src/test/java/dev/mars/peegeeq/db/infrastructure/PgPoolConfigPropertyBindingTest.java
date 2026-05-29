@@ -28,7 +28,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
  * <p>System properties are no longer swept by {@code loadProperties()} (Phase 11
  * removal). The 2-arg constructor is the correct override path for all callers.</p>
  *
- * <p>This is a CORE test — no database, no TestContainers.</p>
+ * <p>This is a CORE test  no database, no TestContainers.</p>
  */
 @Tag(TestCategories.CORE)
 class PgPoolConfigPropertyBindingTest {

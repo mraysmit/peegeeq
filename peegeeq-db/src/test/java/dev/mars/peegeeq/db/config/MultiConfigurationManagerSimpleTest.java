@@ -37,7 +37,7 @@ class MultiConfigurationManagerSimpleTest {
 
     @BeforeEach
     void setUp() {
-        // No System properties needed — configurations are loaded from properties files
+        // No System properties needed  configurations are loaded from properties files
     }
 
     @AfterEach

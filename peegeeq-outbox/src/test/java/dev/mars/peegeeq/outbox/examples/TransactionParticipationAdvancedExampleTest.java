@@ -174,13 +174,13 @@ class TransactionParticipationAdvancedExampleTest {
     @AfterEach
     void tearDown(VertxTestContext ctx) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Transaction Participation Advanced Example Test");
+        logger.info(" Cleaning up Transaction Participation Advanced Example Test");
 
         if (orderProducer != null) orderProducer.close();
         if (outboxFactory != null) outboxFactory.close().onFailure(e -> logger.warn("outboxFactory close failed in teardown", e));
 
         // Close manager on its own event loop; complete the test context on success.
-        // vertxPool and vertx are closed after awaitCompletion — closing vertx inside the
+        // vertxPool and vertx are closed after awaitCompletion  closing vertx inside the
         // chain causes RejectedExecutionException because vertx.close() terminates the very
         // event loop the chain needs to emit its next result on.
         (manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
@@ -209,7 +209,7 @@ class TransactionParticipationAdvancedExampleTest {
             .compose(connection -> connection.begin()
                 .compose(transaction -> orderProducer.sendInExistingTransaction(testOrder, connection)
                     .compose(v -> {
-                        logger.info("✓ Outbox message sent in transaction");
+                        logger.info(" Outbox message sent in transaction");
                         return transaction.commit();
                     }))
                 .eventually(() -> connection.close()))
@@ -239,7 +239,7 @@ class TransactionParticipationAdvancedExampleTest {
             .compose(connection -> connection.begin()
                 .compose(transaction -> orderProducer.sendInExistingTransaction(testOrder, headers, correlationId, messageGroup, connection)
                     .compose(v -> {
-                        logger.info("✓ Outbox message with metadata sent in transaction");
+                        logger.info(" Outbox message with metadata sent in transaction");
                         return transaction.commit();
                     }))
                 .eventually(() -> connection.close()))
@@ -264,11 +264,11 @@ class TransactionParticipationAdvancedExampleTest {
             .compose(connection -> connection.begin()
                 .compose(transaction -> orderProducer.sendInExistingTransaction(order1, connection)
                     .compose(v -> {
-                        logger.info("✓ First outbox message sent in transaction");
+                        logger.info(" First outbox message sent in transaction");
                         return orderProducer.sendInExistingTransaction(order2, connection);
                     })
                     .compose(v -> {
-                        logger.info("✓ Second outbox message sent in transaction");
+                        logger.info(" Second outbox message sent in transaction");
                         return transaction.commit();
                     }))
                 .eventually(() -> connection.close()))
@@ -295,17 +295,17 @@ class TransactionParticipationAdvancedExampleTest {
                     Tuple params = Tuple.of(testOrder.getOrderId(), testOrder.getCustomerId(), testOrder.getAmount(), "CREATED");
                     return connection.preparedQuery(insertSql).execute(params)
                         .compose(result -> {
-                            logger.info("✓ Order inserted: {} rows affected", result.rowCount());
+                            logger.info(" Order inserted: {} rows affected", result.rowCount());
                             assertEquals(1, result.rowCount(), "Should insert exactly 1 row");
                             String updateSql = "UPDATE test_orders SET status = $1 WHERE id = $2";
                             return connection.preparedQuery(updateSql).execute(Tuple.of("CONFIRMED", testOrder.getOrderId()));
                         })
                         .compose(result -> {
-                            logger.info("✓ Order status updated: {} rows affected", result.rowCount());
+                            logger.info(" Order status updated: {} rows affected", result.rowCount());
                             assertEquals(1, result.rowCount(), "Should update exactly 1 row");
                             return orderProducer.sendInExistingTransaction(testOrder, connection)
                                 .compose(v -> {
-                                    logger.info("✓ Outbox event sent in same transaction");
+                                    logger.info(" Outbox event sent in same transaction");
                                     return transaction.commit()
                                         .map(ignored -> "Business logic completed with outbox consistency");
                                 });
@@ -342,7 +342,7 @@ class TransactionParticipationAdvancedExampleTest {
                     .eventually(() -> connection.close())
                     .mapEmpty();
             })
-            .onSuccess(v -> logger.info("✓ Test business table created successfully"));
+            .onSuccess(v -> logger.info(" Test business table created successfully"));
     }
 
     /**

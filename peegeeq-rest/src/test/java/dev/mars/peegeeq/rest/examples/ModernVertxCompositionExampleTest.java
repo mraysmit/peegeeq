@@ -73,7 +73,7 @@ public class ModernVertxCompositionExampleTest {
     void setUp(Vertx vertx) {
         logger.info("Setting up Modern Vert.x Composition Example Test");
         client = WebClient.create(vertx);
-        logger.info("✓ Modern Vert.x Composition Example Test setup completed");
+        logger.info(" Modern Vert.x Composition Example Test setup completed");
     }
     
     @AfterEach
@@ -82,7 +82,7 @@ public class ModernVertxCompositionExampleTest {
         if (client != null) {
             client.close();
         }
-        logger.info("✓ Modern Vert.x Composition Example Test teardown completed");
+        logger.info(" Modern Vert.x Composition Example Test teardown completed");
     }
 
     /**
@@ -102,7 +102,7 @@ public class ModernVertxCompositionExampleTest {
                 testContext.completeNow();
             })
             .onFailure(throwable -> {
-                logger.error("❌ Composable operations failed", throwable);
+                logger.error(" Composable operations failed", throwable);
                 testContext.failNow(throwable);
             });
     }
@@ -138,7 +138,7 @@ public class ModernVertxCompositionExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(throwable -> {
-                logger.error("❌ Error recovery failed", throwable);
+                logger.error(" Error recovery failed", throwable);
                 testContext.failNow(throwable);
             });
     }
@@ -160,7 +160,7 @@ public class ModernVertxCompositionExampleTest {
                 testContext.completeNow();
             })
             .onFailure(throwable -> {
-                logger.error("❌ Service interactions failed", throwable);
+                logger.error(" Service interactions failed", throwable);
                 testContext.failNow(throwable);
             });
     }
@@ -197,14 +197,14 @@ public class ModernVertxCompositionExampleTest {
             })
             .transform(ar -> {
                 if (ar.failed()) {
-                    logger.warn("⚠️ Some simulated startup steps failed, continuing with degraded functionality: {}", 
+                    logger.warn(" Some simulated startup steps failed, continuing with degraded functionality: {}", 
                                ar.cause().getMessage());
                 }
                 // Graceful degradation - continue even if some steps fail
                 return Future.succeededFuture();
             })
             .compose(v -> {
-                logger.info("🚀 Simulated application startup sequence completed successfully");
+                logger.info(" Simulated application startup sequence completed successfully");
                 return Future.succeededFuture();
             });
     }
@@ -233,7 +233,7 @@ public class ModernVertxCompositionExampleTest {
             })
             .transform(ar -> {
                 if (ar.failed()) {
-                    logger.warn("⚠️ Simulated database setup failed, using fallback configuration: {}", ar.cause().getMessage());
+                    logger.warn(" Simulated database setup failed, using fallback configuration: {}", ar.cause().getMessage());
                     return performSimulatedFallbackDatabaseSetup();
                 }
                 return Future.succeededFuture();
@@ -258,7 +258,7 @@ public class ModernVertxCompositionExampleTest {
             })
             .transform(ar -> {
                 if (ar.failed()) {
-                    logger.warn("⚠️ Some simulated service interactions failed: {}", ar.cause().getMessage());
+                    logger.warn(" Some simulated service interactions failed: {}", ar.cause().getMessage());
                 }
                 return Future.<Void>succeededFuture(); // Continue despite failures
             });

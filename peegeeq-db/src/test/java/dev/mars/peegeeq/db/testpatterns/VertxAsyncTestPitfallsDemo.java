@@ -62,7 +62,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Disabled("Counter-example fixture. Enable individually to observe Vert.x async test failure swallowing. Do NOT enable in CI.")
 // BLOCKING-EXEMPT: Pedagogical counter-example fixture (@Disabled in CI).
 // The blocking and fire-and-forget patterns present in this class ARE the behaviours
-// under demonstration — the class intentionally shows what NOT to do so that
+// under demonstration  the class intentionally shows what NOT to do so that
 // developers can observe Vert.x test failure-swallowing pitfalls first-hand.
 @Tag("blocking-exempt")
 @ExtendWith(VertxExtension.class)
@@ -95,7 +95,7 @@ public class VertxAsyncTestPitfallsDemo {
      * <br>
      * ACTUAL: test hangs until {@code awaitCompletion} default timeout, surefire
      * reports a generic timeout failure. The {@code AssertionError} is caught by
-     * Vert.x as a handler-thrown exception and logged at WARN — it never reaches
+     * Vert.x as a handler-thrown exception and logged at WARN  it never reaches
      * the {@link VertxTestContext}.
      */
     @Test
@@ -123,7 +123,7 @@ public class VertxAsyncTestPitfallsDemo {
     void timeoutMaskingFutureFailure(VertxTestContext ctx) {
         Future.<String>failedFuture(new RuntimeException("hidden cause"))
             .onSuccess(v -> ctx.completeNow());
-        // no .onFailure — cause vanishes
+        // no .onFailure  cause vanishes
     }
 
     // -------------------------------------------------------------------------
@@ -166,7 +166,7 @@ public class VertxAsyncTestPitfallsDemo {
     void passByEarlyCompleteNow(VertxTestContext ctx) {
         Future.succeededFuture("step1")
             .compose(a -> {
-                ctx.completeNow(); // PREMATURE — test is done as far as JUnit knows
+                ctx.completeNow(); // PREMATURE  test is done as far as JUnit knows
                 return Future.succeededFuture("step2");
             })
             .compose(b -> {
@@ -205,7 +205,7 @@ public class VertxAsyncTestPitfallsDemo {
             work.toCompletionStage().toCompletableFuture().get(1, TimeUnit.SECONDS);
         } catch (Exception swallowed) {
             // anti-pattern: catch Exception, log nothing, move on
-            // surefire sees no exception escape — test passes
+            // surefire sees no exception escape  test passes
         }
         // no assertion after the try/catch; the failure is gone
     }
@@ -225,8 +225,8 @@ public class VertxAsyncTestPitfallsDemo {
     void passByVerifyAfterCompleteNow(VertxTestContext ctx) {
         Future.succeededFuture("ok")
             .onSuccess(v -> {
-                ctx.completeNow(); // FIRST — context is now closed
-                // SECOND — verify on a closed context is a no-op
+                ctx.completeNow(); // FIRST  context is now closed
+                // SECOND  verify on a closed context is a no-op
                 ctx.verify(() -> assertTrue(1 > 2, "swallowed; ctx closed"));
             });
     }

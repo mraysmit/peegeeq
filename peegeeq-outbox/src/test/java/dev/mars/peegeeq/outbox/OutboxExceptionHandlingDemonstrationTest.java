@@ -152,7 +152,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception from handler, attempt " + attempt);
         });
 
-        logger.info("⏳ Waiting for retry attempts to complete...");
+        logger.info(" Waiting for retry attempts to complete...");
         
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times (initial + 2 retries)");

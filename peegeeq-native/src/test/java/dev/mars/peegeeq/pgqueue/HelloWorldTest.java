@@ -19,7 +19,7 @@ public class HelloWorldTest {
 
     @Test
     void testHelloWorld() {
-        logger.info("🌍 Hello World test is running!");
+        logger.info(" Hello World test is running!");
         
         String message = "Hello, PeeGeeQ!";
         assertNotNull(message);
@@ -31,7 +31,7 @@ public class HelloWorldTest {
     
     @Test
     void testBasicMath() {
-        logger.info("🧮 Testing basic math operations");
+        logger.info(" Testing basic math operations");
         
         int result = 2 + 2;
         assertEquals(4, result);

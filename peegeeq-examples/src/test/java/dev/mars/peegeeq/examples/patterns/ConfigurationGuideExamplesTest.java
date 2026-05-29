@@ -38,10 +38,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>Guide sections covered:</p>
  * <ul>
  *   <li>Constructors and When to Use Each</li>
- *   <li>Priority Chain — Phase 1: 5-source merge</li>
- *   <li>Priority Chain — Phase 2: placeholder resolution</li>
+ *   <li>Priority Chain  Phase 1: 5-source merge</li>
+ *   <li>Priority Chain  Phase 2: placeholder resolution</li>
  *   <li>Configuration Validation Rules</li>
- *   <li>Operator Deployment — Multi-Tenant Pattern</li>
+ *   <li>Operator Deployment  Multi-Tenant Pattern</li>
  *   <li>Named Profiles</li>
  * </ul>
  *
@@ -78,7 +78,7 @@ public class ConfigurationGuideExamplesTest {
     // =========================================================================
 
     /**
-     * Constructor 1 — no-arg.
+     * Constructor 1  no-arg.
      *
      * <p>Resolves the profile from {@code System.getProperty("peegeeq.profile")},
      * then {@code PEEGEEQ_PROFILE} env, then falls back to {@code "default"}.
@@ -93,7 +93,7 @@ public class ConfigurationGuideExamplesTest {
         // because the no-arg constructor delegates to PeeGeeQConfiguration.getActiveProfile().
         Assumptions.assumeTrue(
             PeeGeeQConfiguration.getActiveProfile().equals("default"),
-            "Skipping: active profile is not 'default' — overridden by environment or JVM arg"
+            "Skipping: active profile is not 'default'  overridden by environment or JVM arg"
         );
 
         // peegeeq-default.properties provides: host=localhost, port=5432, name=peegeeq,
@@ -106,7 +106,7 @@ public class ConfigurationGuideExamplesTest {
     }
 
     /**
-     * Constructor 2 — profile only.
+     * Constructor 2  profile only.
      *
      * <p>Loads a named profile. The {@code "demo"} profile ships with this module
      * ({@code peegeeq-demo.properties}) and has all required properties as literal
@@ -119,12 +119,12 @@ public class ConfigurationGuideExamplesTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", new Properties());
 
         assertEquals("demo", config.getProfile());
-        // The demo profile hardcodes localhost — no placeholders, no env var needed.
+        // The demo profile hardcodes localhost  no placeholders, no env var needed.
         assertEquals("localhost", config.getDatabaseConfig().getHost());
     }
 
     /**
-     * Constructor 3 — profile + programmatic overrides (RECOMMENDED).
+     * Constructor 3  profile + programmatic overrides (RECOMMENDED).
      *
      * <p>Overrides are applied after all other sources (profile file, env vars,
      * system properties) and are therefore the highest-priority input.
@@ -145,7 +145,7 @@ public class ConfigurationGuideExamplesTest {
     }
 
     /**
-     * Constructor 4 — explicit database coordinates.
+     * Constructor 4  explicit database coordinates.
      *
      * <p>Convenience overload. Equivalent to the 2-arg constructor with the six
      * database properties pre-populated. Useful when wiring from a DI framework
@@ -175,7 +175,7 @@ public class ConfigurationGuideExamplesTest {
     }
 
     // =========================================================================
-    // Guide section: Priority Chain — Phase 1 (5-source merge)
+    // Guide section: Priority Chain  Phase 1 (5-source merge)
     // =========================================================================
 
     /**
@@ -205,7 +205,7 @@ public class ConfigurationGuideExamplesTest {
      */
     @Test
     void priorityChain_profileFileBeatsDefaultProperties() {
-        // No overrides — rely on the profile file competing against defaults.
+        // No overrides  rely on the profile file competing against defaults.
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", new Properties());
 
         // demo: PT1S overrides default: PT5S
@@ -230,7 +230,7 @@ public class ConfigurationGuideExamplesTest {
     }
 
     // =========================================================================
-    // Guide section: Priority Chain — Phase 2 (Placeholder resolution)
+    // Guide section: Priority Chain  Phase 2 (Placeholder resolution)
     // =========================================================================
 
     /**
@@ -240,7 +240,7 @@ public class ConfigurationGuideExamplesTest {
      * the full merge (including step 5 overrides), so placeholders in overrides are
      * resolved too.</p>
      *
-     * <p>Guide reference: "${VAR:default} → value of env var VAR if set, otherwise default"</p>
+     * <p>Guide reference: "${VAR:default}  value of env var VAR if set, otherwise default"</p>
      */
     @Test
     void placeholder_withFallback_usesFallbackWhenEnvVarIsAbsent() {
@@ -259,7 +259,7 @@ public class ConfigurationGuideExamplesTest {
      * {@code ${VAR:}} with an empty default resolves to an empty string when the env var is absent.
      *
      * <p>This is the pattern used for {@code peegeeq.database.password} in the
-     * production profile — an empty password triggers a WARN but does not fail
+     * production profile  an empty password triggers a WARN but does not fail
      * validation (trust/peer authentication scenario).</p>
      */
     @Test
@@ -267,7 +267,7 @@ public class ConfigurationGuideExamplesTest {
         Properties overrides = validBase();
         overrides.setProperty("peegeeq.database.password", "${PEEGEEQ_GUIDE_EXAMPLE_PWD_ABSENT:}");
 
-        // Empty password → WARN is logged, but validation does not throw
+        // Empty password  WARN is logged, but validation does not throw
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", overrides);
 
         assertEquals("", config.getString("peegeeq.database.password", "NOT_EMPTY"),
@@ -304,7 +304,7 @@ public class ConfigurationGuideExamplesTest {
     @Test
     void placeholder_multipleInSameValue_allResolved() {
         Properties overrides = validBase();
-        // Both vars absent → both fall back to their defaults
+        // Both vars absent  both fall back to their defaults
         overrides.setProperty("peegeeq.metrics.instance-id",
             "${PEEGEEQ_GUIDE_APP_ABSENT:myapp}-${PEEGEEQ_GUIDE_REGION_ABSENT:eu-west-1}");
 
@@ -359,10 +359,10 @@ public class ConfigurationGuideExamplesTest {
     @Test
     void validation_multipleViolations_reportedInOneException() {
         Properties bad = validBase();
-        bad.setProperty("peegeeq.database.host",     "");      // required — empty → fail
-        bad.setProperty("peegeeq.database.name",     "");      // required — empty → fail
-        bad.setProperty("peegeeq.database.username", "");      // required — empty → fail
-        bad.setProperty("peegeeq.database.port",     "99999"); // must be 1–65535
+        bad.setProperty("peegeeq.database.host",     "");      // required  empty  fail
+        bad.setProperty("peegeeq.database.name",     "");      // required  empty  fail
+        bad.setProperty("peegeeq.database.username", "");      // required  empty  fail
+        bad.setProperty("peegeeq.database.port",     "99999"); // must be 165535
 
         IllegalStateException ex = assertThrows(IllegalStateException.class,
             () -> new PeeGeeQConfiguration("default", bad));
@@ -377,7 +377,7 @@ public class ConfigurationGuideExamplesTest {
     /**
      * Pool {@code max-size} less than {@code min-size} is rejected.
      *
-     * <p>Guide reference: "pool.max-size ≥ pool.min-size"</p>
+     * <p>Guide reference: "pool.max-size  pool.min-size"</p>
      */
     @Test
     void validation_poolMaxSizeLessThanMinSize_rejected() {
@@ -393,7 +393,7 @@ public class ConfigurationGuideExamplesTest {
     }
 
     /**
-     * Recovery {@code check-interval} ≤ {@code processing-timeout} is rejected.
+     * Recovery {@code check-interval}  {@code processing-timeout} is rejected.
      *
      * <p>The scanner must wait longer than the processing timeout before declaring
      * a message stuck; otherwise it requeues messages that are still being processed.</p>
@@ -431,7 +431,7 @@ public class ConfigurationGuideExamplesTest {
     }
 
     // =========================================================================
-    // Guide section: Operator Deployment — Multi-Tenant Pattern
+    // Guide section: Operator Deployment  Multi-Tenant Pattern
     // =========================================================================
 
     /**

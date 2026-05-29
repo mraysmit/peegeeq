@@ -251,7 +251,7 @@ public class OutboxRetryConcurrencyTest {
 
             retryCheckpoint.flag();
             if (retryFlags.incrementAndGet() == 4) {
-                // All retries done — verify retry count consistency before completing
+                // All retries done  verify retry count consistency before completing
                 verifyRetryCountConsistency(testMessage, 3)
                     .onSuccess(v -> verifyCheckpoint.flag())
                     .onFailure(testContext::failNow);
@@ -408,7 +408,7 @@ public class OutboxRetryConcurrencyTest {
 
             retryCheckpoint.flag();
             if (attempt == totalExpected) {
-                // All retries done — wait 2 s for DLQ processor then verify
+                // All retries done  wait 2 s for DLQ processor then verify
                 vertx.setTimer(2000, timerId ->
                     verifyAllMessagesInDeadLetterQueue(testMessages)
                         .onSuccess(v -> verifyCheckpoint.flag())

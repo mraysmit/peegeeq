@@ -279,7 +279,7 @@ public class OutboxServerSideFilteringTest {
     }
 
     @Test
-    @DisplayName("Outbox server-side filter: NULL-safe — messages missing the filter header are excluded")
+    @DisplayName("Outbox server-side filter: NULL-safe  messages missing the filter header are excluded")
     void testOutboxServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Throwable {
         logger.info("=== Testing Outbox Server-Side Filter with Missing Headers ===");
         final int expected = 1;

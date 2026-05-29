@@ -153,7 +153,7 @@ public class TransactionalOutboxAnalysisTest {
                 "status VARCHAR(20) NOT NULL, " +
                 "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP" +
                 ")").execute()
-                .onSuccess(v -> logger.info("✓ Test business table created"))
+                .onSuccess(v -> logger.info(" Test business table created"))
                 .mapEmpty();
     }
 

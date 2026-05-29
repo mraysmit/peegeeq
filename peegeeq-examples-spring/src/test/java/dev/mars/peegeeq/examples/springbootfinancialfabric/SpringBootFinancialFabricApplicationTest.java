@@ -141,7 +141,7 @@ public class SpringBootFinancialFabricApplicationTest {
 
     @AfterAll
     static void tearDown(VertxTestContext testContext) {
-        log.info("🧹 Cleaning up Financial Fabric Test resources");
+        log.info(" Cleaning up Financial Fabric Test resources");
         if (peeGeeQManagerRef == null) {
             testContext.completeNow();
             return;

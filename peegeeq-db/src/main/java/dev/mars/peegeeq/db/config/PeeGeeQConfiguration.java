@@ -179,9 +179,9 @@ public class PeeGeeQConfiguration {
      * property values against environment variables.
      *
      * <ul>
-     *   <li>{@code ${VAR}} — replaced by the value of env var {@code VAR};
+     *   <li>{@code ${VAR}}  replaced by the value of env var {@code VAR};
      *       left unchanged if the variable is not set.</li>
-     *   <li>{@code ${VAR:default}} — replaced by {@code VAR} when set,
+     *   <li>{@code ${VAR:default}}  replaced by {@code VAR} when set,
      *       otherwise replaced by {@code default} (which may be empty).</li>
      * </ul>
      *

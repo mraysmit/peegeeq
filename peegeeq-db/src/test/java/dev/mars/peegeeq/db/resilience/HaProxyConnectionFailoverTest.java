@@ -59,10 +59,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * <h2>Architecture under test</h2>
  * <pre>
  *   Vert.x Pool (PgConnectionManager)
- *       ↓  connects to HAProxy:5400
+ *         connects to HAProxy:5400
  *   HAProxy (TCP proxy with active health-checking)
- *       ├── pg_primary:5432   (active, always preferred)
- *       └── pg_secondary:5432 (backup – only used when primary is DOWN)
+ *        pg_primary:5432   (active, always preferred)
+ *        pg_secondary:5432 (backup  only used when primary is DOWN)
  * </pre>
  *
  * <h2>What is tested</h2>
@@ -109,10 +109,10 @@ class HaProxyConnectionFailoverTest {
     private static final String DB_USER = "peegeeq_test";
     private static final String DB_PASS = "peegeeq_test";
 
-    /** Pool connection timeout – short for tests so failures surface quickly. */
+    /** Pool connection timeout  short for tests so failures surface quickly. */
     private static final Duration POOL_CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
-    /** HAProxy health-check: fall=2 × inter=500ms = ~1 s to detect failure. */
+    /** HAProxy health-check: fall=2  inter=500ms = ~1 s to detect failure. */
     private static final long HAPROXY_FAILOVER_WAIT_MS = 4_000;
 
     /**
@@ -143,7 +143,7 @@ class HaProxyConnectionFailoverTest {
     static GenericContainer<?> haproxy;
 
     /**
-     * Replacement primary used in Phase 5 (failback test).  Not started in @BeforeAll —
+     * Replacement primary used in Phase 5 (failback test).  Not started in @BeforeAll 
      * started mid-test with the same network alias "pg_primary" so HAProxy re-discovers it
      * automatically on the next health-check cycle.
      */
@@ -189,13 +189,13 @@ class HaProxyConnectionFailoverTest {
 
         // Start both PostgreSQL nodes before starting HAProxy, so HAProxy can
         // successfully health-check both backends on startup.
-        logger.debug("[infra] Starting primary PostgreSQL …");
+        logger.debug("[infra] Starting primary PostgreSQL ");
         primary.start();
         logger.info("[infra] Primary   started: host={} mappedPort={} containerId={}",
             primary.getHost(), primary.getFirstMappedPort(),
             primary.getContainerId().substring(0, 12));
 
-        logger.debug("[infra] Starting secondary PostgreSQL …");
+        logger.debug("[infra] Starting secondary PostgreSQL ");
         secondary.start();
         logger.info("[infra] Secondary started: host={} mappedPort={} containerId={}",
             secondary.getHost(), secondary.getFirstMappedPort(),
@@ -203,7 +203,7 @@ class HaProxyConnectionFailoverTest {
 
         // Prepare the replacement primary for the failback test (Phase 5).
         // Uses the same alias so HAProxy re-discovers it without config changes.
-        // Not started here — started mid-test in Phase 5.
+        // Not started here  started mid-test in Phase 5.
         primary2 = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
             .withNetwork(network)
             .withNetworkAliases("pg_primary")
@@ -224,17 +224,17 @@ class HaProxyConnectionFailoverTest {
             .withExposedPorts(HAPROXY_PG_PORT)
             .waitingFor(Wait.forListeningPort().withStartupTimeout(Duration.ofSeconds(30)));
 
-        logger.debug("[infra] Starting HAProxy …");
+        logger.debug("[infra] Starting HAProxy ");
         haproxy.start();
         logger.info("[infra] HAProxy    started: host={} mappedPort={} containerId={}",
             haproxy.getHost(), haproxy.getMappedPort(HAPROXY_PG_PORT),
             haproxy.getContainerId().substring(0, 12));
 
         logger.info("=== Infrastructure startup COMPLETE in {}ms ===", System.currentTimeMillis() - t0);
-        logger.info("[infra] Topology: App → HAProxy:{}:{} → pg_primary:5432 / pg_secondary:5432 (backup)",
+        logger.info("[infra] Topology: App  HAProxy:{}:{}  pg_primary:5432 / pg_secondary:5432 (backup)",
             haproxy.getHost(), haproxy.getMappedPort(HAPROXY_PG_PORT));
         logger.info("[infra] pgsql-check user: haproxy_check (no password, no privileges)");
-        logger.info("[infra] Failover timing: fall=2 x inter=500ms ≈ 1s detection, {}ms test buffer",
+        logger.info("[infra] Failover timing: fall=2 x inter=500ms  1s detection, {}ms test buffer",
             HAPROXY_FAILOVER_WAIT_MS);
         logger.info("[infra] Failback timing: {}ms (container start + HAProxy rise=1 probe)", HAPROXY_FAILBACK_WAIT_MS);
     }
@@ -277,7 +277,7 @@ class HaProxyConnectionFailoverTest {
 
         pool = connectionManager.getOrCreateReactivePool("haproxy-failover-test", connConfig, poolConfig);
 
-        logger.info("[setup] Pool created – PgConnectionManager@{} → HAProxy {}:{} db={} maxSize=5 timeout={}s",
+        logger.info("[setup] Pool created  PgConnectionManager@{}  HAProxy {}:{} db={} maxSize=5 timeout={}s",
             connectionManager.getInstanceId(),
             haproxy.getHost(), haproxy.getMappedPort(HAPROXY_PG_PORT),
             DB_NAME, POOL_CONNECT_TIMEOUT.getSeconds());
@@ -306,7 +306,7 @@ class HaProxyConnectionFailoverTest {
     // -----------------------------------------------------------------------
 
     /**
-     * Phase 1 – Normal operation.
+     * Phase 1  Normal operation.
      *
      * Verifies that the Vert.x reactive pool can execute queries through HAProxy
      * while the primary is healthy.  HAProxy routes all traffic to pg_primary.
@@ -316,7 +316,7 @@ class HaProxyConnectionFailoverTest {
     @DisplayName("Phase 1: queries succeed when primary is healthy (routes via HAProxy)")
     void testNormalOperationViaPrimary(Vertx vertx, VertxTestContext ctx) {
         long t0 = System.currentTimeMillis();
-        logger.info("--- Phase 1 BEGIN: normal operation via HAProxy → primary ---");
+        logger.info("--- Phase 1 BEGIN: normal operation via HAProxy  primary ---");
         logger.debug("[phase-1] Primary running={} secondary running={}",
             primary.isRunning(), secondary.isRunning());
 
@@ -324,7 +324,7 @@ class HaProxyConnectionFailoverTest {
             .onSuccess(rows -> ctx.verify(() -> {
                 int value = rows.iterator().next().getInteger("health");
                 long elapsed = System.currentTimeMillis() - t0;
-                logger.info("[phase-1] SELECT 1 = {} via HAProxy → primary  ({}ms)", value, elapsed);
+                logger.info("[phase-1] SELECT 1 = {} via HAProxy  primary  ({}ms)", value, elapsed);
                 assertEquals(1, value, "SELECT 1 should return 1 when primary is healthy");
                 logger.info("--- Phase 1 PASS ---");
                 ctx.completeNow();
@@ -337,7 +337,7 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 2 – Real SQL round-trip via {@link PgConnectionManager#withConnection}.
+     * Phase 2  Real SQL round-trip via {@link PgConnectionManager#withConnection}.
      *
      * Creates a temporary table, inserts a row, reads it back, and verifies the value.
      * Temporary tables are session-scoped and auto-dropped when the connection closes,
@@ -351,15 +351,15 @@ class HaProxyConnectionFailoverTest {
         logger.info("--- Phase 2 BEGIN: withConnection DDL + DML round-trip ---");
 
         connectionManager.withConnection("haproxy-failover-test", conn -> {
-            logger.debug("[phase-2] Connection acquired from pool — executing CREATE TEMP TABLE");
+            logger.debug("[phase-2] Connection acquired from pool  executing CREATE TEMP TABLE");
             return conn.query("CREATE TEMP TABLE haproxy_roundtrip (id INT, label TEXT)").execute()
                 .compose(v -> {
-                    logger.debug("[phase-2] Temp table created — inserting test row (id=42)");
+                    logger.debug("[phase-2] Temp table created  inserting test row (id=42)");
                     return conn.preparedQuery("INSERT INTO haproxy_roundtrip VALUES ($1, $2)")
                         .execute(io.vertx.sqlclient.Tuple.of(42, "peegeeq-via-haproxy"));
                 })
                 .compose(v -> {
-                    logger.debug("[phase-2] Insert complete — reading back via SELECT");
+                    logger.debug("[phase-2] Insert complete  reading back via SELECT");
                     return conn.query("SELECT id, label FROM haproxy_roundtrip").execute();
                 })
                 .map(rows -> {
@@ -386,7 +386,7 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 3 – Transaction rollback safety via {@link PgConnectionManager#withTransaction}.
+     * Phase 3  Transaction rollback safety via {@link PgConnectionManager#withTransaction}.
      *
      * Inserts a row inside a transaction, explicitly rolls back, then verifies the row
      * is absent.  Confirms the pool correctly surfaces rollback through HAProxy.
@@ -399,7 +399,7 @@ class HaProxyConnectionFailoverTest {
         logger.info("--- Phase 3 BEGIN: transaction rollback safety ---");
 
         connectionManager.withConnection("haproxy-failover-test", conn -> {
-            logger.debug("[phase-3] Connection acquired — creating temp table haproxy_rollback_test");
+            logger.debug("[phase-3] Connection acquired  creating temp table haproxy_rollback_test");
             return conn.query("CREATE TEMP TABLE haproxy_rollback_test (val INT)").execute()
                 .compose(v -> {
                     logger.debug("[phase-3] Beginning explicit transaction");
@@ -410,12 +410,12 @@ class HaProxyConnectionFailoverTest {
                     return conn.preparedQuery("INSERT INTO haproxy_rollback_test VALUES ($1)")
                         .execute(io.vertx.sqlclient.Tuple.of(999))
                         .compose(v -> {
-                            logger.debug("[phase-3] Insert done — rolling back transaction");
+                            logger.debug("[phase-3] Insert done  rolling back transaction");
                             return tx.rollback();
                         });
                 })
                 .compose(v -> {
-                    logger.debug("[phase-3] Rollback complete — verifying row count = 0");
+                    logger.debug("[phase-3] Rollback complete  verifying row count = 0");
                     return conn.query("SELECT COUNT(*) AS cnt FROM haproxy_rollback_test").execute();
                 })
                 .map(rows -> {
@@ -439,7 +439,7 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 4 – {@link PgConnectionManager#checkHealth} returns {@code true} while primary healthy.
+     * Phase 4  {@link PgConnectionManager#checkHealth} returns {@code true} while primary healthy.
      *
      * Validates the health-check API works end-to-end through HAProxy.
      */
@@ -468,11 +468,11 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 5 – Failback: traffic returns to the primary after it recovers.
+     * Phase 5  Failback: traffic returns to the primary after it recovers.
      *
      * <ol>
      *   <li>Stop the original primary.  HAProxy detects failure and routes to secondary.</li>
-     *   <li>Start {@code primary2} — a fresh container with the same network alias
+     *   <li>Start {@code primary2}  a fresh container with the same network alias
      *       {@code pg_primary}.  HAProxy picks it up on the next health-check cycle.</li>
      *   <li>Verify queries succeed again and that HAProxy is routing to the primary
      *       (not just the secondary backup).</li>
@@ -484,7 +484,7 @@ class HaProxyConnectionFailoverTest {
     @Test
     @Order(5)
     @Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
-    @DisplayName("Phase 5: failback — traffic returns after replacement primary starts")
+    @DisplayName("Phase 5: failback  traffic returns after replacement primary starts")
     void testFailbackAfterPrimaryRecovery(Vertx vertx, VertxTestContext ctx) {
         long t0 = System.currentTimeMillis();
         logger.info("--- Phase 5 BEGIN: failback after primary recovery ---");
@@ -497,14 +497,14 @@ class HaProxyConnectionFailoverTest {
         pool.query("SELECT 1 AS health").execute()
             .compose(rows -> {
                 assertEquals(1, rows.iterator().next().getInteger("health"));
-                logger.info("[phase-5] Pre-stop query OK — primary healthy ({}ms)",
+                logger.info("[phase-5] Pre-stop query OK  primary healthy ({}ms)",
                     System.currentTimeMillis() - t0);
 
                 // Step 2: stop original primary.
                 String containerId = primary.getContainerId().substring(0, 12);
-                logger.info("[phase-5] Stopping primary (containerId={}) to simulate outage …", containerId);
+                logger.info("[phase-5] Stopping primary (containerId={}) to simulate outage ", containerId);
                 primary.stop();
-                logger.info("[phase-5] Primary stopped after {}ms — waiting {}ms for HAProxy fall=2 detection …",
+                logger.info("[phase-5] Primary stopped after {}ms  waiting {}ms for HAProxy fall=2 detection ",
                     System.currentTimeMillis() - t0, HAPROXY_FAILOVER_WAIT_MS);
 
                 Promise<Void> failoverDelay = Promise.promise();
@@ -512,22 +512,22 @@ class HaProxyConnectionFailoverTest {
                 return failoverDelay.future();
             })
             .compose(v -> {
-                logger.info("[phase-5] Failover wait complete ({}ms elapsed) — verifying secondary responds …",
+                logger.info("[phase-5] Failover wait complete ({}ms elapsed)  verifying secondary responds ",
                     System.currentTimeMillis() - t0);
                 return queryWithRetry(vertx, pool, MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_MS);
             })
             .compose(value -> {
                 assertEquals(1, value, "Secondary should answer SELECT 1 during failover");
-                logger.info("[phase-5] Secondary confirmed UP at {}ms elapsed — starting primary2 …",
+                logger.info("[phase-5] Secondary confirmed UP at {}ms elapsed  starting primary2 ",
                     System.currentTimeMillis() - t0);
 
-                // Step 5: start replacement primary with same alias — HAProxy will detect it.
+                // Step 5: start replacement primary with same alias  HAProxy will detect it.
                 primary2.start();
                 logger.info("[phase-5] primary2 started: host={} mappedPort={} containerId={} ({}ms elapsed)",
                     primary2.getHost(), primary2.getFirstMappedPort(),
                     primary2.getContainerId().substring(0, 12),
                     System.currentTimeMillis() - t0);
-                logger.info("[phase-5] Waiting {}ms for HAProxy pgsql-check to detect primary2 (rise=1 x inter=500ms) …",
+                logger.info("[phase-5] Waiting {}ms for HAProxy pgsql-check to detect primary2 (rise=1 x inter=500ms) ",
                     HAPROXY_FAILBACK_WAIT_MS);
 
                 Promise<Void> failbackDelay = Promise.promise();
@@ -535,7 +535,7 @@ class HaProxyConnectionFailoverTest {
                 return failbackDelay.future();
             })
             .compose(v -> {
-                logger.info("[phase-5] Failback wait complete ({}ms elapsed) — verifying pool healthy …",
+                logger.info("[phase-5] Failback wait complete ({}ms elapsed)  verifying pool healthy ",
                     System.currentTimeMillis() - t0);
                 logger.debug("[phase-5] primary2 still running={}", primary2.isRunning());
                 return queryWithRetry(vertx, pool, MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_MS);
@@ -543,7 +543,7 @@ class HaProxyConnectionFailoverTest {
             .onSuccess(value -> ctx.verify(() -> {
                 long elapsed = System.currentTimeMillis() - t0;
                 assertEquals(1, value, "SELECT 1 should succeed after failback");
-                logger.info("--- Phase 5 PASS: failback complete in {}ms — pool serving queries via primary2 ---",
+                logger.info("--- Phase 5 PASS: failback complete in {}ms  pool serving queries via primary2 ---",
                     elapsed);
                 ctx.completeNow();
             }))
@@ -555,13 +555,13 @@ class HaProxyConnectionFailoverTest {
     }
 
     /**
-     * Phase 6 – HAProxy TCP failover (destructive).
+     * Phase 6  HAProxy TCP failover (destructive).
      *
      * <p>Simulates a primary PostgreSQL failure and verifies that:
      * <ol>
      *   <li>The Vert.x pool initially routes to primary through HAProxy.</li>
      *   <li>After the primary is stopped, HAProxy detects the failure
-     *       (2 × 500 ms = ~1 s) and promotes the secondary (backup).</li>
+     *       (2  500 ms = ~1 s) and promotes the secondary (backup).</li>
      *   <li>The pool discards stale connections and re-connects through
      *       HAProxy to the secondary.  Queries succeed without restarting
      *       the application.</li>
@@ -577,7 +577,7 @@ class HaProxyConnectionFailoverTest {
         long t0 = System.currentTimeMillis();
         PostgreSQLContainer activePrimary = (primary2 != null && primary2.isRunning()) ? primary2 : primary;
         String primaryLabel = activePrimary == primary2 ? "primary2" : "primary";
-        logger.info("--- Phase 6 BEGIN: failover (destructive) — active primary is {} ---", primaryLabel);
+        logger.info("--- Phase 6 BEGIN: failover (destructive)  active primary is {} ---", primaryLabel);
         logger.info("[phase-6] Container states: {}={} secondary={} haproxy={}",
             primaryLabel, activePrimary.isRunning() ? "UP" : "DOWN",
             secondary.isRunning() ? "UP" : "DOWN",
@@ -588,14 +588,14 @@ class HaProxyConnectionFailoverTest {
             .compose(rows -> {
                 int value = rows.iterator().next().getInteger("health");
                 assertEquals(1, value, "Pre-failover query should succeed");
-                logger.info("[phase-6] Pre-failover query OK — {} handling traffic ({}ms)",
+                logger.info("[phase-6] Pre-failover query OK  {} handling traffic ({}ms)",
                     primaryLabel, System.currentTimeMillis() - t0);
 
                 // Step 2: Stop the active primary to trigger the failover.
-                logger.info("[phase-6] Stopping {} (containerId={}) to trigger HAProxy failover …",
+                logger.info("[phase-6] Stopping {} (containerId={}) to trigger HAProxy failover ",
                     primaryLabel, activePrimary.getContainerId().substring(0, 12));
                 activePrimary.stop();
-                logger.info("[phase-6] {} stopped after {}ms — waiting {}ms for HAProxy fall=2 detection …",
+                logger.info("[phase-6] {} stopped after {}ms  waiting {}ms for HAProxy fall=2 detection ",
                     primaryLabel, System.currentTimeMillis() - t0, HAPROXY_FAILOVER_WAIT_MS);
 
                 Promise<Void> delay = Promise.promise();
@@ -603,14 +603,14 @@ class HaProxyConnectionFailoverTest {
                 return delay.future();
             })
             .compose(v -> {
-                logger.info("[phase-6] Failover wait complete ({}ms elapsed) — retrying via secondary …",
+                logger.info("[phase-6] Failover wait complete ({}ms elapsed)  retrying via secondary ",
                     System.currentTimeMillis() - t0);
                 return queryWithRetry(vertx, pool, MAX_RETRY_ATTEMPTS, RETRY_INTERVAL_MS);
             })
             .onSuccess(value -> ctx.verify(() -> {
                 long elapsed = System.currentTimeMillis() - t0;
                 assertEquals(1, value, "Post-failover query should return 1 via secondary");
-                logger.info("--- Phase 6 PASS: failover complete in {}ms — HAProxy routing via secondary ---",
+                logger.info("--- Phase 6 PASS: failover complete in {}ms  HAProxy routing via secondary ---",
                     elapsed);
                 ctx.completeNow();
             }))
@@ -622,7 +622,7 @@ class HaProxyConnectionFailoverTest {
     }
 
     // -----------------------------------------------------------------------
-    // Retry helpers  (no .recover() – uses Promise + onSuccess/onFailure)
+    // Retry helpers  (no .recover()  uses Promise + onSuccess/onFailure)
     // -----------------------------------------------------------------------
 
     /**
@@ -651,16 +651,16 @@ class HaProxyConnectionFailoverTest {
         pool.query("SELECT 1 AS health").execute()
             .onSuccess(rows -> {
                 int value = rows.iterator().next().getInteger("health");
-                logger.debug("[retry] Attempt {}/{} OK — value={}", attempt, maxAttempts, value);
+                logger.debug("[retry] Attempt {}/{} OK  value={}", attempt, maxAttempts, value);
                 result.complete(value);
             })
             .onFailure(err -> {
                 if (attempt >= maxAttempts) {
-                    logger.error("[retry] All {} attempt(s) exhausted — failing. Last error: {}",
+                    logger.error("[retry] All {} attempt(s) exhausted  failing. Last error: {}",
                         maxAttempts, err.getMessage(), err);
                     result.fail(err);
                 } else {
-                    logger.debug("[retry] Attempt {}/{} failed: {} — retrying in {}ms …",
+                    logger.debug("[retry] Attempt {}/{} failed: {}  retrying in {}ms ",
                         attempt, maxAttempts, err.getMessage(), delayMs);
                     vertx.setTimer(delayMs, id ->
                         scheduleAttempt(vertx, pool, maxAttempts, attempt + 1, delayMs, result));

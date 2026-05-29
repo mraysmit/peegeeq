@@ -18,10 +18,10 @@ import org.slf4j.LoggerFactory;
  * 
  * 1. Set pool size (not 4): try 16/32 and tune with your DBA
  * 2. Share one pool across all verticles (setShared(true))
- * 3. Deploy multiple instances of your verticles (≃ cores)
+ * 3. Deploy multiple instances of your verticles ( cores)
  * 4. Don't hold a SqlConnection for the whole app; use pool ops or short-lived withConnection
  * 5. Keep transactions short, and don't wrap everything in a tx
- * 6. Enable/test pipelining (8–32), if you aren't behind a proxy that chokes on it
+ * 6. Enable/test pipelining (832), if you aren't behind a proxy that chokes on it
  * 7. Measure: p95 latency, pool wait time, DB CPU and iowait
  */
 public class VertxPerformanceOptimizer {
@@ -146,7 +146,7 @@ public class VertxPerformanceOptimizer {
     }
     
     /**
-     * Gets optimal number of verticle instances (≃ cores).
+     * Gets optimal number of verticle instances ( cores).
      * 
      * @return Optimal verticle instance count
      */
@@ -193,19 +193,19 @@ public class VertxPerformanceOptimizer {
         
         // Check pool size (checklist item #1)
         if (poolConfig.getMaxSize() < 16) {
-            warnings.append("⚠️  Pool size (").append(poolConfig.getMaxSize())
+            warnings.append("  Pool size (").append(poolConfig.getMaxSize())
                    .append(") is below recommended minimum of 16. Consider increasing to 16-32.\n");
         }
         
         // Check shared setting (checklist item #2)
         if (!poolConfig.isShared()) {
-            warnings.append("⚠️  Pool sharing is disabled. Enable setShared(true) to share pools across verticles.\n");
+            warnings.append("  Pool sharing is disabled. Enable setShared(true) to share pools across verticles.\n");
         }
         
         // Check pipelining
         int pipeliningLimit = getPipeliningLimit(config);
         if (pipeliningLimit < 8) {
-            warnings.append("⚠️  Pipelining limit (").append(pipeliningLimit)
+            warnings.append("  Pipelining limit (").append(pipeliningLimit)
                    .append(") is below recommended minimum of 8.\n");
         }
         

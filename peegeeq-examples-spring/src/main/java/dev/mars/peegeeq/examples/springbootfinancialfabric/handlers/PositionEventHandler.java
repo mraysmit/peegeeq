@@ -96,7 +96,7 @@ public class PositionEventHandler {
         
         PositionUpdateEvent positionUpdate = event.getPayload();
         
-        log.info("📈 Position Updated: {} - Account: {}, Instrument: {}, Quantity Change: {}",
+        log.info(" Position Updated: {} - Account: {}, Instrument: {}, Quantity Change: {}",
                 positionUpdate.getUpdateId(),
                 positionUpdate.getAccount(),
                 positionUpdate.getInstrument(),

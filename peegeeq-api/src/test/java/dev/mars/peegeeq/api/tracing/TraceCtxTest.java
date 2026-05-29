@@ -154,7 +154,7 @@ class TraceCtxTest {
         assertEquals(root.traceId(), fetch.traceId());
         assertEquals(root.traceId(), process.traceId());
 
-        // Parent chain: root → fetch → process
+        // Parent chain: root  fetch  process
         assertEquals(root.spanId(), fetch.parentSpanId());
         assertEquals(fetch.spanId(), process.parentSpanId());
 

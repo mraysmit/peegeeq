@@ -90,7 +90,7 @@ class BackpressureManagerTest {
 
         assertThrows(BackpressureManager.BackpressureException.class, () -> {
             backpressureManager.execute("test-operation", () -> {
-                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Test failure");
+                throw new RuntimeException(" INTENTIONAL TEST FAILURE: Test failure");
             });
         });
 
@@ -208,7 +208,7 @@ class BackpressureManagerTest {
         for (int i = 0; i < 5; i++) {
             try {
                 adaptiveManager.execute("failing-operation", () -> {
-                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Failure");
+                    throw new RuntimeException(" INTENTIONAL TEST FAILURE: Failure");
                 });
             } catch (BackpressureManager.BackpressureException e) {
                 // Expected - this is an intentional failure for testing
@@ -400,7 +400,7 @@ class BackpressureManagerTest {
         for (int i = 0; i < 8; i++) {
             try {
                 adaptiveManager.execute("failing", () -> {
-                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: failure");
+                    throw new RuntimeException(" INTENTIONAL TEST FAILURE: failure");
                 });
             } catch (BackpressureManager.BackpressureException e) {
                 // Expected - this is an intentional failure for testing

@@ -104,7 +104,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
      *
      * <p>Configuration notes:</p>
      * <ul>
-     *   <li>max_connections=200: Supports parallel test execution (4 threads × 5 connections per pool × multiple test classes)</li>
+     *   <li>max_connections=200: Supports parallel test execution (4 threads  5 connections per pool  multiple test classes)</li>
      *   <li>fsync=off, synchronous_commit=off: Faster for tests (not for production!)</li>
      *   <li>shared_buffers=128MB: Adequate for test workloads</li>
      * </ul>

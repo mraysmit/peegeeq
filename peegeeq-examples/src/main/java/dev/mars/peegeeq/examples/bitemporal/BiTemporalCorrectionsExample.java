@@ -17,8 +17,8 @@ import java.util.Map;
  * Example demonstrating how to record a backdated correction in a bi-temporal event store.
  *
  * <p>In financial operations, errors are discovered after the fact. A trade booked on Monday
- * may turn out to have the wrong quantity when reconciled on Wednesday. The naive approach —
- * overwriting the original record — destroys the audit trail. Regulators and internal
+ * may turn out to have the wrong quantity when reconciled on Wednesday. The naive approach 
+ * overwriting the original record  destroys the audit trail. Regulators and internal
  * compliance teams need to answer both "What is the correct position?" and
  * "What did the system believe on Tuesday morning, before the correction was made?"
  *

@@ -75,7 +75,7 @@ public class ResourceLeakDetectionTest {
     void setUp() throws Exception {
         logger.info("[SETUP] Configuring database and starting PeeGeeQManager");
 
-        // Build isolated configuration properties — never touch System.setProperty so that
+        // Build isolated configuration properties  never touch System.setProperty so that
         // concurrent tests sharing the same JVM fork cannot observe partial state.
         Properties testProps = PeeGeeQTestConfig.builder()
             .from(getPostgres())
@@ -237,7 +237,7 @@ public class ResourceLeakDetectionTest {
                 Set<Long> runningThreadIds = getCurrentThreadIds();
                 int runningThreadCount = runningThreadIds.size();
                 logger.info("Thread count while running: {}", runningThreadCount);
-                // Verify manager created some threads — fail fast on the chain.
+                // Verify manager created some threads  fail fast on the chain.
                 if (runningThreadCount <= initialThreadCount) {
                     return Future.failedFuture(new AssertionError(
                         "Manager should create additional threads (initial: " + initialThreadCount

@@ -189,7 +189,7 @@ public class SSEReconnectionIntegrationTest {
                 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
                     
                     // Parse SSE event to extract ID
                     if (data.contains("id: ")) {
@@ -216,7 +216,7 @@ public class SSEReconnectionIntegrationTest {
                 vertx.setTimer(1000, id -> {
                     sendMessageViaRestApi("msg-1", "First message", "TestMessage", null)
                         .compose(v -> sendMessageViaRestApi("msg-2", "Second message", "TestMessage", null))
-                        .onSuccess(v -> logger.info("📤 Sent 2 test messages via REST API"))
+                        .onSuccess(v -> logger.info(" Sent 2 test messages via REST API"))
                         .onFailure(testContext::failNow);
                 });
             })
@@ -236,7 +236,7 @@ public class SSEReconnectionIntegrationTest {
         // Close the SSE connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection for Test 1");
+            logger.info(" Closed SSE connection for Test 1");
             new CountDownLatch(1).await(500, TimeUnit.MILLISECONDS);
         }
 
@@ -312,7 +312,7 @@ public class SSEReconnectionIntegrationTest {
 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
                 });
 
                 response.exceptionHandler(err -> {
@@ -336,7 +336,7 @@ public class SSEReconnectionIntegrationTest {
         // Close connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection");
+            logger.info(" Closed SSE connection");
             new CountDownLatch(1).await(500, TimeUnit.MILLISECONDS);
         }
 
@@ -367,7 +367,7 @@ public class SSEReconnectionIntegrationTest {
 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
                 });
 
                 response.exceptionHandler(err -> {
@@ -389,7 +389,7 @@ public class SSEReconnectionIntegrationTest {
         // Close connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection");
+            logger.info(" Closed SSE connection");
             new CountDownLatch(1).await(500, TimeUnit.MILLISECONDS);
         }
 

@@ -51,12 +51,12 @@ import org.slf4j.LoggerFactory;
  * Reactive-only connection pool burst performance test.
  *
  * <p>Verifies that the Vert.x reactive pool handles a large burst of concurrent
- * database requests using only Vert.x {@code Future} composition — no
+ * database requests using only Vert.x {@code Future} composition  no
  * {@code ThreadPoolExecutor}, no blocking, no {@code .join()/.get()}.
  *
  * <p>This is the correct Vert.x 5.x counterpart to
  * {@link PeeGeeQPerformanceTest#testConnectionPoolHandlesBurstLoadFromThreadPoolExecutor}.
- * Both tests exercise identical pool load (20 × 100 = 2000 requests against a pool of
+ * Both tests exercise identical pool load (20  100 = 2000 requests against a pool of
  * max-size 20); this class does so using only the reactive {@code Future} API.
  *
  * <h2>Pool configuration</h2>
@@ -130,7 +130,7 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
 
     /**
      * Submits 2000 {@code SELECT 1} queries directly on the calling thread using
-     * {@code withConnection} — no thread pool, no blocking.
+     * {@code withConnection}  no thread pool, no blocking.
      *
      * <p>Each {@code withConnection} call returns immediately with a pending
      * {@code Future<Integer>}; the Vert.x event loop services the pool asynchronously.
@@ -143,7 +143,7 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
      */
     @Test
     void testConnectionPoolHandlesBurstLoadWithReactiveFutures(VertxTestContext testContext) {
-        int totalQueries = 20 * 100; // 2000 requests — identical load to the ThreadPoolExecutor variant
+        int totalQueries = 20 * 100; // 2000 requests  identical load to the ThreadPoolExecutor variant
 
         AtomicInteger successfulQueries = new AtomicInteger(0);
         AtomicLong totalQueryTime = new AtomicLong(0);

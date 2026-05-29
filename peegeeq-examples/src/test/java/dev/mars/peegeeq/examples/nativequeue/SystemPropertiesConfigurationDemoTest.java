@@ -29,7 +29,7 @@ import org.slf4j.LoggerFactory;
  * <p>The tests in this class are <b>regression guards</b> that fail if the sweep is
  * reintroduced. They write {@code peegeeq.*} values into the JVM-global System property
  * table and assert that fresh {@code PeeGeeQConfiguration} instances do <i>not</i>
- * observe those values — the default supplied to {@code getInt} must win.
+ * observe those values  the default supplied to {@code getInt} must win.
  *
  * <p>The correct isolation pattern is shown in {@link #builderPatternProvidesCompleteIsolation()}:
  * build a {@code Properties} object via {@code PeeGeeQTestConfig.builder()} and pass it
@@ -63,14 +63,14 @@ class SystemPropertiesConfigurationDemoTest {
      *
      * <p>Scenario: some other component (another tenant, a Spring bean, a tuning tool)
      * sets {@code peegeeq.queue.batch-size} in System. Our instance never asked for that
-     * value, so {@code getInt(key, 10)} must return the supplied default (10) — not the
+     * value, so {@code getInt(key, 10)} must return the supplied default (10)  not the
      * System property value. If this test fails with {@code expected: <10> but was: <999>}
      * the System property sweep has been reintroduced.
      */
     @Test
     @DisplayName("REGRESSION GUARD: System property set by unrelated code does NOT contaminate other instances")
     void systemPropertyDoesNotContaminateUnrelatedInstances() {
-        // DB params for our instance — correct builder pattern, no batch-size set
+        // DB params for our instance  correct builder pattern, no batch-size set
         Properties baseProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Simulate: unrelated code elsewhere in the JVM sets batch-size globally
@@ -127,7 +127,7 @@ class SystemPropertiesConfigurationDemoTest {
             PeeGeeQConfiguration tenantAReconstructed = new PeeGeeQConfiguration("default", propsA);
             int tenantABatchSize = tenantAReconstructed.getInt(BATCH_SIZE_KEY, 10);
 
-            logger.info("ISOLATION CONFIRMED: tenantA reconstructed batch-size={} — unaffected by " +
+            logger.info("ISOLATION CONFIRMED: tenantA reconstructed batch-size={}  unaffected by " +
                 "either System.setProperty write (7 or 13).", tenantABatchSize);
 
             assertEquals(10, tenantABatchSize,
@@ -149,7 +149,7 @@ class SystemPropertiesConfigurationDemoTest {
     @Test
     @DisplayName("SOLUTION: Builder pattern gives each instance complete, isolated configuration")
     void builderPatternProvidesCompleteIsolation() {
-        // Each tenant builds its own Properties explicitly — no shared global state
+        // Each tenant builds its own Properties explicitly  no shared global state
         Properties propsA = PeeGeeQTestConfig.builder()
             .from(postgres)
             .property(BATCH_SIZE_KEY, "7")
@@ -165,7 +165,7 @@ class SystemPropertiesConfigurationDemoTest {
         assertEquals(7,  tenantA.getInt(BATCH_SIZE_KEY, -1), "Tenant A reads its own value");
         assertEquals(13, tenantB.getInt(BATCH_SIZE_KEY, -1), "Tenant B reads its own value");
 
-        // Even with a conflicting System property, both instances are immune —
+        // Even with a conflicting System property, both instances are immune 
         // the override key is already in their respective Properties, so it wins over System.
         System.setProperty(BATCH_SIZE_KEY, "999");
         try {
@@ -177,7 +177,7 @@ class SystemPropertiesConfigurationDemoTest {
             assertEquals(13, tenantBReconstructed.getInt(BATCH_SIZE_KEY, -1),
                 "Tenant B is immune to System property pollution when key is in explicit overrides");
 
-            logger.info("ISOLATION CONFIRMED: tenantA={}, tenantB={} — unaffected by System.setProperty(999)",
+            logger.info("ISOLATION CONFIRMED: tenantA={}, tenantB={}  unaffected by System.setProperty(999)",
                 tenantAReconstructed.getInt(BATCH_SIZE_KEY, -1),
                 tenantBReconstructed.getInt(BATCH_SIZE_KEY, -1));
         } finally {

@@ -70,7 +70,7 @@ class MultiConsumerModeTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) throws InterruptedException {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        logger.info("🔧 Setting up MultiConsumerModeTest");
+        logger.info(" Setting up MultiConsumerModeTest");
         initializeManagerAndFactory()
             .onSuccess(v -> {
                 logger.info("MultiConsumerModeTest setup completed");
@@ -83,7 +83,7 @@ class MultiConsumerModeTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up MultiConsumerModeTest");
+        logger.info(" Cleaning up MultiConsumerModeTest");
         (factory != null ? factory.close() : Future.<Void>succeededFuture())
             .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
             .onSuccess(v -> testContext.completeNow())
@@ -123,7 +123,7 @@ class MultiConsumerModeTest {
 
     @Test
     void testMultipleConsumersSameMode(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing multiple consumers with same mode (HYBRID)");
+        logger.info(" Testing multiple consumers with same mode (HYBRID)");
 
         String topicName = "test-multi-same-mode";
         int consumerCount = 3;
@@ -145,7 +145,7 @@ class MultiConsumerModeTest {
 
                 consumer.subscribe(message -> {
                     int processed = totalProcessed.incrementAndGet();
-                    logger.info("📨 Consumer {} processed message: {} (Total: {})",
+                    logger.info(" Consumer {} processed message: {} (Total: {})",
                         consumerId, message.getPayload(), processed);
                     messagesReceived.flag();
                     return Future.succeededFuture();
@@ -181,7 +181,7 @@ class MultiConsumerModeTest {
 
     @Test
     void testMultipleConsumersDifferentModes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing multiple consumers with different modes");
+        logger.info(" Testing multiple consumers with different modes");
 
         String topicName = "test-multi-different-modes";
         int totalMessages = 6;
@@ -213,21 +213,21 @@ class MultiConsumerModeTest {
             // Setup message handlers
             listenConsumer.subscribe(message -> {
                 int processed = listenNotifyProcessed.incrementAndGet();
-                logger.info("📻 LISTEN_NOTIFY consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" LISTEN_NOTIFY consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
             pollingConsumer.subscribe(message -> {
                 int processed = pollingProcessed.incrementAndGet();
-                logger.info("🔄 POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
             hybridConsumer.subscribe(message -> {
                 int processed = hybridProcessed.incrementAndGet();
-                logger.info("🔀 HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
@@ -268,7 +268,7 @@ class MultiConsumerModeTest {
 
     @Test
     void testConsumerModeIsolation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing consumer mode isolation");
+        logger.info(" Testing consumer mode isolation");
 
         String topicName = "test-mode-isolation";
         int messagesPerMode = 3;
@@ -295,14 +295,14 @@ class MultiConsumerModeTest {
             // Setup message handlers
             pollingConsumer.subscribe(message -> {
                 int processed = pollingProcessed.incrementAndGet();
-                logger.info("🔄 POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
 
             hybridConsumer.subscribe(message -> {
                 int processed = hybridProcessed.incrementAndGet();
-                logger.info("🔀 HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
                 return Future.succeededFuture();
             });
@@ -337,7 +337,7 @@ class MultiConsumerModeTest {
 
     @Test
     void testThreadSafetyAcrossModes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing thread safety across consumer modes");
+        logger.info(" Testing thread safety across consumer modes");
 
         String topicName = "test-thread-safety";
         int consumerCount = 4;
@@ -365,7 +365,7 @@ class MultiConsumerModeTest {
                     Promise<Void> promise = Promise.promise();
                     vertx.setTimer(50 + (int)(Math.random() * 100), tid -> {
                         int processed = totalProcessed.incrementAndGet();
-                        logger.info("🧵 Consumer {} (Mode: {}) processed: {} (Total: {})",
+                        logger.info(" Consumer {} (Mode: {}) processed: {} (Total: {})",
                             consumerId, modes[consumerId], message.getPayload(), processed);
                         messagesReceived.flag();
                         promise.complete();
@@ -405,7 +405,7 @@ class MultiConsumerModeTest {
 
     @Test
     void testConsumerModePerformanceIsolation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing consumer mode performance isolation");
+        logger.info(" Testing consumer mode performance isolation");
 
         String topicName = "test-performance-isolation";
         int fastMessages = 10;
@@ -433,7 +433,7 @@ class MultiConsumerModeTest {
             // Setup fast message handler
             fastConsumer.subscribe(message -> {
                 int processed = fastProcessed.incrementAndGet();
-                logger.info("⚡ FAST consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" FAST consumer processed: {} (Count: {})", message.getPayload(), processed);
                 allMessagesReceived.flag();
                 return Future.succeededFuture();
             });
@@ -441,7 +441,7 @@ class MultiConsumerModeTest {
             // Setup slow message handler
             slowConsumer.subscribe(message -> {
                 int processed = slowProcessed.incrementAndGet();
-                logger.info("🐌 SLOW consumer processed: {} (Count: {})", message.getPayload(), processed);
+                logger.info(" SLOW consumer processed: {} (Count: {})", message.getPayload(), processed);
                 allMessagesReceived.flag();
                 return Future.succeededFuture();
             });

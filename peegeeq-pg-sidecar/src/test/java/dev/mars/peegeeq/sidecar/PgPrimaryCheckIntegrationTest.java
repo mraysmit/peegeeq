@@ -96,9 +96,9 @@ class PgPrimaryCheckIntegrationTest {
         webClient.get(SIDECAR_HTTP_PORT, "localhost", "/primary")
                 .send()
                 .onSuccess(response -> ctx.verify(() -> {
-                    logger.info("GET /primary → HTTP {}", response.statusCode());
+                    logger.info("GET /primary  HTTP {}", response.statusCode());
                     assertEquals(200, response.statusCode(),
-                            "Standalone PostgreSQL should report pg_is_in_recovery()=false → HTTP 200");
+                            "Standalone PostgreSQL should report pg_is_in_recovery()=false  HTTP 200");
                     ctx.completeNow();
                 }))
                 .onFailure(ctx::failNow);
@@ -135,7 +135,7 @@ class PgPrimaryCheckIntegrationTest {
             logger.info("Second verticle deployed on port 18009 (id={}), querying /primary", id);
             return webClient.get(18009, "localhost", "/primary").send();
         }).onSuccess(response -> ctx.verify(() -> {
-            logger.info("GET /primary (unreachable pg) → HTTP {}", response.statusCode());
+            logger.info("GET /primary (unreachable pg)  HTTP {}", response.statusCode());
             assertEquals(503, response.statusCode(),
                     "Unreachable PostgreSQL should return HTTP 503");
             ctx.completeNow();
@@ -173,7 +173,7 @@ class PgPrimaryCheckIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /replica returns 404 — only /primary is a recognised path")
+    @DisplayName("GET /replica returns 404  only /primary is a recognised path")
     void replicaPathReturns404(Vertx vertx, VertxTestContext ctx) {
         webClient.get(SIDECAR_HTTP_PORT, "localhost", "/replica")
                 .send()
@@ -185,7 +185,7 @@ class PgPrimaryCheckIntegrationTest {
     }
 
     @Test
-    @DisplayName("GET /patroni returns 404 — sidecar does not expose Patroni-compatible paths")
+    @DisplayName("GET /patroni returns 404  sidecar does not expose Patroni-compatible paths")
     void patroniPathReturns404(Vertx vertx, VertxTestContext ctx) {
         webClient.get(SIDECAR_HTTP_PORT, "localhost", "/patroni")
                 .send()

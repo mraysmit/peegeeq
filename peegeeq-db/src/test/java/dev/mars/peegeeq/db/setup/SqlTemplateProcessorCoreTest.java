@@ -154,7 +154,7 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
      * returns a failed {@code Future} and logs an ERROR when the requested template file does not exist.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Failed to load template: non-existent-template.sql') is EXPECTED —
+     * ('Failed to load template: non-existent-template.sql') is EXPECTED 
      * this test deliberately references a missing template file to verify error propagation.
      * The test also captures the log output via a {@code ListAppender} to assert the message.
      */

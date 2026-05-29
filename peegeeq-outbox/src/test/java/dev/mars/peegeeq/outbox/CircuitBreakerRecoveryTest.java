@@ -27,9 +27,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * Validates state transitions, recovery success rates, and proper behavior under various failure patterns.
  */
 @Tag(TestCategories.CORE)
-// BLOCKING-EXEMPT: LockSupport.parkNanos IS the test stimulus — it advances simulated
+// BLOCKING-EXEMPT: LockSupport.parkNanos IS the test stimulus  it advances simulated
 // time past the circuit-breaker's reset timeout threshold to drive the state-machine
-// through the half-open → closed recovery transition. No reactive runtime is involved;
+// through the half-open  closed recovery transition. No reactive runtime is involved;
 // this is a time-based state-transition test (criterion 2: time-based state transition
 // in a non-reactive component).
 @Tag("blocking-exempt")
@@ -39,7 +39,7 @@ public class CircuitBreakerRecoveryTest {
     @Test
     @DisplayName("ENHANCED: Circuit breaker complete recovery cycle")
     void testCompleteRecoveryCycle() throws InterruptedException {
-        logger.info("🔄 ENHANCED TEST: Complete circuit breaker recovery cycle");
+        logger.info(" ENHANCED TEST: Complete circuit breaker recovery cycle");
         
         AtomicInteger filterCallCount = new AtomicInteger(0);
         AtomicInteger phase = new AtomicInteger(1); // 1=fail, 2=recover
@@ -55,8 +55,8 @@ public class CircuitBreakerRecoveryTest {
 
             if (currentPhase == 1) {
                 // Phase 1: Fail to trigger circuit breaker
-                logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 1 - Failing call {} to trigger circuit breaker (THIS IS EXPECTED)", call);
-                throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: System overload - phase 1 (THIS IS EXPECTED)");
+                logger.info(" INTENTIONAL TEST FAILURE: PHASE 1 - Failing call {} to trigger circuit breaker (THIS IS EXPECTED)", call);
+                throw new RuntimeException(" INTENTIONAL TEST FAILURE: System overload - phase 1 (THIS IS EXPECTED)");
             } else {
                 // Phase 2: Recovery - filter works normally
                 logger.info("PHASE 2: Filter working normally for call {} (test recovery working)", call);
@@ -87,7 +87,7 @@ public class CircuitBreakerRecoveryTest {
         // Phase 1: Trigger circuit breaker opening.
         // Since acceptsMessage() now re-throws filter exceptions (rather than returning false),
         // callers must catch the exception; the CB still records the failure before throwing.
-        logger.info("🔥 PHASE 1: Triggering circuit breaker opening");
+        logger.info(" PHASE 1: Triggering circuit breaker opening");
         for (int i = 1; i <= 5; i++) {
             TestMessage payload = new TestMessage("fail-" + i, "Failing message " + i);
             Message<TestMessage> message = new SimpleMessage<>("fail-" + i, "recovery-topic", payload);
@@ -107,7 +107,7 @@ public class CircuitBreakerRecoveryTest {
                 i, accepted, metrics.getState(), metrics.getFailureCount(), metrics.getRequestCount());
 
             if (metrics.getState() == FilterCircuitBreaker.State.OPEN) {
-                logger.info("⚡ Circuit breaker opened after {} messages", i);
+                logger.info(" Circuit breaker opened after {} messages", i);
                 break;
             }
         }
@@ -118,7 +118,7 @@ public class CircuitBreakerRecoveryTest {
             "Circuit breaker should be OPEN");
         
         // Test fast-fail behavior while open
-        logger.info("⚡ Testing fast-fail behavior while circuit is open");
+        logger.info(" Testing fast-fail behavior while circuit is open");
         TestMessage fastFailMessage = new TestMessage("fast-fail", "Fast fail test");
         Message<TestMessage> fastFailMsg = new SimpleMessage<>("fast-fail", "recovery-topic", fastFailMessage);
         
@@ -131,22 +131,22 @@ public class CircuitBreakerRecoveryTest {
             "Filter should not be called when circuit breaker is open");
         
         // Switch to recovery phase
-        logger.info("🔄 SWITCHING TO RECOVERY PHASE");
+        logger.info(" SWITCHING TO RECOVERY PHASE");
         phase.set(2);
         
         // Wait for circuit breaker timeout
-        logger.info("⏳ Waiting for circuit breaker timeout...");
+        logger.info(" Waiting for circuit breaker timeout...");
         LockSupport.parkNanos(250_000_000L); // Wait longer than timeout
         
         // Phase 2: Test recovery - should transition to HALF_OPEN
-        logger.info("🔄 PHASE 2: Testing recovery (should transition to HALF_OPEN)");
+        logger.info(" PHASE 2: Testing recovery (should transition to HALF_OPEN)");
         TestMessage recoveryMessage = new TestMessage("recovery-1", "Recovery test message");
         Message<TestMessage> recoveryMsg = new SimpleMessage<>("recovery-1", "recovery-topic", recoveryMessage);
         
         boolean recoveryAccepted = member.acceptsMessage(recoveryMsg);
         FilterCircuitBreaker.CircuitBreakerMetrics recoveryMetrics = member.getFilterCircuitBreakerMetrics();
         
-        logger.info("🔄 RECOVERY TEST RESULTS:");
+        logger.info(" RECOVERY TEST RESULTS:");
         logger.info("   Total filter calls: {}", filterCallCount.get());
         logger.info("   Final phase: {}", phase.get());
         logger.info("   Recovery message accepted: {}", recoveryAccepted);
@@ -163,7 +163,7 @@ public class CircuitBreakerRecoveryTest {
             "Circuit breaker should be CLOSED or HALF_OPEN after successful recovery, but was: " + recoveryMetrics.getState());
         
         // Test multiple successful operations to ensure stable recovery
-        logger.info("🔄 Testing stable recovery with multiple operations");
+        logger.info(" Testing stable recovery with multiple operations");
         for (int i = 2; i <= 5; i++) {
             TestMessage stableMessage = new TestMessage("stable-" + i, "Stable recovery test " + i);
             Message<TestMessage> stableMsg = new SimpleMessage<>("stable-" + i, "recovery-topic", stableMessage);
@@ -187,7 +187,7 @@ public class CircuitBreakerRecoveryTest {
     @Test
     @DisplayName("ENHANCED: Circuit breaker partial recovery failure")
     void testPartialRecoveryFailure() throws InterruptedException {
-        logger.info("🔄 ENHANCED TEST: Circuit breaker partial recovery failure");
+        logger.info(" ENHANCED TEST: Circuit breaker partial recovery failure");
         
         AtomicInteger filterCallCount = new AtomicInteger(0);
         AtomicInteger phase = new AtomicInteger(1); // 1=fail, 2=partial_recovery, 3=full_recovery
@@ -203,13 +203,13 @@ public class CircuitBreakerRecoveryTest {
             switch (currentPhase) {
                 case 1:
                     // Phase 1: Initial failures
-                    logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 1 - Initial failure call {} (THIS IS EXPECTED)", call);
-                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Initial system failure (THIS IS EXPECTED)");
+                    logger.info(" INTENTIONAL TEST FAILURE: PHASE 1 - Initial failure call {} (THIS IS EXPECTED)", call);
+                    throw new RuntimeException(" INTENTIONAL TEST FAILURE: Initial system failure (THIS IS EXPECTED)");
 
                 case 2:
                     // Phase 2: Partial recovery - fail the recovery test
-                    logger.info("🧪 INTENTIONAL TEST FAILURE: PHASE 2 - Partial recovery failure call {} (THIS IS EXPECTED)", call);
-                    throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Recovery test failed (THIS IS EXPECTED)");
+                    logger.info(" INTENTIONAL TEST FAILURE: PHASE 2 - Partial recovery failure call {} (THIS IS EXPECTED)", call);
+                    throw new RuntimeException(" INTENTIONAL TEST FAILURE: Recovery test failed (THIS IS EXPECTED)");
 
                 case 3:
                     // Phase 3: Full recovery
@@ -243,7 +243,7 @@ public class CircuitBreakerRecoveryTest {
         
         // Phase 1: Trigger circuit breaker opening.
         // acceptsMessage() re-throws filter exceptions; catch here and record as rejection.
-        logger.info("🔥 PHASE 1: Triggering initial circuit breaker opening");
+        logger.info(" PHASE 1: Triggering initial circuit breaker opening");
         for (int i = 1; i <= 5; i++) {
             TestMessage failMessage = new TestMessage("fail-" + i, "Failing message " + i);
             Message<TestMessage> failMsg = new SimpleMessage<>("fail-" + i, "partial-recovery-topic", failMessage);
@@ -261,7 +261,7 @@ public class CircuitBreakerRecoveryTest {
                 i, accepted, metrics.getState(), metrics.getFailureCount(), metrics.getRequestCount());
 
             if (metrics.getState() == FilterCircuitBreaker.State.OPEN) {
-                logger.info("⚡ Circuit breaker opened after {} messages", i);
+                logger.info(" Circuit breaker opened after {} messages", i);
                 break;
             }
         }
@@ -278,7 +278,7 @@ public class CircuitBreakerRecoveryTest {
         // Phase 2: Attempt recovery that will fail.
         // In HALF_OPEN state, allowRequest() returns true so the filter IS called.
         // The phase-2 filter throws, so acceptsMessage() re-throws; catch it here.
-        logger.info("🔄 PHASE 2: Attempting partial recovery (will fail)");
+        logger.info(" PHASE 2: Attempting partial recovery (will fail)");
         TestMessage partialRecoveryMessage = new TestMessage("partial-recovery", "Partial recovery test");
         Message<TestMessage> partialRecoveryMsg = new SimpleMessage<>("partial-recovery", "partial-recovery-topic", partialRecoveryMessage);
 
@@ -305,14 +305,14 @@ public class CircuitBreakerRecoveryTest {
         LockSupport.parkNanos(250_000_000L); // Wait for timeout again
         
         // Phase 3: Successful recovery
-        logger.info("🔄 PHASE 3: Attempting full recovery (should succeed)");
+        logger.info(" PHASE 3: Attempting full recovery (should succeed)");
         TestMessage fullRecoveryMessage = new TestMessage("full-recovery", "Full recovery test");
         Message<TestMessage> fullRecoveryMsg = new SimpleMessage<>("full-recovery", "partial-recovery-topic", fullRecoveryMessage);
         
         boolean fullRecoveryAccepted = member.acceptsMessage(fullRecoveryMsg);
         FilterCircuitBreaker.CircuitBreakerMetrics finalMetrics = member.getFilterCircuitBreakerMetrics();
         
-        logger.info("🔄 FINAL RECOVERY RESULTS:");
+        logger.info(" FINAL RECOVERY RESULTS:");
         logger.info("   Total filter calls: {}", filterCallCount.get());
         logger.info("   Full recovery accepted: {}", fullRecoveryAccepted);
         logger.info("   Final circuit breaker state: {}", finalMetrics.getState());

@@ -224,14 +224,14 @@ public class JdbcIntegrationHybridExampleTest {
         boolean existingCodeUnchanged = true;
         
         // Simulate existing JDBC operations
-        logger.info("🗄️ Testing existing JDBC operations...");
+        logger.info(" Testing existing JDBC operations...");
         
         // Simulate JDBC order processing
         Order order = new Order("jdbc-order-1", "customer-jdbc", BigDecimal.valueOf(100.0));
         logger.debug("Processing JDBC order: {}", order.getOrderId());
         jdbcOperationsCompleted++;
         
-        logger.info("✓ Existing JDBC method pattern tested");
+        logger.info(" Existing JDBC method pattern tested");
         
         return new JdbcMethodResult(jdbcOperationsCompleted, existingCodeUnchanged);
     }
@@ -246,7 +246,7 @@ public class JdbcIntegrationHybridExampleTest {
         int separateTransactionContexts = 2; // JDBC and PeeGeeQ use separate contexts
         
         // Demonstrate why JDBC and PeeGeeQ transactions cannot be mixed
-        logger.info("⚠️ Demonstrating JDBC/PeeGeeQ transaction incompatibility...");
+        logger.info(" Demonstrating JDBC/PeeGeeQ transaction incompatibility...");
         logger.info("JDBC transactions use java.sql.Connection transaction boundaries");
         logger.info("PeeGeeQ transactions use Vert.x SqlConnection with reactive patterns");
         logger.info("These cannot be mixed in the same transaction context");
@@ -255,7 +255,7 @@ public class JdbcIntegrationHybridExampleTest {
         logger.debug("JDBC transaction context: java.sql.Connection");
         logger.debug("PeeGeeQ transaction context: Vert.x SqlConnection");
         
-        logger.info("✓ Hybrid approach incompatibility pattern demonstrated");
+        logger.info(" Hybrid approach incompatibility pattern demonstrated");
         
         return new HybridApproachResult(incompatibilityDemonstrated, separateTransactionContexts);
     }
@@ -270,14 +270,14 @@ public class JdbcIntegrationHybridExampleTest {
         boolean fullReactiveStack = true;
         
         // Simulate new reactive operations
-        logger.info("⚡ Testing new reactive operations...");
+        logger.info(" Testing new reactive operations...");
         
         // Simulate reactive order processing
         Order order = new Order("reactive-order-1", "customer-reactive", BigDecimal.valueOf(150.0));
         logger.debug("Processing reactive order: {}", order.getOrderId());
         reactiveOperationsCompleted++;
         
-        logger.info("✓ New reactive method pattern tested");
+        logger.info(" New reactive method pattern tested");
         
         return new ReactiveMethodResult(reactiveOperationsCompleted, fullReactiveStack);
     }
@@ -291,7 +291,7 @@ public class JdbcIntegrationHybridExampleTest {
         long startTime = System.currentTimeMillis();
         
         // Simulate JDBC performance test
-        logger.info("📊 Testing JDBC performance...");
+        logger.info(" Testing JDBC performance...");
         int jdbcOperations = 5;
         for (int i = 0; i < jdbcOperations; i++) {
             // count iterations (no artificial delay)
@@ -301,7 +301,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         // Simulate reactive performance test
         startTime = System.currentTimeMillis();
-        logger.info("⚡ Testing reactive performance...");
+        logger.info(" Testing reactive performance...");
         int reactiveOperations = 5;
         for (int i = 0; i < reactiveOperations; i++) {
             // count iterations (no artificial delay)
@@ -311,7 +311,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         boolean comparisonCompleted = true;
         
-        logger.info("✓ Performance comparison pattern tested");
+        logger.info(" Performance comparison pattern tested");
         
         return new PerformanceComparisonResult(jdbcPerformance, reactivePerformance, comparisonCompleted);
     }
@@ -327,7 +327,7 @@ public class JdbcIntegrationHybridExampleTest {
         boolean migrationPlanCompleted = true;
         
         // Simulate migration strategy evaluation
-        logger.info("🔄 Evaluating migration strategies...");
+        logger.info(" Evaluating migration strategies...");
         
         // Strategy 1: Gradual migration
         logger.debug("Strategy 1: Gradual migration from JDBC to reactive");
@@ -344,7 +344,7 @@ public class JdbcIntegrationHybridExampleTest {
         strategiesEvaluated++;
         bestPracticesApplied++;
         
-        logger.info("✓ Migration strategies pattern tested");
+        logger.info(" Migration strategies pattern tested");
         
         return new MigrationStrategiesResult(strategiesEvaluated, bestPracticesApplied, migrationPlanCompleted);
     }

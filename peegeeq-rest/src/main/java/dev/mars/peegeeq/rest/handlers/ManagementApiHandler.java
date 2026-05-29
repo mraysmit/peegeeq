@@ -1349,9 +1349,9 @@ public class ManagementApiHandler {
      *
      * <p><b>Examples:</b></p>
      * <ul>
-     *   <li>{@code production-order_events} → setupId={@code production}, storeName={@code order_events}</li>
-     *   <li>{@code prod-us-east-order_events} → setupId={@code prod-us-east}, storeName={@code order_events}</li>
-     *   <li>{@code test-setup-with-hyphens-my_store} → setupId={@code test-setup-with-hyphens}, storeName={@code my_store}</li>
+     *   <li>{@code production-order_events}  setupId={@code production}, storeName={@code order_events}</li>
+     *   <li>{@code prod-us-east-order_events}  setupId={@code prod-us-east}, storeName={@code order_events}</li>
+     *   <li>{@code test-setup-with-hyphens-my_store}  setupId={@code test-setup-with-hyphens}, storeName={@code my_store}</li>
      * </ul>
      *
      * <p><b>Use Cases:</b></p>
@@ -1359,7 +1359,7 @@ public class ManagementApiHandler {
      *   <li>Management UI components with composite storeId</li>
      *   <li>BFF (Backend-for-Frontend) layer</li>
      *   <li>Dashboards showing event store lists</li>
-     *   <li>❌ Programmatic access (use Standard REST API {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName} instead)</li>
+     *   <li> Programmatic access (use Standard REST API {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName} instead)</li>
      * </ul>
      *
      * <p><b>Response:</b> Returns 200 OK with deletion confirmation including both setupId and storeName</p>
@@ -1413,7 +1413,7 @@ public class ManagementApiHandler {
      *
      * <p><b>Endpoint:</b> {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName}</p>
      *
-     * <p><b>⭐ RECOMMENDED for programmatic access</b> - This endpoint provides clear parameter separation
+     * <p><b> RECOMMENDED for programmatic access</b> - This endpoint provides clear parameter separation
      * without composite ID parsing complexity.</p>
      *
      * <p><b>Path Parameters:</b></p>
@@ -1443,7 +1443,7 @@ public class ManagementApiHandler {
      *   <li>CLI tools and automation scripts</li>
      *   <li>When you have setupId and storeName as separate values</li>
      *   <li>Consistent with other Standard REST CRUD operations</li>
-     *   <li>❌ Don't use from Management UI (use Management API {@code DELETE /api/v1/management/event-stores/:storeId} instead)</li>
+     *   <li> Don't use from Management UI (use Management API {@code DELETE /api/v1/management/event-stores/:storeId} instead)</li>
      * </ul>
      *
      * <p><b>Response:</b> Returns 200 OK with deletion confirmation including setupId, storeName, and composite storeId</p>
@@ -1623,7 +1623,7 @@ public class ManagementApiHandler {
                     } else {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug("🚫 EXPECTED: Setup not found for queue details: {} (setup: {})", queueName, setupId);
+                            logger.debug(" EXPECTED: Setup not found for queue details: {} (setup: {})", queueName, setupId);
                         } else {
                             logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
                         }

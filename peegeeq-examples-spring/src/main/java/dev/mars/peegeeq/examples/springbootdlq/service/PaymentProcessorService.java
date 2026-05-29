@@ -118,7 +118,7 @@ public class PaymentProcessorService {
                 // Simulate payment processing failure for testing
                 if (event.isShouldFail()) {
                     paymentsRetried.incrementAndGet();
-                    log.warn("⚠️ Payment processing failed (simulated): paymentId={}", event.getPaymentId());
+                    log.warn(" Payment processing failed (simulated): paymentId={}", event.getPaymentId());
                     throw new RuntimeException("Payment gateway timeout (simulated failure)");
                 }
                 
@@ -160,7 +160,7 @@ public class PaymentProcessorService {
             })
             .map(v -> (Void) null)
             .onFailure(ex -> {
-                log.error("❌ Failed to process payment: paymentId={}", event.getPaymentId(), ex);
+                log.error(" Failed to process payment: paymentId={}", event.getPaymentId(), ex);
                 paymentsFailed.incrementAndGet();
             });
     }

@@ -159,7 +159,7 @@ class ConsumerModeTypeSafetyTest {
     void testStringTypeSafetyAcrossConsumerModes() throws Exception {
         logger.info("Test: string type safety across consumer modes");
         String topicName = "test-string-type-safety";
-        String testMessage = "Hello, Type Safety! 🚀";
+        String testMessage = "Hello, Type Safety! ";
 
         testTypeSafetyForMode(topicName + "-listen", String.class, testMessage, ConsumerMode.LISTEN_NOTIFY_ONLY);
         testTypeSafetyForMode(topicName + "-polling", String.class, testMessage, ConsumerMode.POLLING_ONLY);

@@ -8,13 +8,13 @@ package dev.mars.peegeeq.db.subscription;
  * 
  * <p><b>State Transitions:</b></p>
  * <ul>
- *   <li>ACTIVE → PAUSED (manual pause)</li>
- *   <li>ACTIVE → DEAD (heartbeat timeout)</li>
- *   <li>ACTIVE → CANCELLED (manual cancellation)</li>
- *   <li>PAUSED → ACTIVE (manual resume)</li>
- *   <li>PAUSED → CANCELLED (manual cancellation)</li>
- *   <li>DEAD → ACTIVE (manual reactivation)</li>
- *   <li>CANCELLED → (terminal state, no transitions)</li>
+ *   <li>ACTIVE  PAUSED (manual pause)</li>
+ *   <li>ACTIVE  DEAD (heartbeat timeout)</li>
+ *   <li>ACTIVE  CANCELLED (manual cancellation)</li>
+ *   <li>PAUSED  ACTIVE (manual resume)</li>
+ *   <li>PAUSED  CANCELLED (manual cancellation)</li>
+ *   <li>DEAD  ACTIVE (manual reactivation)</li>
+ *   <li>CANCELLED  (terminal state, no transitions)</li>
  * </ul>
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd

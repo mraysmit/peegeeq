@@ -144,7 +144,7 @@ public class ExceptionEventHandler {
         String aggregateId = event.getAggregateId();
         String correlationId = event.getCorrelationId();
         
-        log.error("🚨 FAILURE DETECTED - Domain: {}, Event Type: {}, Aggregate: {}, Correlation: {}",
+        log.error(" FAILURE DETECTED - Domain: {}, Event Type: {}, Aggregate: {}, Correlation: {}",
                 domain, eventType, aggregateId, correlationId);
         
         try {
@@ -209,7 +209,7 @@ public class ExceptionEventHandler {
     }
     
     private void sendAlertToOperations(ExceptionRecord record) {
-        log.warn("⚠️ ALERT: {} failure in {} domain - Aggregate: {}, Correlation: {}",
+        log.warn(" ALERT: {} failure in {} domain - Aggregate: {}, Correlation: {}",
                 record.eventType, record.domain, record.aggregateId, record.correlationId);
         // In production: send alert via email, Slack, PagerDuty, etc.
     }
@@ -221,7 +221,7 @@ public class ExceptionEventHandler {
                 .count();
         
         if (failureCount > 3) {
-            log.error("🔥 RECURRING FAILURE DETECTED: Aggregate {} has failed {} times",
+            log.error(" RECURRING FAILURE DETECTED: Aggregate {} has failed {} times",
                     record.aggregateId, failureCount);
             // In production: escalate to senior operations team
         }

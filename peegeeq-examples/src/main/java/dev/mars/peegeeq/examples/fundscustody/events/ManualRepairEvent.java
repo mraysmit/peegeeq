@@ -8,7 +8,7 @@ import java.util.Objects;
  *
  * <p>Recorded after a human operator resolves an exception raised by the automated
  * processing pipeline (see {@link ExceptionManagedEvent}). Storing the repair as
- * an event — rather than updating a status column — preserves the full resolution
+ * an event  rather than updating a status column  preserves the full resolution
  * history: who approved it, what action was taken, and when it was effective.
  */
 public record ManualRepairEvent(

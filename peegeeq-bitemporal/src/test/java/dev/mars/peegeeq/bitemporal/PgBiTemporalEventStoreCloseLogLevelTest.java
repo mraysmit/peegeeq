@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests that PgBiTemporalEventStore.close() logs at ERROR level (not WARN)
- * when resource close operations fail. Covers the 3 WARN→ERROR changes in close():
+ * when resource close operations fail. Covers the 3 WARNERROR changes in close():
  *
  * <ol>
  *   <li>Reactive notification handler close failure</li>
@@ -63,8 +63,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Pipelined client close failure</li>
  * </ol>
  *
- * Positive tests: trigger failure conditions → verify ERROR logged.
- * Negative tests: clean close → verify no ERROR logged.
+ * Positive tests: trigger failure conditions  verify ERROR logged.
+ * Negative tests: clean close  verify no ERROR logged.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers

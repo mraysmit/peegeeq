@@ -295,7 +295,7 @@ class SSEBasicStreamingIntegrationTest {
         // Close the SSE connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection for Test 1");
+            logger.info(" Closed SSE connection for Test 1");
             // Wait for connection to fully close
             Promise<Void> delay = Promise.promise();
             vertx.setTimer(500, id -> delay.complete());
@@ -328,7 +328,7 @@ class SSEBasicStreamingIntegrationTest {
 
                 response.handler(buffer -> {
                     String data = buffer.toString();
-                    logger.info("📨 SSE data received: {}", data);
+                    logger.info(" SSE data received: {}", data);
 
                     // Look for data events (not connection/configured events)
                     if (data.contains("\"type\":\"data\"") && data.contains("\"messageType\":\"TestMessage\"")) {
@@ -343,7 +343,7 @@ class SSEBasicStreamingIntegrationTest {
                     sendMessageViaRestApi("test-1", "Test message 1", "TestMessage", null)
                         .compose(v -> sendMessageViaRestApi("test-2", "Test message 2", "TestMessage", null))
                         .compose(v -> sendMessageViaRestApi("test-3", "Test message 3", "TestMessage", null))
-                        .onSuccess(v -> logger.info("📤 Sent 3 test messages via REST API"))
+                        .onSuccess(v -> logger.info(" Sent 3 test messages via REST API"))
                         .onFailure(testContext::failNow);
                 });
             })
@@ -360,7 +360,7 @@ class SSEBasicStreamingIntegrationTest {
         // Close the SSE connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection for Test 2");
+            logger.info(" Closed SSE connection for Test 2");
             // Wait for connection to fully close
             Promise<Void> delay = Promise.promise();
             vertx.setTimer(500, id -> delay.complete());
@@ -415,7 +415,7 @@ class SSEBasicStreamingIntegrationTest {
                         .compose(v -> sendMessageViaRestApi("filtered-1", "Should pass", "FilteredMessage", null))
                         // Send another FilteredMessage
                         .compose(v -> sendMessageViaRestApi("filtered-2", "Should also pass", "FilteredMessage", null))
-                        .onSuccess(v -> logger.info("📤 Sent mixed messages via REST API"))
+                        .onSuccess(v -> logger.info(" Sent mixed messages via REST API"))
                         .onFailure(testContext::failNow);
                 });
             })
@@ -432,7 +432,7 @@ class SSEBasicStreamingIntegrationTest {
         // Close the SSE connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection for Test 3");
+            logger.info(" Closed SSE connection for Test 3");
             // Wait for connection to fully close
             Promise<Void> delay = Promise.promise();
             vertx.setTimer(500, id -> delay.complete());
@@ -484,7 +484,7 @@ class SSEBasicStreamingIntegrationTest {
                     sendMessageViaRestApi("east-1", "US East message", "TestMessage", Map.of("region", "US-EAST"))
                         // Send message with US-WEST (should pass through)
                         .compose(v -> sendMessageViaRestApi("west-1", "US West message", "TestMessage", Map.of("region", "US-WEST")))
-                        .onSuccess(v -> logger.info("📤 Sent messages with different headers via REST API"))
+                        .onSuccess(v -> logger.info(" Sent messages with different headers via REST API"))
                         .onFailure(testContext::failNow);
                 });
             })
@@ -501,7 +501,7 @@ class SSEBasicStreamingIntegrationTest {
         // Close the SSE connection
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
-            logger.info("🔌 Closed SSE connection for Test 4");
+            logger.info(" Closed SSE connection for Test 4");
             // Wait for connection to fully close
             Promise<Void> delay = Promise.promise();
             vertx.setTimer(500, id -> delay.complete());

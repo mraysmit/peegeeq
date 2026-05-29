@@ -100,8 +100,8 @@ public class OutboxConsumerNullHandlerTest {
     @Test
     void testNullHandlerReturn(VertxTestContext testContext) throws Exception {
         // Verify the null-return error path by confirming the message is retried:
-        // null return → IllegalStateException → incrementRetryAndReset → retry_count incremented,
-        // status reset to PENDING → message re-delivered on next poll.
+        // null return  IllegalStateException  incrementRetryAndReset  retry_count incremented,
+        // status reset to PENDING  message re-delivered on next poll.
         // Two handler invocations prove the retry cycle ran end-to-end.
         AtomicInteger invocationCount = new AtomicInteger(0);
         Checkpoint retried = testContext.checkpoint();
@@ -111,7 +111,7 @@ public class OutboxConsumerNullHandlerTest {
             if (invocationCount.incrementAndGet() == 2) {
                 retried.flag();
             }
-            return null; // Triggers null check → IllegalStateException → retry path
+            return null; // Triggers null check  IllegalStateException  retry path
         }).compose(v -> producer.send("Test null return"))
           .onFailure(testContext::failNow);
 

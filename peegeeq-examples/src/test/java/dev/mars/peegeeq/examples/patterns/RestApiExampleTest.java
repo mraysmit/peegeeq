@@ -122,7 +122,7 @@ public class RestApiExampleTest {
                     return vertx.timer(500).mapEmpty();
                 })
                 .onSuccess(v -> {
-                    logger.info("✓ REST API Example Test setup completed on port {}", REST_PORT);
+                    logger.info(" REST API Example Test setup completed on port {}", REST_PORT);
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -135,13 +135,13 @@ public class RestApiExampleTest {
         if (client != null) {
             try {
                 client.close();
-                logger.info("✓ WebClient closed");
+                logger.info(" WebClient closed");
             } catch (Exception e) {
-                logger.warn("⚠ Error closing WebClient", e);
+                logger.warn(" Error closing WebClient", e);
             }
         }
         // Vert.x lifecycle is managed by VertxExtension; verticles will be undeployed on close.
-        logger.info("✓ REST API Example Test teardown completed");
+        logger.info(" REST API Example Test teardown completed");
         testContext.completeNow();
     }
 
@@ -165,10 +165,10 @@ public class RestApiExampleTest {
                 })
                 .onSuccess(health -> testContext.verify(() -> {
                     assertNotNull(health, "Health response should not be null");
-                    logger.info("✓ Health check response: {}", health.encodePrettily());
+                    logger.info(" Health check response: {}", health.encodePrettily());
                     assertTrue(health.containsKey("status") || health.containsKey("code"),
                             "Health response should contain status or code");
-                    logger.info("✓ Health and metrics endpoint validated");
+                    logger.info(" Health and metrics endpoint validated");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -211,7 +211,7 @@ public class RestApiExampleTest {
                     // Accept 200 (OK), 201 (Created), 400 (if already exists), or 404 (endpoint may vary)
                     assertTrue(statusCode >= 200 && statusCode < 500,
                             "Setup endpoint should respond (got " + statusCode + ")");
-                    logger.info("✓ Database setup management tested with status: {}", statusCode);
+                    logger.info(" Database setup management tested with status: {}", statusCode);
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -254,7 +254,7 @@ public class RestApiExampleTest {
                             });
                 })
                 .onSuccess(statuses -> testContext.verify(() -> {
-                    logger.info("✓ Queue operations tested. List status: {}, Send status: {}",
+                    logger.info(" Queue operations tested. List status: {}, Send status: {}",
                             statuses[0], statuses[1]);
                     testContext.completeNow();
                 }))
@@ -298,7 +298,7 @@ public class RestApiExampleTest {
                             });
                 })
                 .onSuccess(statuses -> testContext.verify(() -> {
-                    logger.info("✓ Event store operations tested. List status: {}, Append status: {}",
+                    logger.info(" Event store operations tested. List status: {}, Append status: {}",
                             statuses[0], statuses[1]);
                     testContext.completeNow();
                 }))
@@ -341,7 +341,7 @@ public class RestApiExampleTest {
                             });
                 })
                 .onSuccess(statuses -> testContext.verify(() -> {
-                    logger.info("✓ Consumer group management tested. List status: {}, Create status: {}",
+                    logger.info(" Consumer group management tested. List status: {}, Create status: {}",
                             statuses[0], statuses[1]);
                     testContext.completeNow();
                 }))

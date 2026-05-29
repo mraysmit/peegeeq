@@ -182,7 +182,7 @@ public class TracePropagationTest {
                         }
                     }
 
-                    // Verify isolation — MDC must match expected; throw AssertionError to fail the future
+                    // Verify isolation  MDC must match expected; throw AssertionError to fail the future
                     if (!expectedTraceId.equals(observedMdcTrace)) {
                         throw new AssertionError(String.format(
                             "BLEED DETECTED! Operation %d expected traceId=%s but found %s",

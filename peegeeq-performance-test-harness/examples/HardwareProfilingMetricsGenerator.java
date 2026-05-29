@@ -181,9 +181,9 @@ public class HardwareProfilingMetricsGenerator {
         // Simulate message processing every second
         scheduler.scheduleAtFixedRate(this::simulateMessageProcessing, 0, 1, TimeUnit.SECONDS);
         
-        System.out.println("🎯 Hardware Profiling Metrics Generator started");
-        System.out.println("📊 Metrics available at: http://localhost:8080/metrics");
-        System.out.println("🔧 Hardware Profile: " + getHardwareProfileSummary());
+        System.out.println(" Hardware Profiling Metrics Generator started");
+        System.out.println(" Metrics available at: http://localhost:8080/metrics");
+        System.out.println(" Hardware Profile: " + getHardwareProfileSummary());
     }
     
     private void updateResourceMetrics() {
@@ -239,7 +239,7 @@ public class HardwareProfilingMetricsGenerator {
     public void stop() {
         scheduler.shutdown();
         server.stop();
-        System.out.println("🛑 Hardware Profiling Metrics Generator stopped");
+        System.out.println(" Hardware Profiling Metrics Generator stopped");
     }
     
     public static void main(String[] args) {
@@ -253,7 +253,7 @@ public class HardwareProfilingMetricsGenerator {
             Thread.currentThread().join();
             
         } catch (Exception e) {
-            System.err.println("❌ Failed to start metrics generator: " + e.getMessage());
+            System.err.println(" Failed to start metrics generator: " + e.getMessage());
             e.printStackTrace();
             System.exit(1);
         }

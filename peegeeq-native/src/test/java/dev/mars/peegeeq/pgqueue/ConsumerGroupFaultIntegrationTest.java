@@ -163,7 +163,7 @@ class ConsumerGroupFaultIntegrationTest {
     // F1: Handler fails mid-batch remaining messages re-delivered
     //
     // Send 5 messages on a single partition. Handler fails on message #3.
-    // processAndCommit chains break → offset never committed → next fetch
+    // processAndCommit chains break  offset never committed  next fetch
     // re-delivers messages 3-5.
     // ========================================================================
 
