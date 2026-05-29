@@ -48,7 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>Spring Boot WebFlux application context loading</li>
  *   <li>PeeGeeQ bi-temporal event store integration</li>
- *   <li>Reactive adapter pattern (CompletableFuture → Mono/Flux)</li>
+ *   <li>Reactive adapter pattern (CompletableFuture  Mono/Flux)</li>
  *   <li>Bi-temporal event appending</li>
  *   <li>Historical queries and point-in-time reconstruction</li>
  *   <li>Bi-temporal corrections</li>
@@ -130,11 +130,11 @@ class SpringBoot2BitemporalApplicationTest {
         
         assertNotNull(settlementService, "SettlementService should be autowired");
         
-        logger.info("✓ Application context loaded successfully");
-        logger.info("✓ PeeGeeQ Manager initialized");
-        logger.info("✓ Bi-Temporal Event Store configured");
-        logger.info("✓ WebFlux (Netty) server started");
-        logger.info("✓ All reactive beans created and wired");
+        logger.info(" Application context loaded successfully");
+        logger.info(" PeeGeeQ Manager initialized");
+        logger.info(" Bi-Temporal Event Store configured");
+        logger.info(" WebFlux (Netty) server started");
+        logger.info(" All reactive beans created and wired");
         logger.info("=== Test Completed Successfully ===");
     }
     

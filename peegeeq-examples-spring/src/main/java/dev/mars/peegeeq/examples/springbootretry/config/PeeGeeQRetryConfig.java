@@ -88,7 +88,7 @@ public class PeeGeeQRetryConfig {
         double seconds = properties.getPollingIntervalMs() / 1000.0;
         props.setProperty("peegeeq.queue.polling-interval", "PT" + seconds + "S");
         
-        // Create and return PeeGeeQ Manager — SmartLifecycle bean handles start/stop
+        // Create and return PeeGeeQ Manager  SmartLifecycle bean handles start/stop
         return new PeeGeeQManager(new PeeGeeQConfiguration(profile, props), meterRegistry);
     }
     

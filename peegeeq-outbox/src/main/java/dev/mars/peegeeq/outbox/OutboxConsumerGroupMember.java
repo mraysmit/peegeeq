@@ -278,7 +278,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
      *
      * <p>If the filter throws an exception, the failure is recorded in the circuit breaker
      * and the exception is re-thrown so the calling framework can route it to
-     * {@code handleMessageFailureWithRetry()} (retry → DLQ after max_retries).
+     * {@code handleMessageFailureWithRetry()} (retry  DLQ after max_retries).
      * When the circuit breaker is OPEN the filter is not invoked and {@code false} is returned.
      *
      * @param message The message to check
@@ -316,8 +316,8 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                        "Propagating as processing failure for retry/DLQ handling. Error: {}",
                 consumerId, groupName, message.getId(), e.getMessage());
             // Propagate the filter exception so the framework routes it to
-            // handleMessageFailureWithRetry() → retry/DLQ after max_retries.
-            // DO NOT return false: that causes MessageFilteredException →
+            // handleMessageFailureWithRetry()  retry/DLQ after max_retries.
+            // DO NOT return false: that causes MessageFilteredException 
             // resetFilteredMessageToPending (infinite PENDING loop bypassing retry/DLQ).
             if (e instanceof RuntimeException re) {
                 throw re;

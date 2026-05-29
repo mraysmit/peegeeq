@@ -33,7 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * Tests the complete webhook delivery flow as defined in
  * PEEGEEQ_CALL_PROPAGATION_DESIGN.md Section 9.10:
- * REST → WebhookSubscriptionHandler → WebClient → External Webhook URL
+ * REST  WebhookSubscriptionHandler  WebClient  External Webhook URL
  *
  * Classification: INTEGRATION TEST
  * - Uses real PostgreSQL database (TestContainers)

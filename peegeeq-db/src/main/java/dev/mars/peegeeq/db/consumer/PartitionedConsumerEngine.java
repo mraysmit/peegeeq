@@ -41,7 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * offset commits, and watermark sweeping. Used by consumer-group implementations
  * (native and outbox) when the topic's completion tracking mode is OFFSET_WATERMARK.</p>
  *
- * <p>Lifecycle: {@link #start(MessageHandler)} → fetching loop → {@link #stop()} → {@link #close()}</p>
+ * <p>Lifecycle: {@link #start(MessageHandler)}  fetching loop  {@link #stop()}  {@link #close()}</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-04-12
@@ -70,7 +70,7 @@ public class PartitionedConsumerEngine<T> {
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
 
-    /** Current partition assignments: partitionKey → generation */
+    /** Current partition assignments: partitionKey  generation */
     private final ConcurrentHashMap<String, Integer> assignedPartitions = new ConcurrentHashMap<>();
 
     /** Per-partition guard: prevents overlapping fetch+process+commit cycles */

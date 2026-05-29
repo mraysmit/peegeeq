@@ -284,7 +284,7 @@ public class HealthHandlerIntegrationTest {
                         return webClient.get(TEST_PORT, "localhost", componentPath).send();
                     }
                 }
-                // No components or not 200 — return the list response for verification
+                // No components or not 200  return the list response for verification
                 return Future.succeededFuture(listResponse);
             })
             .onSuccess(response -> {

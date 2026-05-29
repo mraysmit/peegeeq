@@ -95,7 +95,7 @@ class VertxOnSuccessExceptionSwallowTest {
             }
         });
 
-        // Use a timer so the chain executes on the Vert.x event-loop context —
+        // Use a timer so the chain executes on the Vert.x event-loop context 
         // exactly the scenario that causes silent swallowing.
         vertx.timer(10).mapEmpty()
             .onSuccess(v -> {
@@ -167,7 +167,7 @@ class VertxOnSuccessExceptionSwallowTest {
     // =========================================================================
     // SCENARIO 2: the real-world failure timer chain followed by sync call
     //   mirrors exactly what MultiConfigurationExampleTest.testMultipleConfigurationRegistration
-    //   does: timer → timer → onSuccess throws → 30 s timeout
+    //   does: timer  timer  onSuccess throws  30 s timeout
     // =========================================================================
 
     /**
@@ -201,7 +201,7 @@ class VertxOnSuccessExceptionSwallowTest {
             }
         });
 
-        // Mirror of MultiConfigurationExampleTest: timer → timer → onSuccess throws
+        // Mirror of MultiConfigurationExampleTest: timer  timer  onSuccess throws
         vertx.timer(20).mapEmpty()
             .compose(v -> vertx.timer(20).mapEmpty())
             .compose(v -> vertx.timer(20).mapEmpty())

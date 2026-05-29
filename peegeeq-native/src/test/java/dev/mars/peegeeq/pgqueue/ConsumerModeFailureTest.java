@@ -117,7 +117,7 @@ class ConsumerModeFailureTest {
 
     @Test
     void testExceptionHandlingInMessageHandlers(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing exception handling in message handlers");
+        logger.info(" Testing exception handling in message handlers");
 
         String topicName = "test-exception-handling";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -131,11 +131,11 @@ class ConsumerModeFailureTest {
 
             consumer.subscribe(message -> {
                 String payload = message.getPayload();
-                logger.info("📨 Processing message: {}", payload);
+                logger.info(" Processing message: {}", payload);
 
                 if (payload.contains("exception")) {
                     exceptionCount.incrementAndGet();
-                    logger.info("💥 Throwing intentional exception for message: {} (attempt {})", payload, exceptionCount.get());
+                    logger.info(" Throwing intentional exception for message: {} (attempt {})", payload, exceptionCount.get());
                     throw new RuntimeException("Intentional test exception for: " + payload);
                 } else {
                     processedCount.incrementAndGet();
@@ -161,7 +161,7 @@ class ConsumerModeFailureTest {
             // The system retries failed messages multiple times before moving to DLQ
             // So we expect more than 2 exceptions due to retries (typically 3 attempts per message = 6 total)
             assertTrue(exceptionCount.get() >= 2, "Should encounter at least 2 exceptions (original attempts)");
-            assertTrue(exceptionCount.get() <= 6, "Should not exceed 6 exceptions (2 messages × 3 retry attempts)");
+            assertTrue(exceptionCount.get() <= 6, "Should not exceed 6 exceptions (2 messages  3 retry attempts)");
 
             logger.info("Exception handling verified - processed: {}, exceptions: {} (includes retries)",
                 processedCount.get(), exceptionCount.get());
@@ -176,7 +176,7 @@ class ConsumerModeFailureTest {
 
     @Test
     void testChannelNameCollisionHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing channel name collision handling");
+        logger.info(" Testing channel name collision handling");
 
         String topicName = "test-channel-collision";
 
@@ -194,13 +194,13 @@ class ConsumerModeFailureTest {
             Future.all(
                 consumer1.subscribe(message -> {
                     consumer1Count.incrementAndGet();
-                    logger.info("📨 Consumer 1 received message: {}", message.getPayload());
+                    logger.info(" Consumer 1 received message: {}", message.getPayload());
                     messagesProcessed.flag();
                     return Future.succeededFuture();
                 }),
                 consumer2.subscribe(message -> {
                     consumer2Count.incrementAndGet();
-                    logger.info("📨 Consumer 2 received message: {}", message.getPayload());
+                    logger.info(" Consumer 2 received message: {}", message.getPayload());
                     messagesProcessed.flag();
                     return Future.succeededFuture();
                 })
@@ -230,7 +230,7 @@ class ConsumerModeFailureTest {
 
     @Test
     void testPartialModeFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing partial mode failure recovery");
+        logger.info(" Testing partial mode failure recovery");
 
         String topicName = "test-partial-failure-recovery";
 
@@ -244,7 +244,7 @@ class ConsumerModeFailureTest {
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
-                logger.info("📨 Processed message during partial failure test: {}", message.getPayload());
+                logger.info(" Processed message during partial failure test: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
@@ -270,7 +270,7 @@ class ConsumerModeFailureTest {
 
     @Test
     void testRecoveryAfterTemporaryFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing recovery after temporary failure");
+        logger.info(" Testing recovery after temporary failure");
 
         String topicName = "test-recovery-after-failure";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -285,7 +285,7 @@ class ConsumerModeFailureTest {
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 lastProcessedMessage.set(message.getPayload());
-                logger.info("📨 Processed message during recovery test: {}", message.getPayload());
+                logger.info(" Processed message during recovery test: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
@@ -314,7 +314,7 @@ class ConsumerModeFailureTest {
 
     @Test
     void testConsumerModeRobustnessUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing consumer mode robustness under moderate load");
+        logger.info(" Testing consumer mode robustness under moderate load");
 
         String topicName = "test-robustness-under-load";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -327,7 +327,7 @@ class ConsumerModeFailureTest {
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
-                logger.debug("📨 Processed load test message {}: {}", count, message.getPayload());
+                logger.debug(" Processed load test message {}: {}", count, message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })

@@ -132,7 +132,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("start() transitions NEW → ACTIVE")
+        @DisplayName("start() transitions NEW  ACTIVE")
         void startTransitionsToActive() {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -164,7 +164,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("stop() transitions ACTIVE → NEW (restartable)")
+        @DisplayName("stop() transitions ACTIVE  NEW (restartable)")
         void stopTransitionsToNew() {
             group = createGroup("lifecycle-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -455,7 +455,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("group filter accepts, all member filters reject → transient MessageFilteredException")
+        @DisplayName("group filter accepts, all member filters reject  transient MessageFilteredException")
         void groupAcceptsMembersRejectIsTransient() throws Exception {
             group = createGroup("filter-group", "test-topic");
             group.setGroupFilter(msg -> true);
@@ -535,7 +535,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("group filter throws exception → RejectedMessageException with MDC cleaned up")
+        @DisplayName("group filter throws exception  RejectedMessageException with MDC cleaned up")
         void groupFilterThrowsException_rejectedAndMdcCleaned() throws Exception {
             group = createGroup("throw-group", "test-topic");
             group.setGroupFilter(msg -> { throw new RuntimeException("filter boom"); });
@@ -566,7 +566,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("group filter throws → totalMessagesFiltered incremented")
+        @DisplayName("group filter throws  totalMessagesFiltered incremented")
         void groupFilterThrows_incrementsFilteredCount() throws Exception {
             group = createGroup("throw-count-group", "test-topic");
             group.setGroupFilter(msg -> { throw new IllegalStateException("broken"); });
@@ -582,7 +582,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("group filter throws → handler is NOT invoked")
+        @DisplayName("group filter throws  handler is NOT invoked")
         void groupFilterThrows_handlerNotInvoked() throws Exception {
             group = createGroup("throw-noinvoke-group", "test-topic");
             group.setGroupFilter(msg -> { throw new RuntimeException("kaboom"); });

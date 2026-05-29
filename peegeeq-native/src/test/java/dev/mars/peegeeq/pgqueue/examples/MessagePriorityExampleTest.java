@@ -70,7 +70,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <h2>Test Coverage</h2>
  * <ul>
- *   <li><b>Basic Priority Ordering</b> - Verifies messages are processed in priority order (CRITICAL → HIGH → NORMAL → LOW → BULK)</li>
+ *   <li><b>Basic Priority Ordering</b> - Verifies messages are processed in priority order (CRITICAL  HIGH  NORMAL  LOW  BULK)</li>
  *   <li><b>Priority Level Validation</b> - Tests all 5 priority levels with proper ordering</li>
  *   <li><b>E-Commerce Scenario</b> - Real-world order processing with different priorities</li>
  *   <li><b>Financial Scenario</b> - Critical financial transactions and fraud alerts</li>
@@ -100,7 +100,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>Messages are processed in strict priority order</li>
  *   <li>Higher priority messages preempt lower priority ones</li>
- *   <li>Performance meets minimum thresholds (≥10 msg/sec)</li>
+ *   <li>Performance meets minimum thresholds (10 msg/sec)</li>
  *   <li>Real-world scenarios work as expected</li>
  * </ul>
  *
@@ -449,7 +449,7 @@ class MessagePriorityExampleTest {
             double messagesPerSecond = (messageCount * 1000.0) / duration;
 
             logger.info("Priority performance test completed successfully!");
-            logger.info("📊 Performance Results: {} messages in {}ms ({:.2f} msg/sec)",
+            logger.info(" Performance Results: {} messages in {}ms ({:.2f} msg/sec)",
                 messageCount, duration, messagesPerSecond);
 
             // Basic performance assertion with small tolerance for CI jitter

@@ -161,7 +161,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                         return;
                     }
                     
-                    // 1. Start Consumer 1 — use a Promise so we can chain off message receipt
+                    // 1. Start Consumer 1  use a Promise so we can chain off message receipt
                     MessageConsumer<Object> consumer1 = factory.createConsumer(queueName, Object.class);
                     activeConsumers.add(consumer1);
                     Promise<Void> msg1Promise = Promise.promise();
@@ -192,7 +192,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                             if (r2.statusCode() != 200) {
                                 return Future.failedFuture(new AssertionError("Failed to publish msg-2: " + r2.statusCode()));
                             }
-                            // 5. Start Consumer 2 — use a Promise to detect msg-2
+                            // 5. Start Consumer 2  use a Promise to detect msg-2
                             MessageConsumer<Object> consumer2 = factory.createConsumer(queueName, Object.class);
                             activeConsumers.add(consumer2);
                             Promise<Void> msg2Promise = Promise.promise();

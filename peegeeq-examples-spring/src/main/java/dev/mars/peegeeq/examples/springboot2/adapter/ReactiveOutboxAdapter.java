@@ -33,7 +33,7 @@ import io.vertx.core.Future;
  *
  * <p><b>Why this adapter exists.</b> PeeGeeQ is implemented with Vert.x 5 and exposes
  * a reactive, composable API based on {@code io.vertx.core.Future<T>}. A Spring WebFlux
- * application — which is the example client demonstrated in {@code springboot2} — composes
+ * application  which is the example client demonstrated in {@code springboot2}  composes
  * its pipelines with Reactor {@code Mono}/{@code Flux}. Reactor is not aware of Vert.x
  * {@code Future}, so a small, well-defined adapter is required at the boundary between
  * the two reactive worlds. This class is that boundary.
@@ -55,8 +55,8 @@ import io.vertx.core.Future;
  * <p><b>Teaching intent.</b> The {@code springboot2} example is designed to show developers
  * how a non-Vert.x consumer (in this case Spring WebFlux / Reactor) integrates with the
  * Vert.x-based PeeGeeQ outbox without violating the reactive contract on either side.
- * The pattern shown here — {@code Future → CompletionStage → Mono} at the boundary, and
- * Reactor everywhere else inside the Spring layer — is the recommended approach.
+ * The pattern shown here  {@code Future  CompletionStage  Mono} at the boundary, and
+ * Reactor everywhere else inside the Spring layer  is the recommended approach.
  *
  * <p><b>Usage example.</b>
  * <pre>{@code

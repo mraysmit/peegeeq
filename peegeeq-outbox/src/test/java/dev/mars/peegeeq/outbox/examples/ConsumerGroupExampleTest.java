@@ -94,7 +94,7 @@ public class ConsumerGroupExampleTest {
                 OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
                 // Create queue factory
                 factory = provider.createFactory("outbox", databaseService);
-                logger.info("✓ Consumer Group Example Test setup completed");
+                logger.info(" Consumer Group Example Test setup completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -108,12 +108,12 @@ public class ConsumerGroupExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    logger.info("✓ Consumer Group Example Test teardown completed");
+                    logger.info(" Consumer Group Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
         } else {
-            logger.info("✓ Consumer Group Example Test teardown completed");
+            logger.info(" Consumer Group Example Test teardown completed");
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));

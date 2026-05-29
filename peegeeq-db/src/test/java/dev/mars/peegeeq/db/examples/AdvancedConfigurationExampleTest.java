@@ -77,7 +77,7 @@ public class AdvancedConfigurationExampleTest {
         containerProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
         containerProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
-        logger.info("✓ Advanced Configuration Example Test setup completed");
+        logger.info(" Advanced Configuration Example Test setup completed");
     }
 
     @AfterEach
@@ -183,7 +183,7 @@ public class AdvancedConfigurationExampleTest {
         logger.info("=== Testing External Configuration Management ===");
 
         // Test instance-level properties configuration (correct pattern since Phase 11 removed
-        // the System.getProperties() sweep — use the 2-arg constructor to pass per-instance values)
+        // the System.getProperties() sweep  use the 2-arg constructor to pass per-instance values)
         logger.info("--- Testing Instance Properties Configuration ---");
         Properties instanceProps = new Properties();
         containerProps.forEach((k, v) -> instanceProps.setProperty(k.toString(), v.toString()));
@@ -359,7 +359,7 @@ public class AdvancedConfigurationExampleTest {
     void testRuntimeConfigurationUpdates() throws Exception {
         logger.info("=== Testing Runtime Configuration Updates ===");
 
-        // Properties are supplied at construction time — System.setProperty has no effect on
+        // Properties are supplied at construction time  System.setProperty has no effect on
         // PeeGeeQConfiguration since the System sweep was removed in version 2.0.
         // Each instance owns its isolated Properties object; configuration is never global.
         logger.info("--- Testing Instance-Isolated Configuration Properties ---");
@@ -392,7 +392,7 @@ public class AdvancedConfigurationExampleTest {
         logger.info("   - Audit trail of all configuration changes");
         logger.info("   - Impact assessment before applying updates");
 
-        logger.info("⚠️ Non-updatable Configuration (requires restart):");
+        logger.info(" Non-updatable Configuration (requires restart):");
         logger.info("   - Database connection URL and credentials");
         logger.info("   - Core threading model configuration");
         logger.info("   - JVM-level settings and memory allocation");

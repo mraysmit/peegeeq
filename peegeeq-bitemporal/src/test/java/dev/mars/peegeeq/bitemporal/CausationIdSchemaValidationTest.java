@@ -89,7 +89,7 @@ public class CausationIdSchemaValidationTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        logger.info("🧪 Setting up CausationIdSchemaValidationTest");
+        logger.info(" Setting up CausationIdSchemaValidationTest");
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal schema using PeeGeeQTestSchemaInitializer...");
@@ -120,7 +120,7 @@ public class CausationIdSchemaValidationTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        logger.info("🧹 Cleaning up CausationIdSchemaValidationTest");
+        logger.info(" Cleaning up CausationIdSchemaValidationTest");
 
         Future<Void> closeStoreFuture = eventStore != null ? eventStore.close() : Future.succeededFuture();
         Future<Void> closeManagerFuture = peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.succeededFuture();
@@ -138,7 +138,7 @@ public class CausationIdSchemaValidationTest {
     @Test
     @DisplayName("CRITICAL: Validate causation_id column exists in bitemporal_event_log table")
     void testCausationIdColumnExists(VertxTestContext testContext) {
-        logger.info("🧪 Validating causation_id column exists in test schema");
+        logger.info(" Validating causation_id column exists in test schema");
 
         querySingleRow(
                 """
@@ -160,7 +160,7 @@ public class CausationIdSchemaValidationTest {
     @Test
     @DisplayName("CRITICAL: Validate trigger function references causation_id without error")
     void testTriggerFunctionCanReferenceCausationId(VertxTestContext testContext) {
-        logger.info("🧪 Testing that notify_bitemporal_event trigger can execute with causation_id");
+        logger.info(" Testing that notify_bitemporal_event trigger can execute with causation_id");
 
         // Test data with causation_id
         String eventType = "causation.test.event";
@@ -194,7 +194,7 @@ public class CausationIdSchemaValidationTest {
     @Test
     @DisplayName("CRITICAL: Validate appendOwnTransaction includes causation_id in interface")
     void testAppendOwnTransactionMethodSignature(VertxTestContext testContext) {
-        logger.info("🧪 Validating appendOwnTransaction method signature includes causation_id");
+        logger.info(" Validating appendOwnTransaction method signature includes causation_id");
 
         // This test ensures the EventStore interface has the appendOwnTransaction method
         // with causation_id parameter - compilation proves the method signature exists
@@ -223,7 +223,7 @@ public class CausationIdSchemaValidationTest {
     @Test
     @DisplayName("CRITICAL: Validate test schema matches production schema columns")
     void testSchemaColumnParity(VertxTestContext testContext) {
-        logger.info("🧪 Validating test schema has all expected columns matching production");
+        logger.info(" Validating test schema has all expected columns matching production");
 
         listColumnNames("bitemporal_event_log")
                 .onComplete(testContext.succeeding(actualColumns -> testContext.verify(() -> {

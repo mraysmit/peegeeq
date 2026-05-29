@@ -72,7 +72,7 @@ public class TransactionParticipationIntegrationTest {
     
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Setting up TransactionParticipationIntegrationTest");
+        logger.info(" Setting up TransactionParticipationIntegrationTest");
         this.vertx = vertx;
 
         // Initialize database schema using centralized schema initializer
@@ -107,7 +107,7 @@ public class TransactionParticipationIntegrationTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("🧹 Cleaning up TransactionParticipationIntegrationTest");
+        logger.info(" Cleaning up TransactionParticipationIntegrationTest");
 
         if (eventStore != null) {
             try { eventStore.close(); } catch (Exception e) { logger.warn("EventStore close: {}", e.getMessage()); }
@@ -156,7 +156,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Test simple transaction participation - business data + bitemporal event")
     void testSimpleTransactionParticipation(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing simple transaction participation");
+        logger.info(" Testing simple transaction participation");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -177,7 +177,7 @@ public class TransactionParticipationIntegrationTest {
 
         // Execute business operation + bitemporal event in same transaction
         pool.withTransaction(connection -> {
-            logger.info("📝 Starting transaction with business operation + bitemporal event");
+            logger.info(" Starting transaction with business operation + bitemporal event");
 
             // 1. Insert business data
             String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -203,7 +203,7 @@ public class TransactionParticipationIntegrationTest {
             assertEquals(eventPayload.getValue(), event.getPayload().getValue());
 
             // CRITICAL: Database state validation after successful transaction
-            logger.info("🔍 Validating database state after transaction commit");
+            logger.info(" Validating database state after transaction commit");
 
             // 1. Verify business data was persisted in business_data table
             return pool.withConnection(connection -> {
@@ -252,7 +252,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Test business table + bitemporal_event_log consistency verification")
     void testBusinessTableEventLogConsistency(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing business table + bitemporal_event_log consistency verification");
+        logger.info(" Testing business table + bitemporal_event_log consistency verification");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -274,7 +274,7 @@ public class TransactionParticipationIntegrationTest {
 
         // Execute transaction with correlation ID for consistency tracking
         pool.withTransaction(connection -> {
-            logger.info("📝 Starting consistency verification transaction");
+            logger.info(" Starting consistency verification transaction");
 
             // 1. Insert business data with correlation ID in a comment field
             String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -299,7 +299,7 @@ public class TransactionParticipationIntegrationTest {
         })
         .compose(event -> {
             // COMPREHENSIVE CONSISTENCY VERIFICATION
-            logger.info("🔍 Performing comprehensive business table + event log consistency verification");
+            logger.info(" Performing comprehensive business table + event log consistency verification");
 
             // 1. Cross-reference business data and event data using correlation ID
             return pool.withConnection(connection -> {
@@ -359,7 +359,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Test transaction commit verification with timing validation")
     void testTransactionCommitVerification(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing transaction commit verification with timing validation");
+        logger.info(" Testing transaction commit verification with timing validation");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -381,7 +381,7 @@ public class TransactionParticipationIntegrationTest {
 
         // Execute transaction and capture timing
         pool.withTransaction(connection -> {
-            logger.info("📝 Starting transaction commit verification test");
+            logger.info(" Starting transaction commit verification test");
 
             // 1. Insert business data
             String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -403,7 +403,7 @@ public class TransactionParticipationIntegrationTest {
             Instant afterTransaction = Instant.now();
 
             // TRANSACTION COMMIT VERIFICATION
-            logger.info("🔍 Verifying transaction commit with timing validation");
+            logger.info(" Verifying transaction commit with timing validation");
 
             // 1. Verify both records exist (proving commit succeeded)
             return pool.withConnection(connection -> {
@@ -474,7 +474,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Test business operation failure after bitemporal append - rollback scenario")
     void testBusinessOperationFailureAfterBiTemporalAppend(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing business operation failure after bitemporal append - rollback scenario");
+        logger.info(" Testing business operation failure after bitemporal append - rollback scenario");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -495,7 +495,7 @@ public class TransactionParticipationIntegrationTest {
         // Attempt transaction that should fail after bitemporal append
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = business SQL failure after bitemporal append must roll back the full transaction");
         pool.withTransaction(connection -> {
-            logger.info("📝 Starting transaction that will fail after bitemporal append");
+            logger.info(" Starting transaction that will fail after bitemporal append");
 
             // 1. First, successfully append bitemporal event
             return eventStore.appendInTransaction(eventType, eventPayload, validTime,
@@ -508,7 +508,7 @@ public class TransactionParticipationIntegrationTest {
                     return connection.preparedQuery(invalidBusinessSql)
                         .execute(Tuple.of("this will fail"))
                         .map(result -> {
-                            logger.error("❌ This should not execute - business operation should have failed");
+                            logger.error(" This should not execute - business operation should have failed");
                             return biTemporalEvent;
                         });
                 });
@@ -518,7 +518,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (business SQL failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
-            logger.info("🔍 Verifying complete rollback - no partial data should exist");
+            logger.info(" Verifying complete rollback - no partial data should exist");
 
             // 1. Verify NO bitemporal event exists (should be rolled back)
             pool.withConnection(connection -> {
@@ -579,7 +579,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Test bitemporal append failure after business operation - rollback scenario")
     void testBiTemporalAppendFailureAfterBusinessOperation(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing bitemporal append failure after business operation - rollback scenario");
+        logger.info(" Testing bitemporal append failure after business operation - rollback scenario");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -599,7 +599,7 @@ public class TransactionParticipationIntegrationTest {
         // Attempt transaction that should fail after business operation
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = bitemporal append validation failure after business insert must roll back the full transaction");
         pool.withTransaction(connection -> {
-            logger.info("📝 Starting transaction that will fail after business operation");
+            logger.info(" Starting transaction that will fail after business operation");
 
             // 1. First, successfully insert business data
             String insertBusinessSql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -612,7 +612,7 @@ public class TransactionParticipationIntegrationTest {
                     // 2. Now attempt bitemporal append that will fail (null payload to trigger validation error)
                     return eventStore.appendInTransaction("business.rollback.test", null, Instant.now(), connection)
                         .map(biTemporalEvent -> {
-                            logger.error("❌ This should not execute - bitemporal append should have failed");
+                            logger.error(" This should not execute - bitemporal append should have failed");
                             return biTemporalEvent;
                         });
                 });
@@ -622,7 +622,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (append validation failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
-            logger.info("🔍 Verifying complete rollback - no partial data should exist");
+            logger.info(" Verifying complete rollback - no partial data should exist");
 
             // 1. Verify NO business data exists (should be rolled back)
             pool.withConnection(connection -> {
@@ -656,7 +656,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Test transaction boundary integrity - no partial commits")
     void testTransactionBoundaryIntegrity(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing transaction boundary integrity - no partial commits");
+        logger.info(" Testing transaction boundary integrity - no partial commits");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -674,7 +674,7 @@ public class TransactionParticipationIntegrationTest {
         // Attempt complex transaction with multiple operations that will fail at the end
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = late-stage SQL failure in multi-step transaction must prevent partial commits");
         pool.withTransaction(connection -> {
-            logger.info("📝 Starting complex transaction with multiple operations that will fail");
+            logger.info(" Starting complex transaction with multiple operations that will fail");
 
             // 1. Insert first business record
             String insertBusiness1Sql = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -712,7 +712,7 @@ public class TransactionParticipationIntegrationTest {
                                             return connection.preparedQuery(failureSql)
                                                 .execute(Tuple.of("force failure"))
                                                 .map(failureResult -> {
-                                                    logger.error("❌ This should not execute - operation should have failed");
+                                                    logger.error(" This should not execute - operation should have failed");
                                                     return event2;
                                                 });
                                         });
@@ -725,7 +725,7 @@ public class TransactionParticipationIntegrationTest {
             logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected boundary-integrity rollback trigger: {}", thrownException.getMessage());
 
             // COMPREHENSIVE TRANSACTION BOUNDARY VERIFICATION
-            logger.info("🔍 Verifying transaction boundary integrity - ALL operations should be rolled back");
+            logger.info(" Verifying transaction boundary integrity - ALL operations should be rolled back");
 
             // 1. Verify NO business data exists (all should be rolled back)
             pool.withConnection(connection -> {
@@ -814,7 +814,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Multiple bitemporal events in single transaction")
     void testMultipleBiTemporalEventsInSingleTransaction(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing multiple bitemporal events in single transaction");
+        logger.info(" Testing multiple bitemporal events in single transaction");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -830,7 +830,7 @@ public class TransactionParticipationIntegrationTest {
         List<String> eventIds = new ArrayList<>();
 
         // TRANSACTION WITH MULTIPLE BITEMPORAL EVENTS
-        logger.info("🚀 Starting multiple bitemporal events transaction test");
+        logger.info(" Starting multiple bitemporal events transaction test");
 
         pool.withTransaction(connection -> {
             // Insert business record
@@ -839,7 +839,7 @@ public class TransactionParticipationIntegrationTest {
                 .execute(Tuple.of("Multi Event Test", 100))
                 .compose(result -> {
                     int businessId = result.iterator().next().getInteger("id");
-                    logger.info("📝 Business record inserted with ID: {}", businessId);
+                    logger.info(" Business record inserted with ID: {}", businessId);
 
                     // Append first bitemporal event
                     TestEvent event1 = new TestEvent("multi-event-1", 1);
@@ -848,7 +848,7 @@ public class TransactionParticipationIntegrationTest {
                     return eventStore.appendInTransaction("business.multi.event1", event1, validTime1, connection)
                         .compose(biTemporalEvent1 -> {
                             eventIds.add(biTemporalEvent1.getEventId());
-                            logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
+                            logger.info(" First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
 
                             // Append second bitemporal event
                             TestEvent event2 = new TestEvent("multi-event-2", 2);
@@ -857,7 +857,7 @@ public class TransactionParticipationIntegrationTest {
                             return eventStore.appendInTransaction("business.multi.event2", event2, validTime2, connection)
                                 .compose(biTemporalEvent2 -> {
                                     eventIds.add(biTemporalEvent2.getEventId());
-                                    logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
+                                    logger.info(" Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
 
                                     // Append third bitemporal event
                                     TestEvent event3 = new TestEvent("multi-event-3", 3);
@@ -866,7 +866,7 @@ public class TransactionParticipationIntegrationTest {
                                     return eventStore.appendInTransaction("business.multi.event3", event3, validTime3, connection)
                                         .compose(biTemporalEvent3 -> {
                                             eventIds.add(biTemporalEvent3.getEventId());
-                                            logger.info("📊 Third bitemporal event appended with ID: {}", biTemporalEvent3.getEventId());
+                                            logger.info(" Third bitemporal event appended with ID: {}", biTemporalEvent3.getEventId());
 
                                             return Future.succeededFuture();
                                         });
@@ -876,7 +876,7 @@ public class TransactionParticipationIntegrationTest {
         })
         .compose(v -> {
             // COMPREHENSIVE VERIFICATION
-            logger.info("🔍 Verifying multiple bitemporal events transaction commit");
+            logger.info(" Verifying multiple bitemporal events transaction commit");
 
             // Verify all events and business data exist
             return pool.withConnection(connection -> {
@@ -920,7 +920,7 @@ public class TransactionParticipationIntegrationTest {
         .map(eventDetails -> {
             assertEquals(3, eventDetails.size(), "Should have exactly 3 events");
 
-            logger.info("📊 Event sequence verification:");
+            logger.info(" Event sequence verification:");
             for (int i = 0; i < eventDetails.size(); i++) {
                 Row row = eventDetails.get(i);
                 String eventId = row.getString("event_id");
@@ -950,9 +950,9 @@ public class TransactionParticipationIntegrationTest {
     }
 
     @Test
-    @DisplayName("Mixed operation sequences - business → bitemporal → business")
+    @DisplayName("Mixed operation sequences - business  bitemporal  business")
     void testMixedOperationSequences(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing mixed operation sequences - business → bitemporal → business");
+        logger.info(" Testing mixed operation sequences - business  bitemporal  business");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -969,7 +969,7 @@ public class TransactionParticipationIntegrationTest {
         List<String> eventIds = new ArrayList<>();
 
         // TRANSACTION WITH MIXED OPERATIONS
-        logger.info("🚀 Starting mixed operation sequences transaction test");
+        logger.info(" Starting mixed operation sequences transaction test");
 
         pool.withTransaction(connection -> {
             // 1. First business operation
@@ -979,7 +979,7 @@ public class TransactionParticipationIntegrationTest {
                 .compose(result1 -> {
                     int businessId1 = result1.iterator().next().getInteger("id");
                     businessIds.add(businessId1);
-                    logger.info("📝 First business record inserted with ID: {}", businessId1);
+                    logger.info(" First business record inserted with ID: {}", businessId1);
 
                     // 2. First bitemporal event
                     TestEvent event1 = new TestEvent("mixed-sequence-1", businessId1);
@@ -988,7 +988,7 @@ public class TransactionParticipationIntegrationTest {
                     return eventStore.appendInTransaction("business.mixed.sequence1", event1, validTime1, connection)
                         .compose(biTemporalEvent1 -> {
                             eventIds.add(biTemporalEvent1.getEventId());
-                            logger.info("📊 First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
+                            logger.info(" First bitemporal event appended with ID: {}", biTemporalEvent1.getEventId());
 
                             // 3. Second business operation
                             String insertSql2 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -997,7 +997,7 @@ public class TransactionParticipationIntegrationTest {
                                 .compose(result2 -> {
                                     int businessId2 = result2.iterator().next().getInteger("id");
                                     businessIds.add(businessId2);
-                                    logger.info("📝 Second business record inserted with ID: {}", businessId2);
+                                    logger.info(" Second business record inserted with ID: {}", businessId2);
 
                                     // 4. Second bitemporal event
                                     TestEvent event2 = new TestEvent("mixed-sequence-2", businessId2);
@@ -1006,7 +1006,7 @@ public class TransactionParticipationIntegrationTest {
                                     return eventStore.appendInTransaction("business.mixed.sequence2", event2, validTime2, connection)
                                         .compose(biTemporalEvent2 -> {
                                             eventIds.add(biTemporalEvent2.getEventId());
-                                            logger.info("📊 Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
+                                            logger.info(" Second bitemporal event appended with ID: {}", biTemporalEvent2.getEventId());
 
                                             // 5. Third business operation
                                             String insertSql3 = "INSERT INTO business_data (name, value) VALUES ($1, $2) RETURNING id";
@@ -1015,7 +1015,7 @@ public class TransactionParticipationIntegrationTest {
                                                 .compose(result3 -> {
                                                     int businessId3 = result3.iterator().next().getInteger("id");
                                                     businessIds.add(businessId3);
-                                                    logger.info("📝 Third business record inserted with ID: {}", businessId3);
+                                                    logger.info(" Third business record inserted with ID: {}", businessId3);
 
                                                     return Future.succeededFuture();
                                                 });
@@ -1026,7 +1026,7 @@ public class TransactionParticipationIntegrationTest {
         })
         .compose(v -> {
             // COMPREHENSIVE VERIFICATION
-            logger.info("🔍 Verifying mixed operation sequences transaction commit");
+            logger.info(" Verifying mixed operation sequences transaction commit");
 
             // Verify all business records and events exist
             return pool.withConnection(connection -> {
@@ -1086,7 +1086,7 @@ public class TransactionParticipationIntegrationTest {
             assertEquals(3, businessIds.size(), "Should have collected 3 business IDs");
             assertEquals(2, eventIds.size(), "Should have collected 2 event IDs");
 
-            logger.info("📊 Mixed operation sequence verification:");
+            logger.info(" Mixed operation sequence verification:");
             logger.info("  Business Operations:");
             for (int i = 0; i < businessDetails.size(); i++) {
                 Row row = businessDetails.get(i);
@@ -1115,7 +1115,7 @@ public class TransactionParticipationIntegrationTest {
     @Test
     @DisplayName("Batch operation performance test")
     void testBatchOperationPerformance(Vertx vertx, VertxTestContext testContext) {
-        logger.info("🧪 Testing batch operation performance");
+        logger.info(" Testing batch operation performance");
 
         // Create a direct connection pool for transaction testing
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -1132,7 +1132,7 @@ public class TransactionParticipationIntegrationTest {
         List<String> eventIds = new ArrayList<>();
 
         // BATCH TRANSACTION PERFORMANCE TEST
-        logger.info("🚀 Starting batch operation performance test with {} operations", BATCH_SIZE);
+        logger.info(" Starting batch operation performance test with {} operations", BATCH_SIZE);
 
         long startTime = System.currentTimeMillis();
 
@@ -1143,7 +1143,7 @@ public class TransactionParticipationIntegrationTest {
                 .execute(Tuple.of("Batch Performance Test", 200))
                 .compose(result -> {
                     int businessId = result.iterator().next().getInteger("id");
-                    logger.info("📝 Batch business record inserted with ID: {}", businessId);
+                    logger.info(" Batch business record inserted with ID: {}", businessId);
 
                     // Chain multiple bitemporal events
                     Future<Void> chainFuture = Future.succeededFuture();
@@ -1158,7 +1158,7 @@ public class TransactionParticipationIntegrationTest {
                                 .compose(biTemporalEvent -> {
                                     eventIds.add(biTemporalEvent.getEventId());
                                     if (eventNumber % 5 == 0) {
-                                        logger.info("📊 Batch progress: {} events appended", eventNumber);
+                                        logger.info(" Batch progress: {} events appended", eventNumber);
                                     }
                                     return Future.succeededFuture();
                                 });
@@ -1172,10 +1172,10 @@ public class TransactionParticipationIntegrationTest {
             long endTime = System.currentTimeMillis();
             long duration = endTime - startTime;
 
-            logger.info("⏱️ Batch operation completed in {} ms ({} ms per operation)", duration, duration / BATCH_SIZE);
+            logger.info(" Batch operation completed in {} ms ({} ms per operation)", duration, duration / BATCH_SIZE);
 
             // COMPREHENSIVE VERIFICATION
-            logger.info("🔍 Verifying batch operation performance results");
+            logger.info(" Verifying batch operation performance results");
 
             // Verify all events and business data exist
             return pool.withConnection(connection -> {
@@ -1229,7 +1229,7 @@ public class TransactionParticipationIntegrationTest {
             double avgTimePerOp = (double) duration / BATCH_SIZE;
             assertTrue(avgTimePerOp < 1000, "Average time per operation should be less than 1 second");
 
-            logger.info("📊 Performance metrics:");
+            logger.info(" Performance metrics:");
             logger.info("  Total time: {} ms", duration);
             logger.info("  Average per operation: {} ms", String.format("%.2f", avgTimePerOp));
             logger.info("  Operations per second: {}", String.format("%.2f", 1000.0 / avgTimePerOp));

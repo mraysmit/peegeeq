@@ -116,7 +116,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @Test
     void testLegacyApiWithoutConsumerConfig(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing legacy API without ConsumerConfig (should default to HYBRID)");
+        logger.info(" Testing legacy API without ConsumerConfig (should default to HYBRID)");
 
         String topicName = "test-legacy-api";
 
@@ -130,7 +130,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
-                logger.info("📨 Legacy API processed message: {}", message.getPayload());
+                logger.info(" Legacy API processed message: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })
@@ -156,7 +156,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @Test
     void testMixedApiUsage(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing mixed API usage (legacy and new API together)");
+        logger.info(" Testing mixed API usage (legacy and new API together)");
 
         String legacyTopic = "test-mixed-legacy";
         String newTopic = "test-mixed-new";
@@ -179,13 +179,13 @@ class ConsumerModeBackwardCompatibilityTest {
             Future.all(
                 legacyConsumer.subscribe(message -> {
                     legacyCount.incrementAndGet();
-                    logger.info("📨 Legacy consumer processed: {}", message.getPayload());
+                    logger.info(" Legacy consumer processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 }),
                 newConsumer.subscribe(message -> {
                     newCount.incrementAndGet();
-                    logger.info("📨 New consumer processed: {}", message.getPayload());
+                    logger.info(" New consumer processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })
@@ -215,7 +215,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @Test
     void testLegacyApiDefaultBehavior(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing legacy API default behavior matches HYBRID mode");
+        logger.info(" Testing legacy API default behavior matches HYBRID mode");
 
         String legacyTopic = "test-legacy-default";
         String hybridTopic = "test-hybrid-explicit";
@@ -238,13 +238,13 @@ class ConsumerModeBackwardCompatibilityTest {
             Future.all(
                 legacyConsumer.subscribe(message -> {
                     legacyCount.incrementAndGet();
-                    logger.info("📨 Legacy default processed: {}", message.getPayload());
+                    logger.info(" Legacy default processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 }),
                 hybridConsumer.subscribe(message -> {
                     hybridCount.incrementAndGet();
-                    logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
+                    logger.info(" Explicit HYBRID processed: {}", message.getPayload());
                     messagesReceived.flag();
                     return Future.succeededFuture();
                 })
@@ -275,7 +275,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @Test
     void testGradualMigrationPath(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing gradual migration path from legacy to new API");
+        logger.info(" Testing gradual migration path from legacy to new API");
 
         String topicName = "test-gradual-migration";
 
@@ -290,7 +290,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
             legacyConsumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
-                logger.info("📨 Legacy migration processed: {}", message.getPayload());
+                logger.info(" Legacy migration processed: {}", message.getPayload());
                 legacyMessages.flag();
                 return Future.succeededFuture();
             })
@@ -313,7 +313,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
             newConsumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
-                logger.info("📨 New API migration processed: {}", message.getPayload());
+                logger.info(" New API migration processed: {}", message.getPayload());
                 phase2.countDown();
                 return Future.succeededFuture();
             })
@@ -341,7 +341,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
     @Test
     void testLegacyApiPerformanceConsistency(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing legacy API performance consistency");
+        logger.info(" Testing legacy API performance consistency");
 
         String topicName = "test-legacy-performance";
 
@@ -357,7 +357,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
-                logger.debug("📨 Performance test processed: {}", message.getPayload());
+                logger.debug(" Performance test processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
             })

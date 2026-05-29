@@ -496,7 +496,7 @@ public class ConsumerGroupHandler {
             return;
         }
 
-        // Close the real consumer group via ConsumerGroup.close() — async, response sent after close completes
+        // Close the real consumer group via ConsumerGroup.close()  async, response sent after close completes
         final long ts = System.currentTimeMillis();
         realGroup.close()
             .onSuccess(v -> {

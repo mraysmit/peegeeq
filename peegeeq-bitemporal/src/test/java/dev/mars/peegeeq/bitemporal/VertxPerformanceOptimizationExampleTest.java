@@ -58,10 +58,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * 6. Real-World Testing - Real-world performance testing scenarios
  * 
  * Expected Results:
- * - Bitemporal Throughput: 155 → 904 msg/sec (+483%)
- * - Pool Capacity: 32 → 100 connections (+213%)
- * - Wait Queue: 200 → 1000 (+400%)
- * - Test Success Rate: 40% → 60% (+50%)
+ * - Bitemporal Throughput: 155  904 msg/sec (+483%)
+ * - Pool Capacity: 32  100 connections (+213%)
+ * - Wait Queue: 200  1000 (+400%)
+ * - Test Success Rate: 40%  60% (+50%)
  * 
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive Vert.x performance optimization patterns.
@@ -236,11 +236,11 @@ public class VertxPerformanceOptimizationExampleTest {
         int waitQueueMultiplier = OPTIMAL_WAIT_QUEUE_MULTIPLIER;
         boolean propertiesOptimized = poolMaxSize >= 100 && waitQueueMultiplier >= 10;
         
-        logger.info("🔧 Testing optimal system properties...");
+        logger.info(" Testing optimal system properties...");
         logger.debug("Pool max size: {}", poolMaxSize);
         logger.debug("Wait queue multiplier: {}", waitQueueMultiplier);
         
-        logger.info("✓ Optimal system properties pattern tested");
+        logger.info(" Optimal system properties pattern tested");
         
         return new OptimalPropertiesResult(poolMaxSize, waitQueueMultiplier, propertiesOptimized);
     }
@@ -256,11 +256,11 @@ public class VertxPerformanceOptimizationExampleTest {
         int workerPoolSize = eventLoopThreads * 2;
         boolean pipelinedArchitecture = true;
         
-        logger.info("⚡ Testing optimized Vertx instance...");
+        logger.info(" Testing optimized Vertx instance...");
         logger.debug("Event loop threads: {}", eventLoopThreads);
         logger.debug("Worker pool size: {}", workerPoolSize);
         
-        logger.info("✓ Optimized Vertx instance pattern tested");
+        logger.info(" Optimized Vertx instance pattern tested");
         
         return new OptimizedVertxResult(eventLoopThreads, workerPoolSize, pipelinedArchitecture);
     }
@@ -275,7 +275,7 @@ public class VertxPerformanceOptimizationExampleTest {
         boolean monitoringActive = true;
         
         // Simulate performance monitoring
-        logger.info("📊 Testing performance monitoring...");
+        logger.info(" Testing performance monitoring...");
         
         // Collect some metrics
         logger.debug("Collecting throughput metrics");
@@ -287,7 +287,7 @@ public class VertxPerformanceOptimizationExampleTest {
         logger.debug("Collecting resource utilization metrics");
         metricsCollected++;
         
-        logger.info("✓ Performance monitoring pattern tested");
+        logger.info(" Performance monitoring pattern tested");
         
         return new PerformanceMonitoringResult(metricsCollected, monitoringActive);
     }
@@ -304,7 +304,7 @@ public class VertxPerformanceOptimizationExampleTest {
         boolean batchOptimized = true;
         
         // Simulate batch operations
-        logger.info("📦 Testing batch operations...");
+        logger.info(" Testing batch operations...");
         
         List<BiTemporalTestEvent> events = new ArrayList<>();
         for (int i = 0; i < batchSize; i++) {
@@ -324,7 +324,7 @@ public class VertxPerformanceOptimizationExampleTest {
         long processingTime = System.currentTimeMillis() - startTime;
         double throughputImprovement = Math.max(50.0, processingTime * 0.5); // Simulate improvement
         
-        logger.info("✓ Batch operations pattern tested");
+        logger.info(" Batch operations pattern tested");
         
         return new BatchOperationsResult(batchSize, throughputImprovement, batchOptimized);
     }
@@ -340,11 +340,11 @@ public class VertxPerformanceOptimizationExampleTest {
         boolean eventLoopOptimized = true;
         
         // Simulate event loop optimization
-        logger.info("🔄 Testing event loop optimization...");
+        logger.info(" Testing event loop optimization...");
         logger.debug("Event loop utilization: {}%", eventLoopUtilization);
         logger.debug("Worker pool utilization: {}%", workerPoolUtilization);
         
-        logger.info("✓ Event loop optimization pattern tested");
+        logger.info(" Event loop optimization pattern tested");
         
         return new EventLoopOptimizationResult(eventLoopUtilization, workerPoolUtilization, eventLoopOptimized);
     }
@@ -359,7 +359,7 @@ public class VertxPerformanceOptimizationExampleTest {
         boolean realWorldTested = true;
         
         // Simulate real-world testing scenarios
-        logger.info("🌍 Testing real-world scenarios...");
+        logger.info(" Testing real-world scenarios...");
         
         // Scenario 1: High throughput
         logger.debug("Testing high throughput scenario");
@@ -375,7 +375,7 @@ public class VertxPerformanceOptimizationExampleTest {
         
         double successRate = 60.0; // Expected 60% success rate improvement
         
-        logger.info("✓ Real-world testing pattern tested");
+        logger.info(" Real-world testing pattern tested");
         
         return new RealWorldTestingResult(testScenarios, successRate, realWorldTested);
     }

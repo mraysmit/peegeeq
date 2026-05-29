@@ -98,7 +98,7 @@ public class PerformanceBenchmarkTest {
         String testPayload = "benchmark-message-";
 
         // Benchmark JDBC approach
-        logger.info("🔄 Benchmarking JDBC approach with {} messages...", messageCount);
+        logger.info(" Benchmarking JDBC approach with {} messages...", messageCount);
         long jdbcStartTime = System.currentTimeMillis();
 
         for (int i = 0; i < messageCount; i++) {
@@ -113,7 +113,7 @@ public class PerformanceBenchmarkTest {
                    messageCount, jdbcDuration, jdbcThroughput);
 
         // Benchmark Reactive approach
-        logger.info("🔄 Benchmarking Reactive approach with {} messages...", messageCount);
+        logger.info(" Benchmarking Reactive approach with {} messages...", messageCount);
         long reactiveStartTime = System.currentTimeMillis();
 
         List<Future<?>> reactiveFutures = new ArrayList<>();
@@ -133,7 +133,7 @@ public class PerformanceBenchmarkTest {
 
         // Calculate improvement
         double improvementFactor = reactiveThroughput / jdbcThroughput;
-        logger.info("📊 Performance Improvement: {}x faster with reactive approach", String.format("%.2f", improvementFactor));
+        logger.info(" Performance Improvement: {}x faster with reactive approach", String.format("%.2f", improvementFactor));
 
         // Log detailed results
         logger.info("=== PERFORMANCE BENCHMARK RESULTS ===");
@@ -155,13 +155,13 @@ public class PerformanceBenchmarkTest {
 
         // Log performance analysis
         if (improvementFactor >= 3.0) {
-            logger.info("🚀 EXCELLENT: Reactive approach shows excellent performance improvement");
+            logger.info(" EXCELLENT: Reactive approach shows excellent performance improvement");
         } else if (improvementFactor >= 2.0) {
             logger.info("GOOD: Reactive approach shows good performance improvement");
         } else if (improvementFactor >= 1.5) {
-            logger.info("👍 MODERATE: Reactive approach shows moderate improvement (typical in test environments)");
+            logger.info(" MODERATE: Reactive approach shows moderate improvement (typical in test environments)");
         } else {
-            logger.info("⚠️ MINIMAL: Reactive approach shows minimal improvement (may be due to test environment limitations)");
+            logger.info(" MINIMAL: Reactive approach shows minimal improvement (may be due to test environment limitations)");
         }
     }
 
@@ -174,7 +174,7 @@ public class PerformanceBenchmarkTest {
         String testPayload = "tx-propagation-";
 
         // Benchmark without TransactionPropagation
-        logger.info("🔄 Benchmarking without TransactionPropagation...");
+        logger.info(" Benchmarking without TransactionPropagation...");
         long basicStartTime = System.currentTimeMillis();
 
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
@@ -190,7 +190,7 @@ public class PerformanceBenchmarkTest {
         double basicThroughput = (double) messageCount / (basicDuration / 1000.0);
 
         // Benchmark with TransactionPropagation.CONTEXT
-        logger.info("🔄 Benchmarking with TransactionPropagation.CONTEXT...");
+        logger.info(" Benchmarking with TransactionPropagation.CONTEXT...");
         long contextStartTime = System.currentTimeMillis();
 
         Promise<Void> contextDone = Promise.promise();
@@ -219,7 +219,7 @@ public class PerformanceBenchmarkTest {
                    messageCount, contextDuration, contextThroughput);
 
         double contextEfficiency = contextThroughput / basicThroughput;
-        logger.info("📊 TransactionPropagation efficiency: {:.2f}x", contextEfficiency);
+        logger.info(" TransactionPropagation efficiency: {:.2f}x", contextEfficiency);
 
         // Both should complete successfully (performance may vary)
         Assertions.assertTrue(basicThroughput > 0, "Basic transaction throughput should be positive");
@@ -236,7 +236,7 @@ public class PerformanceBenchmarkTest {
         String testPayload = "batch-";
 
         // Benchmark individual operations
-        logger.info("🔄 Benchmarking individual operations...");
+        logger.info(" Benchmarking individual operations...");
         long individualStartTime = System.currentTimeMillis();
 
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
@@ -252,7 +252,7 @@ public class PerformanceBenchmarkTest {
         double individualThroughput = (double) totalMessages / (individualDuration / 1000.0);
 
         // Benchmark batch operations
-        logger.info("🔄 Benchmarking batch operations...");
+        logger.info(" Benchmarking batch operations...");
         long batchStartTime = System.currentTimeMillis();
 
         Promise<Void> batchDone = Promise.promise();
@@ -283,7 +283,7 @@ public class PerformanceBenchmarkTest {
                    totalMessages, batchDuration, batchThroughput);
 
         double batchImprovement = batchThroughput / individualThroughput;
-        logger.info("📊 Batch improvement: {:.2f}x faster", batchImprovement);
+        logger.info(" Batch improvement: {:.2f}x faster", batchImprovement);
 
         // Batch operations should be faster
         Assertions.assertTrue(batchThroughput >= individualThroughput,

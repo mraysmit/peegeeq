@@ -52,7 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests that PeeGeeQManager.closeReactive() logs at ERROR level (not WARN)
- * when cleanup operations fail. Covers the 6 WARN→ERROR changes in closeReactive():
+ * when cleanup operations fail. Covers the 6 WARNERROR changes in closeReactive():
  *
  * <ol>
  *   <li>stop() failure during close</li>
@@ -63,8 +63,8 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Vert.x close (non-RejectedExecutionException) failure</li>
  * </ol>
  *
- * Positive tests: trigger failure conditions → verify ERROR logged.
- * Negative tests: clean close → verify no ERROR logged in cleanup chain.
+ * Positive tests: trigger failure conditions  verify ERROR logged.
+ * Negative tests: clean close  verify no ERROR logged in cleanup chain.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers(disabledWithoutDocker = true)

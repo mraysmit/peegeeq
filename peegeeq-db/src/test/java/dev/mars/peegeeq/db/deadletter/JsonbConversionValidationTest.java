@@ -118,7 +118,7 @@ class JsonbConversionValidationTest {
     @Test
     @Order(1)
     void testSimpleStringPayloadStoredAsJsonb(VertxTestContext testContext) {
-        logger.info("🧪 Testing simple string payload JSONB storage in dead letter queue...");
+        logger.info(" Testing simple string payload JSONB storage in dead letter queue...");
 
         String testMessage = "Hello Dead Letter JSONB World!";
         String topic = "test.simple.dlq";
@@ -184,7 +184,7 @@ class JsonbConversionValidationTest {
     @Test
     @Order(2)
     void testComplexObjectPayloadStoredAsJsonb(VertxTestContext testContext) {
-        logger.info("🧪 Testing complex object payload JSONB storage in dead letter queue...");
+        logger.info(" Testing complex object payload JSONB storage in dead letter queue...");
 
         TestOrder testOrder = new TestOrder("DLQ-ORDER-001", "FAILED", 2500.00);
         String topic = "order.processing.failed";
@@ -248,7 +248,7 @@ class JsonbConversionValidationTest {
     @Test
     @Order(3)
     void testReprocessingWithJsonbData(VertxTestContext testContext) {
-        logger.info("🧪 Testing dead letter message reprocessing with JSONB data...");
+        logger.info(" Testing dead letter message reprocessing with JSONB data...");
 
         String testMessage = "Reprocess test message";
         String topic = "test.reprocess.dlq";

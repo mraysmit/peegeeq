@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Integration tests for Task H5: Resurrection Re-Backfill.
  *
- * <p>When a DEAD consumer group is resurrected via heartbeat (DEAD→ACTIVE),
+ * <p>When a DEAD consumer group is resurrected via heartbeat (DEADACTIVE),
  * messages that were cleaned up during the DEAD period should be re-backfilled
  * so the consumer group can process them.</p>
  *
@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Resurrection triggers backfill messages cleaned up during DEAD period are re-backfilled</li>
  *   <li>Resurrection without BackfillService heartbeat succeeds, no backfill, no error</li>
  *   <li>Resurrection backfill failure heartbeat still succeeds</li>
- *   <li>ACTIVE heartbeat does NOT trigger backfill only DEAD→ACTIVE transitions</li>
+ *   <li>ACTIVE heartbeat does NOT trigger backfill only DEADACTIVE transitions</li>
  *   <li>PAUSED heartbeat does NOT trigger backfill PAUSED stays PAUSED</li>
  * </ol>
  *
@@ -102,7 +102,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void testResurrectionTriggersBackfillForCleanedUpMessages(VertxTestContext testContext) {
-        logger.info("=== Testing DEAD→ACTIVE resurrection triggers re-backfill ===");
+        logger.info("=== Testing DEADACTIVE resurrection triggers re-backfill ===");
 
         String topic = "test-resurrect-backfill-" + UUID.randomUUID().toString().substring(0, 8);
         String producerGroup = "producer-group";
@@ -234,7 +234,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
     /**
      * Verifies that a failure in the resurrection re-backfill propagates out of {@code updateHeartbeat()}.
      *
-     * <p>When a DEAD subscription is resurrected (DEAD→ACTIVE) and the subsequent re-backfill fails,
+     * <p>When a DEAD subscription is resurrected (DEADACTIVE) and the subsequent re-backfill fails,
      * the consumer group will miss messages that were cleaned up during the DEAD period. Silently
      * swallowing the error would leave the consumer in an inconsistent state with no indication that
      * messages were lost. The caller must be informed so it can retry or alert.</p>

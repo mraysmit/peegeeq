@@ -60,13 +60,13 @@ public class PerformanceTestHarness {
      * Run all configured performance test suites.
      */
     public Future<PerformanceTestSuite.Results> runAllTests() {
-        logger.info("🚀 Starting performance test execution for suite: {}", config.getTestSuite());
+        logger.info(" Starting performance test execution for suite: {}", config.getTestSuite());
         
         PerformanceTestSuite.Results aggregatedResults = new PerformanceTestSuite.Results();
         
         // Run warmup if configured
         if (config.getWarmupIterations() > 0) {
-            logger.info("🔥 Running warmup phase with {} iterations", config.getWarmupIterations());
+            logger.info(" Running warmup phase with {} iterations", config.getWarmupIterations());
             runWarmup();
         }
         
@@ -75,7 +75,7 @@ public class PerformanceTestHarness {
         
         for (PerformanceTestSuite suite : testSuites) {
             chain = chain.compose(v -> {
-                logger.info("📊 Executing test suite: {}", suite.getName());
+                logger.info(" Executing test suite: {}", suite.getName());
                 return suite.execute(config)
                     .map(suiteResults -> {
                         aggregatedResults.merge(suiteResults);
@@ -96,7 +96,7 @@ public class PerformanceTestHarness {
         
         return chain
             .map(v -> {
-                logger.info("🎯 Performance test execution completed. Total tests: {}, Successful: {}, Failed: {}", 
+                logger.info(" Performance test execution completed. Total tests: {}, Successful: {}, Failed: {}", 
                            aggregatedResults.getTotalTests(), 
                            aggregatedResults.getSuccessfulTests(), 
                            aggregatedResults.getFailedTests());
@@ -118,14 +118,14 @@ public class PerformanceTestHarness {
      * Run a specific test suite by name.
      */
     public Future<PerformanceTestSuite.Results> runTestSuite(String suiteName) {
-        logger.info("🎯 Running specific test suite: {}", suiteName);
+        logger.info(" Running specific test suite: {}", suiteName);
 
         return testSuites.stream()
                 .filter(suite -> matchesSuiteName(suite.getName(), suiteName))
                 .findFirst()
                 .map(suite -> suite.execute(config))
                 .orElseGet(() -> {
-                    logger.error("❌ Test suite not found: {}", suiteName);
+                    logger.error(" Test suite not found: {}", suiteName);
                     PerformanceTestSuite.Results results = new PerformanceTestSuite.Results();
                     results.addFailure(suiteName, new IllegalArgumentException("Test suite not found: " + suiteName));
                     return Future.succeededFuture(results);
@@ -188,7 +188,7 @@ public class PerformanceTestHarness {
         }
         
         if (suites.isEmpty()) {
-            logger.warn("⚠️ No test suites matched configuration: {}. Adding all suites.", testSuite);
+            logger.warn(" No test suites matched configuration: {}. Adding all suites.", testSuite);
             suites.add(new BitemporalPerformanceTestSuite());
             suites.add(new OutboxPerformanceTestSuite());
             suites.add(new NativeQueuePerformanceTestSuite());
@@ -221,7 +221,7 @@ public class PerformanceTestHarness {
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            logger.warn("⚠️ Warmup phase interrupted", e);
+            logger.warn(" Warmup phase interrupted", e);
         }
     }
     
@@ -229,7 +229,7 @@ public class PerformanceTestHarness {
      * Clean up resources.
      */
     private void cleanup() {
-        logger.info("🧹 Cleaning up performance test harness resources");
+        logger.info(" Cleaning up performance test harness resources");
         
         try {
             // Shutdown test suites
@@ -237,14 +237,14 @@ public class PerformanceTestHarness {
                 try {
                     suite.cleanup();
                 } catch (Exception e) {
-                    logger.warn("⚠️ Error cleaning up test suite: {}", suite.getName(), e);
+                    logger.warn(" Error cleaning up test suite: {}", suite.getName(), e);
                 }
             }
             
             logger.info("Performance test harness cleanup completed");
             
         } catch (Exception e) {
-            logger.error("❌ Error during cleanup", e);
+            logger.error(" Error during cleanup", e);
         }
     }
     

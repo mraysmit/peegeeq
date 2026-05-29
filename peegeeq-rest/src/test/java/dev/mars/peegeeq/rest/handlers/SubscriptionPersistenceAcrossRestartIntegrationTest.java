@@ -89,7 +89,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     private String deploymentId;
     private HttpClient httpClient;
     private WebClient webClient;
-    // Reactive verification pool — used by tests 3 and 5 to query the database directly without JDBC.
+    // Reactive verification pool  used by tests 3 and 5 to query the database directly without JDBC.
     private Pool verifyPool;
 
     // Test data - persisted across restart
@@ -123,7 +123,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
             .using(managedVertx)
             .build();
 
-        logger.info("✓ Schema initialized successfully - ready for server lifecycle tests");
+        logger.info(" Schema initialized successfully - ready for server lifecycle tests");
     }
 
     @AfterAll
@@ -142,7 +142,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                 if (managedVertx != null) {
                     managedVertx.close(); // fire-and-forget: event loop cleanup, not awaited
                 }
-                logger.info("✓ Managed Vertx instance closing");
+                logger.info(" Managed Vertx instance closing");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -157,7 +157,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         // Start first server instance using our managed Vertx
         startServer(managedVertx)
             .compose(v -> {
-                logger.info("✓ Server started successfully");
+                logger.info(" Server started successfully");
 
                 // Create database setup with topic - use existing TestContainer database
                 setupId = "persistence_test_" + System.currentTimeMillis();
@@ -187,7 +187,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     .sendJsonObject(setupRequest)
                     .compose(response -> {
                         if (response.statusCode() == 200 || response.statusCode() == 201) {
-                            logger.info("✓ Database setup created: {}", setupId);
+                            logger.info(" Database setup created: {}", setupId);
                             return Future.succeededFuture();
                         } else {
                             return Future.failedFuture("Failed to create setup: " + response.statusCode() 
@@ -209,7 +209,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     .sendJsonObject(createGroupRequest)
                     .compose(response -> {
                         if (response.statusCode() == 200 || response.statusCode() == 201) {
-                            logger.info("✓ Consumer group created successfully");
+                            logger.info(" Consumer group created successfully");
                             return Future.succeededFuture();
                         } else {
                             return Future.failedFuture("Failed to create consumer group: " + response.statusCode()
@@ -234,7 +234,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     .sendJsonObject(subscriptionOptions)
                     .compose(response -> {
                         if (response.statusCode() == 200 || response.statusCode() == 204) {
-                            logger.info("✓ Subscription created successfully");
+                            logger.info(" Subscription created successfully");
                             return Future.succeededFuture();
                         } else {
                             return Future.failedFuture("Failed to create subscription: " + response.statusCode()
@@ -254,7 +254,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     .compose(response -> {
                         if (response.statusCode() == 200) {
                             JsonObject body = response.bodyAsJsonObject();
-                            logger.info("✓ Subscription retrieved: {}", body.encodePrettily());
+                            logger.info(" Subscription retrieved: {}", body.encodePrettily());
                             
                             // Response format: { "subscriptionOptions": { ... } }
                             JsonObject options = body.getJsonObject("subscriptionOptions");
@@ -268,7 +268,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                             assertEquals(180, options.getInteger("heartbeatTimeoutSeconds"),
                                 "Heartbeat timeout should be 180 seconds");
                             
-                            logger.info("✓ Subscription options verified correct");
+                            logger.info(" Subscription options verified correct");
                             return Future.succeededFuture();
                         } else {
                             return Future.failedFuture("Failed to retrieve subscription: " + response.statusCode());
@@ -277,7 +277,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
             })
             .compose(v -> {
                 // Skip direct database verification - the real test is whether subscription survives restart (test03)
-                logger.info("✓ Subscription created via REST API - persistence will be verified after restart");
+                logger.info(" Subscription created via REST API - persistence will be verified after restart");
                 return Future.succeededFuture();
             })
             .onSuccess(v -> {
@@ -339,7 +339,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                 int heartbeatInterval = row.getInteger("heartbeat_interval_seconds");
                 int heartbeatTimeout = row.getInteger("heartbeat_timeout_seconds");
 
-                logger.info("✓ Subscription found in database:");
+                logger.info(" Subscription found in database:");
                 logger.info("  - Topic: {}", topic);
                 logger.info("  - Group: {}", groupName);
                 logger.info("  - Status: {}", status);
@@ -369,12 +369,12 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("PURPOSE: Verify that REST API cannot access subscription after restart");
         logger.info("        due to in-memory setup cache being lost (KNOWN ARCHITECTURAL LIMITATION)");
 
-        // Chained settling delay → restart server, no blocking on the calling thread.
+        // Chained settling delay  restart server, no blocking on the calling thread.
         managedVertx.timer(1000)
             .<Void>mapEmpty()
             .compose(v -> startServer(managedVertx))
             .compose(v -> {
-                logger.info("✓ Server restarted successfully");
+                logger.info(" Server restarted successfully");
 
                 // Try to access subscription via REST API - this should fail with 500
                 String path = String.format("/api/v1/consumer-groups/%s/%s/%s/subscription",
@@ -394,7 +394,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
 
                         if (statusCode == 404) {
                             // This is the EXPECTED behavior - setup cache is lost after restart
-                            logger.info("✓ CONFIRMED: REST API returns 404 after restart (setup cache lost)");
+                            logger.info(" CONFIRMED: REST API returns 404 after restart (setup cache lost)");
                             logger.info("  This demonstrates the known architectural limitation:");
                             logger.info("  - Subscription data IS persisted in database (verified in test03)");
                             logger.info("  - But REST API cannot access it because setup cache is in-memory");
@@ -402,7 +402,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                             return Future.succeededFuture();
                         } else if (statusCode == 200) {
                             // If this passes, the limitation has been fixed!
-                            logger.info("✓ UNEXPECTED SUCCESS: Setup cache persistence has been implemented!");
+                            logger.info(" UNEXPECTED SUCCESS: Setup cache persistence has been implemented!");
                             return Future.succeededFuture();
                         } else {
                             return Future.failedFuture("Unexpected status code: " + statusCode);
@@ -427,7 +427,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
 
         // Chain: stop server -> settling delay -> three sequential verifications via the reactive pool.
         stopServer(managedVertx)
-            .onSuccess(v -> logger.info("✓ Server stopped for restart cycle verification"))
+            .onSuccess(v -> logger.info(" Server stopped for restart cycle verification"))
             .compose(v -> managedVertx.timer(1000).<Void>mapEmpty())
             .compose(v -> verifySubscriptionInDatabase(testContext, 1))
             .compose(v -> {
@@ -480,7 +480,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     assertEquals(180, heartbeatTimeout, "Heartbeat timeout should be 180 after restart cycle " + cycleNumber);
                 });
 
-                logger.info("✓ Restart cycle {}: Subscription verified in database (status={}, interval={}s, timeout={}s)",
+                logger.info(" Restart cycle {}: Subscription verified in database (status={}, interval={}s, timeout={}s)",
                     cycleNumber, status, heartbeatInterval, heartbeatTimeout);
                 return Future.<Void>succeededFuture();
             });
@@ -510,7 +510,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
 
                 // Create HTTP clients. The deployVerticle Future only resolves after
                 // PeeGeeQRestServer.start(Promise) completes, which itself only completes
-                // after httpServer.listen() succeeds — so the server is fully ready here.
+                // after httpServer.listen() succeeds  so the server is fully ready here.
                 httpClient = vertx.createHttpClient();
                 webClient = WebClient.create(vertx);
                 return null;
@@ -526,7 +526,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         if (deploymentId != null) {
             return vertx.undeploy(deploymentId)
                 .compose(v -> {
-                    logger.info("✓ Server undeployed: {}", deploymentId);
+                    logger.info(" Server undeployed: {}", deploymentId);
                     deploymentId = null;
                     server = null;
 
@@ -536,7 +536,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     return Future.succeededFuture();
                 });
         } else {
-            logger.info("✓ No server to stop");
+            logger.info(" No server to stop");
             return Future.succeededFuture();
         }
     }

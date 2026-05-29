@@ -453,7 +453,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      * with an {@link IllegalArgumentException} before any database work is attempted.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Schema parameter is required and cannot be null or blank') is EXPECTED —
+     * ('Schema parameter is required and cannot be null or blank') is EXPECTED 
      * this test deliberately supplies a null schema to verify the validation guard.
      */
     @Test
@@ -509,7 +509,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      * schema with an {@link IllegalArgumentException} before any database work is attempted.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Schema parameter is required and cannot be null or blank') is EXPECTED —
+     * ('Schema parameter is required and cannot be null or blank') is EXPECTED 
      * this test deliberately supplies a blank schema to verify the validation guard.
      */
     @Order(7)
@@ -611,7 +611,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      * PostgreSQL system schema name ({@code pg_*} prefix) with an {@link IllegalArgumentException}.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Schema validation failed: Reserved Schema name') is EXPECTED —
+     * ('Schema validation failed: Reserved Schema name') is EXPECTED 
      * this test deliberately uses {@code pg_catalog} to verify the reserved-name guard.
      */
     @Order(9)
@@ -666,7 +666,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
      * PostgreSQL schema name {@code information_schema} with an {@link IllegalArgumentException}.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Schema validation failed: Reserved Schema name') is EXPECTED —
+     * ('Schema validation failed: Reserved Schema name') is EXPECTED 
      * this test deliberately uses {@code information_schema} to verify the reserved-name guard.
      */
     @Test

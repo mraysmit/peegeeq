@@ -151,7 +151,7 @@ class CircuitBreakerManagerTest {
         CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker("metrics-test");
 
         // Bracket pattern required by Resilience4j for metrics to be recorded:
-        // tryAcquirePermission() → execute → onSuccess() / onError()
+        // tryAcquirePermission()  execute  onSuccess() / onError()
         cb.tryAcquirePermission();
         cb.onSuccess(1, TimeUnit.NANOSECONDS);
 

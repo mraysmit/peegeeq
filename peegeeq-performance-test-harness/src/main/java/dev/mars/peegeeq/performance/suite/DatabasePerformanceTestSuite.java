@@ -53,33 +53,33 @@ public class DatabasePerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public Future<Results> execute(PerformanceTestConfig config) {
-        logger.info("🗄️ Starting database performance test suite");
+        logger.info(" Starting database performance test suite");
         
         Results results = new Results();
         
         try {
             // Test 1: Query performance
-            logger.info("🔍 Testing database query performance");
+            logger.info(" Testing database query performance");
             double queryThroughput = testQueryPerformance(config);
             results.addSuccess();
             
             // Test 2: Connection pool performance
-            logger.info("🏊 Testing connection pool performance");
+            logger.info(" Testing connection pool performance");
             double poolUtilization = testConnectionPoolPerformance(config);
             results.addSuccess();
             
             // Test 3: Backpressure management
-            logger.info("⚡ Testing backpressure management");
+            logger.info(" Testing backpressure management");
             double backpressureSuccessRate = testBackpressureManagement(config);
             results.addSuccess();
             
             // Test 4: Health check performance
-            logger.info("❤️ Testing health check performance");
+            logger.info(" Testing health check performance");
             double healthCheckThroughput = testHealthCheckPerformance(config);
             results.addSuccess();
             
             // Test 5: Metrics collection performance
-            logger.info("📊 Testing metrics collection performance");
+            logger.info(" Testing metrics collection performance");
             double metricsCollectionThroughput = testMetricsCollectionPerformance(config);
             results.addSuccess();
             
@@ -104,7 +104,7 @@ public class DatabasePerformanceTestSuite implements PerformanceTestSuite {
             logger.info("Database performance test suite completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Database performance test suite failed", e);
+            logger.error(" Database performance test suite failed", e);
             results.addFailure("DatabaseTestSuite", e);
         }
         
@@ -179,7 +179,7 @@ public class DatabasePerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public void cleanup() {
-        logger.info("🧹 Cleaning up database performance test suite");
+        logger.info(" Cleaning up database performance test suite");
         // Cleanup resources, close connections, etc.
     }
 }

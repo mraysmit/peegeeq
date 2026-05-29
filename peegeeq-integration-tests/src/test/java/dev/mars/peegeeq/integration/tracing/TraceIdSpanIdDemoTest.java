@@ -197,7 +197,7 @@ public class TraceIdSpanIdDemoTest {
         AtomicReference<String> consumerTraceId = new AtomicReference<>();
         AtomicReference<String> consumerSpanId = new AtomicReference<>();
         
-        // Register Event Bus consumer — sets values and replies before request() future completes
+        // Register Event Bus consumer  sets values and replies before request() future completes
         vertx.eventBus().consumer(eventBusAddress, msg -> {
             // Extract traceparent from message headers
             String traceparent = msg.headers().get("traceparent");
@@ -236,7 +236,7 @@ public class TraceIdSpanIdDemoTest {
                 .onComplete(ar -> {
                     try {
                         // consumerTraceId and consumerSpanId were set before msg.reply("acknowledged"),
-                        // so they are available when request() completes — no latch needed.
+                        // so they are available when request() completes  no latch needed.
                         
                         try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
                             log.info("STEP 3: Back in publisher after Event Bus round-trip");

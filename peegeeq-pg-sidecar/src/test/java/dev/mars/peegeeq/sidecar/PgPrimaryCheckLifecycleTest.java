@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  * Lifecycle tests for {@link PgPrimaryCheckVerticle}.
  *
  * <p>Verifies that the verticle undeploys cleanly (pool is closed without error) and
- * can be redeployed on the same port after a clean undeploy — a requirement for
+ * can be redeployed on the same port after a clean undeploy  a requirement for
  * rolling restarts in production.
  *
  * <p>Uses separate HTTP ports (18010, 18011) to avoid conflicts with
@@ -60,7 +60,7 @@ class PgPrimaryCheckLifecycleTest {
     }
 
     @Test
-    @DisplayName("Verticle undeploys cleanly — pool close completes without error")
+    @DisplayName("Verticle undeploys cleanly  pool close completes without error")
     void verticleUndeploysCleanly(Vertx vertx, VertxTestContext ctx) {
         vertx.deployVerticle(
                 new PgPrimaryCheckVerticle(),

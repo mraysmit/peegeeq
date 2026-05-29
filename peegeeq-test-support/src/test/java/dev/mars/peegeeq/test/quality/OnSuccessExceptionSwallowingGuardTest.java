@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <p>This test scans every {@code peegeeq-*\/src/test/java/**\/*.java} file in the workspace.
  * All checks run in a single {@code mvn test} pass (~0.3 s, no database, no Testcontainers).
- * Any violation fails the build with a precise {@code file:line — snippet} report.</p>
+ * Any violation fails the build with a precise {@code file:line  snippet} report.</p>
  *
  * <h2>Antipattern tiers</h2>
  *
@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <h3>New tiers (additional antipatterns)</h3>
  * <ul>
- *   <li><b>Tier 4 — {@code Future.await()} in test code</b>: {@code .await()} on any
+ *   <li><b>Tier 4  {@code Future.await()} in test code</b>: {@code .await()} on any
  *       {@code Future} in a test file. {@code Future.await()} is a Vert.x 5 virtual-thread
  *       helper. On a JUnit platform thread it blocks until the future settles; if settling
  *       requires the Vert.x event loop to dispatch work the test hangs <em>indefinitely</em>
@@ -50,14 +50,14 @@ import static org.junit.jupiter.api.Assertions.fail;
  *       ({@code testContext.awaitCompletion}, {@code CountDownLatch.await},
  *       {@code CyclicBarrier.await}) are explicitly whitelisted.</li>
  *
- *   <li><b>Tier 5 — blocking thread delays</b>: {@code Thread.sleep(} or
+ *   <li><b>Tier 5  blocking thread delays</b>: {@code Thread.sleep(} or
  *       {@code LockSupport.parkNanos(} in any test file. Both block the calling thread for a
  *       fixed duration, defeating the reactive model, causing flakiness on slow CI, and
  *       potentially blocking the Vert.x event loop if called from an event-loop thread. The
  *       correct alternative is to chain off the {@code Future} the operation returns, or
  *       observe a side-effect (database row, checkpoint flag) directly.</li>
  *
- *   <li><b>Tier 6 — {@code .onComplete(ar -> singleCountdown())} swallowing failures</b>:
+ *   <li><b>Tier 6  {@code .onComplete(ar -> singleCountdown())} swallowing failures</b>:
  *       {@code .onComplete()} with a single-statement lambda body that contains only a
  *       countdown/increment operation ({@code countDown()}, {@code getAndIncrement()},
  *       {@code getAndAdd()}, {@code release()}, {@code tryComplete()}) and no failure branch
@@ -65,9 +65,9 @@ import static org.junit.jupiter.api.Assertions.fail;
  *       {@code onComplete} fires on both success <em>and</em> failure; a failed future
  *       decrements the latch normally and the test proceeds with preconditions unmet.</li>
  *
- *   <li><b>Tier 7 — discarded {@code Future} from {@code stop()}/{@code close()}</b>:
+ *   <li><b>Tier 7  discarded {@code Future} from {@code stop()}/{@code close()}</b>:
  *       a call to {@code .stop()} or {@code .close()} (with or without arguments) whose
- *       returned {@code Future} is immediately discarded — i.e. the call is followed by
+ *       returned {@code Future} is immediately discarded  i.e. the call is followed by
  *       {@code ;} with no {@code .compose}, {@code .onSuccess}, {@code .onFailure},
  *       {@code .onComplete}, or {@code .eventually()} chain. Such calls return immediately
  *       while cleanup may still be in-flight, causing subsequent assertions to race against
@@ -76,17 +76,17 @@ import static org.junit.jupiter.api.Assertions.fail;
  *
  * <h2>Safe constructs (not flagged)</h2>
  * <ul>
- *   <li>{@code testContext.awaitCompletion(timeout, unit)} — correct drain idiom.</li>
- *   <li>{@code CountDownLatch.await(timeout, unit)} / {@code CyclicBarrier.await()} —
+ *   <li>{@code testContext.awaitCompletion(timeout, unit)}  correct drain idiom.</li>
+ *   <li>{@code CountDownLatch.await(timeout, unit)} / {@code CyclicBarrier.await()} 
  *       bounded blocking on a non-event-loop thread.</li>
- *   <li>{@code .onComplete(testContext.succeeding(...))} — canonical Vert.x JUnit5 form.</li>
- *   <li>Assertions inside {@code testContext.verify(...)} — exceptions are routed to
+ *   <li>{@code .onComplete(testContext.succeeding(...))}  canonical Vert.x JUnit5 form.</li>
+ *   <li>Assertions inside {@code testContext.verify(...)}  exceptions are routed to
  *       {@code failNow} automatically.</li>
- *   <li>{@code try { ... } catch (Throwable|Exception e) { /* no rethrow *\/ }} shields —
+ *   <li>{@code try { ... } catch (Throwable|Exception e) { /* no rethrow *\/ }} shields 
  *       synchronous exceptions are contained.</li>
  *   <li>{@code .close()} / {@code .stop()} calls that are immediately chained
  *       ({@code .compose}, {@code .onSuccess}, {@code .onFailure}, {@code .onComplete},
- *       {@code .eventually()}) — the returned Future is consumed.</li>
+ *       {@code .eventually()})  the returned Future is consumed.</li>
  * </ul>
  *
  * <p>Documented in {@code docs-design/tasks/PEEGEEQ_ONSUCCESS_AUDIT_DEFINITIVE_2026_05_14.md}.</p>
@@ -95,7 +95,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 class OnSuccessExceptionSwallowingGuardTest {
 
     // -------------------------------------------------------------------------
-    // Patterns — Tier 2/3 (original onSuccess swallowing)
+    // Patterns  Tier 2/3 (original onSuccess swallowing)
     // -------------------------------------------------------------------------
 
     private static final Pattern ON_SUCCESS_START =
@@ -112,7 +112,7 @@ class OnSuccessExceptionSwallowingGuardTest {
             Pattern.compile("@Tag\\s*\\(\\s*\"blocking-exempt\"\\s*\\)");
 
     // -------------------------------------------------------------------------
-    // Patterns — Tier 4: Future.await() banned in test code
+    // Patterns  Tier 4: Future.await() banned in test code
     //
     // Matches any `.await()` call that is NOT one of the three whitelisted forms:
     //   - testContext.awaitCompletion(...)
@@ -121,7 +121,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     //
     // Strategy: find all `.await(` occurrences, then rule out the safe ones by
     // inspecting what precedes the dot. A bare `.await()` on a Future has no
-    // recognisable safe prefix — it is flagged.
+    // recognisable safe prefix  it is flagged.
     // -------------------------------------------------------------------------
 
     /**
@@ -136,19 +136,19 @@ class OnSuccessExceptionSwallowingGuardTest {
      * {@code awaitCompletion(} (VertxTestContext drain) is an entirely different method
      * name and never matches {@code .await(} so it needs no special handling.
      * What we must whitelist is {@code CountDownLatch.await(timeout,...)} and
-     * {@code CyclicBarrier.await()} — both take arguments or are the well-known
+     * {@code CyclicBarrier.await()}  both take arguments or are the well-known
      * bounded/barrier idioms.
      *
-     * <p>Detection rule: flag {@code .await()} (zero-arg) unconditionally — that is
+     * <p>Detection rule: flag {@code .await()} (zero-arg) unconditionally  that is
      * always {@code Future.await()}. For {@code .await(} with arguments, flag unless
      * the argument list contains a {@code TimeUnit} reference (i.e. bounded latch).</p>
      */
-    // Matches TimeUnit enum values inside the argument list — signals a bounded latch await.
+    // Matches TimeUnit enum values inside the argument list  signals a bounded latch await.
     private static final Pattern TIME_UNIT_ARG =
             Pattern.compile("\\bTimeUnit\\.");
 
     // -------------------------------------------------------------------------
-    // Patterns — Tier 5: Thread.sleep / LockSupport.parkNanos banned
+    // Patterns  Tier 5: Thread.sleep / LockSupport.parkNanos banned
     // -------------------------------------------------------------------------
 
     private static final Pattern THREAD_SLEEP =
@@ -157,7 +157,7 @@ class OnSuccessExceptionSwallowingGuardTest {
             Pattern.compile("\\bLockSupport\\.parkNanos\\s*\\(");
 
     // -------------------------------------------------------------------------
-    // Patterns — Tier 6: .onComplete(ar -> singleCountdown()) swallowing failures
+    // Patterns  Tier 6: .onComplete(ar -> singleCountdown()) swallowing failures
     //
     // Detection:
     //   1. Find .onComplete( calls.
@@ -171,7 +171,7 @@ class OnSuccessExceptionSwallowingGuardTest {
             Pattern.compile("\\.onComplete\\s*\\(");
 
     /**
-     * Countdown/signal operations that appear in the swallowing pattern — these
+     * Countdown/signal operations that appear in the swallowing pattern  these
      * operations fire regardless of success or failure, making them the signal that
      * the lambda is not failure-aware.
      */
@@ -190,7 +190,7 @@ class OnSuccessExceptionSwallowingGuardTest {
             );
 
     // -------------------------------------------------------------------------
-    // Patterns — Tier 7: discarded Future from stop()/close()
+    // Patterns  Tier 7: discarded Future from stop()/close()
     //
     // Detection:
     //   Find <receiver>.stop( or <receiver>.close( calls where:
@@ -231,7 +231,7 @@ class OnSuccessExceptionSwallowingGuardTest {
 
     /**
      * After the closing paren of stop()/close(), if the next non-whitespace token
-     * starts with one of these, the Future is consumed — not a violation.
+     * starts with one of these, the Future is consumed  not a violation.
      */
     private static final Pattern FUTURE_CHAIN_CONTINUATION =
             Pattern.compile("^\\.(?:compose|onSuccess|onFailure|onComplete|eventually|map|recover|transform|andThen)\\s*\\(");
@@ -359,7 +359,7 @@ class OnSuccessExceptionSwallowingGuardTest {
             for (Violation v : violations) {
                 sb.append("  [Tier ").append(v.tier).append("] ")
                   .append(v.file).append(":").append(v.line)
-                  .append(" — ").append(v.snippet).append('\n');
+                  .append("  ").append(v.snippet).append('\n');
             }
             fail(sb.toString());
         }
@@ -373,9 +373,9 @@ class OnSuccessExceptionSwallowingGuardTest {
                 sb.append("Found ").append(violations.size())
                   .append(" .onSuccess(...) block(s) with exception-swallowing risk")
                   .append(" (Tier 3 = ").append(t3).append(", Tier 2 = ").append(t2).append(").\n")
-                  .append("Tier 3: bare JUnit assertions outside testContext.verify(...) —\n")
+                  .append("Tier 3: bare JUnit assertions outside testContext.verify(...) \n")
                   .append("        sync throw routes to Vertx.exceptionHandler; test times out at 30 s.\n")
-                  .append("Tier 2: synchronous .close() outside testContext.verify(...) —\n")
+                  .append("Tier 2: synchronous .close() outside testContext.verify(...) \n")
                   .append("        if close() throws the exception is silently swallowed.\n")
                   .append("Fix: wrap the onSuccess body in testContext.verify(() -> { ... }),\n")
                   .append("     or use .onComplete(testContext.succeeding(v -> testContext.verify(() -> { ... }))).\n\n");
@@ -385,7 +385,7 @@ class OnSuccessExceptionSwallowingGuardTest {
                   .append(" Future.await() call(s) in test code [Tier 4].\n")
                   .append("Future.await() is a Vert.x 5 virtual-thread helper. On a JUnit platform\n")
                   .append("thread it blocks until the future settles. If settling requires the Vert.x\n")
-                  .append("event loop to dispatch work the test hangs indefinitely — no timeout, no error.\n")
+                  .append("event loop to dispatch work the test hangs indefinitely  no timeout, no error.\n")
                   .append("Fix: use VertxTestContext lifecycle hooks (.onSuccess/.onFailure + completeNow/failNow).\n")
                   .append("Allowed: testContext.awaitCompletion(timeout, unit), CountDownLatch.await(timeout, unit).\n\n");
             }
@@ -476,14 +476,14 @@ class OnSuccessExceptionSwallowingGuardTest {
 
             // Whitelist 1: zero-arg .await() that is actually CyclicBarrier.await()
             // We identify this by looking at the identifier before the dot.
-            // CyclicBarrier is the only legitimate zero-arg await — but we cannot
+            // CyclicBarrier is the only legitimate zero-arg await  but we cannot
             // distinguish it from Future.await() by token alone, so zero-arg is always
             // flagged. CyclicBarrier tests should use .await(timeout, unit) form.
 
-            // Whitelist 2: .await(timeout, TimeUnit.X) — bounded CountDownLatch form.
-            // If args contain a TimeUnit reference, this is a bounded latch — safe.
+            // Whitelist 2: .await(timeout, TimeUnit.X)  bounded CountDownLatch form.
+            // If args contain a TimeUnit reference, this is a bounded latch  safe.
             if (!args.isEmpty() && TIME_UNIT_ARG.matcher(args).find()) {
-                continue; // bounded latch — safe
+                continue; // bounded latch  safe
             }
 
             // Everything else: flagged (Future.await() zero-arg or with non-TimeUnit arg)
@@ -535,11 +535,11 @@ class OnSuccessExceptionSwallowingGuardTest {
             if (closeParen < 0) continue;
 
             // Skip method references: .onComplete(testContext::failNow) etc.
-            // These are always safe — we detect them by looking for '::' inside the call.
+            // These are always safe  we detect them by looking for '::' inside the call.
             String callContent = content.substring(openParen + 1, closeParen);
             if (callContent.contains("::")) continue;
 
-            // Skip .onComplete(testContext.succeeding(...)) — canonical safe form
+            // Skip .onComplete(testContext.succeeding(...))  canonical safe form
             if (callContent.contains(".succeeding(") || callContent.contains(".failing(")) continue;
 
             // Find the lambda arrow
@@ -549,7 +549,7 @@ class OnSuccessExceptionSwallowingGuardTest {
             int afterArrow = skipWhitespace(content, arrow + 2);
             if (afterArrow >= content.length()) continue;
 
-            // Extract the lambda body — block or expression
+            // Extract the lambda body  block or expression
             String body;
             if (content.charAt(afterArrow) == '{') {
                 int bodyEnd = findMatchingBrace(content, afterArrow);
@@ -603,10 +603,10 @@ class OnSuccessExceptionSwallowingGuardTest {
             int windowEnd = Math.min(afterClose + 60, content.length());
             String window = content.substring(afterClose, windowEnd);
 
-            // If the next token starts a Future chain, the Future is consumed — not a violation
+            // If the next token starts a Future chain, the Future is consumed  not a violation
             if (FUTURE_CHAIN_CONTINUATION.matcher(window).find()) continue;
 
-            // If the next non-whitespace char is ';' the Future is discarded — violation,
+            // If the next non-whitespace char is ';' the Future is discarded  violation,
             // UNLESS the statement prefix shows the Future is captured (assignment) or
             // handed back to the caller (return). Both consume the Future safely.
             if (window.isEmpty()) continue;
@@ -618,7 +618,7 @@ class OnSuccessExceptionSwallowingGuardTest {
                         snippet(content, m.start()), 7));
             }
             // Any other character (e.g. ',' inside an argument list, ')' closing an
-            // outer call) is context we cannot reliably classify — skip conservatively
+            // outer call) is context we cannot reliably classify  skip conservatively
             // to avoid false positives.
         }
     }
@@ -692,7 +692,7 @@ class OnSuccessExceptionSwallowingGuardTest {
     /**
      * Shared ratchet assertion: fails if {@code actual} has more violations than
      * {@code baseline} for any file (regression), or if {@code baseline} has more
-     * than {@code actual} for any file (stale — file was fixed but CSV not updated).
+     * than {@code actual} for any file (stale  file was fixed but CSV not updated).
      */
     private static void assertRatchet(String label, String csvFileName,
                                       Map<String, Integer> baseline, Map<String, Integer> actual) {
@@ -788,7 +788,7 @@ class OnSuccessExceptionSwallowingGuardTest {
      * Walks backwards in {@code masked} from {@code matchStart} to the nearest
      * statement boundary ({@code ;}, {@code {}, or {@code }}) and returns the
      * intervening text. The result is the statement prefix in front of the
-     * stop()/close() call — used to detect assignment or return.
+     * stop()/close() call  used to detect assignment or return.
      */
     private static String statementPrefix(String masked, int matchStart) {
         int i = matchStart - 1;
@@ -807,7 +807,7 @@ class OnSuccessExceptionSwallowingGuardTest {
      * Future and are not Tier 7 violations.
      */
     private static boolean isAssignedOrReturned(String prefix) {
-        // 'return' keyword consumes the Future — must be a whole word, not e.g.
+        // 'return' keyword consumes the Future  must be a whole word, not e.g.
         // identifier "returnValue".
         int rIdx = prefix.indexOf("return");
         while (rIdx >= 0) {

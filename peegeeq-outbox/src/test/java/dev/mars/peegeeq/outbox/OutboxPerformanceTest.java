@@ -219,7 +219,7 @@ public class OutboxPerformanceTest {
         AtomicLong maxLatency = new AtomicLong(0);
 
         // Subscribe first; only start sending after subscribe completes so we don't race
-        // the consumer start-up. Sends are paced 10 ms apart via vertx.timer() — no
+        // the consumer start-up. Sends are paced 10 ms apart via vertx.timer()  no
         // blocking, no .await(), no LockSupport.parkNanos.
         consumer.subscribe(message -> {
             long receiveTime = System.nanoTime();

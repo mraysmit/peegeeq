@@ -70,7 +70,7 @@ public class SimpleConsumerGroupTestTest {
         // Build isolated per-test configuration
         containerProps = buildContainerProperties(postgres);
         
-        logger.info("✓ Simple Consumer Group Test setup completed");
+        logger.info(" Simple Consumer Group Test setup completed");
     }
     
     @AfterEach
@@ -222,7 +222,7 @@ public class SimpleConsumerGroupTestTest {
         
         assertEquals(6, messagesProcessed.get(), "All messages should be processed");
         
-        logger.info("✓ Basic consumer group functionality tested");
+        logger.info(" Basic consumer group functionality tested");
         
         return new ConsumerGroupResult(groupName, consumersAdded.get(), messagesProcessed.get());
     }
@@ -245,7 +245,7 @@ public class SimpleConsumerGroupTestTest {
         logger.info("Applying region filter: EU");
         logger.info("Applying accept-all filter");
         
-        logger.info("✓ Message filtering functionality tested");
+        logger.info(" Message filtering functionality tested");
         
         return new MessageFilteringResult(filtersApplied, messagesFiltered, filterTypes);
     }
@@ -267,7 +267,7 @@ public class SimpleConsumerGroupTestTest {
         
         long processingTime = System.currentTimeMillis() - startTime;
         
-        logger.info("✓ Message processing functionality tested");
+        logger.info(" Message processing functionality tested");
         
         return new MessageProcessingResult(messagesProduced, messagesConsumed, processingTime);
     }
@@ -287,7 +287,7 @@ public class SimpleConsumerGroupTestTest {
         logger.info("Adding consumers to group...");
         logger.info("Managing consumer lifecycle...");
         
-        logger.info("✓ Consumer management functionality tested");
+        logger.info(" Consumer management functionality tested");
         
         return new ConsumerManagementResult(consumersManaged, consumerGroupsCreated, managementOperations);
     }

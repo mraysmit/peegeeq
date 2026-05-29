@@ -115,7 +115,7 @@ class OutboxConsumerGroupReactiveTest {
 
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
-        logger.info("🧹 Cleaning up Reactive Consumer Group Test");
+        logger.info(" Cleaning up Reactive Consumer Group Test");
 
         // Chain close operations reactively for each consumer group
         Future<Void> closeGroups = Future.succeededFuture();
@@ -134,13 +134,13 @@ class OutboxConsumerGroupReactiveTest {
                 producer.close();
                 logger.info("Closed producer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing producer: {}", e.getMessage());
+                logger.error(" Error closing producer: {}", e.getMessage());
             }
         }
         activeProducers.clear();
 
         // Wait for connections to be fully released before next test
-        logger.info("⏳ Waiting for connections to be released...");
+        logger.info(" Waiting for connections to be released...");
         closeGroups.compose(v -> vertx.timer(2000))
             .onComplete(tearDownContext.succeeding(v -> {
                 peeGeeQManagerRef = peeGeeQManager;
@@ -208,7 +208,7 @@ class OutboxConsumerGroupReactiveTest {
         consumerGroup.start();
 
         // Send messages
-        logger.info("📤 Sending {} messages for load balancing test", messageCount);
+        logger.info(" Sending {} messages for load balancing test", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             String message = "message-" + i;
             producer.send(message).onFailure(testContext::failNow);
@@ -219,7 +219,7 @@ class OutboxConsumerGroupReactiveTest {
         assertTrue(completed, "All messages should be processed within timeout");
 
         // Verify distribution
-        logger.info("📊 Load Balancing Results:");
+        logger.info(" Load Balancing Results:");
         int totalProcessed = 0;
         for (Map.Entry<String, Set<String>> entry : consumerMessages.entrySet()) {
             int count = entry.getValue().size();
@@ -305,7 +305,7 @@ class OutboxConsumerGroupReactiveTest {
         consumerGroup.start();
 
         // Send messages
-        logger.info("📤 Sending {} messages for failure handling test", messageCount);
+        logger.info(" Sending {} messages for failure handling test", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             String message = "message-" + i;
             producer.send(message).onFailure(testContext::failNow);
@@ -316,7 +316,7 @@ class OutboxConsumerGroupReactiveTest {
         assertTrue(completed, "All messages should eventually be processed despite failures");
 
         // Verify results
-        logger.info("📊 Failure Handling Results:");
+        logger.info(" Failure Handling Results:");
         logger.info("  Successfully processed: {} messages", successfullyProcessed.size());
         logger.info("  Transient failures encountered: {}", failureCount.get());
 

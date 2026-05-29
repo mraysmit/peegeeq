@@ -91,7 +91,7 @@ class TraceContextPropagationTest {
     private PgBiTemporalEventStore<TestEvent> eventStore;
 
     private String resolveSchema() {
-        // Schema is always "public" for this test — set via peegeeq-default.properties.
+        // Schema is always "public" for this test  set via peegeeq-default.properties.
         // Phase 11 removed the System property sweep from PeeGeeQConfiguration.loadProperties()
         // so System.getProperty("peegeeq.database.schema") can no longer inject a value here.
         return "public";
@@ -277,8 +277,8 @@ class TraceContextPropagationTest {
     @Test
     @DisplayName("POSITIVE: trace context stored on handler context survives into async DB callback")
     void traceContextSurvivesIntoAsyncCallback(Vertx vertx, VertxTestContext testContext) throws Exception {
-        // This verifies end-to-end: caller sets trace → event bus propagates → worker stores
-        // on currentContext() → async DB callback still has access to the correct context.
+        // This verifies end-to-end: caller sets trace  event bus propagates  worker stores
+        // on currentContext()  async DB callback still has access to the correct context.
         // If getOrCreateContext() were used, the context might be wrong and the trace lost.
         String callerTraceId = "1234abcd5678efab1234abcd5678efab";
         String callerSpanId = "abcdef0123456789";

@@ -71,16 +71,16 @@ class ShutdownResourceLeakDetectionTest {
                     logger.info("Initiating server shutdown...");
                     vertx.undeploy(deploymentId)
                         .onSuccess(v -> {
-                            logger.info("✓ Server shutdown completed successfully");
-                            logger.info("✓ All handlers should have been closed");
-                            logger.info("✓ No resource leak exceptions thrown");
+                            logger.info(" Server shutdown completed successfully");
+                            logger.info(" All handlers should have been closed");
+                            logger.info(" No resource leak exceptions thrown");
                             testContext.completeNow();
                         })
                         .onFailure(testContext::failNow);
                 });
             })
             .onFailure(cause -> {
-                logger.error("❌ Server deployment failed: {}", cause.getMessage());
+                logger.error(" Server deployment failed: {}", cause.getMessage());
                 testContext.failNow(cause);
             });
 
@@ -116,7 +116,7 @@ class ShutdownResourceLeakDetectionTest {
             throw testContext.causeOfFailure();
         }
         
-        logger.info("✓ All {} deploy/undeploy cycles completed without resource leaks", 3);
+        logger.info(" All {} deploy/undeploy cycles completed without resource leaks", 3);
     }
 
     private void deployAndUndeployCycle(Vertx vertx, RestServerConfig config, 
@@ -124,7 +124,7 @@ class ShutdownResourceLeakDetectionTest {
                                        int currentCycle, int totalCycles, 
                                        VertxTestContext testContext) {
         if (currentCycle >= totalCycles) {
-            logger.info("✓ All {} cycles completed successfully", totalCycles);
+            logger.info(" All {} cycles completed successfully", totalCycles);
             testContext.completeNow();
             return;
         }
@@ -181,7 +181,7 @@ class ShutdownResourceLeakDetectionTest {
         assertDoesNotThrow(() -> handler.close(),
             "Multiple close() calls should be safe (idempotent)");
 
-        logger.info("✓ WebSocketHandler cleanup verified");
+        logger.info(" WebSocketHandler cleanup verified");
     }
 
     @Test
@@ -207,7 +207,7 @@ class ShutdownResourceLeakDetectionTest {
         assertDoesNotThrow(() -> handler.close(),
             "Multiple close() calls should be safe (idempotent)");
 
-        logger.info("✓ SystemMonitoringHandler cleanup verified");
+        logger.info(" SystemMonitoringHandler cleanup verified");
     }
 
     @Test
@@ -229,7 +229,7 @@ class ShutdownResourceLeakDetectionTest {
             new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of());
         }, "RestServerConfig should reject empty allowedOrigins");
 
-        logger.info("✓ CORS validation tests passed");
+        logger.info(" CORS validation tests passed");
         testContext.completeNow();
     }
 }

@@ -101,7 +101,7 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
      * {@code Future} for an unregistered client name, logging an ERROR.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Failed to get reactive connection for client: non-existent-client') is EXPECTED —
+     * ('Failed to get reactive connection for client: non-existent-client') is EXPECTED 
      * this test deliberately requests a pool for an unknown client to verify error propagation.
      */
     @Test
@@ -146,7 +146,7 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
      * returns a failed {@code Future} for an unregistered client name, logging an ERROR.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Failed to execute operation with connection for client: non-existent-client') is EXPECTED —
+     * ('Failed to execute operation with connection for client: non-existent-client') is EXPECTED 
      * this test deliberately uses an unknown client name to verify the error propagation path.
      */
     @Test
@@ -177,7 +177,7 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
      * returns a failed {@code Future} for an unregistered client name, logging an ERROR.
      *
      * <p><strong>INTENTIONAL ERROR TEST:</strong> The next ERROR log
-     * ('Failed to execute operation with transaction for client: non-existent-client') is EXPECTED —
+     * ('Failed to execute operation with transaction for client: non-existent-client') is EXPECTED 
      * this test deliberately uses an unknown client name to verify the error propagation path.
      */
     @Test

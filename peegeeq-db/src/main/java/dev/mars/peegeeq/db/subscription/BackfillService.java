@@ -592,7 +592,7 @@ public class BackfillService {
      * checkpoint is not advanced; retrying from the same {@code startFromId} is safe.
      *
      * <p>Requires a Vert.x instance ({@link #vertx}). If {@code vertx} is null the deadlock
-     * is propagated immediately — without Vert.x a non-blocking retry delay is not possible
+     * is propagated immediately  without Vert.x a non-blocking retry delay is not possible
      * and silent immediate retries would worsen the deadlock.</p>
      */
     private Future<BatchResult> processOneBatchWithDeadlockRetry(TraceCtx trace, String topic, String groupName,
@@ -605,7 +605,7 @@ public class BackfillService {
                         return Future.failedFuture(err);
                     }
                     if (vertx == null) {
-                        // No Vert.x — cannot back off safely; propagate immediately.
+                        // No Vert.x  cannot back off safely; propagate immediately.
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
                             logger.error("Deadlock (40P01) for topic='{}', group='{}' at id={}: cannot retry without Vert.x instance",
                                     topic, groupName, startFromId);
@@ -836,7 +836,7 @@ public class BackfillService {
                             Long expectedTotal = result.iterator().next().getLong("backfill_total_messages");
                             if (expectedTotal != null && expectedTotal > 0 && totalProcessed < expectedTotal) {
                                 logger.warn("Backfill completed with fewer messages than expected for topic='{}', group='{}': " +
-                                                "processed={}, expected={}, gap={} — rows may have been deleted during backfill",
+                                                "processed={}, expected={}, gap={}  rows may have been deleted during backfill",
                                         topic, groupName, totalProcessed, expectedTotal, expectedTotal - totalProcessed);
                             } else {
                                 logger.info("Backfill completed for topic='{}', group='{}': {} messages processed",

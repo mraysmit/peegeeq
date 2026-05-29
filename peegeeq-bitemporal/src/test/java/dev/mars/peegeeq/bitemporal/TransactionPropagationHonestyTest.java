@@ -61,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>append() and appendOwnTransaction() start their own independent
  *       transaction on the internal pool the event survives an external
  *       rollback because it never participates in the external transaction.</li>
- *   <li>append() and appendOwnTransaction() are semantically equivalent —
+ *   <li>append() and appendOwnTransaction() are semantically equivalent 
  *       both start a fresh own-transaction every time.</li>
  *   <li>Only appendInTransaction(connection) genuinely participates in an
  *       external transaction rollback on the connection rolls back the event.</li>
@@ -72,7 +72,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>A closed event store rejects append() and appendInTransaction()
  *       with IllegalStateException.</li>
  *   <li>The builder's validate() rejects missing required fields synchronously.</li>
- *   <li>The builder's correction() path takes priority over inTransaction() —
+ *   <li>The builder's correction() path takes priority over inTransaction() 
  *       when both are set, the connection is silently ignored.</li>
  * </ol>
  */
@@ -236,7 +236,7 @@ class TransactionPropagationHonestyTest {
     }
 
     private void clearTestSystemProperties() {
-        // Properties are now managed via PeeGeeQTestConfig — no System properties to clear
+        // Properties are now managed via PeeGeeQTestConfig  no System properties to clear
     }
 
     // ========================================================================
@@ -865,7 +865,7 @@ class TransactionPropagationHonestyTest {
          * with IllegalStateException("Event store is closed").
          *
          * We test both code paths:
-         *   - append() → appendOwnTransaction() → appendOwnTransactionInternal() closed check
+         *   - append()  appendOwnTransaction()  appendOwnTransactionInternal() closed check
          *   - appendInTransaction(8-arg) has its own independent closed check
          */
         String eventType = "closed.store.test";

@@ -111,7 +111,7 @@ class HybridModeEdgeCaseTest {
 
     @Test
     void testHybridModeListenNotifyPrimary(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing HYBRID mode with LISTEN/NOTIFY as primary mechanism");
+        logger.info(" Testing HYBRID mode with LISTEN/NOTIFY as primary mechanism");
 
         String topicName = "test-hybrid-listen-primary";
 
@@ -128,7 +128,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received HYBRID message {}: {}", count, message.getPayload());
+            logger.info(" Received HYBRID message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
@@ -151,7 +151,7 @@ class HybridModeEdgeCaseTest {
 
     @Test
     void testHybridModePollingFallback(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing HYBRID mode polling fallback for existing messages");
+        logger.info(" Testing HYBRID mode polling fallback for existing messages");
 
         String topicName = "test-hybrid-polling-fallback";
 
@@ -172,7 +172,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received existing message {}: {}", count, message.getPayload());
+            logger.info(" Received existing message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
@@ -187,7 +187,7 @@ class HybridModeEdgeCaseTest {
 
     @Test
     void testHybridModeBothMechanisms(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing HYBRID mode with both LISTEN/NOTIFY and polling active");
+        logger.info(" Testing HYBRID mode with both LISTEN/NOTIFY and polling active");
 
         String topicName = "test-hybrid-both-mechanisms";
 
@@ -208,7 +208,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received hybrid message {}: {}", count, message.getPayload());
+            logger.info(" Received hybrid message {}: {}", count, message.getPayload());
             allMessages.flag();
             return Future.succeededFuture();
         });
@@ -231,7 +231,7 @@ class HybridModeEdgeCaseTest {
 
     @Test
     void testHybridModeResourceCleanup(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing HYBRID mode resource cleanup");
+        logger.info(" Testing HYBRID mode resource cleanup");
 
         String topicName = "test-hybrid-resource-cleanup";
 
@@ -250,7 +250,7 @@ class HybridModeEdgeCaseTest {
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             lastMessage.set(message.getPayload());
-            logger.info("📨 Received cleanup test message: {}", message.getPayload());
+            logger.info(" Received cleanup test message: {}", message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
         });
@@ -272,7 +272,7 @@ class HybridModeEdgeCaseTest {
 
     @Test
     void testHybridModeMessageOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing HYBRID mode message ordering consistency");
+        logger.info(" Testing HYBRID mode message ordering consistency");
 
         String topicName = "test-hybrid-message-ordering";
 
@@ -289,7 +289,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received ordered message {}: {}", count, message.getPayload());
+            logger.info(" Received ordered message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
@@ -309,7 +309,7 @@ class HybridModeEdgeCaseTest {
 
     @Test
     void testHybridModePerformanceUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing HYBRID mode performance under moderate load");
+        logger.info(" Testing HYBRID mode performance under moderate load");
 
         String topicName = "test-hybrid-performance";
 
@@ -328,7 +328,7 @@ class HybridModeEdgeCaseTest {
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             if (count % 3 == 0) {
-                logger.info("📨 Processed {} messages so far", count);
+                logger.info(" Processed {} messages so far", count);
             }
             messagesReceived.flag();
             return Future.succeededFuture();

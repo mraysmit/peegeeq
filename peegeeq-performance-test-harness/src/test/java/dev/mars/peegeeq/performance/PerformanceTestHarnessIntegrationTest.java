@@ -53,7 +53,7 @@ class PerformanceTestHarnessIntegrationTest {
     
     @Test
     void testCompletePerformanceTestExecution() {
-        logger.info("🚀 Starting complete performance test harness integration test");
+        logger.info(" Starting complete performance test harness integration test");
         
         // Create test configuration
         PerformanceTestConfig config = PerformanceTestConfig.builder()
@@ -98,13 +98,13 @@ class PerformanceTestHarnessIntegrationTest {
         assertFalse(results.getMetrics().isEmpty(), "Should have collected metrics");
         
         logger.info("Performance test harness integration test completed successfully");
-        logger.info("📊 Test Summary: {} total, {} successful, {} failed", 
+        logger.info(" Test Summary: {} total, {} successful, {} failed", 
                    results.getTotalTests(), results.getSuccessfulTests(), results.getFailedTests());
     }
     
     @Test
     void testSpecificTestSuiteExecution() {
-        logger.info("🎯 Testing specific test suite execution");
+        logger.info(" Testing specific test suite execution");
         
         PerformanceTestConfig config = PerformanceTestConfig.builder()
                 .testSuite("bitemporal")
@@ -132,7 +132,7 @@ class PerformanceTestHarnessIntegrationTest {
     
     @Test
     void testConfigurationFromSystemProperties() {
-        logger.info("⚙️ Testing configuration loading from system properties");
+        logger.info(" Testing configuration loading from system properties");
         
         // Set system properties
         System.setProperty("peegeeq.performance.suite", "outbox");
@@ -160,7 +160,7 @@ class PerformanceTestHarnessIntegrationTest {
     
     @Test
     void testAvailableTestSuites() {
-        logger.info("📋 Testing available test suites enumeration");
+        logger.info(" Testing available test suites enumeration");
         
         PerformanceTestConfig config = PerformanceTestConfig.builder().build();
         PerformanceTestHarness harness = new PerformanceTestHarness(config);

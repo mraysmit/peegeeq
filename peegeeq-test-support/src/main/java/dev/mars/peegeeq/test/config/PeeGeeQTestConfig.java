@@ -84,7 +84,7 @@ public final class PeeGeeQTestConfig {
         /**
          * Overrides the schema name (defaults to {@code "public"}).
          * The schema must satisfy PeeGeeQ's schema validation rules: letters, digits,
-         * underscores, commas, and spaces only — no hyphens.
+         * underscores, commas, and spaces only  no hyphens.
          */
         public Builder schema(String schema) {
             this.schema = schema;
@@ -104,7 +104,7 @@ public final class PeeGeeQTestConfig {
         /**
          * Builds a {@link Properties} map containing all configured PeeGeeQ database settings.
          * The returned object is safe to pass to
-         * {@code new PeeGeeQConfiguration(profile, overrides)} — it never touches
+         * {@code new PeeGeeQConfiguration(profile, overrides)}  it never touches
          * {@code System.getProperties()}.
          *
          * @throws IllegalStateException if {@link #from(PostgreSQLContainer)} was not called

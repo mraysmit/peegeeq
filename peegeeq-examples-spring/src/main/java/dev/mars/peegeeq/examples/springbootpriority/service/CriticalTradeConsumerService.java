@@ -110,7 +110,7 @@ public class CriticalTradeConsumerService {
 
         // This should always be CRITICAL due to filter
         if (priority != Priority.CRITICAL) {
-            log.warn("⚠️ [CRITICAL] Non-critical message received (filter bypass?): tradeId={}, priority={}",
+            log.warn(" [CRITICAL] Non-critical message received (filter bypass?): tradeId={}, priority={}",
                 event.getTradeId(), priority);
             messagesFiltered.incrementAndGet();
             return Future.succeededFuture();
@@ -151,7 +151,7 @@ public class CriticalTradeConsumerService {
                 return (Void) null;
             })
             .onFailure(ex -> {
-                log.error("❌ [CRITICAL] Failed to process message: tradeId={}, priority={}",
+                log.error(" [CRITICAL] Failed to process message: tradeId={}, priority={}",
                     event.getTradeId(), priority, ex);
                 messagesFailed.incrementAndGet();
             });
@@ -162,7 +162,7 @@ public class CriticalTradeConsumerService {
      */
     private void sendPagerAlert(TradeSettlementEvent event) {
         // In production: integrate with PagerDuty, OpsGenie, etc.
-        log.error("🚨 PAGER ALERT: Settlement fail - tradeId={}, counterparty={}, amount={} {}, reason={}",
+        log.error(" PAGER ALERT: Settlement fail - tradeId={}, counterparty={}, amount={} {}, reason={}",
             event.getTradeId(), event.getCounterparty(), event.getAmount(), event.getCurrency(),
             event.getFailureReason());
     }
@@ -173,7 +173,7 @@ public class CriticalTradeConsumerService {
     private String createP1Incident(TradeSettlementEvent event) {
         // In production: integrate with Jira, ServiceNow, etc.
         String incidentId = "INC-" + System.currentTimeMillis();
-        log.error("🎫 P1 INCIDENT CREATED: {} - Settlement fail for trade {}: {}",
+        log.error(" P1 INCIDENT CREATED: {} - Settlement fail for trade {}: {}",
             incidentId, event.getTradeId(), event.getFailureReason());
         return incidentId;
     }
@@ -183,7 +183,7 @@ public class CriticalTradeConsumerService {
      */
     private void notifyTradingDesk(TradeSettlementEvent event, String incidentId) {
         // In production: send email, Slack message, etc.
-        log.error("📧 TRADING DESK NOTIFIED: Settlement fail for trade {} - Incident: {} - Reason: {}",
+        log.error(" TRADING DESK NOTIFIED: Settlement fail for trade {} - Incident: {} - Reason: {}",
             event.getTradeId(), incidentId, event.getFailureReason());
     }
 
@@ -192,7 +192,7 @@ public class CriticalTradeConsumerService {
      */
     private void startInvestigation(TradeSettlementEvent event, String incidentId) {
         // In production: trigger workflow in incident management system
-        log.info("🔍 INVESTIGATION STARTED: Incident {} for trade {} - Assigned to on-call team",
+        log.info(" INVESTIGATION STARTED: Incident {} for trade {} - Assigned to on-call team",
             incidentId, event.getTradeId());
     }
 

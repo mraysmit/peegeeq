@@ -100,7 +100,7 @@ public class DlqMultiTenantSchemaIsolationTest {
 
     @BeforeEach
     void setUp() {
-        // Initialize both tenant schemas — each gets its own outbox + dead_letter_queue tables
+        // Initialize both tenant schemas  each gets its own outbox + dead_letter_queue tables
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SCHEMA_A, SchemaComponent.QUEUE_ALL);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SCHEMA_B, SchemaComponent.QUEUE_ALL);
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -172,17 +172,17 @@ public class DlqMultiTenantSchemaIsolationTest {
     }
 
     // =========================================================================
-    // TC-7a: DLQ writes go to the correct tenant schema — no cross-tenant bleed
+    // TC-7a: DLQ writes go to the correct tenant schema  no cross-tenant bleed
     // =========================================================================
 
     @Test
-    @DisplayName("TC-7a: DLQ writes isolated to correct tenant schema — no cross-tenant bleed")
+    @DisplayName("TC-7a: DLQ writes isolated to correct tenant schema  no cross-tenant bleed")
     void tc7a_dlqWritesGoToCorrectTenantSchema(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== TC-7a: DLQ multi-tenant schema isolation ===");
 
         startManagers()
                 .compose(v -> {
-                    // Both consumers have always-throwing filters → will exhaust max-retries=1 → DLQ
+                    // Both consumers have always-throwing filters  will exhaust max-retries=1  DLQ
                     consumerGroupA.addConsumer("member-a",
                             msg -> Future.succeededFuture(),
                             msg -> { throw new RuntimeException("TC-7a EXPECTED FILTER EXCEPTION tenant_a"); });
@@ -213,27 +213,27 @@ public class DlqMultiTenantSchemaIsolationTest {
                 .compose(countA -> {
                     testContext.verify(() -> assertEquals(1, countA,
                             SCHEMA_A + ".dead_letter_queue should have exactly 1 entry for topic " + topicA +
-                            " — had " + countA));
+                            "  had " + countA));
                     return queryDLQCount(managerB.getPool(), topicB);
                 })
                 .compose(countB -> {
                     testContext.verify(() -> assertEquals(1, countB,
                             SCHEMA_B + ".dead_letter_queue should have exactly 1 entry for topic " + topicB +
-                            " — had " + countB));
+                            "  had " + countB));
                     // Cross-tenant isolation: tenant A's DLQ must NOT contain tenant B's topic
                     return queryDLQCount(managerA.getPool(), topicB);
                 })
                 .compose(crossCountA -> {
                     testContext.verify(() -> assertEquals(0, crossCountA,
                             SCHEMA_A + ".dead_letter_queue must NOT contain tenant B's topic " + topicB +
-                            " (cross-tenant bleed) — had " + crossCountA));
+                            " (cross-tenant bleed)  had " + crossCountA));
                     // Cross-tenant isolation: tenant B's DLQ must NOT contain tenant A's topic
                     return queryDLQCount(managerB.getPool(), topicA);
                 })
                 .onSuccess(crossCountB -> testContext.verify(() -> {
                     assertEquals(0, crossCountB,
                             SCHEMA_B + ".dead_letter_queue must NOT contain tenant A's topic " + topicA +
-                            " (cross-tenant bleed) — had " + crossCountB);
+                            " (cross-tenant bleed)  had " + crossCountB);
                     logger.info("TC-7a PASSED: each tenant's DLQ has 1 entry, no cross-tenant bleed");
                     testContext.completeNow();
                 }))
@@ -296,14 +296,14 @@ public class DlqMultiTenantSchemaIsolationTest {
                 .compose(crossStatusA -> {
                     testContext.verify(() -> assertEquals("",  crossStatusA,
                             SCHEMA_A + ".outbox must NOT contain an entry for tenant B's topic " + topicB +
-                            " (cross-tenant bleed) — status was '" + crossStatusA + "'"));
+                            " (cross-tenant bleed)  status was '" + crossStatusA + "'"));
                     // Cross-schema check: tenant B's outbox must have NO row for tenant A's topic
                     return queryOutboxStatus(managerB.getPool(), topicA);
                 })
                 .onSuccess(crossStatusB -> testContext.verify(() -> {
                     assertEquals("", crossStatusB,
                             SCHEMA_B + ".outbox must NOT contain an entry for tenant A's topic " + topicA +
-                            " (cross-tenant bleed) — status was '" + crossStatusB + "'");
+                            " (cross-tenant bleed)  status was '" + crossStatusB + "'");
                     logger.info("TC-7b PASSED: each tenant's outbox has DEAD_LETTER status, no cross-schema bleed");
                     testContext.completeNow();
                 }))
@@ -313,7 +313,7 @@ public class DlqMultiTenantSchemaIsolationTest {
     }
 
     // =========================================================================
-    // Async DB helpers — all return Future<T>, no blocking
+    // Async DB helpers  all return Future<T>, no blocking
     // =========================================================================
 
     private Future<Integer> queryDLQCount(Pool pool, String topic) {
@@ -332,7 +332,7 @@ public class DlqMultiTenantSchemaIsolationTest {
     }
 
     // =========================================================================
-    // Async polling helper — Supplier<Future<Boolean>>, no event-loop blocking
+    // Async polling helper  Supplier<Future<Boolean>>, no event-loop blocking
     // =========================================================================
 
     private Future<Void> awaitDatabaseCondition(Vertx vertx, Supplier<Future<Boolean>> condition,
@@ -350,7 +350,7 @@ public class DlqMultiTenantSchemaIsolationTest {
                     }
                     if (System.currentTimeMillis() > deadline) {
                         String reason = ar.failed()
-                                ? " — condition threw: " + ar.cause().getMessage()
+                                ? "  condition threw: " + ar.cause().getMessage()
                                 : " (timed out)";
                         return Future.failedFuture(new AssertionError(failureMessage + reason));
                     }

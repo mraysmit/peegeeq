@@ -82,7 +82,7 @@ public abstract class BaseIntegrationTest {
 
         logger.info("Setting up integration test with profile: {}", testProfile);
 
-        // Build isolated per-test configuration — no System.setProperty writes.
+        // Build isolated per-test configuration  no System.setProperty writes.
         PostgreSQLContainer postgres = getPostgres();
         Properties props = PeeGeeQTestConfig.builder()
                 .from(postgres)

@@ -157,7 +157,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
             assertEquals(expectedClientId, actualClientId,
                     "Underlying consumer created by start() should have the group's clientId");
         }
-        // If underlyingConsumer is null, start() failed before creating it — acceptable
+        // If underlyingConsumer is null, start() failed before creating it  acceptable
 
         group.close().onFailure(e -> logger.warn("group.close() failed in cleanup", e));
     }

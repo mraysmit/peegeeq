@@ -47,9 +47,9 @@ class ManualHealthCheckTest {
                 WebClient client = WebClient.create(vertx);
                 return client.get(testPort, "localhost", "/health").send()
                         .compose(response -> {
-                            logger.info("📡 HTTP Response Status: {}", response.statusCode());
-                            logger.info("📡 HTTP Response Headers: {}", response.headers().names());
-                            logger.info("📡 HTTP Response Body: {}", response.bodyAsString());
+                            logger.info(" HTTP Response Status: {}", response.statusCode());
+                            logger.info(" HTTP Response Headers: {}", response.headers().names());
+                            logger.info(" HTTP Response Body: {}", response.bodyAsString());
                             
                             // Verify response
                             assertEquals(200, response.statusCode(), "Health endpoint should return 200 OK");
@@ -85,8 +85,8 @@ class ManualHealthCheckTest {
                 WebClient client = WebClient.create(vertx);
                 return client.get(testPort, "localhost", "/health").send()
                         .compose(response -> {
-                            logger.info("📡 HTTP Response Status: {}", response.statusCode());
-                            logger.info("📡 HTTP Response Body: {}", response.bodyAsString());
+                            logger.info(" HTTP Response Status: {}", response.statusCode());
+                            logger.info(" HTTP Response Body: {}", response.bodyAsString());
                             
                             // Verify response
                             assertEquals(500, response.statusCode(), "Unhealthy endpoint should return 500");
@@ -116,12 +116,12 @@ class ManualHealthCheckTest {
         // Start server and keep it running for manual testing
         startTestServer(vertx, testPort)
             .onComplete(testContext.succeeding(server -> {
-                logger.info("🚀 Test server started on port {} for manual testing", testPort);
-                logger.info("🔗 Test URL: http://localhost:{}/health", testPort);
-                logger.info("💡 You can now test this endpoint manually with:");
+                logger.info(" Test server started on port {} for manual testing", testPort);
+                logger.info(" Test URL: http://localhost:{}/health", testPort);
+                logger.info(" You can now test this endpoint manually with:");
                 logger.info("   curl http://localhost:{}/health", testPort);
                 logger.info("   curl -v http://localhost:{}/health", testPort);
-                logger.info("⏱️  Server will run for 10 seconds...");
+                logger.info("  Server will run for 10 seconds...");
                 
                 // Keep server running for 10 seconds for manual testing
                 vertx.setTimer(10000, id -> {
@@ -129,7 +129,7 @@ class ManualHealthCheckTest {
                         if (closeResult.succeeded()) {
                             logger.info("Test server stopped");
                         } else {
-                            logger.error("❌ Failed to stop test server", closeResult.cause());
+                            logger.error(" Failed to stop test server", closeResult.cause());
                         }
                         testContext.completeNow();
                     });
@@ -151,7 +151,7 @@ class ManualHealthCheckTest {
                     .put("port", port)
                     .put("message", "Health check endpoint is working correctly");
             
-            logger.info("📋 Health endpoint called, returning: {}", health.encode());
+            logger.info(" Health endpoint called, returning: {}", health.encode());
             
             ctx.response()
                     .putHeader("Content-Type", "application/json")
@@ -182,7 +182,7 @@ class ManualHealthCheckTest {
                     promise.complete(server);
                 })
                 .onFailure(throwable -> {
-                    logger.error("❌ Failed to start test server on port {}", port, throwable);
+                    logger.error(" Failed to start test server on port {}", port, throwable);
                     promise.fail(throwable);
                 });
         
@@ -204,7 +204,7 @@ class ManualHealthCheckTest {
                     .put("port", port)
                     .put("message", "Service is unhealthy");
             
-            logger.info("📋 Unhealthy endpoint called, returning: {}", error.encode());
+            logger.info(" Unhealthy endpoint called, returning: {}", error.encode());
             
             ctx.response()
                     .putHeader("Content-Type", "application/json")
@@ -220,7 +220,7 @@ class ManualHealthCheckTest {
                     promise.complete(server);
                 })
                 .onFailure(throwable -> {
-                    logger.error("❌ Failed to start test server on port {}", port, throwable);
+                    logger.error(" Failed to start test server on port {}", port, throwable);
                     promise.fail(throwable);
                 });
         

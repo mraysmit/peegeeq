@@ -87,7 +87,7 @@ public class PeeGeeQConfig {
      * Manages PeeGeeQ Manager lifecycle via Spring's SmartLifecycle contract.
      *
      * <p>start() runs on the Spring refresh thread (not the Vert.x event loop) and blocks
-     * for up to 60 seconds until manager.start() completes — the only acceptable bridge
+     * for up to 60 seconds until manager.start() completes  the only acceptable bridge
      * in a synchronous Spring context. stop(Runnable) closes the manager reactively and
      * notifies Spring via the callback when teardown is complete.
      */

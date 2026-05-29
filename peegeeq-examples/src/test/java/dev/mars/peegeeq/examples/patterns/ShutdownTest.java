@@ -39,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * INFRASTRUCTURE TEST: Graceful Shutdown and Resource Cleanup Patterns
  *
- * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *   NOTE: This test does NOT create or test any message queues.
  *
  * WHAT THIS TESTS:
  * - ExecutorService graceful shutdown patterns and timeouts

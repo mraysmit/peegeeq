@@ -164,8 +164,8 @@ class PeeGeeQReactiveConfigTest {
         logger.info("=== Test: PeeGeeQManager Configuration ===");
 
         assertNotNull(manager, "PeeGeeQManager should be autowired");
-        logger.info("✓ PeeGeeQManager is properly configured");
-        logger.info("✓ PeeGeeQ lifecycle management is working");
+        logger.info(" PeeGeeQManager is properly configured");
+        logger.info(" PeeGeeQ lifecycle management is working");
 
         logger.info("=== Test Completed Successfully ===");
     }
@@ -180,9 +180,9 @@ class PeeGeeQReactiveConfigTest {
         assertNotNull(orderEventProducer, "OrderEvent producer should be autowired");
         assertNotNull(paymentEventProducer, "PaymentEvent producer should be autowired");
         
-        logger.info("✓ OrderEvent producer is configured");
-        logger.info("✓ PaymentEvent producer is configured");
-        logger.info("✓ Outbox pattern is ready for use");
+        logger.info(" OrderEvent producer is configured");
+        logger.info(" PaymentEvent producer is configured");
+        logger.info(" Outbox pattern is ready for use");
 
         logger.info("=== Test Completed Successfully ===");
     }
@@ -195,8 +195,8 @@ class PeeGeeQReactiveConfigTest {
         logger.info("=== Test: ReactiveOutboxAdapter Configuration ===");
 
         assertNotNull(reactiveAdapter, "ReactiveOutboxAdapter should be autowired");
-        logger.info("✓ ReactiveOutboxAdapter is configured");
-        logger.info("✓ CompletableFuture to Mono/Flux conversion is available");
+        logger.info(" ReactiveOutboxAdapter is configured");
+        logger.info(" CompletableFuture to Mono/Flux conversion is available");
 
         logger.info("=== Test Completed Successfully ===");
     }
@@ -222,8 +222,8 @@ class PeeGeeQReactiveConfigTest {
         assertEquals(postgres.getDatabaseName(), properties.getDatabase().getName(), 
             "Database name should match TestContainer");
         
-        logger.info("✓ PeeGeeQProperties are properly bound");
-        logger.info("✓ Configuration properties are working");
+        logger.info(" PeeGeeQProperties are properly bound");
+        logger.info(" Configuration properties are working");
 
         logger.info("=== Test Completed Successfully ===");
     }
@@ -241,9 +241,9 @@ class PeeGeeQReactiveConfigTest {
         assertNotNull(reactiveAdapter, "Reactive adapter should be available");
         assertNotNull(properties, "Properties should be available");
         
-        logger.info("✓ All PeeGeeQ components are properly integrated");
-        logger.info("✓ Reactive outbox pattern is fully configured");
-        logger.info("✓ System is ready for transactional messaging");
+        logger.info(" All PeeGeeQ components are properly integrated");
+        logger.info(" Reactive outbox pattern is fully configured");
+        logger.info(" System is ready for transactional messaging");
 
         logger.info("=== Test Completed Successfully ===");
     }
@@ -265,8 +265,8 @@ class PeeGeeQReactiveConfigTest {
         assertNotNull(dbConfig.getUsername(), "Database username should not be null");
         assertNotNull(dbConfig.getPassword(), "Database password should not be null");
         
-        logger.info("✓ Database configuration is complete");
-        logger.info("✓ TestContainer is properly configured");
+        logger.info(" Database configuration is complete");
+        logger.info(" TestContainer is properly configured");
 
         logger.info("=== Test Completed Successfully ===");
     }

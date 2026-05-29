@@ -116,7 +116,7 @@ public class MessagePriorityExampleTest {
                 PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
                 OutboxFactoryRegistrar.registerWith(provider);
                 factory = provider.createFactory("outbox", databaseService);
-                logger.info("✓ Message Priority Example Test setup completed");
+                logger.info(" Message Priority Example Test setup completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -130,7 +130,7 @@ public class MessagePriorityExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    logger.info("✓ Message Priority Example Test teardown completed");
+                    logger.info(" Message Priority Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(err -> {
@@ -138,7 +138,7 @@ public class MessagePriorityExampleTest {
                     testContext.completeNow();
                 });
         } else {
-            logger.info("✓ Message Priority Example Test teardown completed");
+            logger.info(" Message Priority Example Test teardown completed");
             testContext.completeNow();
         }
     }

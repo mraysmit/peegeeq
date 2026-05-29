@@ -80,7 +80,7 @@ public class SimpleNativeQueueTest {
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        logger.info("🔧 Initializing database schema for simple native queue test");
+        logger.info(" Initializing database schema for simple native queue test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
@@ -140,7 +140,7 @@ public class SimpleNativeQueueTest {
         String testMessage = "Hello Simple Test";
 
         logger.info("Setting up consumer subscription...");
-        // Chain send off the subscribe Future — the subscribe Future resolves once
+        // Chain send off the subscribe Future  the subscribe Future resolves once
         // the consumer is registered and ready to receive notifications.
         consumer.subscribe(message -> {
             logger.info("RECEIVED MESSAGE: {}", message.getPayload());
@@ -187,7 +187,7 @@ public class SimpleNativeQueueTest {
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
         logger.info("Setting up consumer subscription for {} messages...", messageCount);
-        // Chain sends off subscribe — once the subscribe Future resolves the consumer
+        // Chain sends off subscribe  once the subscribe Future resolves the consumer
         // is registered and ready to receive notifications.
         consumer.subscribe(message -> {
             logger.info("RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());

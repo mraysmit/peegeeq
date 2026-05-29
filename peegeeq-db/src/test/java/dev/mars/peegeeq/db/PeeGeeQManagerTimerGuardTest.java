@@ -62,7 +62,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       from reaching the DB after close begins.</li>
  *
  *   <li><b>Consecutive-failure escalation</b> ({@code testTimerFailuresEscalateWarnToError}):
- *       when the DB is stopped while the manager is running, the first 1–2 timer ticks log at
+ *       when the DB is stopped while the manager is running, the first 12 timer ticks log at
  *       WARN; from the 3rd consecutive failure onward they escalate to ERROR with an
  *       "(N consecutive failures)" count in the message. Every captured log event must carry
  *       {@link java.net.ConnectException} in its cause chain, proving the DB-stopped scenario
@@ -150,9 +150,9 @@ public class PeeGeeQManagerTimerGuardTest {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // Test 1: clean close with fast timers → no failure logs
-    // ─────────────────────────────────────────────────────────────────
+    // 
+    // Test 1: clean close with fast timers  no failure logs
+    // 
 
     @Test
     @DisplayName("No timer failure logs when DB is alive and manager closes cleanly")
@@ -183,9 +183,9 @@ public class PeeGeeQManagerTimerGuardTest {
                 })));
     }
 
-    // ─────────────────────────────────────────────────────────────────
-    // Test 2: DB goes away → first failures WARN, then escalate to ERROR
-    // ─────────────────────────────────────────────────────────────────
+    // 
+    // Test 2: DB goes away  first failures WARN, then escalate to ERROR
+    // 
 
     @Test
     @DisplayName("Timer failures escalate from WARN to ERROR after consecutive-failure threshold")
@@ -206,14 +206,14 @@ public class PeeGeeQManagerTimerGuardTest {
 
         manager.start()
                 .compose(v -> {
-                    // Kill the DB — all subsequent timer ticks will fail
+                    // Kill the DB  all subsequent timer ticks will fail
                     ownContainer.stop();
                     logCapture.clear();
                     logger.error("===== INTENTIONAL ERROR TEST BEGIN ===== DB container stopped." +
                                  " 'Failed to refresh depth cache' WARN/ERROR logs below are EXPECTED" +
                                  " for the next ~3 seconds. See END marker when they stop.");
-                    // Wait for 3 timer ticks at 1 s interval → 3 consecutive failures
-                    // Expected: ticks 1–2 → WARN, tick 3 → ERROR (escalation threshold)
+                    // Wait for 3 timer ticks at 1 s interval  3 consecutive failures
+                    // Expected: ticks 12  WARN, tick 3  ERROR (escalation threshold)
                     return delay(vertx, 3500);
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -223,17 +223,17 @@ public class PeeGeeQManagerTimerGuardTest {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
                     // PRIMARY: every captured event must carry a network-failure exception in the cause chain.
-                    // This proves the DB-stopped scenario is what produced these failures — not an
+                    // This proves the DB-stopped scenario is what produced these failures  not an
                     // NPE, misconfiguration, or any other unrelated error.
                     // If PeeGeeQManager swallowed the exception (logged only e.getMessage()),
                     // getThrowableProxy() returns null and this fails immediately.
                     //
                     // On Windows, two distinct paths occur:
                     //   1st tick: java.io.IOException ("An established connection was aborted by the
-                    //             software in your host machine") — Netty reports the force-killed open
+                    //             software in your host machine")  Netty reports the force-killed open
                     //             socket as a plain IOException, not a SocketException.
                     //   Subsequent: io.netty.channel.AbstractChannel$AnnotatedConnectException wrapping
-                    //             java.net.ConnectException ("Connection refused") — new connection
+                    //             java.net.ConnectException ("Connection refused")  new connection
                     //             attempts fail because the port is gone.
                     // hasCauseOfAnyType checks for any of the three by exact class name.
                     assertFalse(warns.isEmpty(),
@@ -248,7 +248,7 @@ public class PeeGeeQManagerTimerGuardTest {
                                     "java.net.ConnectException"));
                     assertTrue(allWarnsHaveConnectionFailure,
                             "Every WARN must carry a network I/O exception (IOException/SocketException/ConnectException) " +
-                            "in cause chain — proves the DB-stopped scenario produced these failures and the exception " +
+                            "in cause chain  proves the DB-stopped scenario produced these failures and the exception " +
                             "was not swallowed. WARN count: " + warns.size());
 
                     boolean allErrorsHaveConnectionFailure = errors.stream()
@@ -258,10 +258,10 @@ public class PeeGeeQManagerTimerGuardTest {
                                     "java.net.ConnectException"));
                     assertTrue(allErrorsHaveConnectionFailure,
                             "Every ERROR must carry a network I/O exception (IOException/SocketException/ConnectException) " +
-                            "in cause chain — proves the DB-stopped scenario produced these failures and the exception " +
+                            "in cause chain  proves the DB-stopped scenario produced these failures and the exception " +
                             "was not swallowed. ERROR count: " + errors.size());
 
-                    // SECONDARY: escalation behaviour — first failures at WARN, then ERROR with count
+                    // SECONDARY: escalation behaviour  first failures at WARN, then ERROR with count
                     boolean hasEarlyWarn = warns.stream()
                             .anyMatch(e -> !e.getFormattedMessage().contains("consecutive failures"));
                     assertTrue(hasEarlyWarn,
@@ -290,17 +290,17 @@ public class PeeGeeQManagerTimerGuardTest {
 
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // 
     // Test 3: closing flag verified race condition protection
-    // ─────────────────────────────────────────────────────────────────
+    // 
 
     @Test
     @DisplayName("Closing guard prevents timer callbacks firing after close when DB is alive")
     void testClosingGuardPreventsTimerCallbacksAfterClose(VertxTestContext testContext) {
         // This test specifically protects against the race described in the issue:
         //
-        //   "timer fires → refreshDepthCache() future starts → cancelTimer() runs →
-        //    pool closes → in-progress future hits 'connection refused'"
+        //   "timer fires  refreshDepthCache() future starts  cancelTimer() runs 
+        //    pool closes  in-progress future hits 'connection refused'"
         //
         // Without "if (closing) return;", any tick that fires in the window between
         // closeReactive() being called and cancelTimer() completing would attempt a
@@ -426,9 +426,9 @@ public class PeeGeeQManagerTimerGuardTest {
                 })));
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // 
     // Helpers
-    // ─────────────────────────────────────────────────────────────────
+    // 
 
     private boolean hasCauseOfType(ch.qos.logback.classic.spi.IThrowableProxy proxy, String className) {
         while (proxy != null) {
@@ -607,9 +607,9 @@ public class PeeGeeQManagerTimerGuardTest {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────
+    // 
     // Log capture
-    // ─────────────────────────────────────────────────────────────────
+    // 
 
     /**
      * Logback appender that collects {@link ILoggingEvent} instances from the

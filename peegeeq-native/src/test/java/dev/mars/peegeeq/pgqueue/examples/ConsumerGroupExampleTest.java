@@ -127,7 +127,7 @@ class ConsumerGroupExampleTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Consumer Group Example Test");
+        logger.info(" Cleaning up Consumer Group Example Test");
 
         if (manager != null) {
             manager.closeReactive()

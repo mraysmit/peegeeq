@@ -78,7 +78,7 @@ public class ServerSentEventsConsumerExample {
             logger.info("SSE Consumer Example completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Error in SSE Consumer Example", e);
+            logger.error(" Error in SSE Consumer Example", e);
         } finally {
             // Cleanup resources
             if (httpClient != null) {
@@ -103,7 +103,7 @@ public class ServerSentEventsConsumerExample {
         // Build SSE endpoint URL
         String sseUrl = "/api/v1/queues/" + SETUP_ID + "/" + QUEUE_NAME + "/stream";
         
-        logger.info("📡 Connecting to SSE endpoint: {}", sseUrl);
+        logger.info(" Connecting to SSE endpoint: {}", sseUrl);
         
         // Connect to SSE endpoint
         httpClient.request(HttpMethod.GET, REST_API_PORT, REST_API_HOST, sseUrl)
@@ -130,30 +130,30 @@ public class ServerSentEventsConsumerExample {
                 
                 // Handle connection close
                 response.endHandler(v -> {
-                    logger.info("📡 SSE connection closed");
+                    logger.info(" SSE connection closed");
                     completionLatch.countDown();
                 });
                 
                 // Handle errors
                 response.exceptionHandler(err -> {
                     if (!(err instanceof io.vertx.core.http.HttpClosedException)) {
-                        logger.error("❌ SSE connection error: {}", err.getMessage());
+                        logger.error(" SSE connection error: {}", err.getMessage());
                     }
                     completionLatch.countDown();
                 });
             })
             .onFailure(err -> {
-                logger.error("❌ Failed to connect to SSE endpoint: {}", err.getMessage());
+                logger.error(" Failed to connect to SSE endpoint: {}", err.getMessage());
                 completionLatch.countDown();
             });
         
         // Wait for completion (with timeout)
         boolean completed = completionLatch.await(60, TimeUnit.SECONDS);
         if (!completed) {
-            logger.warn("⚠️ SSE streaming timed out after 60 seconds");
+            logger.warn(" SSE streaming timed out after 60 seconds");
         }
         
-        logger.info("📊 Final Statistics:");
+        logger.info(" Final Statistics:");
         logger.info("   Messages Received: {}", messagesReceived.get());
     }
     
@@ -233,7 +233,7 @@ public class ServerSentEventsConsumerExample {
     private static void handleConnectionEvent(JsonObject event) {
         String connectionId = event.getString("connectionId");
         String message = event.getString("message");
-        logger.info("🔌 Connection Event: {} ({})", message, connectionId);
+        logger.info(" Connection Event: {} ({})", message, connectionId);
     }
     
     /**
@@ -241,7 +241,7 @@ public class ServerSentEventsConsumerExample {
      */
     private static void handleConfiguredEvent(JsonObject event) {
         String connectionId = event.getString("connectionId");
-        logger.info("⚙️  Configured Event: Connection {} configured", connectionId);
+        logger.info("  Configured Event: Connection {} configured", connectionId);
     }
     
     /**
@@ -255,7 +255,7 @@ public class ServerSentEventsConsumerExample {
         
         int count = messagesReceived.incrementAndGet();
         
-        logger.info("📨 Message #{}: {}", count, messageId);
+        logger.info(" Message #{}: {}", count, messageId);
         logger.info("   Type: {}", messageType);
         logger.info("   Payload: {}", payload);
         if (headers != null && !headers.isEmpty()) {
@@ -268,14 +268,14 @@ public class ServerSentEventsConsumerExample {
      */
     private static void handleErrorEvent(JsonObject event) {
         String error = event.getString("error");
-        logger.error("❌ Error Event: {}", error);
+        logger.error(" Error Event: {}", error);
     }
     
     /**
      * Handles heartbeat event (keep-alive).
      */
     private static void handleHeartbeatEvent(JsonObject event) {
-        logger.debug("💓 Heartbeat received");
+        logger.debug(" Heartbeat received");
     }
 }
 

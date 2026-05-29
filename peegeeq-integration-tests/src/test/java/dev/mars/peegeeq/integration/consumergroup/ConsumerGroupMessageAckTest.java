@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test proves the actual consumption contract: a message published to the
  * queue is dispatched to a registered consumer group member, the member's
  * handler is invoked, and after successful processing the row is deleted from
- * {@code queue_messages} (queue depth → 0).
+ * {@code queue_messages} (queue depth  0).
  *
  * <h3>Test flow</h3>
  * <ol>

@@ -52,28 +52,28 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public Future<Results> execute(PerformanceTestConfig config) {
-        logger.info("📤 Starting outbox performance test suite");
+        logger.info(" Starting outbox performance test suite");
         
         Results results = new Results();
         
         try {
             // Test 1: Message send throughput
-            logger.info("🚀 Testing message send throughput");
+            logger.info(" Testing message send throughput");
             double sendThroughput = testMessageSendThroughput(config);
             results.addSuccess();
             
             // Test 2: End-to-end latency
-            logger.info("⏱️ Testing end-to-end message latency");
+            logger.info(" Testing end-to-end message latency");
             double averageLatency = testEndToEndLatency(config);
             results.addSuccess();
             
             // Test 3: Concurrent producers
-            logger.info("⚡ Testing concurrent producer performance");
+            logger.info(" Testing concurrent producer performance");
             double concurrentThroughput = testConcurrentProducers(config);
             results.addSuccess();
             
             // Test 4: Transactional outbox performance
-            logger.info("🔗 Testing transactional outbox performance");
+            logger.info(" Testing transactional outbox performance");
             double transactionalThroughput = testTransactionalOutbox(config);
             results.addSuccess();
             
@@ -97,7 +97,7 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
             logger.info("Outbox performance test suite completed successfully");
             
         } catch (Exception e) {
-            logger.error("❌ Outbox performance test suite failed", e);
+            logger.error(" Outbox performance test suite failed", e);
             results.addFailure("OutboxTestSuite", e);
         }
         
@@ -159,7 +159,7 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
     
     @Override
     public void cleanup() {
-        logger.info("🧹 Cleaning up outbox performance test suite");
+        logger.info(" Cleaning up outbox performance test suite");
         // Cleanup resources, close connections, etc.
     }
 }

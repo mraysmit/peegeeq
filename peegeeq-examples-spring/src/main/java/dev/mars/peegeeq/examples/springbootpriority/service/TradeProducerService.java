@@ -101,7 +101,7 @@ public class TradeProducerService {
                     event.getTradeId(), event.getPriority(), event.getStatus());
             })
             .onFailure(ex -> {
-                log.error("❌ Failed to send trade event: tradeId={}, priority={}",
+                log.error(" Failed to send trade event: tradeId={}, priority={}",
                     event.getTradeId(), event.getPriority(), ex);
             });
     }

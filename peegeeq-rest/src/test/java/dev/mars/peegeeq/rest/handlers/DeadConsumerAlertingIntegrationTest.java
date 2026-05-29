@@ -97,7 +97,7 @@ public class DeadConsumerAlertingIntegrationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("alerting-test", props);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        // Schema init is blocking (Flyway/JDBC) — must run on a worker thread, not the event loop.
+        // Schema init is blocking (Flyway/JDBC)  must run on a worker thread, not the event loop.
         vertx.executeBlocking(() -> {
             PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
             return null;

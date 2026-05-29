@@ -88,12 +88,12 @@ public class OutboxPerformanceSpringBootTest {
 
     @BeforeEach
     void setUp() {
-        logger.info("🚀 Setting up Performance Spring Boot Test");
+        logger.info(" Setting up Performance Spring Boot Test");
     }
 
     @AfterEach
     void tearDown(Vertx vertx, VertxTestContext tearDownContext) {
-        logger.info("🧹 Cleaning up Performance Spring Boot Test");
+        logger.info(" Cleaning up Performance Spring Boot Test");
         
         // Close all active consumers first
         for (MessageConsumer<?> consumer : activeConsumers) {
@@ -101,7 +101,7 @@ public class OutboxPerformanceSpringBootTest {
                 consumer.close();
                 logger.info("Closed consumer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing consumer: {}", e.getMessage());
+                logger.error(" Error closing consumer: {}", e.getMessage());
             }
         }
         activeConsumers.clear();
@@ -112,13 +112,13 @@ public class OutboxPerformanceSpringBootTest {
                 producer.close();
                 logger.info("Closed producer");
             } catch (Exception e) {
-                logger.error("⚠️ Error closing producer: {}", e.getMessage());
+                logger.error(" Error closing producer: {}", e.getMessage());
             }
         }
         activeProducers.clear();
         
         // Wait for connections to be fully released before next test
-        logger.info("⏳ Waiting for connections to be released...");
+        logger.info(" Waiting for connections to be released...");
         vertx.timer(2000).onComplete(tearDownContext.succeeding(v -> {
             peeGeeQManagerRef = peeGeeQManager;
             logger.info("Cleanup complete");
@@ -165,7 +165,7 @@ public class OutboxPerformanceSpringBootTest {
             
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
-                logger.info("📦 Processed {} messages", count);
+                logger.info(" Processed {} messages", count);
             }
             checkpoint.flag();
             return Future.succeededFuture();
@@ -176,7 +176,7 @@ public class OutboxPerformanceSpringBootTest {
         activeProducers.add(producer);
         
         // Send messages
-        logger.info("📤 Sending {} messages", messageCount);
+        logger.info(" Sending {} messages", messageCount);
         Instant sendStart = Instant.now();
         
         for (int i = 1; i <= messageCount; i++) {
@@ -209,7 +209,7 @@ public class OutboxPerformanceSpringBootTest {
         long avgProcessingTime = totalProcessingTime.get() / messageCount;
         long throughput = (messageCount * 1000L) / totalDuration;
         
-        logger.info("📊 High-Volume Processing Results:");
+        logger.info(" High-Volume Processing Results:");
         logger.info("   Total messages: {}", messageCount);
         logger.info("   Messages processed: {}", processedCount.get());
         logger.info("   Total duration: {} ms", totalDuration);
@@ -245,7 +245,7 @@ public class OutboxPerformanceSpringBootTest {
         Checkpoint checkpoint = testContext.checkpoint(messageCount);
         
         // Create multiple consumers
-        logger.info("🔧 Creating {} consumers", consumerCount);
+        logger.info(" Creating {} consumers", consumerCount);
         for (int i = 1; i <= consumerCount; i++) {
             String consumerId = "consumer-" + i;
             consumerCounts.put(consumerId, new AtomicInteger(0));
@@ -257,7 +257,7 @@ public class OutboxPerformanceSpringBootTest {
                 consumerCounts.get(consumerId).incrementAndGet();
                 int count = totalProcessed.incrementAndGet();
                 if (count % 50 == 0) {
-                    logger.info("📦 Total processed: {}", count);
+                    logger.info(" Total processed: {}", count);
                 }
                 checkpoint.flag();
                 return Future.succeededFuture();
@@ -271,7 +271,7 @@ public class OutboxPerformanceSpringBootTest {
         activeProducers.add(producer);
         
         // Send messages
-        logger.info("📤 Sending {} messages", messageCount);
+        logger.info(" Sending {} messages", messageCount);
         Instant start = Instant.now();
         
         for (int i = 1; i <= messageCount; i++) {
@@ -293,7 +293,7 @@ public class OutboxPerformanceSpringBootTest {
         long duration = Duration.between(start, end).toMillis();
         long throughput = (messageCount * 1000L) / duration;
         
-        logger.info("📊 Concurrent Consumer Performance Results:");
+        logger.info(" Concurrent Consumer Performance Results:");
         logger.info("   Total messages: {}", messageCount);
         logger.info("   Number of consumers: {}", consumerCount);
         logger.info("   Total processed: {}", totalProcessed.get());
@@ -352,7 +352,7 @@ public class OutboxPerformanceSpringBootTest {
             // Track batch processing (messages processed close together are likely in same batch)
             if (count % 10 == 0) {
                 batchSizes.add(10);
-                logger.info("📦 Processed batch {} (total: {})", batch / 10, count);
+                logger.info(" Processed batch {} (total: {})", batch / 10, count);
             }
             
             checkpoint.flag();
@@ -364,7 +364,7 @@ public class OutboxPerformanceSpringBootTest {
         activeProducers.add(producer);
         
         // Send messages in bursts to simulate batch processing
-        logger.info("📤 Sending {} messages in bursts", messageCount);
+        logger.info(" Sending {} messages in bursts", messageCount);
         Instant start = Instant.now();
         
         for (int i = 1; i <= messageCount; i++) {
@@ -391,7 +391,7 @@ public class OutboxPerformanceSpringBootTest {
         long duration = Duration.between(start, end).toMillis();
         long throughput = (messageCount * 1000L) / duration;
         
-        logger.info("📊 Batch Processing Efficiency Results:");
+        logger.info(" Batch Processing Efficiency Results:");
         logger.info("   Total messages: {}", messageCount);
         logger.info("   Messages processed: {}", processedCount.get());
         logger.info("   Duration: {} ms", duration);

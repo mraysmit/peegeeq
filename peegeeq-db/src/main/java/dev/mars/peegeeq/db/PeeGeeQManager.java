@@ -443,7 +443,7 @@ public class PeeGeeQManager {
         }
 
         // .eventually() chains ensure ALL cleanup runs regardless of any failure.
-        // The original awaitStart outcome flows through to the caller automatically —
+        // The original awaitStart outcome flows through to the caller automatically 
         // if start() was in-flight and failed, that failure propagates after cleanup.
         Future<Void> result = awaitStart
             // Step 3: Stop reactive components (cancel timers, stop background tasks)
@@ -519,7 +519,7 @@ public class PeeGeeQManager {
      * Fires async shutdown and returns immediately. The manager is <strong>NOT</strong> closed
      * when this method returns.
      *
-     * <p>Do NOT use try-with-resources on {@code PeeGeeQManager} — the resource will not
+     * <p>Do NOT use try-with-resources on {@code PeeGeeQManager}  the resource will not
      * be closed when the block exits.
      *
      * <p>In reactive/Vert.x code, call {@link #closeReactive()} and chain

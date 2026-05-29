@@ -111,7 +111,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testCreateConsumerWithValidConfig(VertxTestContext testContext) throws InterruptedException {
-        logger.info("🧪 Testing QueueFactory consumer creation with valid ConsumerConfig");
+        logger.info(" Testing QueueFactory consumer creation with valid ConsumerConfig");
 
         String topicName = "test-factory-valid-config";
 
@@ -151,7 +151,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testCreateConsumerWithNullConfig(VertxTestContext testContext) throws InterruptedException {
-        logger.info("🧪 Testing QueueFactory consumer creation with null ConsumerConfig");
+        logger.info(" Testing QueueFactory consumer creation with null ConsumerConfig");
 
         String topicName = "test-factory-null-config";
 
@@ -187,7 +187,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testCreateConsumerWithDifferentModes() throws Exception {
-        logger.info("🧪 Testing QueueFactory consumer creation with different consumer modes");
+        logger.info(" Testing QueueFactory consumer creation with different consumer modes");
 
         String topicName = "test-factory-different-modes";
 
@@ -227,7 +227,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testCreateConsumerTypeSafety() throws Exception {
-        logger.info("🧪 Testing QueueFactory consumer creation type safety");
+        logger.info(" Testing QueueFactory consumer creation type safety");
 
         String topicName = "test-factory-type-safety";
 
@@ -258,7 +258,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testCreateConsumerBackwardCompatibility(VertxTestContext testContext) throws InterruptedException {
-        logger.info("🧪 Testing QueueFactory backward compatibility (without ConsumerConfig)");
+        logger.info(" Testing QueueFactory backward compatibility (without ConsumerConfig)");
 
         String topicName = "test-factory-backward-compatibility";
 
@@ -294,7 +294,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testConcurrentConsumerCreation() throws Exception {
-        logger.info("🧪 Testing QueueFactory concurrent consumer creation");
+        logger.info(" Testing QueueFactory concurrent consumer creation");
 
         String topicName = "test-factory-concurrent-creation";
 
@@ -351,7 +351,7 @@ class QueueFactoryConsumerModeTest {
 
     @Test
     void testCreateConsumerWithInvalidTopicName() throws Exception {
-        logger.info("🧪 Testing QueueFactory consumer creation with invalid topic names");
+        logger.info(" Testing QueueFactory consumer creation with invalid topic names");
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)

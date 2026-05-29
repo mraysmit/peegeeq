@@ -184,7 +184,7 @@ public class DlqManagementService {
         return getDlqDepth().map(depth -> {
             boolean alert = depth >= properties.getDlqAlertThreshold();
             if (alert) {
-                log.warn("⚠️ DLQ alert threshold exceeded: depth={}, threshold={}", 
+                log.warn(" DLQ alert threshold exceeded: depth={}, threshold={}", 
                     depth, properties.getDlqAlertThreshold());
             }
             return alert;

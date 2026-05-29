@@ -202,12 +202,12 @@ class LateJoiningConsumerDemoTest {
                 return chain;
             })
             .compose(v -> {
-                logger.info("✓ Published {} historical messages", historicalMessageIds.size());
+                logger.info(" Published {} historical messages", historicalMessageIds.size());
                 logger.info("Step 3: Subscribing '{}' using FROM_NOW (default)", emailGroup);
                 return subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults());
             })
             .compose(v -> {
-                logger.info("✓ Subscription created with FROM_NOW");
+                logger.info(" Subscription created with FROM_NOW");
                 logger.info("Step 4: Publishing 5 new messages (after subscription)");
                 io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
                 for (int i = 11; i <= 15; i++) {
@@ -223,12 +223,12 @@ class LateJoiningConsumerDemoTest {
                 return chain;
             })
             .compose(v -> {
-                logger.info("✓ Published {} new messages", newMessageIds.size());
+                logger.info(" Published {} new messages", newMessageIds.size());
                 logger.info("Step 5: Fetching messages for '{}'", emailGroup);
                 return fetcher.fetchMessages(topic, emailGroup, 20);
             })
             .onSuccess(messages -> testContext.verify(() -> {
-                logger.info("✓ Fetched {} messages", messages.size());
+                logger.info(" Fetched {} messages", messages.size());
                 assertEquals(5, messages.size(), "FROM_NOW should only receive messages published after subscription");
                 for (var msg : messages) {
                     assertTrue(newMessageIds.contains(msg.getId()),
@@ -236,7 +236,7 @@ class LateJoiningConsumerDemoTest {
                     assertFalse(historicalMessageIds.contains(msg.getId()),
                         "Message ID " + msg.getId() + " should NOT be from historical messages");
                 }
-                logger.info("✓ Verified: FROM_NOW consumer only received {} new messages (ignored {} historical)",
+                logger.info(" Verified: FROM_NOW consumer only received {} new messages (ignored {} historical)",
                     messages.size(), historicalMessageIds.size());
                 logger.info("\n=== DEMO 1 COMPLETE: FROM_NOW Pattern ===\n");
                 logger.info("Key Takeaway: FROM_NOW consumers ignore historical messages and only process new ones.");
@@ -296,7 +296,7 @@ class LateJoiningConsumerDemoTest {
                 return chain;
             })
             .compose(v -> {
-                logger.info("✓ Published {} messages", allMessageIds.size());
+                logger.info(" Published {} messages", allMessageIds.size());
                 logger.info("Step 4: Late-joining '{}' subscribes using FROM_BEGINNING", analyticsGroup);
                 return subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions);
             })
@@ -305,7 +305,7 @@ class LateJoiningConsumerDemoTest {
                 return fetcher.fetchMessages(topic, analyticsGroup, 25);
             })
             .onSuccess(analyticsMessages -> testContext.verify(() -> {
-                logger.info("✓ Fetched {} messages for analytics", analyticsMessages.size());
+                logger.info(" Fetched {} messages for analytics", analyticsMessages.size());
                 assertEquals(20, analyticsMessages.size(),
                     "FROM_BEGINNING should receive ALL messages including historical");
                 for (Long expectedId : allMessageIds) {
@@ -313,7 +313,7 @@ class LateJoiningConsumerDemoTest {
                         .anyMatch(msg -> msg.getId().equals(expectedId));
                     assertTrue(found, "Analytics should have received message ID " + expectedId);
                 }
-                logger.info("✓ Verified: FROM_BEGINNING consumer received ALL {} historical messages",
+                logger.info(" Verified: FROM_BEGINNING consumer received ALL {} historical messages",
                     analyticsMessages.size());
                 logger.info("\n=== DEMO 2 COMPLETE: FROM_BEGINNING Pattern ===\n");
                 logger.info("Key Takeaway: FROM_BEGINNING consumers backfill ALL historical messages from topic start.");
@@ -365,7 +365,7 @@ class LateJoiningConsumerDemoTest {
                 return chain;
             })
             .compose(v -> {
-                logger.info("✓ Published {} past messages", pastMessageIds.size());
+                logger.info(" Published {} past messages", pastMessageIds.size());
                 Instant replayTimestamp = Instant.now().minus(1, ChronoUnit.HOURS);
                 logger.info("Step 3: Recording replay timestamp: {}", replayTimestamp);
                 SubscriptionOptions fromTimestampOptions = SubscriptionOptions.builder()
@@ -396,11 +396,11 @@ class LateJoiningConsumerDemoTest {
                 return fetcher.fetchMessages(topic, replayGroup, 25);
             })
             .onSuccess(replayMessages -> testContext.verify(() -> {
-                logger.info("✓ Fetched {} messages for replay", replayMessages.size());
+                logger.info(" Fetched {} messages for replay", replayMessages.size());
                 logger.info("Step 7: Verifying FROM_TIMESTAMP behavior");
                 assertTrue(replayMessages.size() >= 10,
                     "FROM_TIMESTAMP should receive messages created at or after the timestamp");
-                logger.info("✓ Verified: FROM_TIMESTAMP consumer received {} messages from timestamp onwards",
+                logger.info(" Verified: FROM_TIMESTAMP consumer received {} messages from timestamp onwards",
                     replayMessages.size());
                 logger.info("\n=== DEMO 3 COMPLETE: FROM_TIMESTAMP Pattern ===\n");
                 logger.info("Key Takeaway: FROM_TIMESTAMP consumers replay messages from a specific point in time.");

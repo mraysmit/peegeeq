@@ -63,7 +63,7 @@ public class ConsumerModeMetricsTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) throws InterruptedException {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        logger.info("🔧 Setting up ConsumerModeMetricsTest");
+        logger.info(" Setting up ConsumerModeMetricsTest");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
@@ -88,7 +88,7 @@ public class ConsumerModeMetricsTest {
                 testContext.completeNow();
             });
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        logger.info("🧹 ConsumerModeMetricsTest teardown completed");
+        logger.info(" ConsumerModeMetricsTest teardown completed");
     }
 
     private Future<Void> initializeManagerAndFactory() {
@@ -118,7 +118,7 @@ public class ConsumerModeMetricsTest {
 
     @Test
     void testMessageCountMetricsAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
-        logger.info("🧪 Testing message count metrics across consumer modes");
+        logger.info(" Testing message count metrics across consumer modes");
 
         final String topicName = "test-message-count-metrics";
         final int messageCount = 5;
@@ -128,7 +128,7 @@ public class ConsumerModeMetricsTest {
         for (ConsumerMode mode : modes) {
             final ConsumerMode m = mode;
             chain = chain.compose(v -> {
-                logger.info("📊 Testing message count metrics for mode: {}", m);
+                logger.info(" Testing message count metrics for mode: {}", m);
                 return testMessageCountMetricsForMode(
                         topicName + "-" + m.name().toLowerCase(), m, messageCount, vertx);
             });
@@ -143,7 +143,7 @@ public class ConsumerModeMetricsTest {
 
     @Test
     void testProcessingTimeMetricsAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
-        logger.info("🧪 Testing processing time metrics across consumer modes");
+        logger.info(" Testing processing time metrics across consumer modes");
 
         final String topicName = "test-processing-time-metrics";
         final int messageCount = 3;
@@ -153,7 +153,7 @@ public class ConsumerModeMetricsTest {
         for (ConsumerMode mode : modes) {
             final ConsumerMode m = mode;
             chain = chain.compose(v -> {
-                logger.info("⏱️ Testing processing time metrics for mode: {}", m);
+                logger.info(" Testing processing time metrics for mode: {}", m);
                 return testProcessingTimeMetricsForMode(
                         topicName + "-" + m.name().toLowerCase(), m, messageCount, vertx);
             });
@@ -168,7 +168,7 @@ public class ConsumerModeMetricsTest {
 
     @Test
     void testQueueDepthMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing queue depth metrics");
+        logger.info(" Testing queue depth metrics");
 
         String topicName = "test-queue-depth-metrics";
         
@@ -177,7 +177,7 @@ public class ConsumerModeMetricsTest {
         assertNotNull(queueDepthGauge, "Queue depth gauge should be registered");
         
         double initialDepth = queueDepthGauge.value();
-        logger.info("📊 Initial queue depth: {}", initialDepth);
+        logger.info(" Initial queue depth: {}", initialDepth);
 
         // Send messages to increase queue depth
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -197,7 +197,7 @@ public class ConsumerModeMetricsTest {
         // After 3s, check depth and subscribe consumer
         vertx.timer(3000).compose(v -> {
             double newDepth = queueDepthGauge.value();
-            logger.info("📊 Queue depth after sending messages: {}", newDepth);
+            logger.info(" Queue depth after sending messages: {}", newDepth);
             return consumer.subscribe(message -> {
                 processedAll.flag();
                 return Future.succeededFuture();
@@ -207,7 +207,7 @@ public class ConsumerModeMetricsTest {
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed");
 
         double finalDepth = queueDepthGauge.value();
-        logger.info("📊 Final queue depth after processing: {}", finalDepth);
+        logger.info(" Final queue depth after processing: {}", finalDepth);
 
         consumer.close();
         producer.close();
@@ -227,7 +227,7 @@ public class ConsumerModeMetricsTest {
         double initialSent = sentCounter.count();
         double initialReceived = receivedCounter.count();
         double initialProcessed = processedCounter.count();
-        logger.info("📊 Initial metrics - Sent: {}, Received: {}, Processed: {}",
+        logger.info(" Initial metrics - Sent: {}, Received: {}, Processed: {}",
             initialSent, initialReceived, initialProcessed);
 
         Promise<Void> allProcessed = Promise.promise();
@@ -264,7 +264,7 @@ public class ConsumerModeMetricsTest {
                 double finalSent = sentCounter.count();
                 double finalReceived = receivedCounter.count();
                 double finalProcessed = processedCounter.count();
-                logger.info("📊 Final metrics - Sent: {}, Received: {}, Processed: {}",
+                logger.info(" Final metrics - Sent: {}, Received: {}, Processed: {}",
                     finalSent, finalReceived, finalProcessed);
                 consumer.close();
                 producer.close();
@@ -278,7 +278,7 @@ public class ConsumerModeMetricsTest {
             return Future.failedFuture("Message processing time timer not registered for mode: " + mode);
         }
         long initialCount = processingTimer.count();
-        logger.info("📊 Initial processing timer count: {}", initialCount);
+        logger.info(" Initial processing timer count: {}", initialCount);
 
         Promise<Void> allProcessed2 = Promise.promise();
         AtomicInteger processed = new AtomicInteger(0);
@@ -315,7 +315,7 @@ public class ConsumerModeMetricsTest {
             .map(v -> {
                 long finalCount = processingTimer.count();
                 double totalTime = processingTimer.totalTime(TimeUnit.MILLISECONDS);
-                logger.info("📊 Final processing timer - Count: {}, Total time: {}ms", finalCount, totalTime);
+                logger.info(" Final processing timer - Count: {}, Total time: {}ms", finalCount, totalTime);
                 consumer.close();
                 producer.close();
                 return (Void) null;

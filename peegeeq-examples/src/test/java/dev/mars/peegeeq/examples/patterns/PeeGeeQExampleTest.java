@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * INFRASTRUCTURE TEST: PeeGeeQ Manager Lifecycle and TestContainers Integration
  *
- * ⚠️  NOTE: This test does NOT create or test any message queues.
+ *   NOTE: This test does NOT create or test any message queues.
  *
  * WHAT THIS TESTS:
  * - PeeGeeQ Manager initialization and lifecycle management
@@ -208,7 +208,7 @@ class PeeGeeQExampleTest {
 
         PeeGeeQConfiguration config = manager.getConfiguration();
         logger.info(">> Profile: {}", config.getProfile());
-        logger.info(">>️ Database: {}:{}/{}",
+        logger.info(">> Database: {}:{}/{}",
             config.getString("peegeeq.database.host"),
             config.getInt("peegeeq.database.port", 5432),
             config.getString("peegeeq.database.name"));
@@ -275,7 +275,7 @@ class PeeGeeQExampleTest {
         var cb = circuitBreakerManager.getCircuitBreaker("demo-operation");
 
         // Simulate successful operations using the production caller pattern:
-        // tryAcquirePermission() → execute → onSuccess() / onError()
+        // tryAcquirePermission()  execute  onSuccess() / onError()
         for (int i = 0; i < 5; i++) {
             if (cb.tryAcquirePermission()) {
                 cb.onSuccess(1, java.util.concurrent.TimeUnit.NANOSECONDS);

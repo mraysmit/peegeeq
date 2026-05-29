@@ -62,7 +62,7 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
         this.payloadType = payloadType;
         this.pool = pool;
         this.objectMapper = objectMapper;
-        // null schema → unqualified SQL (relies on search_path); non-null → schema-qualified SQL
+        // null schema  unqualified SQL (relies on search_path); non-null  schema-qualified SQL
         this.schema = schema;
     }
 

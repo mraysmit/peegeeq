@@ -166,9 +166,9 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                 // max_retries=2: retry_count must reach 2 to be exhausted
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "exhausted"), 2))
                 .compose(messageId ->
-                    // markFailed #1: INSERT → retry_count=0
-                    // markFailed #2: ON CONFLICT → retry_count=1
-                    // markFailed #3: ON CONFLICT → retry_count=2 = max_retries → exhausted
+                    // markFailed #1: INSERT  retry_count=0
+                    // markFailed #2: ON CONFLICT  retry_count=1
+                    // markFailed #3: ON CONFLICT  retry_count=2 = max_retries  exhausted
                     tracker.markFailed(messageId, groupName, topic, "error 1")
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "error 2"))
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "error 3"))
@@ -301,7 +301,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         String groupName = "group1";
 
         createTopicAndSubscribe(topic, groupName)
-                // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries → exhausted
+                // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries  exhausted
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "dlq"), 2))
                 .compose(messageId ->
                     tracker.markFailed(messageId, groupName, topic, "error 1")
@@ -384,7 +384,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         String groupName = "group1";
 
         createTopicAndSubscribe(topic, groupName)
-                // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries → exhausted
+                // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries  exhausted
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "idempotent"), 2))
                 .compose(messageId ->
                     tracker.markFailed(messageId, groupName, topic, "error 1")
@@ -431,7 +431,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                 .compose(messageId ->
                     // retryGroup fails once (retry_count=0, below max_retries=3)
                     tracker.markFailed(messageId, retryGroup, topic, "transient")
-                        // dlqGroup fails 4 times: retry_count reaches 3 = max_retries → exhausted
+                        // dlqGroup fails 4 times: retry_count reaches 3 = max_retries  exhausted
                         .compose(v -> tracker.markFailed(messageId, dlqGroup, topic, "fail 1"))
                         .compose(v -> tracker.markFailed(messageId, dlqGroup, topic, "fail 2"))
                         .compose(v -> tracker.markFailed(messageId, dlqGroup, topic, "fail 3"))
@@ -486,8 +486,8 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "one-retry"), 1))
                 .compose(messageId ->
-                    // markFailed #1: INSERT → retry_count=0
-                    // markFailed #2: ON CONFLICT → retry_count=1 = max_retries=1 → exhausted
+                    // markFailed #1: INSERT  retry_count=0
+                    // markFailed #2: ON CONFLICT  retry_count=1 = max_retries=1  exhausted
                     tracker.markFailed(messageId, groupName, topic, "only error")
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "second error"))
                         .compose(v -> retryService.processFailedMessages())
@@ -532,7 +532,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     tracker.markCompleted(messageId, completedGroup, topic)
                         // retryGroup: FAILED once (retry_count=0, below max_retries=3)
                         .compose(v -> tracker.markFailed(messageId, retryGroup, topic, "retry me"))
-                        // dlqGroup: FAILED 4 times → retry_count=3 = max_retries → exhausted
+                        // dlqGroup: FAILED 4 times  retry_count=3 = max_retries  exhausted
                         .compose(v -> tracker.markFailed(messageId, dlqGroup, topic, "dlq 1"))
                         .compose(v -> tracker.markFailed(messageId, dlqGroup, topic, "dlq 2"))
                         .compose(v -> tracker.markFailed(messageId, dlqGroup, topic, "dlq 3"))
@@ -572,7 +572,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                 .put("amount", 1500.00);
 
         createTopicAndSubscribe(topic, groupName)
-                // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries → exhausted
+                // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries  exhausted
                 .compose(v -> insertMessageWithDetails(topic, payload, 2, correlationId, messageGroup))
                 .compose(messageId ->
                     tracker.markFailed(messageId, groupName, topic, "error 1")

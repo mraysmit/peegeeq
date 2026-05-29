@@ -90,7 +90,7 @@ public class BasicReactiveOperationsExampleTest {
                 OutboxFactoryRegistrar.registerWith(provider);
                 outboxFactory = provider.createFactory("outbox", databaseService);
                 orderProducer = outboxFactory.createProducer("orders", OrderEvent.class);
-                logger.info("✓ Basic Reactive Operations Example Test setup completed");
+                logger.info(" Basic Reactive Operations Example Test setup completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -119,7 +119,7 @@ public class BasicReactiveOperationsExampleTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         
         // Clean up database tables
-        logger.info("✓ Basic Reactive Operations Example Test teardown completed");
+        logger.info(" Basic Reactive Operations Example Test teardown completed");
     }
 
     /**
@@ -137,7 +137,7 @@ public class BasicReactiveOperationsExampleTest {
         // Send using reactive API
         orderProducer.send(testOrder)
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                logger.info("✓ Simple reactive send completed successfully");
+                logger.info(" Simple reactive send completed successfully");
                 testContext.completeNow();
             })));
         
@@ -165,7 +165,7 @@ public class BasicReactiveOperationsExampleTest {
         // Send using reactive API with headers
         orderProducer.send(testOrder, headers)
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                logger.info("✓ Reactive send with headers completed successfully");
+                logger.info(" Reactive send with headers completed successfully");
                 testContext.completeNow();
             })));
         
@@ -192,7 +192,7 @@ public class BasicReactiveOperationsExampleTest {
         // Send using reactive API with correlation ID
         orderProducer.send(testOrder, headers, correlationId)
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                logger.info("✓ Reactive send with correlation ID completed successfully");
+                logger.info(" Reactive send with correlation ID completed successfully");
                 testContext.completeNow();
             })));
         
@@ -224,7 +224,7 @@ public class BasicReactiveOperationsExampleTest {
         // Send using reactive API with all parameters
         orderProducer.send(testOrder, headers, correlationId, messageGroup)
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                logger.info("✓ Full parameter reactive send completed successfully");
+                logger.info(" Full parameter reactive send completed successfully");
                 testContext.completeNow();
             })));
         
@@ -265,7 +265,7 @@ public class BasicReactiveOperationsExampleTest {
                 assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
                 assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
                 
-                logger.info("✓ Performance validation completed successfully");
+                logger.info(" Performance validation completed successfully");
                 logger.info("Total time: {}ms, Average per message: {}ms", totalTime, String.format("%.2f", avgTimePerMessage));
                 logger.info("Messages processed: {}, Rate: {} msg/sec", messageCount, String.format("%.2f", (messageCount * 1000.0) / totalTime));
                 testContext.completeNow();

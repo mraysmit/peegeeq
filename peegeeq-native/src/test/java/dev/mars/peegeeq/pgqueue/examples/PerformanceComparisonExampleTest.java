@@ -144,7 +144,7 @@ class PerformanceComparisonExampleTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up Performance Comparison Test");
+        logger.info(" Cleaning up Performance Comparison Test");
 
         (nativeFactory != null ? nativeFactory.close() : Future.<Void>succeededFuture())
             .eventually(() -> manager != null ? manager.closeReactive() : Future.<Void>succeededFuture())
@@ -290,7 +290,7 @@ class PerformanceComparisonExampleTest {
      */
     private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval, Vertx vertx) throws Exception {
         logger.info("\n=== Testing Configuration: {} ===", configName);
-        logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
+        logger.info(" Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
         Instant startTime = Instant.now();
 
@@ -356,7 +356,7 @@ class PerformanceComparisonExampleTest {
             Instant sendingEndTime = Instant.now();
             long sendingTimeMs = Duration.between(sendingStartTime, sendingEndTime).toMillis();
 
-            logger.info("📤 Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
+            logger.info(" Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
 
             // Wait for processing to complete (with timeout)
             AtomicBoolean succeededRef = new AtomicBoolean(false);
@@ -375,14 +375,14 @@ class PerformanceComparisonExampleTest {
             double throughputMsgPerSec = processed > 0 ? (processed * 1000.0) / totalTimeMs : 0.0;
             double avgProcessingTimeMs = processed > 0 ? (double) totalProcessingTime.get() / processed : 0.0;
 
-            logger.info("📊 Performance Results for {}:", configName);
+            logger.info(" Performance Results for {}:", configName);
             logger.info("   Completed: {}", completed);
-            logger.info("   📈 Processed: {}/{} messages", processed, MESSAGE_COUNT);
-            logger.info("   ⏱️ Total Time: {}ms", totalTimeMs);
-            logger.info("   📤 Sending Time: {}ms", sendingTimeMs);
-            logger.info("   🔄 Processing Time: {}ms", processingTimeMs);
-            logger.info("   🚀 Throughput: {:.2f} messages/second", throughputMsgPerSec);
-            logger.info("   ⚡ Avg Processing Time: {:.2f}ms per message", avgProcessingTimeMs);
+            logger.info("    Processed: {}/{} messages", processed, MESSAGE_COUNT);
+            logger.info("    Total Time: {}ms", totalTimeMs);
+            logger.info("    Sending Time: {}ms", sendingTimeMs);
+            logger.info("    Processing Time: {}ms", processingTimeMs);
+            logger.info("    Throughput: {:.2f} messages/second", throughputMsgPerSec);
+            logger.info("    Avg Processing Time: {:.2f}ms per message", avgProcessingTimeMs);
 
             // Close resources
             consumer.close();
@@ -410,7 +410,7 @@ class PerformanceComparisonExampleTest {
      */
     private void displayPerformanceComparison(PerformanceResult... results) {
         logger.info("\n" + "=".repeat(80));
-        logger.info("📊 PERFORMANCE COMPARISON RESULTS");
+        logger.info(" PERFORMANCE COMPARISON RESULTS");
         logger.info("=".repeat(80));
 
         logger.info(String.format("%-20s %-8s %-10s %-12s %-10s %-12s %-10s",
@@ -434,9 +434,9 @@ class PerformanceComparisonExampleTest {
         }
 
         if (best != null) {
-            logger.info("🏆 Best Performance: {} with {} messages/second",
+            logger.info(" Best Performance: {} with {} messages/second",
                 best.configName, String.format("%.2f", best.throughputMsgPerSec));
-            logger.info("🔧 Optimal Settings: {} threads, batch size {}, polling interval {}",
+            logger.info(" Optimal Settings: {} threads, batch size {}, polling interval {}",
                 best.threads, best.batchSize, best.pollingInterval);
         }
 

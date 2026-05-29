@@ -33,20 +33,20 @@ import static org.junit.jupiter.api.Assertions.*;
  * it is the correct architecture for this specific test concern. The reasons are:
  *
  * <h3>1. Synchronous Docker container lifecycle calls</h3>
- * <p>The core test operations — {@code pauseContainerCmd(...).exec()} and
- * {@code unpauseContainerCmd(...).exec()} — are synchronous blocking Docker API calls.
+ * <p>The core test operations  {@code pauseContainerCmd(...).exec()} and
+ * {@code unpauseContainerCmd(...).exec()}  are synchronous blocking Docker API calls.
  * Placing them inside a {@code Future} pipeline that runs on the Vert.x event loop would
  * block the event loop thread, which is forbidden. Wrapping each in
  * {@code vertx.executeBlocking(...)} would add substantial boilerplate while providing
  * no correctness benefit, because the pause/unpause sequence is inherently synchronous
- * and sequential — there is no meaningful parallelism to gain.
+ * and sequential  there is no meaningful parallelism to gain.
  *
  * <h3>2. Retry polling loops require inter-attempt delays</h3>
  * <p>The tests poll the health endpoint up to 10 times waiting for the system to
  * detect connection loss (503) or recover (200). Each iteration needs a ~1 second
- * pause. {@code Thread.sleep} is forbidden by the project rules. The pattern used —
+ * pause. {@code Thread.sleep} is forbidden by the project rules. The pattern used 
  * {@code vertx.timer(1000).onComplete(ar -> timerLatch.countDown())} on the main
- * JUnit thread — is the correct substitute: it delegates the timer to Vert.x (which
+ * JUnit thread  is the correct substitute: it delegates the timer to Vert.x (which
  * fires on the event loop) and the main thread waits on the latch without blocking
  * any Vert.x thread.
  *

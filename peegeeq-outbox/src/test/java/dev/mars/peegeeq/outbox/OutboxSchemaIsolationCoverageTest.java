@@ -62,7 +62,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@DisplayName("Outbox schema isolation coverage — TC-S1 through TC-S13")
+@DisplayName("Outbox schema isolation coverage  TC-S1 through TC-S13")
 public class OutboxSchemaIsolationCoverageTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxSchemaIsolationCoverageTest.class);
@@ -70,7 +70,7 @@ public class OutboxSchemaIsolationCoverageTest {
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
-    // Per-test resources — cleared by @AfterEach
+    // Per-test resources  cleared by @AfterEach
     private PeeGeeQManager manager;
     private PeeGeeQManager managerB;
     private OutboxFactory factory;
@@ -146,13 +146,13 @@ public class OutboxSchemaIsolationCoverageTest {
                 .compose(statsA -> {
                     testContext.verify(() -> assertEquals(3L, statsA.getTotalMessages(),
                             schemaA + " should have 3 total messages for " + topicA
-                            + " — had " + statsA.getTotalMessages()));
+                            + "  had " + statsA.getTotalMessages()));
                     return factoryB.getStats(topicA);
                 })
                 .onSuccess(statsB -> testContext.verify(() -> {
                     assertEquals(0L, statsB.getTotalMessages(),
                             schemaB + " must have 0 messages for " + topicA
-                            + " (never written) — had " + statsB.getTotalMessages());
+                            + " (never written)  had " + statsB.getTotalMessages());
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -203,13 +203,13 @@ public class OutboxSchemaIsolationCoverageTest {
                 .compose(countA -> {
                     testContext.verify(() -> assertEquals(5L, countA,
                             schemaA + " should have 5 messages for " + topicA
-                            + " — had " + countA));
+                            + "  had " + countA));
                     return factoryB.countMessages(topicA);
                 })
                 .onSuccess(countB -> testContext.verify(() -> {
                     assertEquals(0L, countB,
                             schemaB + " must have 0 messages for " + topicA
-                            + " (never written) — had " + countB);
+                            + " (never written)  had " + countB);
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -261,17 +261,17 @@ public class OutboxSchemaIsolationCoverageTest {
                 .compose(v -> factory.purgeMessages(topicA))
                 .compose(purgeCount -> {
                     testContext.verify(() -> assertEquals(4, purgeCount,
-                            "purgeMessages for " + schemaA + " should delete 4 rows — deleted " + purgeCount));
+                            "purgeMessages for " + schemaA + " should delete 4 rows  deleted " + purgeCount));
                     return factory.countMessages(topicA);
                 })
                 .compose(countA -> {
                     testContext.verify(() -> assertEquals(0L, countA,
-                            schemaA + " should be empty after purge — had " + countA));
+                            schemaA + " should be empty after purge  had " + countA));
                     return factoryB.countMessages(topicB);
                 })
                 .onSuccess(countB -> testContext.verify(() -> {
                     assertEquals(2L, countB,
-                            schemaB + " must still have 2 messages (not purged) — had " + countB);
+                            schemaB + " must still have 2 messages (not purged)  had " + countB);
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -325,7 +325,7 @@ public class OutboxSchemaIsolationCoverageTest {
                     testContext.verify(() -> {
                         assertEquals(3, messagesA.size(),
                                 "Browser for " + schemaA + " should see 3 messages for topic " + topicA
-                                + " — saw " + messagesA.size());
+                                + "  saw " + messagesA.size());
                         messagesA.forEach(msg -> assertTrue(
                                 msg.getPayload().startsWith("schema-a-"),
                                 "Browser A must only see schema-A messages, got: " + msg.getPayload()));
@@ -336,7 +336,7 @@ public class OutboxSchemaIsolationCoverageTest {
                 .onSuccess(messagesB -> testContext.verify(() -> {
                     assertEquals(2, messagesB.size(),
                             "Browser for " + schemaB + " should see 2 messages for topic " + topicB
-                            + " — saw " + messagesB.size());
+                            + "  saw " + messagesB.size());
                     messagesB.forEach(msg -> assertTrue(
                             msg.getPayload().startsWith("schema-b-"),
                             "Browser B must only see schema-B messages, got: " + msg.getPayload()));
@@ -394,16 +394,16 @@ public class OutboxSchemaIsolationCoverageTest {
     }
 
     // -----------------------------------------------------------------------
-    // TC-S6: Null schema → unqualified SQL (no NPE, backward-compatible path)
+    // TC-S6: Null schema  unqualified SQL (no NPE, backward-compatible path)
     // -----------------------------------------------------------------------
 
     @Test
-    @DisplayName("TC-S6: null schema uses unqualified SQL — no NPE, backward-compatible")
+    @DisplayName("TC-S6: null schema uses unqualified SQL  no NPE, backward-compatible")
     void tcS6_nullSchemaUsesUnqualifiedSql(VertxTestContext testContext) throws Exception {
-        // Tables are created in the "public" schema — PostgreSQL's default search_path resolves them.
+        // Tables are created in the "public" schema  PostgreSQL's default search_path resolves them.
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, "public", SchemaComponent.QUEUE_ALL);
 
-        // Build Properties WITHOUT peegeeq.database.schema — intentional omission.
+        // Build Properties WITHOUT peegeeq.database.schema  intentional omission.
         // PeeGeeQTestConfig.builder() always sets a schema, so we construct Properties manually.
         Properties props = new Properties();
         props.setProperty("peegeeq.database.host",     postgres.getHost());
@@ -415,8 +415,8 @@ public class OutboxSchemaIsolationCoverageTest {
         props.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
         props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
         props.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        // peegeeq.database.schema intentionally NOT set → getSchema() returns null
-        // → OutboxConsumer.schemaName = null → qualifyTable() returns unqualified name
+        // peegeeq.database.schema intentionally NOT set  getSchema() returns null
+        //  OutboxConsumer.schemaName = null  qualifyTable() returns unqualified name
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -470,7 +470,7 @@ public class OutboxSchemaIsolationCoverageTest {
                 .compose(v -> {
                     PgDatabaseService pgDs = new PgDatabaseService(manager);
 
-                    // PgQueueFactoryProvider with no-arg constructor → peeGeeQConfiguration == null.
+                    // PgQueueFactoryProvider with no-arg constructor  peeGeeQConfiguration == null.
                     // The registrar's createFactory() must fall back to pgDs.getPeeGeeQConfiguration().
                     PgQueueFactoryProvider noConfigProvider = new PgQueueFactoryProvider();
                     OutboxFactoryRegistrar.registerWith(noConfigProvider);
@@ -489,7 +489,7 @@ public class OutboxSchemaIsolationCoverageTest {
                 .onSuccess(stats -> testContext.verify(() -> {
                     assertEquals(1L, stats.getTotalMessages(),
                             "Factory created via registrar fallback must query " + schema + ".outbox"
-                            + " — found " + stats.getTotalMessages() + " messages");
+                            + "  found " + stats.getTotalMessages() + " messages");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -593,14 +593,14 @@ public class OutboxSchemaIsolationCoverageTest {
                 .compose(statusA -> {
                     testContext.verify(() -> assertTrue(
                             "FAILED".equals(statusA) || "DEAD_LETTER".equals(statusA),
-                            schemaA + ".outbox message status should be FAILED or DEAD_LETTER — was '" + statusA + "'"));
+                            schemaA + ".outbox message status should be FAILED or DEAD_LETTER  was '" + statusA + "'"));
                     // Cross-schema check: schema B outbox must not contain this topic
                     return queryOutboxStatus(managerB.getPool(), topicA);
                 })
                 .onSuccess(statusB -> testContext.verify(() -> {
                     assertEquals("", statusB,
                             schemaB + ".outbox must NOT contain any entry for topic " + topicA
-                            + " (cross-schema contamination) — status was '" + statusB + "'");
+                            + " (cross-schema contamination)  status was '" + statusB + "'");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -759,13 +759,13 @@ public class OutboxSchemaIsolationCoverageTest {
                     consumerGroup = cgA;
                     cgA.addConsumer("member-a",
                             msg -> Future.succeededFuture(),
-                            msg -> { throw new RuntimeException("TC-S12 filter always throws — tenant A"); });
+                            msg -> { throw new RuntimeException("TC-S12 filter always throws  tenant A"); });
 
                     ConsumerGroup<String> cgB = factoryB.createConsumerGroup("group-tc-s12-b", topicB, String.class);
                     consumerGroupB = cgB;
                     cgB.addConsumer("member-b",
                             msg -> Future.succeededFuture(),
-                            msg -> { throw new RuntimeException("TC-S12 filter always throws — tenant B"); });
+                            msg -> { throw new RuntimeException("TC-S12 filter always throws  tenant B"); });
 
                     return cgA.start().compose(ignored -> cgB.start());
                 })
@@ -781,25 +781,25 @@ public class OutboxSchemaIsolationCoverageTest {
                         () -> queryDLQCount(managerB.getPool(), topicB).map(c -> c >= 1),
                         30_000,
                         schemaB + ".dead_letter_queue should have 1 entry for topic " + topicB))
-                // Verify via DeadLetterQueueManager API — exercises the round-trip
+                // Verify via DeadLetterQueueManager API  exercises the round-trip
                 .compose(v -> manager.getDeadLetterQueueManager().getDeadLetterMessages(topicA, 10, 0))
                 .compose(dlmsA -> {
                     testContext.verify(() -> assertEquals(1, dlmsA.size(),
                             "DeadLetterQueueManager for " + schemaA + " should return 1 DLQ entry"
-                            + " for topic " + topicA + " — returned " + dlmsA.size()));
+                            + " for topic " + topicA + "  returned " + dlmsA.size()));
                     // Cross-schema check: schema A DLQ manager must not see schema B's topic
                     return manager.getDeadLetterQueueManager().getDeadLetterMessages(topicB, 10, 0);
                 })
                 .compose(dlmsAForTopicB -> {
                     testContext.verify(() -> assertEquals(0, dlmsAForTopicB.size(),
                             schemaA + " DLQ manager must NOT return entries for schema B topic "
-                            + topicB + " — returned " + dlmsAForTopicB.size()));
+                            + topicB + "  returned " + dlmsAForTopicB.size()));
                     return managerB.getDeadLetterQueueManager().getDeadLetterMessages(topicB, 10, 0);
                 })
                 .onSuccess(dlmsB -> testContext.verify(() -> {
                     assertEquals(1, dlmsB.size(),
                             "DeadLetterQueueManager for " + schemaB + " should return 1 DLQ entry"
-                            + " for topic " + topicB + " — returned " + dlmsB.size());
+                            + " for topic " + topicB + "  returned " + dlmsB.size());
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -868,13 +868,13 @@ public class OutboxSchemaIsolationCoverageTest {
                 })
                 .compose(dlqCountAfter -> {
                     testContext.verify(() -> assertEquals(0, dlqCountAfter,
-                            schema + ".dead_letter_queue should be empty after reprocess — had " + dlqCountAfter));
+                            schema + ".dead_letter_queue should be empty after reprocess  had " + dlqCountAfter));
                     // Outbox must have a new PENDING row
                     return queryPendingCount(manager.getPool(), topic);
                 })
                 .onSuccess(pendingCount -> testContext.verify(() -> {
                     assertEquals(1, pendingCount,
-                            schema + ".outbox should have exactly 1 PENDING row after reprocess — had " + pendingCount);
+                            schema + ".outbox should have exactly 1 PENDING row after reprocess  had " + pendingCount);
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -884,7 +884,7 @@ public class OutboxSchemaIsolationCoverageTest {
     }
 
     // -----------------------------------------------------------------------
-    // Helpers — polling and query utilities
+    // Helpers  polling and query utilities
     // -----------------------------------------------------------------------
 
     private Future<Void> awaitDatabaseCondition(Vertx vertx,
@@ -906,7 +906,7 @@ public class OutboxSchemaIsolationCoverageTest {
                     }
                     if (System.currentTimeMillis() > deadline) {
                         String reason = ar.failed()
-                                ? " — condition threw: " + ar.cause().getMessage()
+                                ? "  condition threw: " + ar.cause().getMessage()
                                 : " (timed out)";
                         return Future.failedFuture(new AssertionError(failureMessage + reason));
                     }

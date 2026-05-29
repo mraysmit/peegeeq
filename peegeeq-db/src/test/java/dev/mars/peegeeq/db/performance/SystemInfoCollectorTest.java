@@ -146,9 +146,9 @@ class SystemInfoCollectorTest {
         
         // Verify report structure
         assertTrue(report.contains("# Test Suite Performance Test Results"), "Should contain title");
-        assertTrue(report.contains("## 📊 Executive Summary"), "Should contain executive summary");
+        assertTrue(report.contains("##  Executive Summary"), "Should contain executive summary");
         assertTrue(report.contains("## System Configuration"), "Should contain system configuration");
-        assertTrue(report.contains("## 🎯 Detailed Test Results"), "Should contain detailed results");
+        assertTrue(report.contains("##  Detailed Test Results"), "Should contain detailed results");
         assertTrue(report.contains("Sample Test"), "Should contain test name");
         
         logger.info("Generated report preview (first 500 chars):\n{}", 

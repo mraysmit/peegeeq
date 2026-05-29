@@ -148,7 +148,7 @@ public class EventStoreIntegrationTest {
                         if (response.statusCode() == 200 || response.statusCode() == 204) {
                             logger.info("Cleanup completed");
                         } else {
-                            logger.warn("⚠️ Cleanup failed with status: {}", response.statusCode());
+                            logger.warn(" Cleanup failed with status: {}", response.statusCode());
                         }
                         return vertx.undeploy(deploymentId);
                     })
@@ -224,7 +224,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Store event response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() != 200) {
-                        logger.error("❌ Event storage failed: {} - {}", response.statusCode(), response.bodyAsString());
+                        logger.error(" Event storage failed: {} - {}", response.statusCode(), response.bodyAsString());
                     }
 
                     assertEquals(201, response.statusCode(), "Event should be stored successfully (201 Created). Got error: " + response.bodyAsString());
@@ -1937,7 +1937,7 @@ public class EventStoreIntegrationTest {
                     testContext.verify(() -> {
                         logger.info("Inverted range query response: {} - {}", queryResponse.statusCode(), queryResponse.bodyAsString());
 
-                        // Server validates that start time cannot be after end time — returns error response
+                        // Server validates that start time cannot be after end time  returns error response
                         assertTrue(queryResponse.statusCode() >= 400,
                                 "Inverted time range should return a 4xx or 5xx error, got: " + queryResponse.statusCode());
 

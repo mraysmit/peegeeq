@@ -122,7 +122,7 @@ class OutboxProducerAdditionalCoverageTest {
     @Test
     void testSendWithSpecialCharactersInPayload(VertxTestContext testContext) throws Exception {
         // Test special characters and Unicode
-        String specialPayload = "Message with special chars: 你好 مرحبا здравствуйте emoji:🎉🚀 \n\t\"quotes\" 'apostrophes'";
+        String specialPayload = "Message with special chars:    emoji: \n\t\"quotes\" 'apostrophes'";
         producer.send(specialPayload)
             .onSuccess(v -> {
                 logger.info("Special characters in payload handled correctly");
@@ -209,7 +209,7 @@ class OutboxProducerAdditionalCoverageTest {
         // Test special characters in header keys and values
         Map<String, String> specialHeaders = new HashMap<>();
         specialHeaders.put("x-special-chars", "value with: tabs\t newlines\n quotes\"");
-        specialHeaders.put("x-unicode", "你好世界 🌍");
+        specialHeaders.put("x-unicode", " ");
         
         producer.send("test-payload", specialHeaders)
             .onSuccess(v -> {

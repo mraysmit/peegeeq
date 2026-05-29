@@ -110,7 +110,7 @@ class PollingOnlyEdgeCaseTest {
 
     @Test
     void testFastPollingInterval(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing fast polling interval (100ms)");
+        logger.info(" Testing fast polling interval (100ms)");
 
         String topicName = "test-fast-polling";
 
@@ -128,7 +128,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received fast polling message {}: {}", count, message.getPayload());
+            logger.info(" Received fast polling message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
@@ -149,7 +149,7 @@ class PollingOnlyEdgeCaseTest {
 
     @Test
     void testSlowPollingInterval(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing slow polling interval (5 seconds)");
+        logger.info(" Testing slow polling interval (5 seconds)");
 
         String topicName = "test-slow-polling";
 
@@ -167,7 +167,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received slow polling message {}: {}", count, message.getPayload());
+            logger.info(" Received slow polling message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
@@ -187,7 +187,7 @@ class PollingOnlyEdgeCaseTest {
 
     @Test
     void testHighConcurrencyPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing high concurrency polling");
+        logger.info(" Testing high concurrency polling");
 
         String topicName = "test-high-concurrency-polling";
 
@@ -206,7 +206,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received concurrent message {}: {} on thread {}",
+            logger.info(" Received concurrent message {}: {} on thread {}",
                 count, message.getPayload(), Thread.currentThread().getName());
             messagesReceived.flag();
             return Future.succeededFuture();
@@ -228,7 +228,7 @@ class PollingOnlyEdgeCaseTest {
 
     @Test
     void testBatchProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing batch processing");
+        logger.info(" Testing batch processing");
 
         String topicName = "test-batch-processing";
 
@@ -247,7 +247,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Processed batch message {}: {}", count, message.getPayload());
+            logger.info(" Processed batch message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });
@@ -269,7 +269,7 @@ class PollingOnlyEdgeCaseTest {
 
     @Test
     void testEmptyQueuePolling(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing empty queue polling behavior");
+        logger.info(" Testing empty queue polling behavior");
 
         String topicName = "test-empty-queue-polling";
 
@@ -288,7 +288,7 @@ class PollingOnlyEdgeCaseTest {
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             lastMessage.set(message.getPayload());
-            logger.info("📨 Received message: {}", message.getPayload());
+            logger.info(" Received message: {}", message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
         });
@@ -321,7 +321,7 @@ class PollingOnlyEdgeCaseTest {
 
     @Test
     void testPollingWithDatabaseConnectionIssues(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Testing polling resilience with database connection issues");
+        logger.info(" Testing polling resilience with database connection issues");
 
         String topicName = "test-db-connection-issues";
 
@@ -339,7 +339,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
-            logger.info("📨 Received resilient message {}: {}", count, message.getPayload());
+            logger.info(" Received resilient message {}: {}", count, message.getPayload());
             messagesReceived.flag();
             return Future.succeededFuture();
         });

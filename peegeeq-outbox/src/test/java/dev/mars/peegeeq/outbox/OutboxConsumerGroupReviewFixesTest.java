@@ -496,7 +496,7 @@ class OutboxConsumerGroupReviewFixesTest {
         }
 
         @Test
-        @DisplayName("group stop() transitions ACTIVE → NEW and allows restart")
+        @DisplayName("group stop() transitions ACTIVE  NEW and allows restart")
         void groupStopAllowsRestart() {
             group = createGroup("stop-restart-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());

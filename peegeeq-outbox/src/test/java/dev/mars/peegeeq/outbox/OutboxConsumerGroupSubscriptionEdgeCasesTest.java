@@ -578,7 +578,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .compose(v -> producer.send("Message"))
                 .compose(v -> vertx.timer(500))
                 .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    // The handler was already set above — a second call always throws,
+                    // The handler was already set above  a second call always throws,
                     // whether or not a message is currently being processed.
                     assertThrows(IllegalStateException.class, () -> {
                         group.setMessageHandler(msg -> Future.succeededFuture());
