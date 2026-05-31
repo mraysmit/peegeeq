@@ -37,3 +37,46 @@ export const DEFAULT_QUEUE_CONFIG = {
   deadLetterEnabled: true,
   fifoEnabled: false,
 } as const
+
+/** A setup as listed by GET /api/v1/setups. */
+export interface SetupInfo {
+  setupId: string
+  status: string
+  queueCount: number
+  createdAt: number
+}
+
+/** Full per-queue configuration (chosen at queue-creation time). */
+export interface QueueInfo {
+  name: string
+  implementationType: QueueImplementationType // per-queue, chosen at creation
+  maxRetries: number
+  visibilityTimeoutSeconds: number
+  deadLetterEnabled: boolean
+  batchSize: number
+  fifoEnabled: boolean
+}
+
+/**
+ * A single message published to a queue.
+ * Mirrors the backend `MessageRequest` contract (§4).
+ */
+export interface MessageRequest {
+  payload: object
+  headers?: Record<string, string>
+  messageType?: string
+  correlationId?: string
+  priority?: number
+  delaySeconds?: number
+  messageGroup?: string
+}
+
+/**
+ * A batch of messages published in a single request.
+ * Mirrors the backend `BatchMessageRequest` contract (§4).
+ */
+export interface BatchMessageRequest {
+  messages: MessageRequest[]
+  failOnError?: boolean
+  maxBatchSize?: number
+}

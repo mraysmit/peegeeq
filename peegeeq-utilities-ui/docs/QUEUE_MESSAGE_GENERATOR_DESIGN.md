@@ -616,22 +616,21 @@ no database migration is required.)
 - `SetupDetailPage.tsx` — render a per-queue type badge (green = native, orange = outbox), add a
   **Create queue** button, and a per-row **Delete** with `Popconfirm`.
 - `App.tsx` — register the `CreateQueuePage` route.
-- `TargetSelector.tsx` — point the currently-dead "Manage queues →" link at the setup detail
-  queues view.
+- `TargetSelector.tsx` — point the currently-dead "Manage queues →" link at the setup detail page (`/setups/:setupId`).
 
-#### Create Queue page — route `/setups/:setupId/queues/new`
+**`CreateQueuePage.tsx` wireframe:**
 
 ```
 +-- Create Queue ---------------------------------------------------------------+
 |  <- Back to setup                                                             |
 |                                                                               |
-|  Create queue in "my-test-setup"                                             |
+|  Create Queue                                                                 |
 |  +-------------------------------------------------------------------------+ |
 |  |  Queue name *                                                           | |
 |  |  [orders                                                            ]   | |
 |  |                                                                         | |
 |  |  Implementation type *                                                  | |
-|  |  ( native  v )    native = LISTEN/NOTIFY, outbox = polling + retries    | |
+|  |  [native ▾]                                                             | |
 |  |                                                                         | |
 |  |  [> Advanced]   <- collapsed by default                                 | |
 |  |                                                                         | |
@@ -649,10 +648,96 @@ no database migration is required.)
 
 ---
 
+### 6.6 Page: `/` — Overview (redesigned)
+
+#### Purpose
+
+The Overview page is the entry point for understanding the current state of all PeeGeeQ setups and their queues. It provides a clear, hierarchical, and actionable summary—without misleading global aggregates or system-wide statistics.
+
+**Key principles:**
+- **Setups are the top-level entity.** Each setup is an isolated database/schema container.
+- **Queues are always per-setup.** Each queue has its own implementation type (`native` or `outbox`).
+- **Consumer groups and message stats are always shown in the context of their parent queue.**
+- **No global message/queue/consumer aggregates.** All metrics are per-setup and per-queue only.
+
+#### Hierarchy
+
+- **Setups** (one card per setup)
+  - Setup ID (primary label)
+  - Database name (secondary)
+  - Queue count (badge)
+  - [Manage queues →] link
+  - For each queue in the setup:
+    - **Queue name** (badge: implementation type — green for native, orange for outbox)
+    - Consumer group count (if present)
+    - [View details] link
+    - For each consumer group (if present):
+      - Consumer group name
+      - Status (active/paused)
+    - **Message stats** (if available):
+      - Recent message count (last N minutes)
+      - Error count (last N minutes)
+      - Last published message timestamp
+
+#### Wireframe
+
+```
++---------------------------------------------------------------+
+|  dev-tenant-1                              [3 queues]         |
+|  Database: peegeeq_dev          [Manage queues ->]            |
++---------------------------------------------------------------+
+|  orders  [native]                         [View details ->]   |
+|  Consumer groups: 2                                           |
+|    * payment-processor  [active]                              |
+|    * order-archiver     [paused]                              |
+|---------------------------------------------------------------|
+|  events  [outbox]                         [View details ->]   |
+|  Consumer groups: 1                                           |
+|    * audit-writer  [active]                                   |
++---------------------------------------------------------------+
+
++---------------------------------------------------------------+
+|  staging-tenant-2                          [1 queue]          |
+|  Database: peegeeq_staging      [Manage queues ->]            |
++---------------------------------------------------------------+
+|  events  [outbox]                         [View details ->]   |
+|  Consumer groups: 1                                           |
+|    * event-logger  [active]                                   |
++---------------------------------------------------------------+
+```
+
+#### Hierarchy Diagram
+
+```
+Setup: dev-tenant-1
+├── Queue: orders  [native]
+│   ├── Consumer group: payment-processor  [active]
+│   └── Consumer group: order-archiver     [paused]
+└── Queue: events  [outbox]
+    └── Consumer group: audit-writer       [active]
+
+Setup: staging-tenant-2
+└── Queue: events  [outbox]
+    └── Consumer group: event-logger       [active]
+```
+
+#### Design Notes
+
+- **No system-wide totals or misleading "global" metrics.**
+- **No cross-setup aggregation.**
+- **All actions (manage queues, view details) are per-setup or per-queue.**
+- **Consumer groups and stats are only shown if present.**
+- **If no setups exist:** show a prominent empty state with a call to action to create a setup.
+
+#### [Placeholder for updated screenshot — to be replaced after UI implementation]
+
+<!-- ![Overview](screenshots/01-overview.png) -->
+
+---
+
 ## 7. Client-Side Publication Engine
 
-The engine runs in the browser main thread using a `setInterval`-based tick loop. A Web Worker
-is deferred to v2.
+The engine runs in the browser main thread using a `setInterval`-based tick loop. A Web Worker is deferred to v2.
 
 ### 7.1 Tick Algorithm
 
@@ -804,14 +889,11 @@ User edits template, sets rate/duration/guards
   -> resolveTemplate(template, { messageId: previewIndex, runId: newUUID(), ... })
      JSON shown in Modal — zero HTTP calls
 
-  [Start]
-  -> publication engine initialises: runId = UUID, correlationId = UUID, messageId = 1
-     setInterval tick loop begins:
-       resolve batchSize messages
-       POST /api/v1/queues/{setupId}/{queueName}/messages/batch
-         2xx  -> sent += N, consecErrors = 0
-         err  -> errors.push(...), consecErrors += 1
+
+```
+---------------------------------------------------------------
                  if consecErrors >= maxConsecErrors (and > 0): auto-stop -> ERROR
+---------------------------------------------------------------
        Zone E counters updated every 500ms
 
   duration elapsed  ->  COMPLETED  ->  summary card + download button
@@ -823,10 +905,14 @@ User edits template, sets rate/duration/guards
 
 ## 10. Type Definitions
 
+---------------------------------------------------------------
 ### `src/types/generator.ts`
+---------------------------------------------------------------
 
 ```typescript
 export type RunStatus = 'idle' | 'running' | 'completed' | 'stopped' | 'error'
+---------------------------------------------------------------
+```
 
 /** A named list of string values used by {{list:name}} placeholder tokens. */
 export interface ValueList {
@@ -1151,14 +1237,11 @@ peegeeq-utilities-ui/
       publishService.ts                   (POST single + batch, with fallback)
       templateService.ts                  (localStorage CRUD + file import/export)
       valueListService.ts                 (localStorage CRUD + file import/export for lists)
-    engine/
-      publicationEngine.ts                (tick loop + state machine + callbacks)
-      templateResolver.ts                 (resolveTemplate — pure function)
-    stores/
-      utilitiesStore.ts                   (existing — overview data)
-      generatorStore.ts                   (run state: status, counters, errors)
-      templateStore.ts                    (template list + selection)
+
+  ```
+  ---------------------------------------------------------------
       valueListStore.ts                   (value list CRUD + snapshot for resolver)
+  ---------------------------------------------------------------
     services/
       valueListService.ts                 (localStorage CRUD + file import/export for lists)
     types/
@@ -1170,10 +1253,14 @@ peegeeq-utilities-ui/
 
 ## 15. Navigation Changes
 
+  ---------------------------------------------------------------
 Two new sidebar entries added to `App.tsx`:
+  ---------------------------------------------------------------
 
 | Label             | Route                       | Icon                  | Position in sidebar     |
 |-------------------|-----------------------------|-----------------------|-------------------------|
+  ---------------------------------------------------------------
+  ```
 | Message Generator | `/generator`                | `ThunderboltOutlined` | Below Overview          |
 | Templates         | `/generator/templates`      | `FileTextOutlined`    | Below Message Generator |
 | Value Lists       | `/generator/value-lists`    | `UnorderedListOutlined` | Below Templates       |
@@ -1494,3 +1581,85 @@ Phase 1 (Quick Setup Wizard)
               └── Phase 5 (Value List Manager)  <- parallel with Phases 3 & 4
                     └── Phase 6 (Tests)
 ```
+
+---
+
+## Appendix A — UI Screenshots
+
+Full-page screenshots of every page and primary action in the PeeGeeQ Utilities UI.
+
+These images are generated automatically and are kept in sync with the implementation.
+To regenerate them after a UI change, run from the `peegeeq-utilities-ui` directory:
+
+```powershell
+npx playwright test --config=playwright.screenshots.config.ts
+```
+
+The capture spec (`src/tests/e2e/specs/screenshots.spec.ts`) starts a TestContainers
+PostgreSQL instance and a PeeGeeQ REST backend, walks each page, creates and deletes a
+throwaway `screenshot-demo` setup and `demo_orders` queue to populate the data-bearing
+pages, and writes each full-page PNG into `docs/screenshots/`.
+
+### A.1 Pages
+
+#### 01 — Overview (`/`)
+
+![Overview](screenshots/01-overview.png)
+
+#### 02 — Tools (`/tools`)
+
+![Tools](screenshots/02-tools.png)
+
+#### 03 — Message Generator (`/generator`)
+
+![Message Generator](screenshots/03-message-generator.png)
+
+#### 04 — Templates (Phase 3 placeholder) (`/generator/templates`)
+
+![Templates](screenshots/04-templates.png)
+
+#### 05 — Value Lists (Phase 3 placeholder) (`/generator/value-lists`)
+
+![Value Lists](screenshots/05-value-lists.png)
+
+#### 06 — Setups list (`/setups`)
+
+![Setups list](screenshots/06-setups-list.png)
+
+#### 10 — Setup detail, no queues (`/setups/:setupId`)
+
+![Setup detail empty](screenshots/10-setup-detail-empty.png)
+
+#### 13 — Setup detail, with queue (`/setups/:setupId`)
+
+![Setup detail with queue](screenshots/13-setup-detail-with-queue.png)
+
+### A.2 Actions
+
+#### 07 — Create Setup, empty form
+
+![Create Setup empty](screenshots/07-create-setup-empty.png)
+
+#### 08 — Create Setup, filled with connection details expanded
+
+![Create Setup filled](screenshots/08-create-setup-filled.png)
+
+#### 09 — Setups list, populated after creation
+
+![Setups list populated](screenshots/09-setups-list-populated.png)
+
+#### 11 — Create Queue, empty form
+
+![Create Queue empty](screenshots/11-create-queue-empty.png)
+
+#### 12 — Create Queue, filled with advanced settings expanded
+
+![Create Queue advanced](screenshots/12-create-queue-advanced.png)
+
+#### 14 — Delete queue, confirmation popover
+
+![Delete queue confirm](screenshots/14-delete-queue-confirm.png)
+
+#### 15 — Delete setup, confirmation popover
+
+![Delete setup confirm](screenshots/15-delete-setup-confirm.png)

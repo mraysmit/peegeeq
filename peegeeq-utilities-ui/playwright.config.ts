@@ -111,6 +111,15 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['4-quick-setup'],
     },
+    // Step 6: Create Queue - Full-coverage tests for the Create Queue page.
+    // Owns a dedicated setup (created/torn down via REST), so it only depends on
+    // 5-setups for ordering (to avoid interleaving shared-DB mutations).
+    {
+      name: '6-create-queue',
+      testMatch: '**/create-queue.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['5-setups'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

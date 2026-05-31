@@ -102,4 +102,35 @@ export class SetupsPage extends BasePage {
   getDetailBackButton(): Locator {
     return this.page.getByTestId('back-button')
   }
+
+  // ── Detail page — queues section ────────────────────────────────────────────
+
+  /**
+   * The "Create queue" button in the queues section of the setup detail page.
+   * Navigates to /setups/:setupId/queues/new.
+   */
+  getDetailCreateQueueButton(): Locator {
+    return this.getDetailQueues().getByTestId('create-queue-button')
+  }
+
+  /**
+   * The list row for a named queue within the setup detail queues section.
+   */
+  getQueueRow(queueName: string): Locator {
+    return this.getDetailQueues().locator('.ant-list-item').filter({ hasText: queueName })
+  }
+
+  /**
+   * The implementation-type Tag shown next to a named queue.
+   */
+  getQueueTypeTag(queueName: string): Locator {
+    return this.getQueueRow(queueName).locator('.ant-tag')
+  }
+
+  /**
+   * The per-row delete button for a named queue.
+   */
+  getDeleteQueueButton(queueName: string): Locator {
+    return this.page.getByTestId(`delete-queue-${queueName}`)
+  }
 }

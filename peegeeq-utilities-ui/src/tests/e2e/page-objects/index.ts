@@ -3,6 +3,7 @@ import { BasePage } from './BasePage'
 import { OverviewPage } from './OverviewPage'
 import { GeneratorPage } from './GeneratorPage'
 import { SetupsPage } from './SetupsPage'
+import { CreateQueuePage } from './CreateQueuePage'
 
 /**
  * Extended Playwright test fixture that injects page objects.
@@ -15,6 +16,7 @@ export const test = base.extend<{
   overviewPage: OverviewPage
   generatorPage: GeneratorPage
   setupsPage: SetupsPage
+  createQueuePage: CreateQueuePage
 }>({
   basePage: async ({ page }, use) => {
     await use(new BasePage(page))
@@ -30,6 +32,10 @@ export const test = base.extend<{
 
   setupsPage: async ({ page }, use) => {
     await use(new SetupsPage(page))
+  },
+
+  createQueuePage: async ({ page }, use) => {
+    await use(new CreateQueuePage(page))
   },
 })
 

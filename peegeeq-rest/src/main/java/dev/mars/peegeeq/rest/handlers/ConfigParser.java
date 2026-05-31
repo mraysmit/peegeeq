@@ -65,6 +65,23 @@ public class ConfigParser {
             builder.fifoEnabled(json.getBoolean("fifoEnabled"));
         }
 
+        // Optional per-queue implementation type. Accepts "implementationType" with "type" as
+        // an alias (the Management UI naming). When present it must be one of the supported
+        // values; when absent the setup falls back to the best available factory type.
+        String implementationType = json.getString("implementationType");
+        if (implementationType == null || implementationType.isEmpty()) {
+            implementationType = json.getString("type");
+        }
+        if (implementationType != null && !implementationType.isEmpty()) {
+            String normalized = implementationType.trim().toLowerCase();
+            if (!normalized.equals("native") && !normalized.equals("outbox")) {
+                throw new IllegalArgumentException(
+                        "Invalid implementationType '" + implementationType
+                                + "'. Supported values are: native, outbox");
+            }
+            builder.implementationType(normalized);
+        }
+
         return builder.build();
     }
 
