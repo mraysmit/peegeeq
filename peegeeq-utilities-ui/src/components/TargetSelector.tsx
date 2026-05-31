@@ -131,7 +131,7 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
           <>
             <Text>
               Queues are managed per setup on the{' '}
-              <Link to="/setups">Setups page</Link>.
+              <Link to={selectedSetup ? `/setups/${selectedSetup}` : '/setups'}>Setups page</Link>.
               Add at least one queue, then return here to publish messages.
             </Text>
           </>
@@ -166,7 +166,7 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
           options={queues.map((q) => ({ value: q, label: q }))}
           style={{ minWidth: 160 }}
         />
-        <Link to="/setups">Manage queues →</Link>
+        <Link to={selectedSetup ? `/setups/${selectedSetup}` : '/setups'}>Manage queues →</Link>
       </Space>
     </Space>
   )
