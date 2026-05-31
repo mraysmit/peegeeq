@@ -13,15 +13,15 @@ export default defineConfig({
   /* Global setup with TestContainers - starts PostgreSQL and checks backend */
   globalSetup: './src/tests/global-setup-testcontainers.ts',
   /* Global teardown - stops TestContainers */
-  globalTeardown: './src/tests/global-setup-testcontainers.ts',
+  globalTeardown: './src/tests/global-teardown.ts',
   /* Run test FILES sequentially - queue tests depend on database setup tests */
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
   /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
-  workers: process.env.CI ? 1 : undefined,
+  /* Run with a single worker so spec files execute sequentially and do not race on shared state (e.g. setup ID creation). */
+  workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [
     ['html', { outputFolder: 'playwright-report' }],
@@ -163,6 +163,12 @@ export default defineConfig({
     {
       name: 'visualization-isolated',
       testMatch: '**/visualization-isolated.spec.ts',
+      use: chromeMaximized,
+    },
+    // Screenshots: regenerates documentation screenshots (run manually)
+    {
+      name: 'take-screenshots',
+      testMatch: '**/take-screenshots.spec.ts',
       use: chromeMaximized,
     },
   ],

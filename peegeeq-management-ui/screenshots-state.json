@@ -1,0 +1,6 @@
+{
+  "queueName": "orders_queue_1780137262587",
+  "eventStoreName": "orders_store_1780137262587",
+  "correlationId": "corr-1780137262587",
+  "aggregateId": "order-agg-1780137262587"
+}
