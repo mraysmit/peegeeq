@@ -19,11 +19,14 @@ import {
   ReloadOutlined,
   DeleteOutlined,
   DatabaseOutlined,
+  PlusOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { getSetupDetails, deleteSetup } from '../services/setupService'
+import { listQueueDetails, deleteQueue } from '../services/queueService'
 import type { SetupDetails } from '../types/setup'
+import type { QueueSummary } from '../types/queue'
 
 const { Title } = Typography
 
@@ -37,21 +40,32 @@ const statusIcons: Record<string, React.ReactNode> = {
   failed: <ExclamationCircleOutlined />,
 }
 
+const queueTypeColors: Record<string, string> = {
+  native: 'green',
+  outbox: 'orange',
+}
+
 export default function SetupDetailPage() {
   const navigate = useNavigate()
   const { setupId = '' } = useParams<{ setupId: string }>()
   const [details, setDetails] = useState<SetupDetails | null>(null)
+  const [queueSummaries, setQueueSummaries] = useState<QueueSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [deletingQueue, setDeletingQueue] = useState<string | null>(null)
 
   const loadDetails = useCallback(async () => {
     if (!setupId) return
     setLoading(true)
     setLoadError(null)
     try {
-      const result = await getSetupDetails(setupId)
+      const [result, queues] = await Promise.all([
+        getSetupDetails(setupId),
+        listQueueDetails(setupId),
+      ])
       setDetails(result)
+      setQueueSummaries(queues)
     } catch (err) {
       const status = (err as { response?: { status?: number } })?.response?.status
       setLoadError(status === 404 ? `Setup "${setupId}" not found` : `Failed to load setup "${setupId}"`)
@@ -59,6 +73,19 @@ export default function SetupDetailPage() {
       setLoading(false)
     }
   }, [setupId])
+
+  const handleDeleteQueue = async (queueName: string) => {
+    setDeletingQueue(queueName)
+    try {
+      await deleteQueue(setupId, queueName)
+      message.success(`Queue "${queueName}" deleted`)
+      await loadDetails()
+    } catch {
+      message.error(`Failed to delete queue "${queueName}"`)
+    } finally {
+      setDeletingQueue(null)
+    }
+  }
 
   useEffect(() => {
     loadDetails()
@@ -77,7 +104,7 @@ export default function SetupDetailPage() {
   }
 
   const status = details?.status ?? 'active'
-  const queues = details?.queueFactories ?? []
+  const queues = queueSummaries
   const eventStores = details?.eventStores ?? []
 
   return (
@@ -160,13 +187,60 @@ export default function SetupDetailPage() {
             </Descriptions>
 
             <div data-testid="setup-detail-queues">
-              <Title level={5}>Queues</Title>
+              <Space
+                style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}
+              >
+                <Title level={5} style={{ margin: 0 }}>
+                  Queues
+                </Title>
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<PlusOutlined />}
+                  onClick={() => navigate(`/setups/${setupId}/queues/new`)}
+                  data-testid="create-queue-button"
+                >
+                  Create queue
+                </Button>
+              </Space>
               {queues.length > 0 ? (
                 <List
                   size="small"
                   bordered
                   dataSource={queues}
-                  renderItem={(name) => <List.Item>{name}</List.Item>}
+                  renderItem={(queue) => (
+                    <List.Item
+                      actions={[
+                        <Popconfirm
+                          key="delete"
+                          title={`Delete queue "${queue.name}"?`}
+                          description="This cannot be undone."
+                          onConfirm={() => handleDeleteQueue(queue.name)}
+                          okText="Delete"
+                          okType="danger"
+                          cancelText="Cancel"
+                        >
+                          <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            loading={deletingQueue === queue.name}
+                            data-testid={`delete-queue-${queue.name}`}
+                          />
+                        </Popconfirm>,
+                      ]}
+                    >
+                      <Space>
+                        {queue.name}
+                        {queue.implementationType && (
+                          <Tag color={queueTypeColors[queue.implementationType] ?? 'default'}>
+                            {queue.implementationType}
+                          </Tag>
+                        )}
+                      </Space>
+                    </List.Item>
+                  )}
                 />
               ) : (
                 <Empty

@@ -55,10 +55,14 @@ test.describe('Overview', () => {
       await page.goto('/')
       await page.waitForLoadState('load')
 
-      // Ant Design Statistic titles
-      await expect(page.getByText('Total Queues')).toBeVisible()
-      await expect(page.getByText('Consumer Groups')).toBeVisible()
-      await expect(page.getByText('Event Stores')).toBeVisible()
+      // Ant Design Statistic titles. Scope to .ant-statistic-title because the
+      // system-status-info span also contains the substrings "queues" and
+      // "consumer groups", which would otherwise collide under Playwright's
+      // case-insensitive substring matching.
+      await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Setups' })).toBeVisible()
+      await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Total Queues' })).toBeVisible()
+      await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Consumer Groups' })).toBeVisible()
+      await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Messages/sec' })).toBeVisible()
     })
 
     test('should display the queue table', async ({ page, overviewPage }) => {
@@ -143,9 +147,9 @@ test.describe('Overview', () => {
       await page.goto('/')
       await page.waitForLoadState('load')
 
+      await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Setups' })).toBeVisible()
       await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Total Queues' })).toBeVisible()
       await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Consumer Groups' })).toBeVisible()
-      await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Event Stores' })).toBeVisible()
       await expect(page.locator('.ant-statistic-title').filter({ hasText: 'Messages/sec' })).toBeVisible()
     })
 

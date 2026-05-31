@@ -21,6 +21,11 @@ vi.mock('../../services/setupService', () => ({
   deleteSetup: vi.fn(),
 }))
 
+vi.mock('../../services/queueService', () => ({
+  listQueueDetails: vi.fn(),
+  deleteQueue: vi.fn(),
+}))
+
 const mockNavigate = vi.fn()
 vi.mock('react-router-dom', async (importOriginal) => {
   const actual = await importOriginal<typeof import('react-router-dom')>()
@@ -32,8 +37,11 @@ vi.mock('react-router-dom', async (importOriginal) => {
 })
 
 import { getSetupDetails, deleteSetup } from '../../services/setupService'
+import { listQueueDetails, deleteQueue } from '../../services/queueService'
 const mockedGetSetupDetails = vi.mocked(getSetupDetails)
 const mockedDeleteSetup = vi.mocked(deleteSetup)
+const mockedListQueueDetails = vi.mocked(listQueueDetails)
+const mockedDeleteQueue = vi.mocked(deleteQueue)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -52,6 +60,7 @@ function renderPage() {
 describe('SetupDetailPage', () => {
   beforeEach(() => {
     vi.resetAllMocks()
+    mockedListQueueDetails.mockResolvedValue([])
   })
 
   it('shows the setup ID heading', async () => {
@@ -60,17 +69,34 @@ describe('SetupDetailPage', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: /my-setup/i })).toBeTruthy())
   })
 
-  it('renders queue names from getSetupDetails', async () => {
+  it('renders queue names from listQueueDetails', async () => {
     mockedGetSetupDetails.mockResolvedValueOnce({
       queueFactories: ['orders', 'payments'],
       eventStores: [],
       status: 'active',
     })
+    mockedListQueueDetails.mockResolvedValueOnce([
+      { name: 'orders', implementationType: 'native' },
+      { name: 'payments', implementationType: 'outbox' },
+    ])
     renderPage()
     await waitFor(() => {
       expect(screen.getByText('orders')).toBeTruthy()
       expect(screen.getByText('payments')).toBeTruthy()
     })
+  })
+
+  it('renders per-queue implementation-type badges', async () => {
+    mockedGetSetupDetails.mockResolvedValueOnce({
+      queueFactories: ['orders'],
+      eventStores: [],
+      status: 'active',
+    })
+    mockedListQueueDetails.mockResolvedValueOnce([
+      { name: 'orders', implementationType: 'native' },
+    ])
+    renderPage()
+    await waitFor(() => expect(screen.getByText('native')).toBeTruthy())
   })
 
   it('renders event-store names from getSetupDetails', async () => {
@@ -91,6 +117,7 @@ describe('SetupDetailPage', () => {
 
   it('shows empty state when the setup has no event stores', async () => {
     mockedGetSetupDetails.mockResolvedValueOnce({ queueFactories: ['q1'], eventStores: [], status: 'active' })
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'q1', implementationType: 'native' }])
     renderPage()
     await waitFor(() => expect(screen.getByText(/No event stores in this setup/i)).toBeTruthy())
   })
@@ -143,5 +170,27 @@ describe('SetupDetailPage', () => {
 
     await waitFor(() => expect(mockedDeleteSetup).toHaveBeenCalledWith('my-setup'))
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/setups'))
+  })
+
+  it('navigates to the create-queue page when Create queue is clicked', async () => {
+    mockedGetSetupDetails.mockResolvedValueOnce({ queueFactories: [], eventStores: [], status: 'active' })
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('create-queue-button')).toBeTruthy())
+    await userEvent.click(screen.getByTestId('create-queue-button'))
+    expect(mockNavigate).toHaveBeenCalledWith('/setups/my-setup/queues/new')
+  })
+
+  it('deletes a queue and reloads on confirm', async () => {
+    mockedGetSetupDetails.mockResolvedValue({ queueFactories: ['orders'], eventStores: [], status: 'active' })
+    mockedListQueueDetails.mockResolvedValue([{ name: 'orders', implementationType: 'native' }])
+    mockedDeleteQueue.mockResolvedValueOnce(undefined)
+    renderPage()
+    await waitFor(() => expect(screen.getByTestId('delete-queue-orders')).toBeTruthy())
+    await userEvent.click(screen.getByTestId('delete-queue-orders'))
+
+    const confirmBtn = await screen.findByRole('button', { name: /^Delete$/ })
+    await userEvent.click(confirmBtn)
+
+    await waitFor(() => expect(mockedDeleteQueue).toHaveBeenCalledWith('my-setup', 'orders'))
   })
 })
