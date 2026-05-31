@@ -47,8 +47,8 @@ test.describe('Queue Messaging Workflow', () => {
       // Submit
       await page.locator('.ant-modal .ant-btn-primary').click()
       
-      // Wait for modal to close
-      await expect(page.locator('.ant-modal')).not.toBeVisible()
+      // Wait for modal to close — setup creation includes DB creation + migrations, allow up to 60s
+      await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 60000 })
     }
   })
 
@@ -69,7 +69,7 @@ test.describe('Queue Messaging Workflow', () => {
     test('should create queue for messaging tests', async ({ page }) => {
       await page.goto('/queues')
 
-      createdQueueName = `messaging-test-queue-${Date.now()}`
+      createdQueueName = `messaging_test_queue_${Date.now()}`
 
       // Click Create Queue button
       const createButton = page.getByRole('button', { name: /create queue/i })

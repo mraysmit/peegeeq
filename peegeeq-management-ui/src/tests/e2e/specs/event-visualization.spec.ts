@@ -28,12 +28,13 @@ test.describe('Event Visualization', () => {
       await page.getByLabel(/password/i).fill(dbConfig.password)
       await page.getByLabel(/schema/i).fill('public')
       await page.locator('.ant-modal .ant-btn-primary').click()
-      await expect(page.locator('.ant-modal')).not.toBeVisible()
+      // Setup creation includes DB creation + migrations, allow up to 60s
+      await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 60000 })
     }
 
     // --- 2. Create Event Store ---
     await page.goto('/event-stores')
-    const eventStoreName = `viz-store-${Date.now()}`
+    const eventStoreName = `viz_store_${Date.now()}`
     
     await page.getByRole('button', { name: /create event store/i }).click()
     await page.getByLabel(/event store name/i).fill(eventStoreName)
@@ -43,11 +44,11 @@ test.describe('Event Visualization', () => {
     await selectAntOption(setupSelect, SETUP_ID)
     
     await page.locator('.ant-modal .ant-btn-primary').click()
-    await expect(page.locator('.ant-modal')).not.toBeVisible()
+    // Event store creation involves backend setup, allow up to 30s
+    await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 30000 })
     await expect(page.locator(`tr:has-text("${eventStoreName}")`)).toBeVisible()
 
     // --- 3. Post Events (Chain) ---
-    await page.getByRole('tab', { name: /events/i }).click()
     // Advanced toggle is handled in postEvent helper
 
     const correlationId = `corr-${Date.now()}`
@@ -59,7 +60,10 @@ test.describe('Event Visualization', () => {
     const postEvent = async (type: string, causeId?: string) => {
       // Select Setup (if not already selected or cleared)
       // The form clears after submit, so we must re-select
-      
+      // Navigate to /events page where Post Event card lives
+      await page.goto('/events')
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
+
       // Scope to the Post Event form card to avoid ambiguity with hidden modals
       const postForm = page.locator('.ant-card', { hasText: 'Post Event' })
       
@@ -111,19 +115,22 @@ test.describe('Event Visualization', () => {
     // Post Grandchild
     await postEvent('GrandChildEvent', childEventId)
 
-    // --- 4. Test Visualization Tab ---
-    await page.getByRole('tab', { name: /visualization/i }).click()
+    // --- 4. Navigate to visualization page and select event store ---
+    await page.goto('/event-visualization')
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
 
-    // Select Setup/Store in Visualization Tab
-    // Use specific test IDs defined in EventStores.tsx
     const vizSetupSelect = page.getByTestId('viz-setup-select')
     await selectAntOption(vizSetupSelect, SETUP_ID)
-    
+
     const vizEventStoreSelect = page.getByTestId('viz-eventstore-select')
     await selectAntOption(vizEventStoreSelect, eventStoreName)
 
+    // Verify Visualization sections are visible as stacked cards
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).toBeVisible()
+
     // --- 5. Test Causation Tree ---
-    await expect(page.getByRole('tab', { name: /causation tree/i })).toBeVisible()
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
     
     await page.getByPlaceholder(/enter correlation id/i).fill(correlationId)
     await page.getByRole('button', { name: /trace/i }).click()
@@ -136,7 +143,7 @@ test.describe('Event Visualization', () => {
     await expect(page.locator('.ant-tree-treenode').filter({ hasText: /^GrandChildEvent/ })).toBeVisible()
 
     // --- 6. Test Aggregate Stream ---
-    await page.getByRole('tab', { name: /aggregate stream/i }).click()
+    // Aggregate Stream is always visible as a stacked card — no tab click needed
     
     // Click Refresh List
     await page.getByRole('button', { name: /refresh list/i }).click()
@@ -150,9 +157,8 @@ test.describe('Event Visualization', () => {
     
     // Verify Events in Stream Table (Right side)
     // We should see all 3 events
-    // Scope to the Aggregate Stream tab content to avoid matching the Causation Tree
-    const streamTabContent = page.locator('.ant-tabs-tabpane-active')
-    const streamTable = streamTabContent.locator('.ant-card').filter({ hasText: `Stream: ${aggregateId}` })
+    // Scope to the stream card using its card title to avoid strict-mode violation
+    const streamTable = page.locator('.ant-card').filter({ has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggregateId}` }) }).last()
     
     await expect(streamTable.getByText('RootEvent', { exact: true })).toBeVisible()
     await expect(streamTable.getByText('ChildEvent', { exact: true })).toBeVisible()

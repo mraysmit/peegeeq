@@ -20,6 +20,14 @@ test.describe('Settings', () => {
   })
 
   test.describe('Backend Configuration', () => {
+    test.afterEach(async ({ page }) => {
+      // Always reset API URL to default after each test to prevent state leaking
+      // into other spec files (localStorage persists across specs with withReuse)
+      await page.goto('/settings')
+      await page.waitForLoadState('load')
+      await page.evaluate(() => localStorage.removeItem('peegeeq_backend_config'))
+    })
+
     test('should show connection status in header', async ({ page }) => {
       await page.goto('/')
       // Wait for header to be visible instead of networkidle (Overview has persistent WebSocket/SSE)
@@ -35,7 +43,10 @@ test.describe('Settings', () => {
     })
 
     test('should display settings form with default values', async ({ page }) => {
+      // Clear any stale config from prior runs before checking defaults
       await page.goto('/settings')
+      await page.evaluate(() => localStorage.removeItem('peegeeq_backend_config'))
+      await page.reload()
       await page.waitForLoadState('load')
 
       // Form should be visible

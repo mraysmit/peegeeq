@@ -7,7 +7,9 @@ import {
   TeamOutlined,
   DatabaseOutlined,
   SearchOutlined,
-  SettingOutlined
+  SettingOutlined,
+  BranchesOutlined,
+  FileTextOutlined
 } from '@ant-design/icons'
 
 // Import page components
@@ -18,6 +20,8 @@ import QueueDetails from './pages/QueueDetails'
 import QueueDetailsEnhanced from './pages/QueueDetailsEnhanced'
 import ConsumerGroups from './pages/ConsumerGroups'
 import EventStores from './pages/EventStores'
+import EventVisualizationPage from './pages/EventVisualizationPage'
+import EventsPage from './pages/EventsPage'
 import MessageBrowser from './pages/MessageBrowser'
 import DatabaseSetups from './pages/DatabaseSetups'
 import Settings from './pages/Settings'
@@ -59,6 +63,16 @@ function Navigation() {
       key: '/event-stores',
       icon: <DatabaseOutlined />,
       label: <Link to="/event-stores" data-testid="nav-event-stores">Event Stores</Link>,
+    },
+    {
+      key: '/events',
+      icon: <FileTextOutlined />,
+      label: <Link to="/events" data-testid="nav-events">Events</Link>,
+    },
+    {
+      key: '/event-visualization',
+      icon: <BranchesOutlined />,
+      label: <Link to="/event-visualization" data-testid="nav-event-visualization">Visualization</Link>,
     },
     {
       key: '/messages',
@@ -128,6 +142,8 @@ function AppContent() {
                 <Route path="/queues-old/:queueName" element={<QueueDetails />} />
                 <Route path="/consumer-groups" element={<ConsumerGroups />} />
                 <Route path="/event-stores" element={<EventStores />} />
+                <Route path="/events" element={<EventsPage />} />
+                <Route path="/event-visualization" element={<EventVisualizationPage />} />
                 <Route path="/messages" element={<MessageBrowser />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
