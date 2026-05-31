@@ -180,25 +180,35 @@ public class ManagementApiIntegrationTest {
                     assertEquals(200, response.statusCode());
 
                     JsonObject body = response.bodyAsJsonObject();
-                    assertNotNull(body.getJsonObject("systemStats"), "Should have systemStats");
-                    assertNotNull(body.getJsonObject("queueSummary"), "Should have queueSummary");
-                    assertNotNull(body.getJsonObject("consumerGroupSummary"), "Should have consumerGroupSummary");
-                    assertNotNull(body.getJsonObject("eventStoreSummary"), "Should have eventStoreSummary");
+                    assertNotNull(body.getJsonArray("setups"), "Should have setups array");
+                    assertNotNull(body.getJsonObject("systemTotals"), "Should have systemTotals");
                     assertNotNull(body.getLong("timestamp"), "Should have timestamp");
 
-                    // Verify recentActivity field is present (uses getRecentActivity() implementation)
+                    JsonObject systemTotals = body.getJsonObject("systemTotals");
+                    assertTrue(systemTotals.containsKey("totalSetups"), "systemTotals should have totalSetups");
+                    assertTrue(systemTotals.containsKey("totalQueues"), "systemTotals should have totalQueues");
+                    assertTrue(systemTotals.containsKey("totalConsumerGroups"), "systemTotals should have totalConsumerGroups");
+                    assertTrue(systemTotals.containsKey("uptime"), "systemTotals should have uptime");
+
+                    // Verify recentActivity field is present
                     JsonArray recentActivity = body.getJsonArray("recentActivity");
-                    assertNotNull(recentActivity, "Should have recentActivity array from getRecentActivity()");
+                    assertNotNull(recentActivity, "Should have recentActivity array");
                     logger.info("Recent activity contains {} items", recentActivity.size());
 
-                    // Verify recentActivity structure if items exist
-                    for (int i = 0; i < recentActivity.size(); i++) {
-                        JsonObject activity = recentActivity.getJsonObject(i);
-                        assertNotNull(activity.getString("id"), "Activity should have id");
-                        assertNotNull(activity.getString("type"), "Activity should have type");
-                        assertNotNull(activity.getString("timestamp"), "Activity should have timestamp");
-                        logger.info("Activity {}: type={}, action={}, source={}",
-                            i, activity.getString("type"), activity.getString("action"), activity.getString("source"));
+                    // Verify per-setup structure if setups exist
+                    JsonArray setups = body.getJsonArray("setups");
+                    for (int i = 0; i < setups.size(); i++) {
+                        JsonObject setup = setups.getJsonObject(i);
+                        assertNotNull(setup.getString("setupId"), "Setup should have setupId");
+                        assertNotNull(setup.getString("status"), "Setup should have status");
+                        assertNotNull(setup.getJsonArray("queues"), "Setup should have queues array");
+                        assertNotNull(setup.getJsonArray("consumerGroups"), "Setup should have consumerGroups array");
+                        assertNotNull(setup.getJsonArray("eventStores"), "Setup should have eventStores array");
+                        logger.info("Setup {}: queues={}, consumerGroups={}, eventStores={}",
+                            setup.getString("setupId"),
+                            setup.getInteger("totalQueues"),
+                            setup.getInteger("totalConsumerGroups"),
+                            setup.getInteger("totalEventStores"));
                     }
 
                     logger.info("System overview response: {}", body.encodePrettily());
