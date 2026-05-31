@@ -68,8 +68,8 @@ class ConsumerGroupLoadBalancingDemoTest {
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
-    /** Set by testRoundRobinLoadBalancing and closed in tearDown before the manager closes. */
-    private ConsumerGroup<WorkItem> roundRobinGroupToCleanup;
+    /** Set by tests that create a ConsumerGroup; closed in tearDown before the manager closes. */
+    private ConsumerGroup<WorkItem> consumerGroupToCleanup;
 
     // Load balancing strategies
     enum LoadBalancingStrategy {
@@ -183,16 +183,19 @@ class ConsumerGroupLoadBalancingDemoTest {
             return;
         }
 
-        // Close the round-robin consumer group (if set) BEFORE the manager so that
-        // all pooled connections used by in-flight ACK operations are returned before
+        // Close the consumer group (if set) BEFORE the manager so that all pooled
+        // connections used by in-flight ACK / LISTEN operations are returned before
         // pool.close() is called inside manager.closeReactive().
-        ConsumerGroup<WorkItem> groupToClose = roundRobinGroupToCleanup;
-        roundRobinGroupToCleanup = null;
+        ConsumerGroup<WorkItem> groupToClose = consumerGroupToCleanup;
+        consumerGroupToCleanup = null;
 
         Future<Void> groupClose = (groupToClose != null)
             ? groupToClose.stopGracefully()
                 .compose(v -> groupToClose.close())
-                .transform(ar -> Future.<Void>succeededFuture())
+                .transform(ar -> {
+                    if (ar.failed()) logger.warn("Consumer group close failed during teardown: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
+                })
             : Future.<Void>succeededFuture();
 
         groupClose
@@ -244,9 +247,9 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         //  **Create ConsumerGroup for Round-Robin Distribution**
         // ConsumerGroup automatically provides round-robin load balancing
-        roundRobinGroupToCleanup = queueFactory.createConsumerGroup(
+        consumerGroupToCleanup = queueFactory.createConsumerGroup(
             "RoundRobinGroup", queueName, WorkItem.class);
-        ConsumerGroup<WorkItem> roundRobinGroup = roundRobinGroupToCleanup;
+        ConsumerGroup<WorkItem> roundRobinGroup = consumerGroupToCleanup;
 
         // Create consumers with equal capacity (round-robin)
         for (int i = 0; i < numConsumers; i++) {
@@ -457,8 +460,9 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         //  **Create ConsumerGroup for Session Affinity**
         // Following the established pattern from AdvancedProducerConsumerGroupTest
-        ConsumerGroup<WorkItem> stickyGroup = queueFactory.createConsumerGroup(
+        consumerGroupToCleanup = queueFactory.createConsumerGroup(
             "StickySessionGroup", queueName, WorkItem.class);
+        ConsumerGroup<WorkItem> stickyGroup = consumerGroupToCleanup;
 
         // Create session-specific consumers using MessageFilter pattern
         for (int i = 0; i < numSessions; i++) {
@@ -548,11 +552,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         assertEquals(numSessions, sessionToConsumerMapping.size(),
                     "Should have mapping for all sessions");
 
-        //  **Cleanup ConsumerGroup**: Proper resource management
-        stickyGroup.stopGracefully()
-            .compose(v -> stickyGroup.close())
-            .onFailure(err -> logger.warn("Cleanup error: {}", err.getMessage()));
-
+        // ConsumerGroup cleanup is handled deterministically by tearDown via consumerGroupToCleanup.
         logger.info("Sticky Session Load Balancing test completed successfully");
         logger.info("Total work items processed: {}", totalProcessed);
     }
