@@ -7,27 +7,28 @@ export async function selectAntOption(select: Locator, optionText: string | RegE
 
   const page = select.page();
 
-  // Wait for the dropdown to appear.
-  // We prioritize finding a VISIBLE dropdown.
-  // Ant Design dropdowns are usually appended to the body.
-  const dropdown = page.locator('.ant-select-dropdown')
+  // Step 1: wait for the dropdown to open (any visible dropdown, not filtered by text).
+  // The dropdown may initially be in a loading state (async options fetch not complete),
+  // so we do NOT filter by option text here — that would return <element(s) not found>
+  // while loading, causing an immediate failure instead of a wait.
+  const openDropdown = page.locator('.ant-select-dropdown')
     .filter({ hasNot: page.locator('.ant-slide-up-leave') })
     .filter({ hasNot: page.locator('.ant-slide-up-leave-active') })
     .filter({ hasNot: page.locator('.ant-select-dropdown-hidden') })
-    .filter({ hasText: optionText }) // Ensure it contains our option
-    .last(); // If multiple, usually the last one is the active one (highest z-index/most recent)
+    .last(); // highest z-index / most recently opened
 
-  await expect(dropdown).toBeVisible();
+  await expect(openDropdown).toBeVisible();
 
-  const option = dropdown
+  // Step 2: wait for the specific option to appear inside the open dropdown.
+  // Use a generous timeout (15s) to allow async option loading to complete.
+  const targetOption = openDropdown
     .locator('.ant-select-item-option-content')
-    .filter({ hasText: optionText });
+    .filter({ hasText: optionText })
+    .first();
 
-  // Use .first() to handle potential duplicates and ensure we click a visible one
-  const targetOption = option.first();
-  await expect(targetOption).toBeVisible();
+  await expect(targetOption).toBeVisible({ timeout: 15000 });
   await targetOption.click();
 
-  // Optional: ensure it closes
-  await expect(dropdown).toBeHidden({ timeout: 5000 });
+  // Ensure dropdown closes after selection
+  await expect(openDropdown).toBeHidden({ timeout: 5000 });
 }

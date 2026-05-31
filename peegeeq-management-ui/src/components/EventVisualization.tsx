@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
     Card, 
-    Tabs, 
     Input, 
     Button, 
     Table, 
@@ -40,9 +39,6 @@ interface TreeNode {
 }
 
 const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventStoreName }) => {
-    const [activeTab, setActiveTab] = useState('causation');
-    
-    // Causation Tree State
     const [correlationId, setCorrelationId] = useState('');
     const [causationTreeData, setCausationTreeData] = useState<TreeNode[]>([]);
     const [causationLoading, setCausationLoading] = useState(false);
@@ -116,7 +112,7 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
             });
             
             const events = response.events || [];
-            console.error(`[EventVisualization] Fetched ${events.length} events for correlationId=${correlationId}`);
+            console.log(`[EventVisualization] Fetched ${events.length} events for correlationId=${correlationId}`);
             if (events.length === 0) {
                 message.info('No events found for this Correlation ID');
                 setCausationTreeData([]);
@@ -278,55 +274,51 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
     ];
 
     useEffect(() => {
-        if (activeTab === 'aggregates' && aggregates.length === 0) {
+        if (setupId && eventStoreName && aggregates.length === 0) {
             fetchAggregates();
         }
-    }, [activeTab, setupId, eventStoreName]);
+    }, [setupId, eventStoreName]);
 
-    const items = [
-        {
-            key: 'causation',
-            label: <span><BranchesOutlined /> Causation Tree</span>,
-            children: (
-                <Card>
-                    <Space style={{ marginBottom: 16 }}>
-                        <Input 
-                            placeholder="Enter Correlation ID" 
-                            value={correlationId}
-                            onChange={e => setCorrelationId(e.target.value)}
-                            style={{ width: 300 }}
-                            onPressEnter={fetchCausationTree}
-                        />
-                        <Button 
-                            type="primary" 
-                            icon={<SearchOutlined />} 
-                            onClick={fetchCausationTree}
-                            loading={causationLoading}
-                        >
-                            Trace
-                        </Button>
-                    </Space>
+    return (
+        <div className="event-visualization">
+            <Card
+                title={<span><BranchesOutlined /> Causation Tree</span>}
+                style={{ marginBottom: 16 }}
+            >
+                <Space style={{ marginBottom: 16 }}>
+                    <Input 
+                        placeholder="Enter Correlation ID" 
+                        value={correlationId}
+                        onChange={e => setCorrelationId(e.target.value)}
+                        style={{ width: 300 }}
+                        onPressEnter={fetchCausationTree}
+                    />
+                    <Button 
+                        type="primary" 
+                        icon={<SearchOutlined />} 
+                        onClick={fetchCausationTree}
+                        loading={causationLoading}
+                    >
+                        Trace
+                    </Button>
+                </Space>
 
-                    {causationTreeData.length > 0 ? (
-                        <Tree
-                            showLine
-                            showIcon={false}
-                            defaultExpandAll
-                            expandedKeys={expandedKeys}
-                            onExpand={setExpandedKeys}
-                            treeData={causationTreeData}
-                            style={{ background: '#fafafa', padding: 16, borderRadius: 8 }}
-                        />
-                    ) : (
-                        <Empty description="Enter a Correlation ID to visualize the event flow" />
-                    )}
-                </Card>
-            )
-        },
-        {
-            key: 'aggregates',
-            label: <span><DatabaseOutlined /> Aggregate Stream</span>,
-            children: (
+                {causationTreeData.length > 0 ? (
+                    <Tree
+                        showLine
+                        showIcon={false}
+                        defaultExpandAll
+                        expandedKeys={expandedKeys}
+                        onExpand={setExpandedKeys}
+                        treeData={causationTreeData}
+                        style={{ background: '#fafafa', padding: 16, borderRadius: 8 }}
+                    />
+                ) : (
+                    <Empty description="Enter a Correlation ID to visualize the event flow" />
+                )}
+            </Card>
+
+            <Card title={<span><DatabaseOutlined /> Aggregate Stream</span>}>
                 <div style={{ display: 'flex', gap: 16 }}>
                     <Card title="Aggregates" style={{ width: 300 }} styles={{ body: { padding: 0 } }}>
                         <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
@@ -376,13 +368,7 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
                         )}
                     </Card>
                 </div>
-            )
-        }
-    ];
-
-    return (
-        <div className="event-visualization">
-            <Tabs activeKey={activeTab} onChange={setActiveTab} items={items} />
+            </Card>
 
             <Drawer
                 title="Event Details"
@@ -411,9 +397,7 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
                                         size="small" 
                                         onClick={() => {
                                             setCorrelationId(selectedEvent.correlationId!);
-                                            setActiveTab('causation');
                                             setDrawerVisible(false);
-                                            // Trigger fetch in next render cycle effectively
                                             setTimeout(() => fetchCausationTree(), 100);
                                         }}
                                     >

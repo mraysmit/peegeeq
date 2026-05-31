@@ -99,7 +99,7 @@ test.describe('Event Store Management', () => {
       await expect(page.locator('.ant-modal')).toBeVisible()
 
       // Fill in event store name
-      const eventStoreName = `test-event-store-${Date.now()}`
+      const eventStoreName = `test_event_store_${Date.now()}`
       const nameInput = page.getByLabel(/event store name/i)
       await nameInput.fill(eventStoreName)
 

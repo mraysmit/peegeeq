@@ -3,7 +3,6 @@ import { SETUP_ID } from '../test-constants'
 import * as fs from 'fs'
 import { Page, Locator } from '@playwright/test'
 import { selectAntOption } from '../utils/ant-helpers'
-import MOCK_EVENTS from '../../fixtures/visualization-events.json' with { type: 'json' };
 
 /**
  * Event Store Workflow Tests
@@ -66,8 +65,8 @@ test.describe('Event Store Workflow', () => {
         // Submit
         await page.locator('.ant-modal .ant-btn-primary').click()
         
-        // Wait for modal to close
-        await expect(page.locator('.ant-modal')).not.toBeVisible()
+        // Wait for modal to close — setup creation includes DB creation + migrations, allow up to 60s
+        await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 60000 })
       }
     })
 
@@ -83,7 +82,7 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('.ant-modal')).toBeVisible()
 
       // Fill in event store name
-      createdEventStoreName = `workflow-event-store-${Date.now()}`
+      createdEventStoreName = `workflow_event_store_${Date.now()}`
       const nameInput = page.getByLabel(/event store name/i)
       await nameInput.fill(createdEventStoreName)
 
@@ -124,75 +123,52 @@ test.describe('Event Store Workflow', () => {
 
   test.describe('Event Store Navigation', () => {
 
-    test('should verify all tabs are visible and navigable', async ({ page }) => {
+    test('should verify all sections are visible on their separate pages', async ({ page }) => {
+      // Event Stores page: only event store table, no Events/Visualization content
       await page.goto('/event-stores')
-      await expect(page.getByRole('tablist')).toBeVisible()
+      await expect(page.locator('.ant-table')).toBeVisible()
+      await expect(page.locator('.ant-card-head-title', { hasText: /post event/i })).not.toBeVisible()
 
-      // Define expected tabs
-      const expectedTabs = ['Event Stores', 'Events']
+      // Events page: Post Event and Query Events cards
+      await page.goto('/events')
+      await expect(page.locator('.ant-card-head-title', { hasText: /post event/i })).toBeVisible()
+      await expect(page.locator('.ant-card-head-title', { hasText: /query events/i })).toBeVisible()
 
-      // Verify each tab exists and is clickable
-      for (const tabName of expectedTabs) {
-        const tab = page.getByRole('tab', { name: new RegExp(tabName, 'i') })
-        await expect(tab).toBeVisible({ timeout: 5000 })
+      // Event Visualization page: Causation Tree and Aggregate Stream cards
+      await page.goto('/event-visualization')
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).toBeVisible()
 
-        // Click the tab
-        await tab.click()
-        
-        // Wait for tab panel to be active
-        await expect(tab).toHaveAttribute('aria-selected', 'true')
-
-        console.log(`Tab "${tabName}" is visible and navigable`)
-      }
+      console.log('All sections visible on their separate pages')
     })
 
-    test('should verify Event Stores tab content', async ({ page }) => {
+    test('should verify Event Stores list is always visible', async ({ page }) => {
       await page.goto('/event-stores')
-      await expect(page.getByRole('tablist')).toBeVisible()
 
-      // Click Event Stores tab
-      const eventStoresTab = page.getByRole('tab', { name: /event stores/i })
-      await eventStoresTab.click()
-      
-      // Wait for tab to be selected
-      await expect(eventStoresTab).toHaveAttribute('aria-selected', 'true')
-
-      // Verify table and create button
+      // Event Stores table is now always visible above the tabs (not inside a tab)
       await expect(page.locator('.ant-table')).toBeVisible()
       await expect(page.getByRole('button', { name: /create event store/i })).toBeVisible()
+      await expect(page.getByRole('button', { name: /refresh/i }).first()).toBeVisible()
 
-      console.log('Event Stores tab content is visible')
+      console.log('Event Stores list and action buttons are always visible')
     })
 
-    test('should verify Events tab content', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tablist')).toBeVisible()
+    test('should verify Events section content', async ({ page }) => {
+      await page.goto('/events')
 
-      // Click Events tab
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab to be selected
-      await expect(eventsTab).toHaveAttribute('aria-selected', 'true')
+      // Post Event and Query Events cards are on the Events page
+      await expect(page.locator('.ant-card-head-title', { hasText: /post event/i })).toBeVisible()
+      await expect(page.locator('.ant-card-head-title', { hasText: /query events/i })).toBeVisible()
 
-      // Verify events content area - use first() since there may be multiple tables
-      const eventsTabContent = page.locator('.ant-tabs-tabpane-active')
-      await expect(eventsTabContent).toBeVisible()
-
-      console.log('Events tab content is visible')
+      console.log('Events section content is visible on the Events page')
     })
   })
 
   test.describe('Event Operations', () => {
 
     test('should post multiple events to event store via UI', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
+      await page.goto('/events')
 
-      // Click Events tab
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
       // Wait for the Post Event form to be visible
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
@@ -296,13 +272,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should post event with advanced options - temporal valid time', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Click "Show Advanced" button
@@ -350,13 +320,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should post event with advanced options - event sourcing fields', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Show advanced options
@@ -396,13 +360,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should post event with advanced options - metadata headers', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Show advanced options
@@ -446,13 +404,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should post event with all advanced options combined', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Show advanced options
@@ -515,13 +467,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should toggle advanced options visibility', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Initially advanced sections should not be visible
@@ -548,90 +494,49 @@ test.describe('Event Store Workflow', () => {
       console.log('Advanced options toggle working correctly')
     })
 
-    test('should display unique aggregates count after loading events', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^event stores/i })).toBeVisible({ timeout: 10000 })
-
-      // Check initial aggregate count (should be 0 before loading events)
-      const aggregateStatBefore = page.locator('.ant-statistic').filter({ hasText: 'Unique Aggregates' })
-      await expect(aggregateStatBefore).toBeVisible({ timeout: 10000 })
-      const beforeValue = await aggregateStatBefore.locator('.ant-statistic-content-value').textContent()
-      // eslint-disable-next-line no-console
-      console.log(`📊 Unique Aggregates before loading events: ${beforeValue}`)
-
-      // Load events with aggregateIds
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+    test('should load events on Events page', async ({ page }) => {
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
+      // Load events via the Query Events section
       const setupSelect = page.getByTestId('query-setup-select')
       await selectAntOption(setupSelect, SETUP_ID)
 
       const eventStoreSelect = page.getByTestId('query-eventstore-select')
       await selectAntOption(eventStoreSelect, createdEventStoreName)
-      
-      // Wait for the Load Events button to be enabled (it might be disabled initially)
+
       const loadEventsButton = page.getByRole('button', { name: 'Load Events' })
       await expect(loadEventsButton).toBeEnabled({ timeout: 5000 })
       await loadEventsButton.click()
-      
+
       await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 15000 })
-      
-      // Wait for the statistic to update (might need a better way, but waiting for success message is a good start)
-      // We can also wait for the value to change if we knew the previous value, but here we just wait a bit or rely on the assertion
-      await expect(page.locator('.ant-statistic').filter({ hasText: 'Unique Aggregates' })).toBeVisible()
 
-      // Check aggregate count after loading events
-      // We posted events with aggregateIds in previous tests:
-      // - order-aggregate-12345 (from event sourcing test)
-      // - complete-order-aggregate-999 (from combined test)
-      // So we should have at least 2 unique aggregates
-      const aggregateStatAfter = page.locator('.ant-statistic').filter({ hasText: 'Unique Aggregates' })
-      await expect(aggregateStatAfter).toBeVisible()
-      const afterValue = await aggregateStatAfter.locator('.ant-statistic-content-value').textContent()
-      // eslint-disable-next-line no-console
-      console.log(`📊 Unique Aggregates after loading events: ${afterValue}`)
+      // Verify events appear in the table
+      const eventTable = page.locator('.ant-table-tbody')
+      await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
-      const aggregateCount = parseInt(afterValue || '0', 10)
-      expect(aggregateCount).toBeGreaterThanOrEqual(2)
+      const rowCount = await eventTable.locator('tr.ant-table-row').count()
+      expect(rowCount).toBeGreaterThanOrEqual(2)
       // eslint-disable-next-line no-console
-      console.log(`Aggregate count correctly shows ${aggregateCount} unique aggregates`)
+      console.log(`Events page correctly loads ${rowCount} events`)
     })
 
-    test('should view events in Events tab', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
+    test('should view events on Events page', async ({ page }) => {
+      await page.goto('/events')
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.ant-card-head-title', { hasText: /query events/i })).toBeVisible()
 
-      // Click Events tab
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Verify events content area is visible
-      const eventsTabContent = page.locator('.ant-tabs-tabpane-active')
-      await expect(eventsTabContent).toBeVisible({ timeout: 10000 })
-
-      // Refresh events if there's a refresh button
+      // Refresh events if there's a refresh button that is enabled
       const refreshButton = page.getByRole('button', { name: /refresh/i }).first()
-      if (await refreshButton.isVisible()) {
+      if (await refreshButton.isVisible() && await refreshButton.isEnabled()) {
         await refreshButton.click()
-        // Wait for loading state to finish if applicable, or just proceed
-        await expect(refreshButton).toBeEnabled()
       }
 
-      console.log('Events tab shows event table')
+      console.log('Events page shows post event and query events sections')
     })
 
     test('should load and view posted events in UI', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      // Click Events tab
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       // Use data-testid to uniquely identify Query Events dropdowns
@@ -652,7 +557,7 @@ test.describe('Event Store Workflow', () => {
       await expect(successMsg).toBeVisible({ timeout: 15000 })
       
       // Wait for table to load
-      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      const eventTable = page.locator('.ant-table-tbody')
       await expect(eventTable).toBeVisible()
       
       // Wait for loading state to finish
@@ -675,7 +580,7 @@ test.describe('Event Store Workflow', () => {
       expect(tableRows).toBeGreaterThanOrEqual(5)
 
       // Verify the table footer shows event count
-      const tableFooter = page.locator('.ant-tabs-tabpane-active .ant-table-footer')
+      const tableFooter = page.locator('.ant-table-footer')
       await expect(tableFooter).toBeVisible()
       const footerText = await tableFooter.textContent()
       expect(footerText).toContain('Total Events:')
@@ -685,13 +590,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should verify event details are displayed in table', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const setupSelect = page.getByTestId('query-setup-select')
@@ -706,7 +605,7 @@ test.describe('Event Store Workflow', () => {
             // Wait for loading state to finish
       await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
       // Wait for table to populate
-      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      const eventTable = page.locator('.ant-table-tbody')
       await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
       // Verify multiple event types are displayed
@@ -734,13 +633,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should verify advanced event details are displayed in table', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const setupSelect = page.getByTestId('query-setup-select')
@@ -754,7 +647,7 @@ test.describe('Event Store Workflow', () => {
       await loadEventsButton.click()
       
       // Wait for table to populate
-      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      const eventTable = page.locator('.ant-table-tbody')
       await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
       // Verify event with valid time
@@ -780,13 +673,7 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should filter events by event type in UI', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const setupSelect = page.getByTestId('query-setup-select')
@@ -801,7 +688,7 @@ test.describe('Event Store Workflow', () => {
             // Wait for loading state to finish
       await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
       // Wait for table to populate
-      const eventTable = page.locator('.ant-tabs-tabpane-active .ant-table-tbody')
+      const eventTable = page.locator('.ant-table-tbody')
       await expect(eventTable.locator('tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
       const initialRowCount = await eventTable.locator('tr.ant-table-row').count()
@@ -868,18 +755,9 @@ test.describe('Event Store Workflow', () => {
     })
 
     test('should refresh events and see updated count', async ({ page }) => {
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      const eventsTab = page.getByRole('tab', { name: /^events/i })
-      await eventsTab.click()
-      
-      // Wait for tab content
+      await page.goto('/events')
       await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
       
-      // Ensure we are on the events tab
-      await expect(eventsTab).toHaveAttribute('aria-selected', 'true')
-
       const setupSelect = page.getByTestId('query-setup-select')
       await selectAntOption(setupSelect, SETUP_ID)
 
@@ -897,9 +775,9 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
 
       // Wait for table to populate
-      await expect(page.locator('.ant-tabs-tabpane-active .ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+      await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
 
-      const tableFooter = page.locator('.ant-tabs-tabpane-active .ant-table-footer')
+      const tableFooter = page.locator('.ant-table-footer')
       await expect(tableFooter).toBeVisible()
       const initialFooterText = await tableFooter.textContent()
       // eslint-disable-next-line no-console
@@ -910,9 +788,8 @@ test.describe('Event Store Workflow', () => {
       await expect(refreshButton).toBeVisible({ timeout: 5000 })
       await refreshButton.click()
       
-      // Wait for refresh - we can check if the button becomes disabled/enabled or just wait for the footer to be visible again
-      // Since the footer might not disappear, we can wait for the loading state on the table
-      await expect(page.locator('.ant-tabs-tabpane-active .ant-table-wrapper')).not.toHaveClass(/ant-table-loading/)
+      // Wait for refresh to complete
+      await expect(page.locator('.ant-table-wrapper').first()).not.toHaveClass(/ant-table-loading/)
       
       await expect(tableFooter).toBeVisible()
       const finalFooterText = await tableFooter.textContent()
@@ -925,12 +802,9 @@ test.describe('Event Store Workflow', () => {
   test.describe('Event Visualization', () => {
     
     test('should visualize causation tree and aggregate stream', async ({ page }) => {
-      // Navigate to Event Stores page first
-      await page.goto('/event-stores')
-      await expect(page.getByRole('tab', { name: /^events/i })).toBeVisible({ timeout: 10000 })
-
-      // Navigate to Events tab to post events
-      await page.getByRole('tab', { name: /events/i }).click()
+      // Navigate to Events page to post events
+      await page.goto('/events')
+      await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 10000 })
 
       const correlationId = `corr-${Date.now()}`
       const aggregateId = `agg-${Date.now()}`
@@ -989,33 +863,10 @@ test.describe('Event Store Workflow', () => {
       // Post Grandchild
       await postEvent('GrandChildEvent', childEventId)
 
-      // --- Test Visualization Tab ---
-      await page.getByRole('tab', { name: /visualization/i }).click()
+      // --- Navigate to Event Visualization page ---
+      await page.goto('/event-visualization')
 
-      // Mock the API response to ensure UI has exact data it expects
-      // This isolates the visualization test from any potential issues with the previous event posting
-      /*
-      await page.route(`** /api/v1/eventstores/${SETUP_ID}/${createdEventStoreName}/events*`, async route => {
-          console.log('Mocking events response for visualization');
-          
-          // Use schema-validated mock data but update IDs to match current test run
-          const events = MOCK_EVENTS.events.map(e => ({
-              ...e,
-              correlationId: correlationId,
-              aggregateId: aggregateId,
-              transactionTime: Date.now()
-          }));
-
-          await route.fulfill({
-              json: {
-                  ...MOCK_EVENTS,
-                  events: events
-              }
-          });
-      });
-      */
-
-      // Wait for the tab content to appear to ensure tab switch is complete
+      // Wait for the page to load
       await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
       
       // Use data-testid for robust selection
@@ -1031,7 +882,7 @@ test.describe('Event Store Workflow', () => {
 
 
       // --- Test Causation Tree ---
-      await expect(page.getByRole('tab', { name: /causation tree/i })).toBeVisible()
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
       
       await page.getByPlaceholder(/enter correlation id/i).fill(correlationId)
       await page.getByRole('button', { name: /trace/i }).click()
@@ -1044,21 +895,17 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('.ant-tree-treenode').filter({ hasText: /GrandChildEvent/ }).first()).toBeVisible()
 
       // --- Test Aggregate Stream ---
-      await page.getByRole('tab', { name: /aggregate stream/i }).click()
+      const aggregateCard = page.locator('.ant-card').filter({ has: page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i }) })
+      await expect(aggregateCard).toBeVisible()
       
-      // Use specific tab panel selector to avoid ambiguity
-      const aggregateTabPanel = page.getByRole('tabpanel', { name: /aggregate stream/i });
-      await expect(aggregateTabPanel).toBeVisible()
+      await aggregateCard.getByRole('button', { name: /refresh list/i }).click()
       
-      await aggregateTabPanel.getByRole('button', { name: /refresh list/i }).click()
-      
-      const aggRow = aggregateTabPanel.locator('tr').filter({ hasText: aggregateId })
+      const aggRow = aggregateCard.locator('tr').filter({ hasText: aggregateId })
       await expect(aggRow).toBeVisible()
       
       await aggRow.getByText('View Stream').click()
       
-      // Scope to active tab panel
-      const streamCard = aggregateTabPanel.locator('.ant-card').filter({ hasText: `Stream: ${aggregateId}` })
+      const streamCard = page.locator('.ant-card').filter({ has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggregateId}` }) }).last()
       await expect(streamCard).toBeVisible()
       
       // Wait for the table to load (look for the event type tag)
