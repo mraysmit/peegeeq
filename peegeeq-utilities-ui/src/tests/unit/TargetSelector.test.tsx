@@ -174,13 +174,13 @@ describe('TargetSelector', () => {
     expect(screen.queryByText(/queues unavailable/i)).toBeNull()
   })
 
-  it('no-queues alert link href points to /setups', async () => {
+  it('no-queues alert link href points to the selected setup', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
     mockedGetQueues.mockResolvedValueOnce([])
     renderSelector()
     await waitFor(() => screen.getByRole('link', { name: /Setups page/i }))
     const link = screen.getByRole('link', { name: /Setups page/i })
-    expect(link.getAttribute('href')).toBe('/setups')
+    expect(link.getAttribute('href')).toBe('/setups/setup-a')
   })
 
   it('does not call onTargetSelected when the selected setup has no queues', async () => {

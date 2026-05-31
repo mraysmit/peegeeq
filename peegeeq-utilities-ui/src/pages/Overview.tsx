@@ -111,10 +111,10 @@ export default function Overview() {
                 <Alert
                     data-testid="system-status-alert"
                     message={
-                        lastUpdated === null
-                            ? 'System Status: Checking...'
-                            : error
+                        error
                             ? 'System Status: Backend unreachable'
+                            : lastUpdated === null
+                            ? 'System Status: Checking...'
                             : 'System Status: All services operational'
                     }
                     description={
@@ -125,10 +125,10 @@ export default function Overview() {
                         </span>
                     }
                     type={
-                        lastUpdated === null
-                            ? 'info'
-                            : error
+                        error
                             ? 'error'
+                            : lastUpdated === null
+                            ? 'info'
                             : 'success'
                     }
                     showIcon
