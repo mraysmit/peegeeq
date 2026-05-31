@@ -81,19 +81,33 @@ public class ManagementApiHandler {
     public void getSystemOverview(RoutingContext ctx) {
         logger.debug("System overview requested");
 
-        Future.all(getRealQueues(), getRealConsumerGroups(), getRealEventStores(), getRecentActivity())
-                .map(cf -> {
-                    JsonArray queues = cf.resultAt(0);
-                    JsonArray consumerGroups = cf.resultAt(1);
-                    JsonArray eventStores = cf.resultAt(2);
-                    JsonArray recentActivity = cf.resultAt(3);
-                    return new JsonObject()
-                            .put("systemStats", buildSystemStats(queues, consumerGroups, eventStores))
-                            .put("queueSummary", buildQueueSummary(queues))
-                            .put("consumerGroupSummary", buildConsumerGroupSummary(consumerGroups))
-                            .put("eventStoreSummary", buildEventStoreSummary(eventStores))
-                            .put("recentActivity", recentActivity)
-                            .put("timestamp", System.currentTimeMillis());
+        setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    Future<JsonArray> setupsFuture;
+                    if (activeSetupIds.isEmpty()) {
+                        setupsFuture = Future.succeededFuture(new JsonArray());
+                    } else {
+                        List<Future<JsonObject>> setupFutures = new ArrayList<>();
+                        for (String setupId : activeSetupIds) {
+                            setupFutures.add(getSetupSummary(setupId));
+                        }
+                        setupsFuture = Future.all(setupFutures).map(cf -> {
+                            JsonArray setups = new JsonArray();
+                            for (int i = 0; i < cf.size(); i++) {
+                                setups.add(cf.<JsonObject>resultAt(i));
+                            }
+                            return setups;
+                        });
+                    }
+                    return Future.all(setupsFuture, getRecentActivity()).map(cf -> {
+                        JsonArray setups = cf.resultAt(0);
+                        JsonArray recentActivity = cf.resultAt(1);
+                        return new JsonObject()
+                                .put("setups", setups)
+                                .put("systemTotals", buildSystemTotals(setups))
+                                .put("recentActivity", recentActivity)
+                                .put("timestamp", System.currentTimeMillis());
+                    });
                 })
                 .onSuccess(overview -> ctx.response()
                         .setStatusCode(200)
@@ -103,6 +117,92 @@ public class ManagementApiHandler {
                     logger.error("Error getting system overview: {}", e.getMessage(), e);
                     sendError(ctx, 503, "Failed to get system overview: " + e.getMessage());
                 });
+    }
+
+    /**
+     * Builds a per-setup summary containing its queues, consumer groups, event stores
+     * and derived per-setup totals.
+     */
+    private Future<JsonObject> getSetupSummary(String setupId) {
+        return Future.all(
+                getQueuesForSetup(setupId),
+                getConsumerGroupsForSetup(setupId),
+                getEventStoresForSetup(setupId)
+        ).map(cf -> {
+            JsonArray queues = cf.resultAt(0);
+            JsonArray consumerGroups = cf.resultAt(1);
+            JsonArray eventStores = cf.resultAt(2);
+
+            int totalMessages = 0;
+            double messagesPerSecond = 0.0;
+            for (Object obj : queues) {
+                if (obj instanceof JsonObject) {
+                    JsonObject q = (JsonObject) obj;
+                    totalMessages += q.getInteger("messages", 0);
+                    messagesPerSecond += q.getDouble("messageRate", 0.0);
+                }
+            }
+
+            return new JsonObject()
+                    .put("setupId", setupId)
+                    .put("status", "ACTIVE")
+                    .put("totalQueues", queues.size())
+                    .put("totalConsumerGroups", consumerGroups.size())
+                    .put("totalEventStores", eventStores.size())
+                    .put("totalMessages", totalMessages)
+                    .put("messagesPerSecond", messagesPerSecond)
+                    .put("queues", queues)
+                    .put("consumerGroups", consumerGroups)
+                    .put("eventStores", eventStores);
+        }).transform(ar -> {
+            if (ar.failed()) {
+                logger.warn("Failed to get summary for setup {}: {}", setupId, ar.cause().getMessage());
+                return Future.succeededFuture(new JsonObject()
+                        .put("setupId", setupId)
+                        .put("status", "ERROR")
+                        .put("totalQueues", 0)
+                        .put("totalConsumerGroups", 0)
+                        .put("totalEventStores", 0)
+                        .put("totalMessages", 0)
+                        .put("messagesPerSecond", 0.0)
+                        .put("queues", new JsonArray())
+                        .put("consumerGroups", new JsonArray())
+                        .put("eventStores", new JsonArray()));
+            }
+            return Future.succeededFuture(ar.result());
+        });
+    }
+
+    /**
+     * Builds system-wide totals by summing across all setup summaries.
+     */
+    private JsonObject buildSystemTotals(JsonArray setups) {
+        int totalSetups = setups.size();
+        int totalQueues = 0;
+        int totalConsumerGroups = 0;
+        int totalEventStores = 0;
+        int totalMessages = 0;
+        double messagesPerSecond = 0.0;
+
+        for (Object obj : setups) {
+            if (obj instanceof JsonObject) {
+                JsonObject setup = (JsonObject) obj;
+                totalQueues += setup.getInteger("totalQueues", 0);
+                totalConsumerGroups += setup.getInteger("totalConsumerGroups", 0);
+                totalEventStores += setup.getInteger("totalEventStores", 0);
+                totalMessages += setup.getInteger("totalMessages", 0);
+                messagesPerSecond += setup.getDouble("messagesPerSecond", 0.0);
+            }
+        }
+
+        return new JsonObject()
+                .put("totalSetups", totalSetups)
+                .put("totalQueues", totalQueues)
+                .put("totalConsumerGroups", totalConsumerGroups)
+                .put("totalEventStores", totalEventStores)
+                .put("totalMessages", totalMessages)
+                .put("messagesPerSecond", messagesPerSecond)
+                .put("uptime", getUptimeString());
     }
 
     /**
@@ -347,220 +447,6 @@ public class ManagementApiHandler {
         systemMetricsCache.put("messagesPerSecond", 0.0);
         systemMetricsCache.put("activeConnections", 0);
         systemMetricsCache.put("totalMessages", 0);
-    }
-
-    /**
-     * Builds system statistics from pre-fetched data.
-     */
-    private JsonObject buildSystemStats(JsonArray queues, JsonArray consumerGroups, JsonArray eventStores) {
-        return new JsonObject()
-                .put("totalQueues", queues.size())
-                .put("totalConsumerGroups", consumerGroups.size())
-                .put("totalEventStores", eventStores.size())
-                .put("totalMessages", calculateTotalMessages(queues))
-                .put("messagesPerSecond", calculateMessagesPerSecond(queues))
-                .put("activeConnections", calculateActiveConnections(consumerGroups))
-                .put("uptime", getUptimeString());
-    }
-
-    /**
-     * Calculate total messages across all queues.
-     */
-    private int calculateTotalMessages(JsonArray queues) {
-        int total = 0;
-        for (Object obj : queues) {
-            if (obj instanceof JsonObject) {
-                JsonObject queue = (JsonObject) obj;
-                total += queue.getInteger("messages", 0);
-            }
-        }
-        return total;
-    }
-
-    /**
-     * Calculate average messages per second across all queues.
-     */
-    private double calculateMessagesPerSecond(JsonArray queues) {
-        double total = 0.0;
-        int count = 0;
-        for (Object obj : queues) {
-            if (obj instanceof JsonObject) {
-                JsonObject queue = (JsonObject) obj;
-                total += queue.getDouble("messageRate", 0.0);
-                count++;
-            }
-        }
-        return count > 0 ? total / count : 0.0;
-    }
-
-    /**
-     * Calculate total active connections from consumer groups.
-     */
-    private int calculateActiveConnections(JsonArray consumerGroups) {
-        int total = 0;
-        for (Object obj : consumerGroups) {
-            if (obj instanceof JsonObject) {
-                JsonObject group = (JsonObject) obj;
-                total += group.getInteger("members", 0);
-            }
-        }
-        return total;
-    }
-
-    /**
-     * Helper method to execute count queries against a specific database setup.
-     */
-    private int executeCountQueryForSetup(DatabaseSetupResult setupResult, String sql, String parameter) {
-        // For now, return 0 as we don't have direct database access from setupResult
-        // This would need to be implemented with proper database connection management
-        // TODO: Implement proper database query execution
-        return 0;
-    }
-
-    /**
-     * Get real event count for a specific event store using EventStore.getStats().
-     */
-    private Future<Long> getRealEventCount(String setupId, String storeName) {
-        return setupService.getSetupResult(setupId)
-                .compose(setupResult -> {
-                    var eventStore = setupResult.getEventStores().get(storeName);
-                    if (eventStore != null) {
-                        return eventStore.getStats().map(stats -> stats.getTotalEvents());
-                    }
-                    return Future.succeededFuture(0L);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get real event count for store {}: {}", storeName, ar.cause().getMessage());
-                        return Future.succeededFuture(0L);
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
-    }
-
-    /**
-     * Get real aggregate count for a specific event store using
-     * EventStore.getStats().
-     */
-    private Future<Long> getRealAggregateCount(String setupId, String storeName) {
-        return setupService.getSetupResult(setupId)
-                .compose(setupResult -> {
-                    var eventStore = setupResult.getEventStores().get(storeName);
-                    if (eventStore != null) {
-                        return eventStore.getStats().map(stats -> stats.getUniqueAggregateCount());
-                    }
-                    return Future.succeededFuture(0L);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get real aggregate count for store {}: {}", storeName, ar.cause().getMessage());
-                        return Future.succeededFuture(0L);
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
-    }
-
-    /**
-     * Get real correction count for a specific event store using
-     * EventStore.getStats().
-     */
-    private Future<Long> getRealCorrectionCount(String setupId, String storeName) {
-        return setupService.getSetupResult(setupId)
-                .compose(setupResult -> {
-                    var eventStore = setupResult.getEventStores().get(storeName);
-                    if (eventStore != null) {
-                        return eventStore.getStats().map(stats -> stats.getTotalCorrections());
-                    }
-                    return Future.succeededFuture(0L);
-                })
-                .transform(ar -> {
-                    if (ar.failed()) {
-                        logger.debug("Failed to get real correction count for store {}: {}", storeName, ar.cause().getMessage());
-                        return Future.succeededFuture(0L);
-                    }
-                    return Future.succeededFuture(ar.result());
-                });
-    }
-
-    /**
-     * Builds queue summary from pre-fetched queue data.
-     */
-    private JsonObject buildQueueSummary(JsonArray queues) {
-        int total = queues.size();
-        int active = 0;
-        int idle = 0;
-        int error = 0;
-
-        for (Object obj : queues) {
-            if (obj instanceof JsonObject) {
-                JsonObject queue = (JsonObject) obj;
-                String status = queue.getString("status", "unknown");
-                switch (status) {
-                    case "active":
-                        active++;
-                        break;
-                    case "idle":
-                        idle++;
-                        break;
-                    case "error":
-                        error++;
-                        break;
-                }
-            }
-        }
-
-        return new JsonObject()
-                .put("total", total)
-                .put("active", active)
-                .put("idle", idle)
-                .put("error", error);
-    }
-
-    /**
-     * Builds consumer group summary from pre-fetched data.
-     */
-    private JsonObject buildConsumerGroupSummary(JsonArray consumerGroups) {
-        int total = consumerGroups.size();
-        int active = 0;
-        int totalMembers = 0;
-
-        for (Object obj : consumerGroups) {
-            if (obj instanceof JsonObject) {
-                JsonObject group = (JsonObject) obj;
-                String status = group.getString("status", "unknown");
-                if ("active".equals(status)) {
-                    active++;
-                }
-                totalMembers += group.getInteger("members", 0);
-            }
-        }
-
-        return new JsonObject()
-                .put("total", total)
-                .put("active", active)
-                .put("members", totalMembers);
-    }
-
-    /**
-     * Builds event store summary from pre-fetched data.
-     */
-    private JsonObject buildEventStoreSummary(JsonArray eventStores) {
-        int total = eventStores.size();
-        int totalEvents = 0;
-        int totalCorrections = 0;
-
-        for (Object obj : eventStores) {
-            if (obj instanceof JsonObject) {
-                JsonObject store = (JsonObject) obj;
-                totalEvents += store.getInteger("events", 0);
-                totalCorrections += store.getInteger("corrections", 0);
-            }
-        }
-
-        return new JsonObject()
-                .put("total", total)
-                .put("events", totalEvents)
-                .put("corrections", totalCorrections);
     }
 
     /**
@@ -899,6 +785,60 @@ public class ManagementApiHandler {
                     if (ar.failed()) {
                         logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
                         return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
+    }
+
+    private Future<Long> getRealEventCount(String setupId, String storeName) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    dev.mars.peegeeq.api.EventStore<?> store = setupResult.getEventStores().get(storeName);
+                    if (store == null) {
+                        return Future.succeededFuture(0L);
+                    }
+                    return store.getStats().map(dev.mars.peegeeq.api.EventStore.EventStoreStats::getTotalEvents);
+                })
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get event count for store {}/{}: {}", setupId, storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
+    }
+
+    private Future<Long> getRealAggregateCount(String setupId, String storeName) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    dev.mars.peegeeq.api.EventStore<?> store = setupResult.getEventStores().get(storeName);
+                    if (store == null) {
+                        return Future.succeededFuture(0L);
+                    }
+                    return store.getStats().map(dev.mars.peegeeq.api.EventStore.EventStoreStats::getUniqueAggregateCount);
+                })
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get aggregate count for store {}/{}: {}", setupId, storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
+    }
+
+    private Future<Long> getRealCorrectionCount(String setupId, String storeName) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    dev.mars.peegeeq.api.EventStore<?> store = setupResult.getEventStores().get(storeName);
+                    if (store == null) {
+                        return Future.succeededFuture(0L);
+                    }
+                    return store.getStats().map(dev.mars.peegeeq.api.EventStore.EventStoreStats::getTotalCorrections);
+                })
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get correction count for store {}/{}: {}", setupId, storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
                     }
                     return Future.succeededFuture(ar.result());
                 });
