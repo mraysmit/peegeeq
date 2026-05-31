@@ -1,0 +1,127 @@
+import { defineConfig, devices } from '@playwright/test'
+
+const chromeMaximized = {
+  ...devices['Desktop Chrome'],
+  headless: false,
+}
+
+/**
+ * Comprehensive Playwright configuration for PeeGeeQ Utilities UI testing
+ * @see https://playwright.dev/docs/test-configuration
+ */
+export default defineConfig({
+  testDir: './src/tests/e2e',
+  /* Global setup with TestContainers - starts PostgreSQL and checks backend */
+  globalSetup: './src/tests/global-setup-testcontainers.ts',
+  /* Global teardown - stops TestContainers */
+  globalTeardown: './src/tests/global-teardown.ts',
+  /* Run test FILES sequentially - navigation tests run before overview tests */
+  fullyParallel: false,
+  /* Fail the build on CI if you accidentally left test.only in the source code. */
+  forbidOnly: !!process.env.CI,
+  /* Retry on CI only */
+  retries: process.env.CI ? 2 : 0,
+  /* Run with a single worker so spec files execute sequentially and do not race on shared state. */
+  workers: 1,
+  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
+  reporter: [
+    ['html', { outputFolder: 'playwright-report' }],
+    ['json', { outputFile: 'test-results/results.json' }],
+    ['junit', { outputFile: 'test-results/junit.xml' }]
+  ],
+  /* Global timeout for each test */
+  timeout: 60 * 1000,
+  /* Expect timeout for assertions */
+  expect: {
+    timeout: 10 * 1000,
+    /* Visual regression settings */
+    toHaveScreenshot: {
+      maxDiffPixels: 200,    // Allow up to 200 different pixels (accounts for timestamps, dynamic content)
+      threshold: 0.2,        // 20% tolerance for color differences
+    },
+  },
+  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
+  use: {
+    /* Base URL to use in actions like `await page.goto('/')`. */
+    baseURL: 'http://localhost:3001',
+
+    /* Slow down operations for visibility during development */
+    launchOptions: {
+      slowMo: process.env.SLOW_MO ? parseInt(process.env.SLOW_MO) : 0,
+    },
+
+    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
+    trace: 'on-first-retry',
+
+    /* Take screenshot on failure */
+    screenshot: 'only-on-failure',
+
+    /* Record video on failure */
+    video: 'on-first-retry',
+
+    /* Ignore HTTPS errors */
+    ignoreHTTPSErrors: true,
+
+    /* Wait for network idle before considering navigation complete */
+    waitForLoadState: 'load',
+
+    /* Action timeout */
+    actionTimeout: 10 * 1000,
+
+    /* Navigation timeout */
+    navigationTimeout: 30 * 1000,
+  },
+
+  /* Configure projects for major browsers */
+  projects: [
+    // Step 1: Navigation - Validates app shell and all sidebar navigation links
+    {
+      name: '1-navigation',
+      testMatch: '**/navigation.spec.ts',
+      use: chromeMaximized,
+    },
+    // Step 2: Overview - Tests Overview page heading, status, stats, charts, and queue table
+    {
+      name: '2-overview',
+      testMatch: '**/overview.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['1-navigation'],
+    },
+    // Step 3: Generator - Tests Message Generator, Template Manager, Value Lists, and Tools pages
+    {
+      name: '3-generator',
+      testMatch: '**/generator.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['1-navigation'],
+    },
+    // Step 4: Quick Setup - Tests the Create Setup wizard flow end-to-end.
+    // Depends on 3-generator so the generator's clean-state (empty) tests run
+    // BEFORE this suite creates the e2e setup and pollutes shared DB state.
+    {
+      name: '4-quick-setup',
+      testMatch: '**/quick-setup.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3-generator'],
+    },
+    // Step 5: Setups - Tests the /setups list page, detail modal, and delete flow
+    // Depends on 4-quick-setup having created the e2e test setup
+    {
+      name: '5-setups',
+      testMatch: '**/setups.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['4-quick-setup'],
+    },
+  ],
+
+  /* Run your local dev server before starting the tests */
+  webServer: [
+    {
+      command: 'npm run dev',
+      url: 'http://localhost:3001',
+      reuseExistingServer: !process.env.CI,  // Reuse in dev, fresh in CI
+      timeout: 120 * 1000,
+      stdout: 'pipe',  // Capture dev server output
+      stderr: 'pipe',
+    }
+  ],
+})
