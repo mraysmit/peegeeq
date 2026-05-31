@@ -262,11 +262,20 @@ public class DatabaseSetupHandler {
         logger.info("Adding queue {} to setup: {}", queueConfig.getQueueName(), setupId);
 
         setupService.addQueue(setupId, queueConfig)
-                .map(v -> new JsonObject()
-                        .put("message", "Queue '" + queueConfig.getQueueName()
-                                + "' added successfully to setup '" + setupId + "'")
-                        .put("queueName", queueConfig.getQueueName())
-                        .put("setupId", setupId))
+                .compose(v -> setupService.getSetupResult(setupId))
+                .map(result -> {
+                    var factory = result.getQueueFactories().get(queueConfig.getQueueName());
+                    String implementationType = factory != null ? factory.getImplementationType() : null;
+                    JsonObject response = new JsonObject()
+                            .put("message", "Queue '" + queueConfig.getQueueName()
+                                    + "' added successfully to setup '" + setupId + "'")
+                            .put("queueName", queueConfig.getQueueName())
+                            .put("setupId", setupId);
+                    if (implementationType != null) {
+                        response.put("implementationType", implementationType);
+                    }
+                    return response;
+                })
                 .onSuccess(response -> {
                     ctx.response()
                             .setStatusCode(201)
@@ -279,6 +288,8 @@ public class DatabaseSetupHandler {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
                         sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else if (cause instanceof IllegalArgumentException) {
+                        sendError(ctx, 400, "Invalid request: " + cause.getMessage());
                     } else {
                         sendError(ctx, 503, "Failed to add queue '" + queueConfig.getQueueName() + "': " + err.getMessage());
                     }
@@ -368,9 +379,18 @@ public class DatabaseSetupHandler {
         setupService.getSetupResult(setupId)
                 .map(result -> {
                     List<String> queueNames = new ArrayList<>(result.getQueueFactories().keySet());
+                    // Additive enrichment: per-queue implementation type. The legacy "count" and
+                    // "queues" (names only) fields are preserved for backward compatibility.
+                    JsonArray queueDetails = new JsonArray();
+                    result.getQueueFactories().forEach((name, factory) -> queueDetails.add(
+                            new JsonObject()
+                                    .put("name", name)
+                                    .put("implementationType",
+                                            factory != null ? factory.getImplementationType() : null)));
                     return new JsonObject()
                             .put("count", queueNames.size())
-                            .put("queues", new JsonArray(queueNames));
+                            .put("queues", new JsonArray(queueNames))
+                            .put("queueDetails", queueDetails);
                 })
                 .onSuccess(response -> ctx.response()
                         .setStatusCode(200)

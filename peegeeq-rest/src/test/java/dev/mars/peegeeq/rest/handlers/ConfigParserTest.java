@@ -53,6 +53,73 @@ public class ConfigParserTest {
     }
 
     @Test
+    public void testParseQueueConfigWithoutImplementationType() {
+        JsonObject json = new JsonObject()
+                .put("queueName", "no-type-queue");
+
+        QueueConfig config = ConfigParser.parseQueueConfig(json);
+
+        // Absent implementationType leaves the value null so the setup falls back to
+        // the best available factory type.
+        assertNull(config.getImplementationType());
+    }
+
+    @Test
+    public void testParseQueueConfigWithNativeImplementationType() {
+        JsonObject json = new JsonObject()
+                .put("queueName", "native-queue")
+                .put("implementationType", "native");
+
+        QueueConfig config = ConfigParser.parseQueueConfig(json);
+
+        assertEquals("native", config.getImplementationType());
+    }
+
+    @Test
+    public void testParseQueueConfigWithOutboxImplementationType() {
+        JsonObject json = new JsonObject()
+                .put("queueName", "outbox-queue")
+                .put("implementationType", "outbox");
+
+        QueueConfig config = ConfigParser.parseQueueConfig(json);
+
+        assertEquals("outbox", config.getImplementationType());
+    }
+
+    @Test
+    public void testParseQueueConfigImplementationTypeIsCaseInsensitiveAndNormalized() {
+        JsonObject json = new JsonObject()
+                .put("queueName", "mixed-case-queue")
+                .put("implementationType", "Native");
+
+        QueueConfig config = ConfigParser.parseQueueConfig(json);
+
+        assertEquals("native", config.getImplementationType());
+    }
+
+    @Test
+    public void testParseQueueConfigImplementationTypeViaTypeAlias() {
+        JsonObject json = new JsonObject()
+                .put("name", "ui-queue")
+                .put("type", "outbox");
+
+        QueueConfig config = ConfigParser.parseQueueConfig(json);
+
+        assertEquals("outbox", config.getImplementationType());
+    }
+
+    @Test
+    public void testParseQueueConfigRejectsInvalidImplementationType() {
+        JsonObject json = new JsonObject()
+                .put("queueName", "bad-type-queue")
+                .put("implementationType", "rabbitmq");
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> ConfigParser.parseQueueConfig(json));
+        assertTrue(ex.getMessage().contains("rabbitmq"));
+    }
+
+    @Test
     public void testParseStandardEventStoreConfig() {
         JsonObject json = new JsonObject()
                 .put("eventStoreName", "standard-store")
