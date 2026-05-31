@@ -1,6 +1,6 @@
 # PeeGeeQ Management UI - Architecture and Design
 
-Last Updated: 2025-12-28
+Last Updated: 2026-05-30
 
 ## Overview
 
@@ -96,14 +96,14 @@ For complete architecture details, see: `docs-design/design/peegeeq-call-propaga
 
 #### Development Mode
 - Frontend: Vite dev server on port 3000
-- Backend: Java REST server on port 8080
+- Backend: Java REST server on port **8088** (default configured in `configService.ts`: `http://127.0.0.1:8088`)
 - CORS: Enabled (allows all origins - suitable for development only)
 - **Why:** Separate dev server enables fast HMR and better debugging; CORS allows frontend to call backend on different port
 
 #### Production Mode
 - Frontend: Built static files served from /webroot by REST server
-- Backend: Java REST server on port 8080
-- Access: http://localhost:8080/ui/
+- Backend: Java REST server on port **8088**
+- Access: http://localhost:8088/ui/
 - CORS: Enabled but not required (same origin)
 - **Why:** Single-server deployment simplifies operations; no CORS issues; reduces infrastructure complexity and attack surface
 - **Note:** CORS handler currently allows all origins; consider restricting to specific origins in production deployments
@@ -182,109 +182,98 @@ For complete architecture details, see: `docs-design/design/peegeeq-call-propaga
 
 ```
 src/
+├── api/                # HTTP client layer
+│   ├── PeeGeeQClient.ts  # Axios-based REST client
+│   ├── endpoints.ts      # Typed endpoint constants
+│   ├── types.ts          # API request/response types
+│   └── index.ts
 ├── components/          # Reusable UI components
-│   ├── layout/         # Layout components (Header, Sidebar, etc.)
-│   ├── common/         # Common components (Button, Card, etc.)
-│   └── features/       # Feature-specific components
-├── pages/              # Page components (routes)
+│   ├── layout/          # Header.tsx (Sidebar is inline in App.tsx)
+│   ├── common/          # ConnectionStatus, StatCard, FilterBar, ConfirmDialog, ErrorBoundary
+│   └── EventVisualization.tsx  # Causation tree + aggregate stream component
+├── pages/               # Page components (one per route)
 │   ├── Overview.tsx
-│   ├── Queues.tsx
+│   ├── DatabaseSetups.tsx
+│   ├── QueuesEnhanced.tsx          # Active queue list (replaces Queues.tsx)
+│   ├── QueueDetailsEnhanced.tsx   # Active queue detail tabs (replaces QueueDetails.tsx)
+│   ├── Queues.tsx                 # Legacy — mounted at /queues-old
+│   ├── QueueDetails.tsx           # Legacy — mounted at /queues-old/:queueName
 │   ├── ConsumerGroups.tsx
 │   ├── EventStores.tsx
+│   ├── EventsPage.tsx             # Post event + query events
+│   ├── EventVisualizationPage.tsx # /event-visualization
 │   ├── MessageBrowser.tsx
-│   └── DatabaseSetups.tsx
-├── store/              # State management
-│   ├── api/           # RTK Query API slices
-│   └── slices/        # Redux slices
-├── hooks/              # Custom React hooks
-├── utils/              # Utility functions
-├── types/              # TypeScript type definitions
-└── styles/             # Global styles
+│   ├── Settings.tsx
+│   ├── Monitoring.tsx             # Stub — placeholder only
+│   ├── DeveloperPortal.tsx        # Stub — placeholder only
+│   ├── SchemaRegistry.tsx         # Stub — placeholder only
+│   ├── QueueDesigner.tsx          # Stub — placeholder only
+│   └── TestHarness.tsx
+├── services/            # Runtime service layer
+│   ├── apiConstants.ts  # API path constants (no base URL — resolved at runtime)
+│   ├── configService.ts # Backend URL config persisted in localStorage
+│   └── websocketService.ts  # WS + SSE service factories
+├── store/               # RTK Query state
+│   └── api/
+│       ├── apiBase.ts   # RTK Query base API (createApi)
+│       └── queuesApi.ts # Queue endpoints
+├── stores/              # Zustand stores (UI state)
+├── hooks/               # Custom React hooks
+├── types/               # TypeScript type definitions
+└── App.tsx              # Router + sidebar layout (no separate Sidebar component)
 ```
 
 ### Core Components
 
 #### Layout Components
 
-- Layout.tsx: Main application layout with responsive sidebar, header, and content area
-- Sidebar.tsx: Navigation sidebar with route links and active state
-- Header.tsx: Application header with system health indicator and connection status
+- `Header.tsx` (`src/components/layout/`): App header — page title, `ConnectionStatus`, refresh button, notification bell (inert), user menu (hardcoded "Admin", logout is a no-op).
+- **No separate Sidebar component** — the sidebar nav is implemented inline inside `App.tsx` using Ant Design `<Layout.Sider>` and `<Menu>`.
 
-#### Common Components
+#### Common Components (`src/components/common/`)
 
-- Card.tsx: Reusable card container with consistent styling
-- Table.tsx: Data table with sorting, pagination, and row selection
-- StatCard.tsx: Statistics display card with metric value and label
-- LoadingSpinner.tsx: Consistent loading indicator
-- ErrorMessage.tsx: User-friendly error display with retry actions
+- `ConnectionStatus.tsx`: WS/SSE status badge displayed in the header.
+- `StatCard.tsx`: Statistics display card with metric value and label.
+- `FilterBar.tsx`: Generic search + dropdown filter toolbar used by multiple pages.
+- `ConfirmDialog.tsx`: Reusable confirmation modal wrapper.
+- `ErrorBoundary.tsx`: React error boundary for component crash isolation.
+
+> **Note:** The generic `Card.tsx`, `Table.tsx`, `LoadingSpinner.tsx`, and `ErrorMessage.tsx` described in the original plan were not created — Ant Design components are used directly instead.
 
 #### Feature Components
 
-Queue Components:
-- QueueList.tsx: Queue table with filters
-- QueueCard.tsx: Individual queue card
-- CreateQueueForm.tsx: Queue creation form
-- QueueActions.tsx: Queue action buttons
+- `EventVisualization.tsx` (`src/components/`): Causation tree (Ant Design `Tree`) + aggregate stream (list + event table). Used inside `EventVisualizationPage.tsx`.
 
-Consumer Group Components:
-- ConsumerGroupList.tsx: Consumer group table
-- ConsumerGroupCard.tsx: Individual group card
-- ConsumerGroupDetails.tsx: Detailed view
-
-Message Components:
-- MessageList.tsx: Message browser table
-- MessageDetails.tsx: Message detail view
-- MessageFilters.tsx: Message filtering UI
+> **Note:** The planned Queue, Consumer Group, and Message sub-components (`QueueList`, `QueueCard`, `CreateQueueForm`, etc.) were not created as separate files. All queue functionality is self-contained inside `QueuesEnhanced.tsx` and `QueueDetailsEnhanced.tsx`.
 
 ## State Management
 
 ### RTK Query API Slices
 
-The application uses RTK Query for server state management with automatic caching, refetching, and optimistic updates.
+Only one RTK Query slice is implemented:
 
-#### queuesApi.ts
+#### queuesApi.ts (`src/store/api/queuesApi.ts`)
 
-Manages queue data with endpoints for:
-- List queues with filters
+Endpoints:
+- List queues (with setupId / search filters)
 - Get queue details
-- Create/update/delete queues
-- Queue operations (pause, resume, purge)
+- Create queue
+- Delete queue
+- Queue operations: pause, resume, purge
 
-Features:
-- Automatic caching with configurable TTL
-- Optimistic updates for mutations
-- Automatic refetching on window focus
-- Tag-based cache invalidation
+> **Note:** `consumerGroupsApi.ts` and `eventStoresApi.ts` described in the original plan were **not created**. Consumer groups, event stores, events, and database setups are fetched using direct `axios` calls via `PeeGeeQClient.ts` (`src/api/PeeGeeQClient.ts`), not RTK Query.
 
-#### consumerGroupsApi.ts
+### Direct API Client (`src/api/PeeGeeQClient.ts`)
 
-Manages consumer group data:
-- List consumer groups with filters
-- Get consumer group details
-- Update consumer group configuration
-- Delete consumer groups
-
-#### eventStoresApi.ts
-
-Manages event store data:
-- List event stores
-- Get event store details
-- Create/update event stores
-- Event store statistics
+Axios-based client that resolves the backend base URL from `configService.ts` at call time. Used by most pages outside of the Queues feature.
 
 ### Local State Management
 
-React Context for:
-- Theme preferences
-- User settings
-- UI state (sidebar collapsed, etc.)
-- **Why:** Context avoids prop drilling for global UI state; lightweight alternative to Redux for non-server state
+**Zustand** stores (`src/stores/`) are used for lightweight cross-component UI state.
 
-Component State for:
-- Form inputs
-- Local UI interactions
-- Temporary data
-- **Why:** useState keeps component-specific state local; prevents unnecessary global state pollution and re-renders
+**React `useState`** is used for all form inputs, modal open/close, and per-page loading/error state.
+
+> **Note:** React Context for theme/user settings was not implemented — there is no theme switching or user preference system in the current UI.
 
 ## API Integration
 
@@ -456,7 +445,7 @@ Get Queue Bindings:
 GET /api/v1/queues/:setupId/:queueName/bindings
 ```
 
-Status: ❌ **NOT APPLICABLE** - Bindings are a RabbitMQ concept that doesn't exist in PeeGeeQ's architecture. Will always return empty array. Recommend removing from UI.
+Status: ❌ **NOT APPLICABLE** - Bindings are a RabbitMQ concept that doesn't exist in PeeGeeQ's architecture. Will always return empty array. The Bindings tab in `QueueDetailsEnhanced.tsx` is a stub placeholder ("Coming in Week 5") with no API call.
 
 ### Consumer Group APIs
 
@@ -893,7 +882,7 @@ Backend Metrics:
 1. Start Backend:
    ```bash
    cd peegeeq-rest
-   mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8080"
+   mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.rest.PeeGeeQRestServer" -Dexec.args="8088"
    ```
 
 2. Start Frontend:
@@ -903,7 +892,7 @@ Backend Metrics:
    npm run dev
    ```
 
-3. Access UI: http://localhost:3000
+3. Access UI: http://localhost:3000 (Vite dev server proxies API calls to http://127.0.0.1:8088)
 
 ### Building for Production
 
@@ -933,6 +922,7 @@ npm run format
 - **EXECUTION_CHECKLIST.md**: Focused 4-6 week execution plan
 - **PEEGEEQ_MANAGMENT_UI_STATUS.md**: Implementation status and production readiness
 - **PEEGEEQ_MANAGMENT_UI_TESTING.md**: Testing approach and design
+- **MANAGEMENT_UI_ENHANCEMENTS.md**: Complete functionality inventory, screenshots, stub features catalogue, proposed enhancements
 - **peegeeq-management-ui/docs/archive/IMPLEMENTATION_PLAN.md**: Original 14-19 week plan (archived)
 
 ### External Resources
