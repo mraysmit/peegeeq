@@ -135,18 +135,17 @@ class EndToEndValidationTest {
                 response.body().onSuccess(body -> {
                     try {
                         JsonObject overviewResponse = body.toJsonObject();
-                        assertTrue(overviewResponse.containsKey("systemStats"));
-                        assertTrue(overviewResponse.containsKey("queueSummary"));
-                        assertTrue(overviewResponse.containsKey("consumerGroupSummary"));
-                        assertTrue(overviewResponse.containsKey("eventStoreSummary"));
+                        assertTrue(overviewResponse.containsKey("setups"));
+                        assertTrue(overviewResponse.containsKey("systemTotals"));
                         assertTrue(overviewResponse.containsKey("timestamp"));
-                        
-                        JsonObject systemStats = overviewResponse.getJsonObject("systemStats");
-                        assertTrue(systemStats.containsKey("totalQueues"));
-                        assertTrue(systemStats.containsKey("totalConsumerGroups"));
-                        assertTrue(systemStats.containsKey("totalEventStores"));
-                        assertTrue(systemStats.containsKey("uptime"));
-                        
+
+                        JsonObject systemTotals = overviewResponse.getJsonObject("systemTotals");
+                        assertTrue(systemTotals.containsKey("totalSetups"));
+                        assertTrue(systemTotals.containsKey("totalQueues"));
+                        assertTrue(systemTotals.containsKey("totalConsumerGroups"));
+                        assertTrue(systemTotals.containsKey("totalEventStores"));
+                        assertTrue(systemTotals.containsKey("uptime"));
+
                         logger.info("Management overview endpoint working correctly");
                         testContext.completeNow();
                     } catch (Exception e) {
