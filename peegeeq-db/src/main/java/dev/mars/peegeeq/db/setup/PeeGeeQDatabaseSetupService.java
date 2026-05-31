@@ -822,24 +822,43 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             var databaseService = manager.getDatabaseService();
             var configuration = manager.getConfiguration();
 
-            // Check if any queue factory implementations are available
+            // Determine the fallback type for queues that do not request a specific
+            // implementation type. When no implementations are registered, only queues that
+            // explicitly request an (unsupported) type can fail; queues without a request are
+            // skipped, preserving the original behaviour.
             var bestAvailableType = queueFactoryProvider.getBestAvailableType();
-            if (bestAvailableType.isEmpty()) {
-                logger.info("No queue factory implementations available. Skipping queue factory creation. " +
-                        "This is expected when running without peegeeq-native or peegeeq-outbox modules.");
-                return factories;
-            }
-
-            String implementationType = bestAvailableType.get();
-            logger.info("Using {} queue factory implementation for {} queue(s)", implementationType, queues.size());
 
             // Prepare configuration map with PeeGeeQConfiguration
             Map<String, Object> factoryConfig = new HashMap<>();
             factoryConfig.put("peeGeeQConfiguration", configuration);
 
             for (QueueConfig queueConfig : queues) {
+                String requestedType = queueConfig.getImplementationType();
+
+                // Resolve the per-queue implementation type: use the explicitly requested type
+                // when present, otherwise fall back to the best available type.
+                String implementationType;
+                if (requestedType != null && !requestedType.isEmpty()) {
+                    if (!queueFactoryProvider.isTypeSupported(requestedType)) {
+                        // A specific type was requested but is not registered. Fail clearly
+                        // instead of silently substituting a different implementation.
+                        throw new IllegalArgumentException(
+                                "Unsupported implementation type '" + requestedType + "' requested for queue '"
+                                        + queueConfig.getQueueName() + "'. Supported types: "
+                                        + queueFactoryProvider.getSupportedTypes());
+                    }
+                    implementationType = requestedType;
+                } else if (bestAvailableType.isPresent()) {
+                    implementationType = bestAvailableType.get();
+                } else {
+                    logger.info("No queue factory implementations available and no type requested for queue '{}'. " +
+                            "Skipping queue factory creation. This is expected when running without " +
+                            "peegeeq-native or peegeeq-outbox modules.", queueConfig.getQueueName());
+                    continue;
+                }
+
                 try {
-                    // Create a queue factory for each queue using the available type WITH configuration
+                    // Create a queue factory for this queue using the resolved type WITH configuration
                     QueueFactory factory = queueFactoryProvider.createFactory(implementationType, databaseService, factoryConfig);
                     factories.put(queueConfig.getQueueName(), factory);
 

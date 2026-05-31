@@ -917,9 +917,12 @@ public class ManagementApiHandler {
 
             // Add queue to the specified setup
             setupService.addQueue(setupId, queueConfig)
+                    .compose(v -> setupService.getSetupResult(setupId))
                     .map(result -> {
                         logger.info("Queue {} created successfully in setup {} with all parameters", queueName, setupId);
-                        return new JsonObject()
+                        var factory = result.getQueueFactories().get(queueName);
+                        String implementationType = factory != null ? factory.getImplementationType() : null;
+                        JsonObject response = new JsonObject()
                                 .put("message", "Queue '" + queueName
                                         + "' created successfully in setup '" + setupId + "'")
                                 .put("queueName", queueName)
@@ -934,6 +937,10 @@ public class ManagementApiHandler {
                                 .put("fifoEnabled", queueConfig.isFifoEnabled())
                                 .put("deadLetterQueueName", queueConfig.getDeadLetterQueueName())
                                 .put("timestamp", System.currentTimeMillis());
+                        if (implementationType != null) {
+                            response.put("implementationType", implementationType);
+                        }
+                        return response;
                     })
                     .onSuccess(response -> ctx.response()
                             .setStatusCode(201)
@@ -948,6 +955,9 @@ public class ManagementApiHandler {
                         if (cause.getMessage() != null && cause.getMessage().contains("Setup not found")) {
                             statusCode = 404;
                             errorMessage = "Setup not found: " + setupId;
+                        } else if (cause instanceof IllegalArgumentException) {
+                            statusCode = 400;
+                            errorMessage = "Invalid queue configuration: " + cause.getMessage();
                         }
                         sendError(ctx, statusCode, errorMessage);
                     });
@@ -1048,15 +1058,19 @@ public class ManagementApiHandler {
                         if (queueFactory == null) {
                             return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                         }
-                        return Future.succeededFuture(queueFactory);
+                        return Future.succeededFuture(new Object[] { setupResult, queueFactory });
                     })
-                    .compose(queueFactory -> {
+                    .compose(arr -> {
+                        DatabaseSetupResult setupResult = (DatabaseSetupResult) arr[0];
+                        QueueFactory queueFactory = (QueueFactory) arr[1];
                         try {
                             queueFactory.close();
                         } catch (Exception e) {
                             return Future.failedFuture(new ResponseException(503,
                                     "Failed to clean up queue resources: " + e.getMessage()));
                         }
+                        // Remove the queue from the active setup so subsequent listings no longer include it.
+                        setupResult.getQueueFactories().remove(queueName);
                         logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
                         return Future.succeededFuture(new JsonObject()
                             .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")

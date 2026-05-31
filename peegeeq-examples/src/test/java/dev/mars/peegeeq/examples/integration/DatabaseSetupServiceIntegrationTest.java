@@ -209,6 +209,59 @@ public class DatabaseSetupServiceIntegrationTest {
     }
 
     @Test
+    void testAddQueuesWithPerQueueImplementationType(VertxTestContext ctx) {
+        logger.info("=== Testing Per-Queue Implementation Type Selection ===");
+
+        QueueConfig nativeQueue = new QueueConfig.Builder()
+                .queueName("native_orders")
+                .implementationType("native")
+                .build();
+
+        QueueConfig outboxQueue = new QueueConfig.Builder()
+                .queueName("outbox_orders")
+                .implementationType("outbox")
+                .build();
+
+        setupService.createCompleteSetup(createMinimalSetupRequest())
+                .compose(result -> setupService.addQueue(testSetupId, nativeQueue))
+                .compose(v -> setupService.addQueue(testSetupId, outboxQueue))
+                .compose(v -> setupService.getSetupResult(testSetupId))
+                .onComplete(ctx.succeeding(result -> ctx.verify(() -> {
+                    var factories = result.getQueueFactories();
+                    assertNotNull(factories.get("native_orders"), "native_orders factory should exist");
+                    assertNotNull(factories.get("outbox_orders"), "outbox_orders factory should exist");
+                    assertEquals("native", factories.get("native_orders").getImplementationType(),
+                            "native_orders should use the native implementation");
+                    assertEquals("outbox", factories.get("outbox_orders").getImplementationType(),
+                            "outbox_orders should use the outbox implementation");
+                    logger.info("=== Per-Queue Implementation Type Selection Test Passed ===");
+                    ctx.completeNow();
+                })));
+    }
+
+    @Test
+    void testAddQueueWithUnsupportedImplementationTypeFails(VertxTestContext ctx) {
+        logger.info("=== Testing Unsupported Implementation Type Rejection ===");
+        logger.info("ERROR ===== INTENTIONAL ERROR TEST ===== The next failure for queue " +
+                "'bad_type_queue' (unsupported implementation type 'rabbitmq') is EXPECTED");
+
+        QueueConfig badQueue = new QueueConfig.Builder()
+                .queueName("bad_type_queue")
+                .implementationType("rabbitmq")
+                .build();
+
+        setupService.createCompleteSetup(createMinimalSetupRequest())
+                .compose(result -> setupService.addQueue(testSetupId, badQueue))
+                .onComplete(ctx.failing(err -> ctx.verify(() -> {
+                    assertTrue(err.getMessage() != null && err.getMessage().contains("rabbitmq"),
+                            "Failure should mention the unsupported type, was: " + err.getMessage());
+                    logger.info("Unsupported implementation type properly rejected");
+                    logger.info("=== Unsupported Implementation Type Rejection Test Passed ===");
+                    ctx.completeNow();
+                })));
+    }
+
+    @Test
     void testAddEventStoreToExistingSetup(VertxTestContext ctx) {
         logger.info("=== Testing Add Event Store to Existing Setup ===");
 
