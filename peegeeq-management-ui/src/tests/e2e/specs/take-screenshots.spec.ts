@@ -13,9 +13,11 @@
 import { test, expect, Page } from '@playwright/test'
 import * as path from 'path'
 import * as fs from 'fs'
+import { fileURLToPath } from 'url'
 import { selectAntOption } from '../utils/ant-helpers'
 
-const DIR = 'C:/Users/mraysmit/dev/idea-projects/peegeeq/docs-design/peegeeq-management-ui/screenshots'
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const DIR = path.resolve(__dirname, '../../../../../docs-design/peegeeq-management-ui/screenshots')
 const STATE_FILE = path.join(process.cwd(), 'screenshots-state.json')
 const SETUP_ID = 'default'
 
