@@ -363,6 +363,7 @@ public class QueueManagementAdvancedE2ETest {
     @DisplayName("Advanced Test 6: Error Recovery - Invalid Message Format")
     void test06_InvalidMessageFormat(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Advanced Test 6: Error Recovery - Invalid Message Format ===");
+        logger.info("--- EXPECTED ERROR (Advanced Test 6: invalid JSON → 400, JsonParseException) ---");
 
         // Try to publish invalid JSON
         webClient.post(TEST_PORT, "localhost", "/api/v1/queues/" + setupId + "/" + queueName + "/publish")

@@ -13,6 +13,9 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -37,6 +40,8 @@ class ManagementApiHandlerErrorTest {
 
     private static final int TEST_PORT = 18112;
     private static final int AUX_PORT = 18129;
+
+    private static final Logger logger = LoggerFactory.getLogger(ManagementApiHandlerErrorTest.class);
 
     private String deploymentId;
     private WebClient webClient;
@@ -71,6 +76,7 @@ class ManagementApiHandlerErrorTest {
 
     @Test
     void createQueue_missingBody_returns400(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C1: createQueue missing body → 400, NullPointerException) ---");
         webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
                 .send()
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
@@ -89,6 +95,7 @@ class ManagementApiHandlerErrorTest {
 
     @Test
     void createQueue_serviceFailsWithSetupNotFound_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C2: createQueue Setup not found → 404, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withAddQueue((id, cfg) -> Future.failedFuture(new RuntimeException("Setup not found: " + id)));
         RestServerConfig config = new RestServerConfig(
@@ -118,6 +125,7 @@ class ManagementApiHandlerErrorTest {
 
     @Test
     void createQueue_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C3: createQueue service failure → 503, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withAddQueue((id, cfg) -> Future.failedFuture(new RuntimeException("database connection failed")));
         RestServerConfig config = new RestServerConfig(
