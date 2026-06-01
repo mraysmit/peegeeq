@@ -6,7 +6,7 @@ test.describe('Connection Status', () => {
     await page.goto('/settings')
     await page.waitForLoadState('load')
 
-    // Verify we start connected (to localhost:8080)
+    // Verify we start connected (to localhost:8088)
     const cardExtra = page.locator('.ant-card-extra')
     await expect(cardExtra).toContainText(/Connected|Checking/, { timeout: 5000 })
 
@@ -45,7 +45,7 @@ test.describe('Connection Status', () => {
 
     // Verify default URL
     const apiUrlInput = page.getByTestId('api-url-input')
-    await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8080')
+    await expect(apiUrlInput).toHaveValue('http://127.0.0.1:8088')
 
     // Test connection
     await page.getByTestId('test-connection-btn').click()
