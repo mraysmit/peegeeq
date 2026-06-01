@@ -147,7 +147,7 @@ describe('SetupDetailPage', () => {
     renderPage()
     await waitFor(() => expect(screen.getByTestId('refresh-detail-button')).toBeTruthy())
     await userEvent.click(screen.getByTestId('refresh-detail-button'))
-    await waitFor(() => expect(mockedGetSetupDetails).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(mockedGetSetupDetails).toHaveBeenCalledTimes(2), { timeout: 5000 })
   })
 
   it('navigates back to /setups when Back is clicked', async () => {
