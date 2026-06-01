@@ -120,7 +120,7 @@ export const useUtilitiesStore = create<UtilitiesState>()(
                 try {
                     const response = await axios.get(getVersionedApiUrl('management/overview'))
                     const data = response.data
-                    const totals = data.systemTotals || {}
+                    const totals = data.systemStats || {}
 
                     const setups: SetupSummary[] = (data.setups || []).map((s: any) => ({
                         setupId: s.setupId,

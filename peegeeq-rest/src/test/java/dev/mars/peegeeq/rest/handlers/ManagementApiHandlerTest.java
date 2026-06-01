@@ -157,11 +157,11 @@ class ManagementApiHandlerTest {
 
                 // Verify required sections
                 assertNotNull(overview.getJsonArray("setups"), "setups should be present");
-                assertNotNull(overview.getJsonObject("systemTotals"), "systemTotals should be present");
+                assertNotNull(overview.getJsonObject("systemStats"), "systemStats should be present");
                 assertTrue(overview.containsKey("timestamp"), "timestamp should be present");
 
-                // Verify systemTotals structure
-                JsonObject stats = overview.getJsonObject("systemTotals");
+                // Verify systemStats structure
+                JsonObject stats = overview.getJsonObject("systemStats");
                 assertTrue(stats.containsKey("totalSetups"), "totalSetups should be present");
                 assertTrue(stats.containsKey("totalQueues"), "totalQueues should be present");
                 assertTrue(stats.containsKey("totalConsumerGroups"), "totalConsumerGroups should be present");

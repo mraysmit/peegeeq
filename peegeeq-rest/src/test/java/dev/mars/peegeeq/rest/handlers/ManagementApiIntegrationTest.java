@@ -181,14 +181,14 @@ public class ManagementApiIntegrationTest {
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body.getJsonArray("setups"), "Should have setups array");
-                    assertNotNull(body.getJsonObject("systemTotals"), "Should have systemTotals");
+                    assertNotNull(body.getJsonObject("systemStats"), "Should have systemStats");
                     assertNotNull(body.getLong("timestamp"), "Should have timestamp");
 
-                    JsonObject systemTotals = body.getJsonObject("systemTotals");
-                    assertTrue(systemTotals.containsKey("totalSetups"), "systemTotals should have totalSetups");
-                    assertTrue(systemTotals.containsKey("totalQueues"), "systemTotals should have totalQueues");
-                    assertTrue(systemTotals.containsKey("totalConsumerGroups"), "systemTotals should have totalConsumerGroups");
-                    assertTrue(systemTotals.containsKey("uptime"), "systemTotals should have uptime");
+                    JsonObject systemStats = body.getJsonObject("systemStats");
+                    assertTrue(systemStats.containsKey("totalSetups"), "systemStats should have totalSetups");
+                    assertTrue(systemStats.containsKey("totalQueues"), "systemStats should have totalQueues");
+                    assertTrue(systemStats.containsKey("totalConsumerGroups"), "systemStats should have totalConsumerGroups");
+                    assertTrue(systemStats.containsKey("uptime"), "systemStats should have uptime");
 
                     // Verify recentActivity field is present
                     JsonArray recentActivity = body.getJsonArray("recentActivity");

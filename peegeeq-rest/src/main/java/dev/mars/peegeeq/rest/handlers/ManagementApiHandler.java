@@ -104,7 +104,7 @@ public class ManagementApiHandler {
                         JsonArray recentActivity = cf.resultAt(1);
                         return new JsonObject()
                                 .put("setups", setups)
-                                .put("systemTotals", buildSystemTotals(setups))
+                                .put("systemStats", buildSystemTotals(setups))
                                 .put("recentActivity", recentActivity)
                                 .put("timestamp", System.currentTimeMillis());
                     });
