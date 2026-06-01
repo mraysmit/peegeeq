@@ -223,7 +223,7 @@ public class EventStoreIntegrationTest {
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Store event response: {} - {}", response.statusCode(), response.bodyAsString());
 
-                    if (response.statusCode() != 200) {
+                    if (response.statusCode() != 201) {
                         logger.error(" Event storage failed: {} - {}", response.statusCode(), response.bodyAsString());
                     }
 
@@ -624,6 +624,7 @@ public class EventStoreIntegrationTest {
     void testStoreEventWithInvalidJsonPayload(VertxTestContext testContext) {
         logger.info("=== TEST METHOD STARTED: testStoreEventWithInvalidJsonPayload ===");
         logger.info("=== TEST: STORE EVENT WITH INVALID JSON PAYLOAD ===");
+        logger.info("--- EXPECTED ERROR (testStoreEventWithInvalidJsonPayload → 400, JsonParseException) ---");
 
         String invalidJson = "{this is not valid json";
 

@@ -496,6 +496,7 @@ class SystemMonitoringHandlerTest {
                     if (data.contains("event: connected")) {
                         connectedEventReceived.set(true);
                         logger.info("Connected event received");
+                        logger.info("--- EXPECTED ERROR (Test 7: closing SSE client → server-side SSE error on monitoring-6) ---");
                         sseClient.close();
                         testContext.completeNow();
                     }
@@ -546,6 +547,7 @@ class SystemMonitoringHandlerTest {
                     if (data.contains("event: metrics")) {
                         metricsEventReceived.set(true);
                         logger.info("Metrics event received");
+                        logger.info("--- EXPECTED ERROR (Test 8: closing SSE client → server-side SSE error on monitoring-7) ---");
                         sseClient.close();
                         testContext.completeNow();
                     }

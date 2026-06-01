@@ -821,6 +821,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
     @Order(10)
     void testInvalidStartPositionValues(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Test 10: Invalid start position values ===");
+        logger.info("--- EXPECTED ERROR (Test 10: invalid start position → 400/500, IllegalArgumentException) ---");
         
         String groupName = "test-invalid-group";
         
@@ -829,8 +830,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
             .put("groupName", groupName)
             .put("maxMembers", 5);
         
-        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups",
-                                              setupId, QUEUE_NAME);
+        String createGroupPath = String.format("/api/v1/queues/%s/%s/consumer-groups", setupId, QUEUE_NAME);
         
         webClient.post(TEST_PORT, "localhost", createGroupPath)
             .sendJsonObject(createGroupRequest)

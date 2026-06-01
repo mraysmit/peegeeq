@@ -13,6 +13,9 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,6 +38,8 @@ class DatabaseSetupHandlerErrorTest {
     // Auxiliary port for per-test servers that need specific service configurations.
     // Tests are sequential by default; the port is freed before the next test starts.
     private static final int AUX_PORT = 18119;
+
+    private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupHandlerErrorTest.class);
 
     private String deploymentId;
     private WebClient webClient;
@@ -97,6 +102,7 @@ class DatabaseSetupHandlerErrorTest {
 
     @Test
     void getSetupStatus_unknownSetup_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A3: getSetupStatus unknown setup → 404, SetupNotFoundException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withGetSetupStatus(id -> Future.failedFuture(new SetupNotFoundException("Setup not found: " + id)));
         RestServerConfig config = new RestServerConfig(
@@ -122,6 +128,7 @@ class DatabaseSetupHandlerErrorTest {
 
     @Test
     void getSetupStatus_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A4: getSetupStatus service failure → 503, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withGetSetupStatus(id -> Future.failedFuture(new RuntimeException("service unavailable")));
         RestServerConfig config = new RestServerConfig(
@@ -147,6 +154,7 @@ class DatabaseSetupHandlerErrorTest {
 
     @Test
     void getSetupDetails_unknownSetup_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A5: getSetupDetails unknown setup → 404, SetupNotFoundException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withGetSetupResult(id -> Future.failedFuture(new SetupNotFoundException("Setup not found: " + id)));
         RestServerConfig config = new RestServerConfig(
@@ -173,6 +181,7 @@ class DatabaseSetupHandlerErrorTest {
 
     @Test
     void addQueue_unknownSetup_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A6: addQueue unknown setup → 404, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withAddQueue((id, cfg) -> Future.failedFuture(new RuntimeException("Setup not found: " + id)));
         RestServerConfig config = new RestServerConfig(
@@ -199,6 +208,7 @@ class DatabaseSetupHandlerErrorTest {
 
     @Test
     void createSetup_missingBody_returns400(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A7: createSetup missing body → 400, NullPointerException) ---");
         webClient.post(TEST_PORT, "localhost", "/api/v1/setups")
                 .send()
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
@@ -218,6 +228,7 @@ class DatabaseSetupHandlerErrorTest {
 
     @Test
     void createSetup_serviceFails_returns503(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A8: createSetup service failure → 503, RuntimeException) ---");
         ControllableSetupService svc = ControllableSetupService.defaults()
                 .withCreateCompleteSetup(req -> Future.failedFuture(new RuntimeException("service unavailable")));
         RestServerConfig config = new RestServerConfig(

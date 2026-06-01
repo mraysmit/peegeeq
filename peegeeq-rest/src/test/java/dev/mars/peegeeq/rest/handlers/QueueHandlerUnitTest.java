@@ -13,6 +13,9 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,6 +35,8 @@ import static org.junit.jupiter.api.Assertions.*;
 class QueueHandlerUnitTest {
 
     private static final int TEST_PORT = 18111;
+
+    private static final Logger logger = LoggerFactory.getLogger(QueueHandlerUnitTest.class);
 
     private String deploymentId;
     private WebClient webClient;
@@ -107,6 +112,7 @@ class QueueHandlerUnitTest {
 
     @Test
     void sendMessage_missingBody_returns400(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (B3: sendMessage missing body → 400, IllegalArgumentException) ---");
         webClient.post(TEST_PORT, "localhost", "/api/v1/queues/setup1/test-q/messages")
                 .send()
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
