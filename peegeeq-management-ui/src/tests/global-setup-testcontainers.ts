@@ -147,7 +147,6 @@ async function globalSetup() {
       .withUsername('postgres')
       .withPassword('postgres')
       .withExposedPorts(5432)
-      .withReuse() // Reuse container so backend stays connected
       .start()
 
     const host = postgresContainer.getHost()
@@ -394,10 +393,7 @@ async function globalSetup() {
 }
 
 /**
- * Global teardown - cleanup state files
- *
- * Container is reused across test runs, so we don't stop it.
- * Database state is cleaned up at the start of each test run.
+ * Global teardown - stop the PostgreSQL container and clean up state files.
  */
 async function globalTeardown() {
   console.log('\nCleaning up TestContainers state files...')
@@ -423,16 +419,28 @@ async function globalTeardown() {
       fs.unlinkSync(BACKEND_PID_FILE)
     }
 
-    // Clean up state file
+    // Stop the PostgreSQL container (must read state file BEFORE deleting it)
     if (fs.existsSync(CONTAINER_INFO_FILE)) {
+      try {
+        const state = JSON.parse(fs.readFileSync(CONTAINER_INFO_FILE, 'utf8'))
+        if (state.containerId) {
+          console.log(`Stopping PostgreSQL container ${state.containerId.substring(0, 12)}...`)
+          execSync(`docker stop ${state.containerId}`, { stdio: 'ignore', timeout: 30000 })
+          console.log('OK: PostgreSQL container stopped')
+        }
+      } catch (err) {
+        console.warn('WARNING: Could not stop PostgreSQL container:', err instanceof Error ? err.message : String(err))
+      }
       fs.unlinkSync(CONTAINER_INFO_FILE)
       console.log('OK: Container state file removed')
     }
 
-    // Keep testcontainers-db.json for backend to use
-    console.log('Connection details preserved in testcontainers-db.json')
-    console.log('   (Container will be reused in next test run)')
-    console.log('   To stop manually: docker ps | grep postgres && docker stop <container-id>\n')
+    // Remove testcontainers-db.json (container is being stopped)
+    const dbJsonPath = path.join(process.cwd(), 'testcontainers-db.json')
+    if (fs.existsSync(dbJsonPath)) {
+      fs.unlinkSync(dbJsonPath)
+      console.log('OK: testcontainers-db.json removed')
+    }
   } catch (error) {
     console.warn('WARNING: Error during cleanup:', error instanceof Error ? error.message : String(error))
   }

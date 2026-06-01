@@ -61,6 +61,10 @@ export interface ManagementState {
     wsConnected: boolean
     sseConnected: boolean
 
+    // Selection state
+    selectedSetupId: string | null
+    selectedQueueName: string | null
+
     // Actions
     fetchSystemData: () => Promise<void>
     fetchQueues: () => Promise<void>
@@ -72,6 +76,8 @@ export interface ManagementState {
     setSSEStatus: (connected: boolean) => void
     setSystemStats: (stats: SystemStats) => void
     refreshAll: () => Promise<void>
+    setSelectedSetup: (setupId: string | null) => void
+    setSelectedQueue: (queueName: string | null) => void
 }
 
 export const useManagementStore = create<ManagementState>()(
@@ -96,6 +102,8 @@ export const useManagementStore = create<ManagementState>()(
             lastUpdated: null,
             wsConnected: false,
             sseConnected: false,
+            selectedSetupId: (() => { try { return localStorage.getItem('pgq-selected-setup') || null } catch { return null } })(),
+            selectedQueueName: (() => { try { return localStorage.getItem('pgq-selected-queue') || null } catch { return null } })(),
 
             // Actions
             fetchSystemData: async () => {
@@ -195,6 +203,23 @@ export const useManagementStore = create<ManagementState>()(
                 systemStats: stats,
                 lastUpdated: new Date().toISOString()
             }),
+
+            setSelectedSetup: (setupId) => {
+                set({ selectedSetupId: setupId, selectedQueueName: null })
+                try {
+                    if (setupId) localStorage.setItem('pgq-selected-setup', setupId)
+                    else localStorage.removeItem('pgq-selected-setup')
+                    localStorage.removeItem('pgq-selected-queue')
+                } catch { /* ignore blocked storage */ }
+            },
+
+            setSelectedQueue: (queueName) => {
+                set({ selectedQueueName: queueName })
+                try {
+                    if (queueName) localStorage.setItem('pgq-selected-queue', queueName)
+                    else localStorage.removeItem('pgq-selected-queue')
+                } catch { /* ignore blocked storage */ }
+            },
 
             refreshAll: async () => {
                 const { fetchSystemData, fetchQueues, fetchConsumerGroups } = get()

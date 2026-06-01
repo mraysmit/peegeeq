@@ -4,6 +4,7 @@ import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
 import { useManagementStore, QueueInfo } from '../stores/managementStore'
 import { getVersionedApiUrl } from '../services/configService'
+import SetupScopeBar from '../components/common/SetupScopeBar'
 import {
     InboxOutlined,
     TeamOutlined,
@@ -46,6 +47,7 @@ const Overview = () => {
         loading,
         wsConnected,
         sseConnected,
+        selectedSetupId,
         fetchSystemData,
         fetchQueues,
         updateChartData,
@@ -53,6 +55,10 @@ const Overview = () => {
         setSSEStatus,
         refreshAll
     } = useManagementStore()
+
+    const filteredQueueData = selectedSetupId
+        ? queueData.filter((q: QueueInfo) => q.setup === selectedSetupId)
+        : queueData
 
     // Local state for recent activity (not in global store)
     const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
@@ -248,6 +254,7 @@ const Overview = () => {
     return (
         <div className="fade-in">
             <Title level={1}>System Overview</Title>
+            <SetupScopeBar />
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
                 {/* System Health Alert */}
                 <Alert
@@ -394,8 +401,9 @@ const Overview = () => {
                     <Col xs={24} lg={14}>
                         <Card title="Queue Overview" extra={<Button type="link">View All</Button>}>
                             <Table
+                                data-testid="queue-overview-table"
                                 columns={queueColumns}
-                                dataSource={queueData}
+                                dataSource={filteredQueueData}
                                 pagination={false}
                                 size="small"
                                 loading={loading}
