@@ -85,7 +85,15 @@ export class DatabaseSetupsPage extends BasePage {
     })
 
     const row = this.page.locator(`tr:has-text("${setupId}")`)
-    return await row.count() > 0
+    // Data may still be loading from the API after the table element appears;
+    // wait up to 5 s for the specific row before falling back to an instant count.
+    if (await row.count() > 0) return true
+    try {
+      await row.waitFor({ state: 'visible', timeout: 5000 })
+      return true
+    } catch {
+      return false
+    }
   }
 
   /**

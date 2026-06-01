@@ -2,10 +2,11 @@ import { test, expect } from '../page-objects'
 
 test.describe('Visualization Smoke Test', () => {
   test('should show causation tree and aggregate stream cards without tabs', async ({ page }) => {
-    await page.goto('/event-stores')
+    await page.goto('/event-visualization')
 
     // Visualization sections are now always-visible stacked cards — no tab click needed
-    await expect(page.getByRole('heading', { name: /causation tree/i })).toBeVisible()
-    await expect(page.getByRole('heading', { name: /aggregate stream/i })).toBeVisible()
+    // Ant Design Card titles render in div.ant-card-head-title, not semantic <h1>/<h2> elements
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Causation Tree' })).toBeVisible()
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Aggregate Stream' })).toBeVisible()
   })
 })
