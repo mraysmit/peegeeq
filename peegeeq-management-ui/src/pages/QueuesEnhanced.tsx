@@ -39,6 +39,8 @@ import type { Queue, QueueType, QueueStatus, QueueFilters } from '../types/queue
 import StatCard from '../components/common/StatCard';
 import FilterBar from '../components/common/FilterBar';
 import { showDeleteQueueConfirm } from '../components/common/ConfirmDialog';
+import SetupScopeBar from '../components/common/SetupScopeBar';
+import { useManagementStore } from '../stores/managementStore';
 
 interface DatabaseSetup {
     setupId: string
@@ -49,6 +51,8 @@ interface DatabaseSetup {
 }
 
 const QueuesPage: React.FC = () => {
+    const { selectedSetupId } = useManagementStore()
+
     const [filters, setFilters] = useState<QueueFilters>({
         page: 1,
         pageSize: 10,
@@ -61,8 +65,10 @@ const QueuesPage: React.FC = () => {
     const [setupsLoading, setSetupsLoading] = useState(false);
     const [form] = Form.useForm();
 
-    // Fetch queues using RTK Query
-    const { data, isLoading, isFetching, refetch } = useGetQueuesQuery(filters);
+    // Fetch queues using RTK Query — include setup scope from global selector
+    const { data, isLoading, isFetching, refetch } = useGetQueuesQuery(
+        { ...filters, setupId: selectedSetupId ?? undefined }
+    );
 
     const queues = data?.queues || [];
     const total = data?.total || 0;
@@ -340,6 +346,9 @@ const QueuesPage: React.FC = () => {
     return (
         <div style={{ padding: '0' }}>
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {/* Setup scope selector */}
+                <SetupScopeBar />
+
                 {/* Summary Statistics */}
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12} lg={6}>

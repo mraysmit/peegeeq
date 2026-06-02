@@ -165,6 +165,40 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await shot(page, '01-overview.png')
   })
 
+  test('01b overview - setup selected', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(1500) // let setup details fetch + charts refresh
+    await shot(page, '01b-overview-setup-selected.png')
+  })
+
+  test('01c overview - setup details button', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(800)
+    // Capture just the scope bar row so the button is clearly visible
+    const scopeBar = page.getByTestId('scope-bar')
+    await scopeBar.waitFor({ state: 'visible' })
+    await scopeBar.screenshot({ path: path.join(DIR, '01c-overview-setup-details-button.png') })
+  })
+
+  test('01d overview - setup details modal', async ({ page }) => {
+    await page.goto('/')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(800)
+    await page.locator('[title="View setup details"]').click()
+    const modal = page.locator('.ant-modal')
+    await expect(modal).toBeVisible()
+    // Wait for details to load (loading placeholder disappears)
+    await expect(modal.getByText('Loading setup details')).not.toBeVisible({ timeout: 10000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '01d-overview-setup-details-modal.png') })
+    await page.keyboard.press('Escape')
+  })
+
   test('02 header', async ({ page }) => {
     await page.goto('/')
     await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
@@ -229,6 +263,14 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.getByTestId('queue-details-tabs').getByRole('tab', { name: /bindings/i }).click()
     await page.waitForTimeout(600)
     await shot(page, '04f-queue-details-bindings.png')
+  })
+
+  test('04g queue details - charts tab', async ({ page }) => {
+    await page.goto(`/queues/${SETUP_ID}/${queueName}`)
+    await expect(page.getByTestId('queue-details-tabs')).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('queue-details-tabs').getByRole('tab', { name: /charts/i }).click()
+    await page.waitForTimeout(600)
+    await shot(page, '04g-queue-details-charts.png')
   })
 
   // ── 3. Database Setups ────────────────────────────────────────────────────

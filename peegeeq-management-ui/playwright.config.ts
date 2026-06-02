@@ -52,8 +52,8 @@ export default defineConfig({
     /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
     trace: 'on-first-retry',
 
-    /* Take screenshot on failure */
-    screenshot: 'only-on-failure',
+    /* Take screenshot on every test */
+    screenshot: 'on',
 
     /* Record video on failure */
     video: 'on-first-retry',
@@ -164,6 +164,48 @@ export default defineConfig({
       name: 'visualization-isolated',
       testMatch: '**/visualization-isolated.spec.ts',
       use: chromeMaximized,
+    },
+    // Step 10: Overview Scope Selector - Tests Setup selector on Overview page
+    {
+      name: '10-overview-scope-selector',
+      testMatch: '**/overview-setup-selector.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 10b: Overview Setup Details Modal - Tests the "..." details button and modal
+    {
+      name: '10b-overview-setup-details-modal',
+      testMatch: '**/overview-setup-details-modal.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 11: Queues Scope Selector - Tests Setup selector on Queues page
+    {
+      name: '11-queues-scope-selector',
+      testMatch: '**/queues-setup-selector.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['4-database-setup'],
+    },
+    // Step 12: Event Stores Scope Selector - Tests Setup selector on Event Stores page
+    {
+      name: '12-event-stores-scope-selector',
+      testMatch: '**/event-stores-setup-selector.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['4-database-setup'],
+    },
+    // Step 13: Consumer Groups Scope Selectors - Tests Setup+Queue selectors on Consumer Groups page
+    {
+      name: '13-consumer-groups-scope-selectors',
+      testMatch: '**/consumer-groups-scope-selectors.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['4-database-setup'],
+    },
+    // Step 14: Message Browser Scope Selectors - Tests Setup+Queue selectors on Message Browser page
+    {
+      name: '14-message-browser-scope-selectors',
+      testMatch: '**/message-browser-scope-selectors.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['4-database-setup'],
     },
     // Screenshots: regenerates documentation screenshots (run manually)
     {
