@@ -42,6 +42,9 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(relativeTime)
 
+import SetupScopeBar from '../components/common/SetupScopeBar'
+import { useManagementStore } from '../stores/managementStore'
+
 const { Text, Title } = Typography
 
 interface ConsumerGroupMember {
@@ -81,6 +84,7 @@ interface ConsumerGroup {
 
 
 const ConsumerGroups: React.FC = () => {
+    const { selectedSetupId, selectedQueueName } = useManagementStore()
     const [consumerGroups, setConsumerGroups] = useState<ConsumerGroup[]>([])
     const [selectedGroup, setSelectedGroup] = useState<ConsumerGroup | null>(null)
     const [isCreateModalVisible, setIsCreateModalVisible] = useState(false)
@@ -338,15 +342,23 @@ const ConsumerGroups: React.FC = () => {
     ]
 
     // Calculate summary statistics
-    const totalGroups = consumerGroups.length
-    const activeGroups = consumerGroups.filter(g => g.status === 'active').length
-    const totalMembers = consumerGroups.reduce((sum, g) => sum + g.memberCount, 0)
-    const avgMessagesPerSecond = consumerGroups.reduce((sum, g) => sum + g.messagesPerSecond, 0) / totalGroups
+    const filteredGroups = consumerGroups
+        .filter(g => !selectedSetupId || g.setupId === selectedSetupId)
+        .filter(g => !selectedQueueName || g.queueName === selectedQueueName)
+    const totalGroups = filteredGroups.length
+    const activeGroups = filteredGroups.filter(g => g.status === 'active').length
+    const totalMembers = filteredGroups.reduce((sum, g) => sum + g.memberCount, 0)
+    const avgMessagesPerSecond = totalGroups > 0
+        ? filteredGroups.reduce((sum, g) => sum + g.messagesPerSecond, 0) / totalGroups
+        : 0
 
     return (
         <div className="fade-in">
             <Title level={1}>Consumer Groups</Title>
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {/* Setup + Queue scope selector */}
+                <SetupScopeBar mode="setup+queue" />
+
                 {/* Summary Cards */}
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12} lg={6}>
@@ -411,7 +423,7 @@ const ConsumerGroups: React.FC = () => {
                 >
                     <Table
                         columns={columns}
-                        dataSource={consumerGroups}
+                        dataSource={filteredGroups}
                         pagination={{
                             pageSize: 10,
                             showSizeChanger: true,
