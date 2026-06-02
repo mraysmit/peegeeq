@@ -42,6 +42,9 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(relativeTime)
 
+import SetupScopeBar from '../components/common/SetupScopeBar'
+import { useManagementStore } from '../stores/managementStore'
+
 const { Text, Title } = Typography
 
 interface EventStore {
@@ -74,6 +77,7 @@ interface DatabaseSetup {
 }
 
 const EventStores = () => {
+    const { selectedSetupId } = useManagementStore()
     const [eventStores, setEventStores] = useState<EventStore[]>([])
     const [setups, setSetups] = useState<DatabaseSetup[]>([])
     const [selectedEventStore, setSelectedEventStore] = useState<EventStore | null>(null)
@@ -308,15 +312,21 @@ const EventStores = () => {
     ]
 
     // Calculate summary statistics
-    const totalEventStores = eventStores.length
-    const activeEventStores = eventStores.filter(es => es.status === 'active').length
-    const totalEvents = eventStores.reduce((sum, es) => sum + es.eventCount, 0)
-    const totalStorage = eventStores.reduce((sum, es) => sum + es.storageSize, 0)
+    const filteredEventStores = selectedSetupId
+        ? eventStores.filter(es => es.setupId === selectedSetupId)
+        : eventStores
+    const totalEventStores = filteredEventStores.length
+    const activeEventStores = filteredEventStores.filter(es => es.status === 'active').length
+    const totalEvents = filteredEventStores.reduce((sum, es) => sum + es.eventCount, 0)
+    const totalStorage = filteredEventStores.reduce((sum, es) => sum + es.storageSize, 0)
 
     return (
         <div className="fade-in">
             <Title level={1}>Event Stores</Title>
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {/* Setup scope selector */}
+                <SetupScopeBar />
+
                 {/* Summary Cards */}
                 <Row gutter={[16, 16]}>
                     <Col xs={24} sm={12} lg={6}>
@@ -360,7 +370,7 @@ const EventStores = () => {
 
                 {/* Event Stores Table */}
                 <Card
-                    title={`Event Stores (${eventStores.length})`}
+                    title={`Event Stores (${filteredEventStores.length})`}
                     extra={
                         <Space>
                             <Button
@@ -378,7 +388,7 @@ const EventStores = () => {
                 >
                     <Table
                         columns={eventStoreColumns}
-                        dataSource={eventStores}
+                        dataSource={filteredEventStores}
                         pagination={{
                             pageSize: 10,
                             showSizeChanger: true,

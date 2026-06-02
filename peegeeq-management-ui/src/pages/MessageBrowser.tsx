@@ -40,10 +40,13 @@ import {
     CheckCircleOutlined,
     ExclamationCircleOutlined
 } from '@ant-design/icons'
-import * as dayjs from 'dayjs'
-import * as relativeTime from 'dayjs/plugin/relativeTime'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
 
 dayjs.extend(relativeTime)
+
+import SetupScopeBar from '../components/common/SetupScopeBar'
+import { useManagementStore } from '../stores/managementStore'
 
 const { Text, Title } = Typography
 const { RangePicker } = DatePicker
@@ -82,11 +85,10 @@ interface QueueInfo {
 
 
 const MessageBrowser = () => {
+    const { selectedSetupId, selectedQueueName } = useManagementStore()
     const [messages, setMessages] = useState<Message[]>([])
     const [filteredMessages, setFilteredMessages] = useState<Message[]>([])
     const [queues, setQueues] = useState<QueueInfo[]>([])
-    const [selectedQueue, setSelectedQueue] = useState<string>('')
-    const [selectedSetup, setSelectedSetup] = useState<string>('')
     const [messageTypeFilter, setMessageTypeFilter] = useState<string>('')
     const [statusFilter, setStatusFilter] = useState<string>('')
     const [searchText, setSearchText] = useState<string>('')
@@ -117,8 +119,8 @@ const MessageBrowser = () => {
         setLoading(true)
         try {
             const params = new URLSearchParams()
-            if (selectedSetup) params.append('setup', selectedSetup)
-            if (selectedQueue) params.append('queue', selectedQueue)
+            if (selectedSetupId) params.append('setup', selectedSetupId)
+            if (selectedQueueName) params.append('queue', selectedQueueName)
             params.append('limit', '50')
             params.append('offset', '0')
 
@@ -135,8 +137,8 @@ const MessageBrowser = () => {
                     processedAt: msg.processedAt,
                     payload: msg.payload,
                     headers: msg.headers,
-                    queue: selectedQueue || 'unknown',
-                    setup: selectedSetup || 'unknown',
+                    queue: selectedQueueName || 'unknown',
+                    setup: selectedSetupId || 'unknown',
                     correlationId: msg.headers?.correlationId || 'unknown'
                 }))
                 setMessages(fetchedMessages)
@@ -160,7 +162,7 @@ const MessageBrowser = () => {
             fetchMessages()
         }, 30000)
         return () => clearInterval(interval)
-    }, [selectedSetup, selectedQueue])
+    }, [selectedSetupId, selectedQueueName])
     const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(false)
     const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
 
@@ -212,12 +214,12 @@ const MessageBrowser = () => {
     useEffect(() => {
         let filtered = messages
 
-        if (selectedSetup) {
-            filtered = filtered.filter(msg => msg.setup === selectedSetup)
+        if (selectedSetupId) {
+            filtered = filtered.filter(msg => msg.setup === selectedSetupId)
         }
 
-        if (selectedQueue) {
-            filtered = filtered.filter(msg => msg.queueName === selectedQueue)
+        if (selectedQueueName) {
+            filtered = filtered.filter(msg => msg.queueName === selectedQueueName)
         }
 
         if (messageTypeFilter) {
@@ -244,7 +246,7 @@ const MessageBrowser = () => {
         }
 
         setFilteredMessages(filtered)
-    }, [messages, selectedSetup, selectedQueue, messageTypeFilter, statusFilter, searchText, dateRange])
+    }, [messages, selectedSetupId, selectedQueueName, messageTypeFilter, statusFilter, searchText, dateRange])
 
     const handleViewMessage = (message: Message) => {
         setSelectedMessage(message)
@@ -257,8 +259,6 @@ const MessageBrowser = () => {
     }
 
     const handleClearFilters = () => {
-        setSelectedSetup('')
-        setSelectedQueue('')
         setMessageTypeFilter('')
         setStatusFilter('')
         setSearchText('')
@@ -289,6 +289,9 @@ const MessageBrowser = () => {
         <div className="fade-in">
             <Title level={1}>Message Browser</Title>
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {/* Setup + Queue scope selector */}
+                <SetupScopeBar mode="setup+queue" />
+
                 {/* Header with Controls */}
                 <Card>
                     <Row gutter={[16, 16]} align="middle">
@@ -366,37 +369,7 @@ const MessageBrowser = () => {
                 {/* Quick Filters */}
                 <Card size="small">
                     <Row gutter={[16, 8]}>
-                        <Col xs={24} sm={12} md={6}>
-                            <Select
-                                placeholder="Select Setup"
-                                value={selectedSetup}
-                                onChange={setSelectedSetup}
-                                style={{ width: '100%' }}
-                                allowClear
-                            >
-                                {Array.from(new Set(queues.map(q => q.setup))).map(setup => (
-                                    <Select.Option key={setup} value={setup}>{setup}</Select.Option>
-                                ))}
-                            </Select>
-                        </Col>
-                        <Col xs={24} sm={12} md={6}>
-                            <Select
-                                placeholder="Select Queue"
-                                value={selectedQueue}
-                                onChange={setSelectedQueue}
-                                style={{ width: '100%' }}
-                                allowClear
-                            >
-                                {queues
-                                    .filter(q => !selectedSetup || q.setup === selectedSetup)
-                                    .map(queue => (
-                                        <Select.Option key={`${queue.setup}-${queue.name}`} value={queue.name}>
-                                            {queue.name} ({queue.messageCount})
-                                        </Select.Option>
-                                    ))}
-                            </Select>
-                        </Col>
-                        <Col xs={24} sm={12} md={6}>
+                        <Col xs={24} sm={12} md={8}>
                             <Select
                                 placeholder="Message Status"
                                 value={statusFilter}
@@ -410,7 +383,7 @@ const MessageBrowser = () => {
                                 <Select.Option value="failed">Failed</Select.Option>
                             </Select>
                         </Col>
-                        <Col xs={24} sm={12} md={6}>
+                        <Col xs={24} sm={12} md={8}>
                             <Input
                                 placeholder="Search messages..."
                                 value={searchText}
@@ -675,39 +648,6 @@ const MessageBrowser = () => {
                     }
                 >
                     <Space direction="vertical" size="large" style={{ width: '100%' }}>
-                        <div>
-                            <Text strong>Setup & Queue</Text>
-                            <Divider />
-                            <Space direction="vertical" style={{ width: '100%' }}>
-                                <Select
-                                    placeholder="Select Setup"
-                                    value={selectedSetup}
-                                    onChange={setSelectedSetup}
-                                    style={{ width: '100%' }}
-                                    allowClear
-                                >
-                                    {Array.from(new Set(queues.map(q => q.setup))).map(setup => (
-                                        <Select.Option key={setup} value={setup}>{setup}</Select.Option>
-                                    ))}
-                                </Select>
-                                <Select
-                                    placeholder="Select Queue"
-                                    value={selectedQueue}
-                                    onChange={setSelectedQueue}
-                                    style={{ width: '100%' }}
-                                    allowClear
-                                >
-                                    {queues
-                                        .filter(q => !selectedSetup || q.setup === selectedSetup)
-                                        .map(queue => (
-                                            <Select.Option key={`${queue.setup}-${queue.name}`} value={queue.name}>
-                                                {queue.name} ({queue.messageCount})
-                                            </Select.Option>
-                                        ))}
-                                </Select>
-                            </Space>
-                        </div>
-
                         <div>
                             <Text strong>Message Filters</Text>
                             <Divider />

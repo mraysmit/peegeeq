@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message, Typography } from 'antd'
+import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message, Typography, Descriptions } from 'antd'
 import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
 import { useManagementStore, QueueInfo } from '../stores/managementStore'
@@ -21,6 +21,17 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
 
 const { Title } = Typography
+
+interface SetupDetails {
+    setupId: string
+    status: string
+    host?: string
+    port?: number
+    databaseName?: string
+    schema?: string
+    queueFactories: string[]
+    eventStores: string[]
+}
 
 interface RecentActivity {
     key: string
@@ -58,10 +69,35 @@ const Overview = () => {
 
     const filteredQueueData = selectedSetupId
         ? queueData.filter((q: QueueInfo) => q.setup === selectedSetupId)
-        : queueData
+        : []
 
     // Local state for recent activity (not in global store)
     const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([])
+    const [setupDetails, setSetupDetails] = useState<SetupDetails | null>(null)
+
+    useEffect(() => {
+        if (!selectedSetupId) {
+            setSetupDetails(null)
+            return
+        }
+        axios.get(getVersionedApiUrl(`setups/${selectedSetupId}`))
+            .then(res => setSetupDetails({
+                setupId: res.data.setupId,
+                status: res.data.status || 'UNKNOWN',
+                host: res.data.host,
+                port: res.data.port,
+                databaseName: res.data.databaseName,
+                schema: res.data.schema,
+                queueFactories: Array.isArray(res.data.queueFactories) ? res.data.queueFactories : [],
+                eventStores: Array.isArray(res.data.eventStores) ? res.data.eventStores : []
+            }))
+            .catch(() => setSetupDetails({
+                setupId: selectedSetupId,
+                status: 'UNKNOWN',
+                queueFactories: [],
+                eventStores: []
+            }))
+    }, [selectedSetupId])
 
     // WebSocket services for real-time updates
     const wsServiceRef = useRef<any>(null)
@@ -260,20 +296,35 @@ const Overview = () => {
                 <Alert
                     message="System Status: All services operational"
                     description={
-                        <Space data-testid="system-status-info">
-                            <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}</span>
-                            <Tag
-                                color={wsConnected ? 'green' : 'orange'}
-                                data-testid="websocket-status"
-                            >
-                                WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
-                            </Tag>
-                            <Tag
-                                color={sseConnected ? 'green' : 'orange'}
-                                data-testid="sse-status"
-                            >
-                                SSE: {sseConnected ? 'Connected' : 'Disconnected'}
-                            </Tag>
+                        <Space direction="vertical" size={4} data-testid="system-status-info">
+                            <Space wrap>
+                                <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}</span>
+                                <Tag
+                                    color={wsConnected ? 'green' : 'orange'}
+                                    data-testid="websocket-status"
+                                >
+                                    WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
+                                </Tag>
+                                <Tag
+                                    color={sseConnected ? 'green' : 'orange'}
+                                    data-testid="sse-status"
+                                >
+                                    SSE: {sseConnected ? 'Connected' : 'Disconnected'}
+                                </Tag>
+                            </Space>
+                            {selectedSetupId ? (
+                                <Space wrap data-testid="selected-setup-info">
+                                    <span>Selected setup:</span>
+                                    <Tag color="blue" data-testid="selected-setup-tag">{selectedSetupId}</Tag>
+                                    {setupDetails && (
+                                        <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
+                                            {setupDetails.status}
+                                        </Tag>
+                                    )}
+                                </Space>
+                            ) : (
+                                <span data-testid="no-setup-info" style={{ color: '#8c8c8c' }}>Select a setup above to view data</span>
+                            )}
                         </Space>
                     }
                     type="success"
@@ -321,7 +372,7 @@ const Overview = () => {
                         <Card>
                             <Statistic
                                 title="Messages/sec"
-                                value={stats.messagesPerSecond}
+                                value={Math.round(stats.messagesPerSecond)}
                                 prefix={<SendOutlined style={{ color: '#fa8c16' }} />}
                                 valueStyle={{ color: '#fa8c16' }}
                                 suffix="msg/s"
@@ -408,7 +459,7 @@ const Overview = () => {
                                 size="small"
                                 loading={loading}
                                 locale={{
-                                    emptyText: loading ? 'Loading...' : 'No queues found. Please check if the backend service is running and has active setups.'
+                                    emptyText: loading ? 'Loading...' : !selectedSetupId ? 'Select a setup to view queues.' : 'No queues found for this setup.'
                                 }}
                             />
                         </Card>
@@ -430,6 +481,41 @@ const Overview = () => {
                     </Col>
                 </Row>
             </Space>
+            {selectedSetupId && (
+                <Card
+                    data-testid="setup-details-panel"
+                    title={`Setup: ${selectedSetupId}`}
+                    size="small"
+                    style={{ marginBottom: 16 }}
+                >
+                    {setupDetails ? (
+                        <Descriptions column={1} bordered size="small">
+                            <Descriptions.Item label="Setup ID">{setupDetails.setupId}</Descriptions.Item>
+                            <Descriptions.Item label="Status">
+                                <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
+                                    {setupDetails.status}
+                                </Tag>
+                            </Descriptions.Item>
+                            {setupDetails.host && <Descriptions.Item label="Host">{setupDetails.host}</Descriptions.Item>}
+                            {setupDetails.port && <Descriptions.Item label="Port">{setupDetails.port}</Descriptions.Item>}
+                            {setupDetails.databaseName && <Descriptions.Item label="Database Name">{setupDetails.databaseName}</Descriptions.Item>}
+                            {setupDetails.schema && <Descriptions.Item label="Schema">{setupDetails.schema}</Descriptions.Item>}
+                            <Descriptions.Item label={`Queues (${setupDetails.queueFactories.length})`}>
+                                {setupDetails.queueFactories.length > 0
+                                    ? <Space wrap>{setupDetails.queueFactories.map(q => <Tag key={q}>{q}</Tag>)}</Space>
+                                    : <span style={{ color: '#8c8c8c' }}>None</span>}
+                            </Descriptions.Item>
+                            <Descriptions.Item label={`Event Stores (${setupDetails.eventStores.length})`}>
+                                {setupDetails.eventStores.length > 0
+                                    ? <Space wrap>{setupDetails.eventStores.map(e => <Tag key={e} color="purple">{e}</Tag>)}</Space>
+                                    : <span style={{ color: '#8c8c8c' }}>None</span>}
+                            </Descriptions.Item>
+                        </Descriptions>
+                    ) : (
+                        <span style={{ color: '#8c8c8c' }}>Loading setup details…</span>
+                    )}
+                </Card>
+            )}
         </div>
     )
 }

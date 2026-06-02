@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.api.setup;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
+import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import io.vertx.core.Future;
@@ -77,5 +78,19 @@ public interface DatabaseSetupService extends ServiceProvider {
      */
     default void addFactoryRegistration(Consumer<QueueFactoryRegistrar> registration) {
         // Default implementation does nothing
+    }
+
+    /**
+     * Gets the database configuration for the specified setup.
+     * Returns host, port, databaseName, and schema (credentials are excluded).
+     *
+     * <p>The default implementation returns a failed future. Implementations that
+     * store the database configuration should override this method.
+     *
+     * @param setupId the setup identifier
+     * @return a Future containing the DatabaseConfig, or a failed Future if not found
+     */
+    default Future<DatabaseConfig> getDatabaseConfig(String setupId) {
+        return Future.failedFuture("Database config not available for setup: " + setupId);
     }
 }

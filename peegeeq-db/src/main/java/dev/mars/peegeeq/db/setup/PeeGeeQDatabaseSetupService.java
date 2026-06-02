@@ -637,6 +637,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
+    public Future<DatabaseConfig> getDatabaseConfig(String setupId) {
+        DatabaseConfig config = setupDatabaseConfigs.get(setupId);
+        if (config == null) {
+            logger.debug("Database config not found for setup: {}", setupId);
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+        }
+        return Future.succeededFuture(config);
+    }
+
+    @Override
     public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
         // Validate queue name using PostgreSqlIdentifierValidator
         String queueName = queueConfig.getQueueName();

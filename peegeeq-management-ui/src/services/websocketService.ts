@@ -80,7 +80,9 @@ export class WebSocketService {
             }
 
             this.ws.onerror = (error) => {
-                console.error('WebSocket error:', error)
+                // Warn rather than error — WebSocket connection failures during reconnection
+                // are expected transient events; the service handles them by reconnecting.
+                console.warn('WebSocket error:', error)
                 this.isConnecting = false
                 this.config.onError?.(error)
             }
