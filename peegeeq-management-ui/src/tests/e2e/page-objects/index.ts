@@ -11,6 +11,7 @@ export const test = base.extend<{
   queuesPage: QueuesPage
   databaseSetupsPage: DatabaseSetupsPage
 }>({
+
   basePage: async ({ page }, use) => {
     const basePage = new BasePage(page)
     await use(basePage)

@@ -18,6 +18,7 @@ package dev.mars.peegeeq.runtime;
 
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
+import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.deadletter.DeadLetterService;
@@ -149,6 +150,11 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     @Override
     public QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
         return delegate.getQueueFactoryProviderForSetup(setupId);
+    }
+
+    @Override
+    public Future<DatabaseConfig> getDatabaseConfig(String setupId) {
+        return delegate.getDatabaseConfig(setupId);
     }
 
     @Override
