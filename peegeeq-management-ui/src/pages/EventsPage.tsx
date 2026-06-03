@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
+import SetupScopeBar from '../components/common/SetupScopeBar'
+import { useManagementStore } from '../stores/managementStore'
 import {
     Card,
     Table,
@@ -76,7 +78,7 @@ const EventsPage = () => {
     const [setups, setSetups] = useState<DatabaseSetup[]>([])
     const [eventsLoading, setEventsLoading] = useState(false)
     const [setupsLoading, setSetupsLoading] = useState(false)
-    const [selectedSetup, setSelectedSetup] = useState<string>('')
+    const { selectedSetupId, setSelectedSetup } = useManagementStore()
     const [selectedEventStore, setSelectedEventStore] = useState<string>('')
     const [selectedEvent, setSelectedEvent] = useState<EventStoreEvent | null>(null)
     const [isEventDetailsModalVisible, setIsEventDetailsModalVisible] = useState(false)
@@ -239,6 +241,11 @@ const EventsPage = () => {
     }, [events, eventTypeFilter, aggregateTypeFilter, correlationIdFilter, dateRange])
 
     useEffect(() => {
+        setSelectedEventStore('')
+        setEvents([])
+    }, [selectedSetupId])
+
+    useEffect(() => {
         fetchSetups()
         fetchEventStores()
     }, [])
@@ -328,6 +335,7 @@ const EventsPage = () => {
     return (
         <div>
             <Title level={1}>Events</Title>
+            <SetupScopeBar />
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
 
                 {/* Post Event */}
@@ -450,10 +458,11 @@ const EventsPage = () => {
                         <Col xs={24} sm={12} md={8}>
                             <Select
                                 data-testid="query-setup-select"
-                                placeholder="Select setup to view events"
+                                placeholder="Select setup"
                                 style={{ width: '100%' }}
-                                value={selectedSetup || undefined}
-                                onChange={(value) => { setSelectedSetup(value); setSelectedEventStore(''); setEvents([]) }}
+                                value={selectedSetupId || undefined}
+                                onChange={(value) => setSelectedSetup(value)}
+                                loading={setupsLoading}
                                 allowClear
                             >
                                 {setups.map(s => (
@@ -468,11 +477,11 @@ const EventsPage = () => {
                                 style={{ width: '100%' }}
                                 value={selectedEventStore || undefined}
                                 onChange={(value) => setSelectedEventStore(value)}
-                                disabled={!selectedSetup}
+                                disabled={!selectedSetupId}
                                 allowClear
                             >
                                 {eventStores
-                                    .filter(store => store.setupId === selectedSetup)
+                                    .filter(store => store.setupId === selectedSetupId)
                                     .map(store => (
                                         <Select.Option key={store.key} value={store.name}>
                                             {store.name} ({store.eventCount} events)
@@ -486,21 +495,21 @@ const EventsPage = () => {
                                     type="primary"
                                     icon={<SearchOutlined />}
                                     onClick={() => {
-                                        if (selectedSetup && selectedEventStore) {
-                                            fetchEvents(selectedSetup, selectedEventStore)
+                                        if (selectedSetupId && selectedEventStore) {
+                                            fetchEvents(selectedSetupId, selectedEventStore)
                                         } else {
                                             message.warning('Please select both setup and event store')
                                         }
                                     }}
                                     loading={eventsLoading}
-                                    disabled={!selectedSetup || !selectedEventStore}
+                                    disabled={!selectedSetupId || !selectedEventStore}
                                 >
                                     Load Events
                                 </Button>
                                 <Button
                                     icon={<ReloadOutlined />}
-                                    onClick={() => { if (selectedSetup && selectedEventStore) fetchEvents(selectedSetup, selectedEventStore) }}
-                                    disabled={!selectedSetup || !selectedEventStore}
+                                    onClick={() => { if (selectedSetupId && selectedEventStore) fetchEvents(selectedSetupId, selectedEventStore) }}
+                                    disabled={!selectedSetupId || !selectedEventStore}
                                 >
                                     Refresh
                                 </Button>
@@ -554,7 +563,7 @@ const EventsPage = () => {
                         size="small"
                         loading={eventsLoading}
                         locale={{
-                            emptyText: selectedSetup && selectedEventStore
+                            emptyText: selectedSetupId && selectedEventStore
                                 ? 'No events found. Click "Load Events" to fetch events.'
                                 : 'Select setup and event store, then click "Load Events".'
                         }}
