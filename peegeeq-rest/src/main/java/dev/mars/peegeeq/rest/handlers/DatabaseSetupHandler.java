@@ -226,13 +226,13 @@ public class DatabaseSetupHandler {
                                 .put("schema", config.getSchema())
                                 .put("queueFactories", new JsonArray(new ArrayList<>(result.getQueueFactories().keySet())))
                                 .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet()))))
-                        .otherwise(err -> {
-                                logger.warn("getDatabaseConfig failed for setup {}: {}", setupId, err.getMessage());
-                                return new JsonObject()
-                                .put("setupId", result.getSetupId())
-                                .put("status", result.getStatus().name())
-                                .put("queueFactories", new JsonArray(new ArrayList<>(result.getQueueFactories().keySet())))
-                                .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet())));
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                logger.warn("getDatabaseConfig failed for active setup {}: {}", setupId, ar.cause().getMessage());
+                                return Future.failedFuture(new IllegalStateException(
+                                        "Database config unavailable for active setup: " + setupId));
+                            }
+                            return Future.succeededFuture(ar.result());
                         }))
                 .onSuccess(response -> ctx.response()
                         .setStatusCode(200)

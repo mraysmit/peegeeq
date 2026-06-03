@@ -100,4 +100,27 @@ test.describe('Overview - Setup Scope Selector', () => {
         const queueTable = page.getByTestId('queue-overview-table')
         await expect(queueTable).toBeVisible()
     })
+
+    test('should gate overview display on setup selection', async ({ page }) => {
+        await page.goto('/')
+        await page.waitForLoadState('load')
+
+        const setupSelector = page.getByTestId('setup-scope-selector')
+
+        // Clear any pre-existing selection so the "no setup" state is guaranteed
+        await setupSelector.hover()
+        const clearBtn = setupSelector.locator('.ant-select-clear')
+        if (await clearBtn.isVisible()) {
+            await clearBtn.click()
+        }
+
+        // When no setup is selected the overview shows the "no setup" placeholder
+        await expect(page.getByTestId('no-setup-info')).toBeVisible()
+        await expect(page.getByTestId('selected-setup-info')).not.toBeVisible()
+
+        // After selecting a setup the overview switches to the selected-setup view
+        await selectAntOption(setupSelector, SETUP_ID)
+        await expect(page.getByTestId('selected-setup-tag')).toContainText(SETUP_ID)
+        await expect(page.getByTestId('no-setup-info')).not.toBeVisible()
+    })
 })
