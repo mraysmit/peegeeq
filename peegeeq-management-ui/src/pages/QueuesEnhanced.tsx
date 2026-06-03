@@ -34,7 +34,7 @@ import {
     ClearOutlined,
     ReloadOutlined,
 } from '@ant-design/icons';
-import { useGetQueuesQuery } from '../store/api/queuesApi';
+import { useGetQueuesQuery, usePerformQueueOperationMutation } from '../store/api/queuesApi';
 import type { Queue, QueueType, QueueStatus, QueueFilters } from '../types/queue';
 import StatCard from '../components/common/StatCard';
 import FilterBar from '../components/common/FilterBar';
@@ -68,6 +68,7 @@ const QueuesPage: React.FC = () => {
     const [form] = Form.useForm();
 
     // Fetch queues using RTK Query — include setup scope from global selector
+    const [performQueueOperation] = usePerformQueueOperationMutation();
     const { data, isLoading, isFetching, refetch } = useGetQueuesQuery(
         { ...filters, setupId: selectedSetupId ?? undefined }
     );
@@ -209,12 +210,16 @@ const QueuesPage: React.FC = () => {
     const handleDeleteQueue = (queue: Queue) => {
         showDeleteQueueConfirm(queue.queueName, async () => {
             try {
-                // TODO: Implement delete mutation when backend is ready
+                await performQueueOperation({
+                    setupId: queue.setupId,
+                    queueName: queue.queueName,
+                    request: { operation: 'DELETE' },
+                }).unwrap();
                 message.success(`Queue "${queue.queueName}" deleted successfully`);
                 useManagementStore.getState().addNotification({ resource: queue.queueName, action: 'queue deleted' });
-                refetch();
-            } catch (error) {
-                message.error('Failed to delete queue');
+            } catch (error: any) {
+                const errorMessage = error?.data?.error || error?.data?.message || error?.message || 'Failed to delete queue';
+                message.error(`Failed to delete queue: ${errorMessage}`);
             }
         });
     };

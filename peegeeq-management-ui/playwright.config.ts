@@ -207,6 +207,12 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['4-database-setup'],
     },
+    // Error paths: validates that backend error responses surface as UI toasts (standalone, no dependencies)
+    {
+      name: 'error-paths',
+      testMatch: '**/api-error-paths.spec.ts',
+      use: chromeMaximized,
+    },
     // Screenshots: regenerates documentation screenshots (run manually)
     {
       name: 'take-screenshots',

@@ -130,9 +130,10 @@ const DatabaseSetups = () => {
                     message.success(`Setup ${setup.setupId} deleted successfully`)
                     useManagementStore.getState().addNotification({ resource: setup.setupId, action: 'setup deleted' })
                     await fetchSetups()
-                } catch (error) {
+                } catch (error: any) {
                     console.error('Failed to delete setup:', error)
-                    message.error('Failed to delete setup')
+                    const errorMsg = error.response?.data?.error || error.message || 'Failed to delete setup'
+                    message.error(errorMsg)
                 }
             },
         })

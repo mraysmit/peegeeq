@@ -316,7 +316,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Store handlers that manage consumers in instance fields for proper shutdown
         // cleanup
         this.sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
-        ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper);
+        ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper, vertx);
         this.webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
         DeadLetterHandler deadLetterHandler = new DeadLetterHandler(setupService, objectMapper);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
