@@ -248,6 +248,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
                         activeSetups.put(req.getSetupId(), result);
                         setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
+                        logger.info("Stored DB config for setup: {} host={} db={}",
+                                req.getSetupId(),
+                                req.getDatabaseConfig() != null ? req.getDatabaseConfig().getHost() : "NULL",
+                                req.getDatabaseConfig() != null ? req.getDatabaseConfig().getDatabaseName() : "NULL");
                         // activeManagers.put(req.getSetupId(), manager); // Already added in Step 3
 
                         return result;

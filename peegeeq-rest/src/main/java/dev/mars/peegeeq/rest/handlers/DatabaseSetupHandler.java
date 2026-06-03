@@ -226,11 +226,14 @@ public class DatabaseSetupHandler {
                                 .put("schema", config.getSchema())
                                 .put("queueFactories", new JsonArray(new ArrayList<>(result.getQueueFactories().keySet())))
                                 .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet()))))
-                        .otherwise(err -> new JsonObject()
+                        .otherwise(err -> {
+                                logger.warn("getDatabaseConfig failed for setup {}: {}", setupId, err.getMessage());
+                                return new JsonObject()
                                 .put("setupId", result.getSetupId())
                                 .put("status", result.getStatus().name())
                                 .put("queueFactories", new JsonArray(new ArrayList<>(result.getQueueFactories().keySet())))
-                                .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet())))))
+                                .put("eventStores", new JsonArray(new ArrayList<>(result.getEventStores().keySet())));
+                        }))
                 .onSuccess(response -> ctx.response()
                         .setStatusCode(200)
                         .putHeader("Content-Type", "application/json")

@@ -313,13 +313,25 @@ const Overview = () => {
                                 </Tag>
                             </Space>
                             {selectedSetupId ? (
-                                <Space wrap data-testid="selected-setup-info">
-                                    <span>Selected setup:</span>
-                                    <Tag color="blue" data-testid="selected-setup-tag">{selectedSetupId}</Tag>
-                                    {setupDetails && (
-                                        <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
-                                            {setupDetails.status}
-                                        </Tag>
+                                <Space direction="vertical" size={4} data-testid="setup-details-panel">
+                                    <Space wrap data-testid="selected-setup-info">
+                                        <span>Selected setup:</span>
+                                        <Tag color="blue" data-testid="selected-setup-tag">{selectedSetupId}</Tag>
+                                        {setupDetails && (
+                                            <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
+                                                {setupDetails.status}
+                                            </Tag>
+                                        )}
+                                    </Space>
+                                    {setupDetails ? (
+                                        <Space wrap>
+                                            <span><strong>Host:</strong> {setupDetails.host}</span>
+                                            <span><strong>Port:</strong> {setupDetails.port}</span>
+                                            <span><strong>Database:</strong> {setupDetails.databaseName}</span>
+                                            <span><strong>Schema:</strong> {setupDetails.schema}</span>
+                                        </Space>
+                                    ) : (
+                                        <span style={{ color: '#8c8c8c' }}>Loading setup details…</span>
                                     )}
                                 </Space>
                             ) : (
@@ -481,41 +493,6 @@ const Overview = () => {
                     </Col>
                 </Row>
             </Space>
-            {selectedSetupId && (
-                <Card
-                    data-testid="setup-details-panel"
-                    title={`Setup: ${selectedSetupId}`}
-                    size="small"
-                    style={{ marginBottom: 16 }}
-                >
-                    {setupDetails ? (
-                        <Descriptions column={1} bordered size="small">
-                            <Descriptions.Item label="Setup ID">{setupDetails.setupId}</Descriptions.Item>
-                            <Descriptions.Item label="Status">
-                                <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
-                                    {setupDetails.status}
-                                </Tag>
-                            </Descriptions.Item>
-                            {setupDetails.host && <Descriptions.Item label="Host">{setupDetails.host}</Descriptions.Item>}
-                            {setupDetails.port && <Descriptions.Item label="Port">{setupDetails.port}</Descriptions.Item>}
-                            {setupDetails.databaseName && <Descriptions.Item label="Database Name">{setupDetails.databaseName}</Descriptions.Item>}
-                            {setupDetails.schema && <Descriptions.Item label="Schema">{setupDetails.schema}</Descriptions.Item>}
-                            <Descriptions.Item label={`Queues (${setupDetails.queueFactories.length})`}>
-                                {setupDetails.queueFactories.length > 0
-                                    ? <Space wrap>{setupDetails.queueFactories.map(q => <Tag key={q}>{q}</Tag>)}</Space>
-                                    : <span style={{ color: '#8c8c8c' }}>None</span>}
-                            </Descriptions.Item>
-                            <Descriptions.Item label={`Event Stores (${setupDetails.eventStores.length})`}>
-                                {setupDetails.eventStores.length > 0
-                                    ? <Space wrap>{setupDetails.eventStores.map(e => <Tag key={e} color="purple">{e}</Tag>)}</Space>
-                                    : <span style={{ color: '#8c8c8c' }}>None</span>}
-                            </Descriptions.Item>
-                        </Descriptions>
-                    ) : (
-                        <span style={{ color: '#8c8c8c' }}>Loading setup details…</span>
-                    )}
-                </Card>
-            )}
         </div>
     )
 }
