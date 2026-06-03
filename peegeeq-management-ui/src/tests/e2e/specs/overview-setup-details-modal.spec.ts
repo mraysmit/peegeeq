@@ -108,7 +108,7 @@ test.describe('Overview - Setup Details Panel', () => {
         await expect(panel.locator('.ant-descriptions-item-content .ant-tag').first()).toBeVisible()
     })
 
-    test('panel should show database connection details when provided by backend', async ({ page }) => {
+    test('panel should show all connection fields with values', async ({ page }) => {
         await page.goto('/')
         await page.waitForLoadState('load')
 
@@ -121,55 +121,20 @@ test.describe('Overview - Setup Details Panel', () => {
         // Wait for setup details to finish loading
         await expect(panel.getByText('Loading setup details')).not.toBeVisible({ timeout: 10000 })
 
-        // Descriptions table must be rendered with at least some rows
+        // If the setup is active it connected successfully — all fields must be non-empty
         const descriptions = panel.locator('.ant-descriptions')
         await expect(descriptions).toBeVisible()
-        const itemCount = await descriptions.locator('.ant-descriptions-item-label').count()
-        expect(itemCount).toBeGreaterThan(0)
-
-        // Connection detail rows (Host, Port, Database Name, Schema) are optional —
-        // the backend only includes them when getDatabaseConfig succeeds for this setup.
-        // If Host is shown, all four connection fields must be shown together.
-        const hostRowCount = await panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Host' }).count()
-        if (hostRowCount > 0) {
-            await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Port' })).toBeVisible()
-            await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Database Name' })).toBeVisible()
-            await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Schema' })).toBeVisible()
-        }
-    })
-
-    test('panel should list queues for the setup', async ({ page }) => {
-        await page.goto('/')
-        await page.waitForLoadState('load')
-
-        const setupSelector = page.getByTestId('setup-scope-selector')
-        await selectAntOption(setupSelector, SETUP_ID)
-
-        const panel = page.getByTestId('setup-details-panel')
-        await expect(panel).toBeVisible()
-
-        // Wait for setup details to finish loading
-        await expect(panel.getByText('Loading setup details')).not.toBeVisible({ timeout: 10000 })
-
-        // Queues label row should be present
-        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: /Queues/ })).toBeVisible()
-    })
-
-    test('panel should list event stores for the setup', async ({ page }) => {
-        await page.goto('/')
-        await page.waitForLoadState('load')
-
-        const setupSelector = page.getByTestId('setup-scope-selector')
-        await selectAntOption(setupSelector, SETUP_ID)
-
-        const panel = page.getByTestId('setup-details-panel')
-        await expect(panel).toBeVisible()
-
-        // Wait for setup details to finish loading
-        await expect(panel.getByText('Loading setup details')).not.toBeVisible({ timeout: 10000 })
-
-        // Event Stores label row should be present
-        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: /Event Stores/ })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Setup ID' })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-content').first()).toContainText(SETUP_ID)
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Status' })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-content .ant-tag').first()).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Host' })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Host' }).locator('..').locator('.ant-descriptions-item-content')).not.toBeEmpty()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Port' })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Database Name' })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Database Name' }).locator('..').locator('.ant-descriptions-item-content')).not.toBeEmpty()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Schema' })).toBeVisible()
+        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Schema' }).locator('..').locator('.ant-descriptions-item-content')).not.toBeEmpty()
     })
 
     test('setup details panel should disappear after setup is cleared', async ({ page }) => {

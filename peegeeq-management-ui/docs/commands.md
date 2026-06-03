@@ -74,6 +74,8 @@ npm run dev
 
 ## Java backend tests (from workspace root)
 
+> ⚠️ **This run takes more than 60 minutes.** Do not run it for single-module changes — use the single-module command above instead.
+
 ```powershell
 mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260603.txt
 ```

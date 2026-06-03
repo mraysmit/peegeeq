@@ -90,6 +90,8 @@ const ConsumerGroups: React.FC = () => {
     const [isCreateModalVisible, setIsCreateModalVisible] = useState(false)
     const [isDetailsModalVisible, setIsDetailsModalVisible] = useState(false)
     const [loading, setLoading] = useState(true)
+    const [setups, setSetups] = useState<{ setupId: string }[]>([])
+    const [setupsLoading, setSetupsLoading] = useState(false)
     const [form] = Form.useForm()
 
     const fetchConsumerGroups = async () => {
@@ -132,8 +134,32 @@ const ConsumerGroups: React.FC = () => {
         return () => clearInterval(interval)
     }, [])
 
+    const fetchSetups = async () => {
+        setSetupsLoading(true)
+        try {
+            const response = await axios.get(getVersionedApiUrl('setups'))
+            if (response.data && Array.isArray(response.data.setupIds)) {
+                setSetups(response.data.setupIds.map((setupId: string) => ({ setupId })))
+            } else {
+                setSetups([])
+            }
+        } catch (error) {
+            console.error('Failed to fetch database setups:', error)
+            setSetups([])
+        } finally {
+            setSetupsLoading(false)
+        }
+    }
+
     const handleCreateGroup = () => {
         form.resetFields()
+        fetchSetups()
+        if (selectedSetupId) {
+            form.setFieldValue('setupId', selectedSetupId)
+        }
+        if (selectedQueueName) {
+            form.setFieldValue('queueName', selectedQueueName)
+        }
         setIsCreateModalVisible(true)
     }
 
@@ -415,13 +441,14 @@ const ConsumerGroups: React.FC = () => {
                             >
                                 Refresh
                             </Button>
-                            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateGroup}>
+                            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateGroup} data-testid="create-group-btn">
                                 Create Group
                             </Button>
                         </Space>
                     }
                 >
                     <Table
+                        data-testid="consumer-groups-table"
                         columns={columns}
                         dataSource={filteredGroups}
                         pagination={{
@@ -462,10 +489,14 @@ const ConsumerGroups: React.FC = () => {
                                     label="Setup"
                                     rules={[{ required: true, message: 'Please select setup' }]}
                                 >
-                                    <Select placeholder="Select setup">
-                                        <Select.Option value="production">Production</Select.Option>
-                                        <Select.Option value="staging">Staging</Select.Option>
-                                        <Select.Option value="development">Development</Select.Option>
+                                    <Select
+                                        placeholder="Select setup"
+                                        loading={setupsLoading}
+                                        data-testid="create-group-setup-select"
+                                    >
+                                        {setups.map(s => (
+                                            <Select.Option key={s.setupId} value={s.setupId}>{s.setupId}</Select.Option>
+                                        ))}
                                     </Select>
                                 </Form.Item>
                             </Col>
