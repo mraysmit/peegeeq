@@ -1,13 +1,16 @@
-import { Layout, Button, Badge, Dropdown, Typography } from 'antd'
+import { Layout, Button, Badge, Dropdown, Typography, Drawer, List, Empty } from 'antd'
 import {
   BellOutlined,
   UserOutlined,
   SettingOutlined,
   LogoutOutlined,
   ReloadOutlined,
+  ClearOutlined,
 } from '@ant-design/icons'
+import { useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import ConnectionStatus from '../common/ConnectionStatus'
+import { useManagementStore } from '../../stores/managementStore'
 
 const { Header: AntHeader } = Layout
 const { Text } = Typography
@@ -53,6 +56,13 @@ const Header: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
   const currentTitle = pageTitle[location.pathname] || 'PeeGeeQ Management'
+  const { notifications, unreadCount, markAllNotificationsRead, clearNotifications } = useManagementStore()
+  const [notifOpen, setNotifOpen] = useState(false)
+
+  const openNotifications = () => {
+    setNotifOpen(true)
+    markAllNotificationsRead()
+  }
 
   const handleRefresh = () => {
     window.location.reload()
@@ -88,14 +98,50 @@ const Header: React.FC = () => {
             title="Refresh"
           />
 
-          <Badge count={0} size="small">
+          <Badge count={unreadCount} size="small" overflowCount={99}>
             <Button
               data-testid="notifications-btn"
               type="text"
               icon={<BellOutlined />}
               title="Notifications"
+              onClick={openNotifications}
             />
           </Badge>
+
+          <Drawer
+            title="Notifications"
+            placement="right"
+            width={360}
+            open={notifOpen}
+            onClose={() => setNotifOpen(false)}
+            extra={
+              <Button
+                size="small"
+                icon={<ClearOutlined />}
+                onClick={clearNotifications}
+                disabled={notifications.length === 0}
+              >
+                Clear
+              </Button>
+            }
+          >
+            {notifications.length === 0
+              ? <Empty description="No notifications" />
+              : (
+                <List
+                  size="small"
+                  dataSource={notifications}
+                  renderItem={(n) => (
+                    <List.Item>
+                      <List.Item.Meta
+                        title={`${n.action} — ${n.resource}`}
+                        description={new Date(n.timestamp).toLocaleString()}
+                      />
+                    </List.Item>
+                  )}
+                />
+              )}
+          </Drawer>
 
           <Dropdown
             menu={{

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
+import { useManagementStore } from '../stores/managementStore'
 import {
     Card,
     Table,
@@ -43,7 +44,6 @@ import relativeTime from 'dayjs/plugin/relativeTime'
 dayjs.extend(relativeTime)
 
 import SetupScopeBar from '../components/common/SetupScopeBar'
-import { useManagementStore } from '../stores/managementStore'
 
 const { Text, Title } = Typography
 
@@ -173,6 +173,7 @@ const EventStores = () => {
                     const storeId = `${eventStore.setupId}-${eventStore.name}`
                     await axios.delete(getVersionedApiUrl(`management/event-stores/${storeId}`))
                     message.success(`Event store "${eventStore.name}" deleted successfully`)
+                    useManagementStore.getState().addNotification({ resource: eventStore.name, action: 'event store deleted' })
                     await fetchEventStores()
                 } catch (error: any) {
                     console.error('Error deleting event store:', error)
@@ -420,6 +421,7 @@ const EventStores = () => {
 
                             const response = await axios.post(getVersionedApiUrl('management/event-stores'), requestBody)
                             message.success(response.data.message || `Event store "${values.name}" created successfully`)
+                            useManagementStore.getState().addNotification({ resource: values.name, action: 'event store created' })
 
                             // Refresh the event stores list
                             await fetchEventStores()
