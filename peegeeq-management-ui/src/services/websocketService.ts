@@ -22,6 +22,7 @@ export interface WebSocketConfig {
     onMessage?: (message: WebSocketMessage) => void
     onConnect?: () => void
     onDisconnect?: () => void
+    onReconnecting?: () => void
     onError?: (error: Event) => void
 }
 
@@ -130,6 +131,7 @@ export class WebSocketService {
         const delay = this.config.reconnectInterval || 5000
 
         console.log(`Scheduling WebSocket reconnection attempt ${this.reconnectAttempts} in ${delay}ms`)
+        this.config.onReconnecting?.()
 
         this.reconnectTimer = setTimeout(() => {
             this.connect()
@@ -163,14 +165,16 @@ export const createMessageStreamService = (setupId: string, queueName?: string) 
 export const createSystemMonitoringService = (
     onMessage?: (message: any) => void,
     onConnect?: () => void,
-    onDisconnect?: () => void
+    onDisconnect?: () => void,
+    onReconnecting?: () => void
 ) => {
     const baseUrl = getApiUrl('').replace('http://', 'ws://').replace('https://', 'wss://')
     const service = new WebSocketService({
         url: `${baseUrl}/ws/monitoring`,
         onMessage,
         onConnect,
-        onDisconnect
+        onDisconnect,
+        onReconnecting
     })
     service.connect()
     return service

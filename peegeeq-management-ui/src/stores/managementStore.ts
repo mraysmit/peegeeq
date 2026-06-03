@@ -3,6 +3,14 @@ import { devtools } from 'zustand/middleware'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
 
+export interface ManagementNotification {
+    id: string
+    timestamp: string
+    resource: string
+    action: string
+    read: boolean
+}
+
 // Types for the management store
 export interface SystemStats {
     totalQueues: number
@@ -60,6 +68,12 @@ export interface ManagementState {
     // Real-time connection status
     wsConnected: boolean
     sseConnected: boolean
+    wsReconnecting: boolean
+    sseReconnecting: boolean
+
+    // Notification bell
+    notifications: ManagementNotification[]
+    unreadCount: number
 
     // Selection state
     selectedSetupId: string | null
@@ -74,6 +88,11 @@ export interface ManagementState {
     setError: (error: string | null) => void
     setWebSocketStatus: (connected: boolean) => void
     setSSEStatus: (connected: boolean) => void
+    setWsReconnecting: (reconnecting: boolean) => void
+    setSseReconnecting: (reconnecting: boolean) => void
+    addNotification: (n: Omit<ManagementNotification, 'id' | 'timestamp' | 'read'>) => void
+    markAllNotificationsRead: () => void
+    clearNotifications: () => void
     setSystemStats: (stats: SystemStats) => void
     refreshAll: () => Promise<void>
     setSelectedSetup: (setupId: string | null) => void
@@ -102,6 +121,10 @@ export const useManagementStore = create<ManagementState>()(
             lastUpdated: null,
             wsConnected: false,
             sseConnected: false,
+            wsReconnecting: false,
+            sseReconnecting: false,
+            notifications: [],
+            unreadCount: 0,
             selectedSetupId: (() => { try { return localStorage.getItem('pgq-selected-setup') || null } catch { return null } })(),
             selectedQueueName: (() => { try { return localStorage.getItem('pgq-selected-queue') || null } catch { return null } })(),
 
@@ -196,8 +219,28 @@ export const useManagementStore = create<ManagementState>()(
 
             setLoading: (loading: boolean) => set({ loading }),
             setError: (error: string | null) => set({ error }),
-            setWebSocketStatus: (connected: boolean) => set({ wsConnected: connected }),
-            setSSEStatus: (connected: boolean) => set({ sseConnected: connected }),
+            setWebSocketStatus: (connected: boolean) => set({ wsConnected: connected, wsReconnecting: false }),
+            setSSEStatus: (connected: boolean) => set({ sseConnected: connected, sseReconnecting: false }),
+            setWsReconnecting: (reconnecting: boolean) => set({ wsReconnecting: reconnecting }),
+            setSseReconnecting: (reconnecting: boolean) => set({ sseReconnecting: reconnecting }),
+
+            addNotification: (n) => set((state) => {
+                const notification: ManagementNotification = {
+                    ...n,
+                    id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                    timestamp: new Date().toISOString(),
+                    read: false
+                }
+                const updated = [notification, ...state.notifications].slice(0, 50)
+                return { notifications: updated, unreadCount: updated.filter(x => !x.read).length }
+            }),
+
+            markAllNotificationsRead: () => set((state) => ({
+                notifications: state.notifications.map(n => ({ ...n, read: true })),
+                unreadCount: 0
+            })),
+
+            clearNotifications: () => set({ notifications: [], unreadCount: 0 }),
 
             setSystemStats: (stats: SystemStats) => set({
                 systemStats: stats,

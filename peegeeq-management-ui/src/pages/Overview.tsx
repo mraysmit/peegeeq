@@ -58,12 +58,15 @@ const Overview = () => {
         loading,
         wsConnected,
         sseConnected,
+        wsReconnecting,
+        sseReconnecting,
         selectedSetupId,
         fetchSystemData,
         fetchQueues,
         updateChartData,
         setWebSocketStatus,
         setSSEStatus,
+        setWsReconnecting,
         refreshAll
     } = useManagementStore()
 
@@ -181,12 +184,18 @@ const Overview = () => {
                 if (message.type === 'system_stats') {
                     const stats = message.data
                     updateChartData(stats)
-                    // Use the new store action to update stats cards
                     useManagementStore.getState().setSystemStats(stats)
+                } else if (message.type === 'management_event') {
+                    const d = message.data || {}
+                    useManagementStore.getState().addNotification({
+                        resource: d.resource || 'system',
+                        action: d.action || 'event'
+                    })
                 }
             },
             () => setWebSocketStatus(true),
-            () => setWebSocketStatus(false)
+            () => setWebSocketStatus(false),
+            () => setWsReconnecting(true)
         )
 
         // Initialize metrics SSE
@@ -300,16 +309,16 @@ const Overview = () => {
                             <Space wrap>
                                 <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}</span>
                                 <Tag
-                                    color={wsConnected ? 'green' : 'orange'}
+                                    color={wsConnected ? 'green' : wsReconnecting ? 'gold' : 'orange'}
                                     data-testid="websocket-status"
                                 >
-                                    WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}
+                                    WebSocket: {wsConnected ? 'Connected' : wsReconnecting ? 'Reconnecting…' : 'Disconnected'}
                                 </Tag>
                                 <Tag
-                                    color={sseConnected ? 'green' : 'orange'}
+                                    color={sseConnected ? 'green' : sseReconnecting ? 'gold' : 'orange'}
                                     data-testid="sse-status"
                                 >
-                                    SSE: {sseConnected ? 'Connected' : 'Disconnected'}
+                                    SSE: {sseConnected ? 'Connected' : sseReconnecting ? 'Reconnecting…' : 'Disconnected'}
                                 </Tag>
                             </Space>
                             {selectedSetupId ? (
