@@ -2,7 +2,7 @@
  * Enhanced Queues Page - Phase 1 Implementation
  * Uses Redux Toolkit Query for state management
  */
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { getVersionedApiUrl } from '../services/configService';
@@ -41,6 +41,7 @@ import FilterBar from '../components/common/FilterBar';
 import { showDeleteQueueConfirm } from '../components/common/ConfirmDialog';
 import SetupScopeBar from '../components/common/SetupScopeBar';
 import { useManagementStore } from '../stores/managementStore';
+import { createQueueUpdatesSSE } from '../services/websocketService';
 
 interface DatabaseSetup {
     setupId: string
@@ -52,6 +53,7 @@ interface DatabaseSetup {
 
 const QueuesPage: React.FC = () => {
     const { selectedSetupId } = useManagementStore()
+    const sseServiceRef = useRef<any>(null)
 
     const [filters, setFilters] = useState<QueueFilters>({
         page: 1,
@@ -110,6 +112,27 @@ const QueuesPage: React.FC = () => {
         fetchSetups();
     }, [fetchSetups]);
 
+    // Subscribe to live queue updates SSE when a setup is selected
+    useEffect(() => {
+        if (sseServiceRef.current) {
+            sseServiceRef.current.disconnect()
+            sseServiceRef.current = null
+        }
+        if (selectedSetupId) {
+            sseServiceRef.current = createQueueUpdatesSSE(
+                selectedSetupId,
+                () => { refetch() }
+            )
+        }
+        return () => {
+            if (sseServiceRef.current) {
+                sseServiceRef.current.disconnect()
+                sseServiceRef.current = null
+            }
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedSetupId]);
+
     // Handle create queue
     const handleCreateQueue = () => {
         form.resetFields();
@@ -129,6 +152,7 @@ const QueuesPage: React.FC = () => {
 
             await axios.post(getVersionedApiUrl(`management/queues`), requestBody);
             message.success(`Queue "${values.name}" created successfully`);
+            useManagementStore.getState().addNotification({ resource: values.name, action: 'queue created' });
 
             await refetch();
             setIsModalVisible(false);
@@ -187,6 +211,7 @@ const QueuesPage: React.FC = () => {
             try {
                 // TODO: Implement delete mutation when backend is ready
                 message.success(`Queue "${queue.queueName}" deleted successfully`);
+                useManagementStore.getState().addNotification({ resource: queue.queueName, action: 'queue deleted' });
                 refetch();
             } catch (error) {
                 message.error('Failed to delete queue');

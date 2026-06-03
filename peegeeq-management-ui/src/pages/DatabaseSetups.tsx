@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
+import { useManagementStore } from '../stores/managementStore'
 import {
     Card,
     Table,
@@ -127,6 +128,7 @@ const DatabaseSetups = () => {
                 try {
                     await axios.delete(getVersionedApiUrl(`database-setup/${setup.setupId}`))
                     message.success(`Setup ${setup.setupId} deleted successfully`)
+                    useManagementStore.getState().addNotification({ resource: setup.setupId, action: 'setup deleted' })
                     await fetchSetups()
                 } catch (error) {
                     console.error('Failed to delete setup:', error)
@@ -162,6 +164,7 @@ const DatabaseSetups = () => {
             })
 
             message.success(`Setup ${values.setupId} created successfully`)
+            useManagementStore.getState().addNotification({ resource: values.setupId, action: 'setup created' })
             setIsModalVisible(false)
             form.resetFields()
             await fetchSetups()
