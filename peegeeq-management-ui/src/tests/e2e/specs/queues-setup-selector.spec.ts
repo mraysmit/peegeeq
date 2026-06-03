@@ -86,4 +86,30 @@ test.describe('Queues - Setup Scope Selector', () => {
         const queuesTable = page.getByTestId('queues-table')
         await expect(queuesTable).toBeVisible()
     })
+
+    test('should send setupId query parameter to API when setup is selected', async ({ page }) => {
+        // Collect all /management/queues requests from the moment the route handler is installed
+        // (before navigation, so auto-select requests are also captured)
+        const queueRequestUrls: string[] = []
+        await page.route('**/management/queues**', route => {
+            queueRequestUrls.push(route.request().url())
+            return route.continue()
+        })
+
+        await page.goto('/')
+        await page.getByTestId('nav-queues').click()
+        await page.waitForLoadState('networkidle')
+
+        // SetupScopeBar auto-selects the only available setup; if not auto-selected, select manually
+        const setupSelector = page.getByTestId('setup-scope-selector')
+        const alreadySelected = await setupSelector.locator('.ant-select-selection-item').isVisible()
+        if (!alreadySelected) {
+            await selectAntOption(setupSelector, SETUP_ID)
+            await page.waitForLoadState('networkidle')
+        }
+
+        // At least one queues request should have included setupId=default
+        const hasSetupRequest = queueRequestUrls.some(url => url.includes(`setupId=${SETUP_ID}`))
+        expect(hasSetupRequest).toBe(true)
+    })
 })

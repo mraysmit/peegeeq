@@ -1,6 +1,8 @@
 # Enhancement: Setup / Queue Scope Selectors on Every Page
 
-Status: Proposed
+Status: Implemented
+
+> **Implementation notes (2026-06):** All 8 pages wired. `SetupSelector`, `QueueSelector`, and `SetupScopeBar` merged into a single `SetupScopeBar.tsx`. `ConsumerGroups.tsx` create-modal now loads real setup IDs from the API and pre-fills from the active selection. Events and Visualization pages have dual selectors (SetupScopeBar + legacy inline selector, both driving the same store state). Known gap: Events/Visualization legacy inline selectors (`query-setup-select`, `viz-setup-select`) can be removed once the optional store-migration follow-up (items 6-7) is done.
 Module: `peegeeq-management-ui`
 Author: Engineering
 Date: 2026-06-01
@@ -209,5 +211,6 @@ E2E run.
    disabled until a setup is picked.
 3. Selecting a setup on one page and navigating to another keeps the selection;
    reload keeps it (localStorage).
-4. `mvn test -pl peegeeq-management-ui,peegeeq-utilities-ui -Pall-tests` — E2E
-   suite green.
+4. `mvn test -pl :peegeeq-management-ui -Pall-tests` — E2E suite green.
+   (`peegeeq-utilities-ui` is unrelated; `:peegeeq-management-ui` is the correct
+   module selector for this project.)
