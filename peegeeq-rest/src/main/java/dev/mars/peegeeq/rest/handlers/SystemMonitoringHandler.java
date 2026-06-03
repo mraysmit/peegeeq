@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.http.HttpClosedException;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.http.ServerWebSocket;
@@ -352,7 +353,11 @@ public class SystemMonitoringHandler {
             try {
                 connection.sendHeartbeat();
             } catch (Exception e) {
-                log.error("Error sending SSE heartbeat to {}", connectionId, e);
+                if (e instanceof HttpClosedException) {
+                    log.debug("SSE client disconnected during heartbeat: {}", connectionId);
+                } else {
+                    log.error("Error sending SSE heartbeat to {}", connectionId, e);
+                }
                 cleanupSSEConnection(connectionId, clientIp);
             }
         });
@@ -366,7 +371,11 @@ public class SystemMonitoringHandler {
         });
 
         response.exceptionHandler(err -> {
-            log.error("SSE error for {}", connectionId, err);
+            if (err instanceof HttpClosedException) {
+                log.debug("SSE client disconnected: {}", connectionId);
+            } else {
+                log.error("SSE error for {}", connectionId, err);
+            }
             cleanupSSEConnection(connectionId, clientIp);
         });
 
@@ -776,7 +785,11 @@ public class SystemMonitoringHandler {
                     connection.lastActivity = System.currentTimeMillis();
                 },
                 error -> {
-                    log.error("Error sending SSE metrics to {}", connection.connectionId, error);
+                    if (error instanceof HttpClosedException) {
+                        log.debug("SSE client disconnected during metrics send: {}", connection.connectionId);
+                    } else {
+                        log.error("Error sending SSE metrics to {}", connection.connectionId, error);
+                    }
                     if (onError != null) {
                         onError.run();
                     }

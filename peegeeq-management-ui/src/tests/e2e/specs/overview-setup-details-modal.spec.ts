@@ -124,7 +124,7 @@ test.describe('Overview - Setup Details Panel', () => {
         // Descriptions table must be rendered with at least some rows
         const descriptions = panel.locator('.ant-descriptions')
         await expect(descriptions).toBeVisible()
-        const itemCount = await descriptions.locator('.ant-descriptions-item').count()
+        const itemCount = await descriptions.locator('.ant-descriptions-item-label').count()
         expect(itemCount).toBeGreaterThan(0)
 
         // Connection detail rows (Host, Port, Database Name, Schema) are optional —
