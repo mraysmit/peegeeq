@@ -271,6 +271,50 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await shot(page, '04g-queue-details-charts.png')
   })
 
+  test('04h queue delete confirmation dialog', async ({ page }) => {
+    await page.goto('/queues')
+    await expect(page.getByTestId('queues-table')).toBeVisible({ timeout: 15000 })
+    // Open the actions dropdown on the first queue row
+    const firstRow = page.locator('.ant-table-tbody tr.ant-table-row').first()
+    await firstRow.locator('.anticon-more').click()
+    await expect(page.locator('.ant-dropdown:not(.ant-dropdown-hidden)')).toBeVisible({ timeout: 5000 })
+    await page.locator('.ant-dropdown-menu-item').filter({ hasText: 'Delete Queue' }).click()
+    // Capture the confirm dialog
+    await expect(page.locator('.ant-modal-confirm')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '04h-queue-delete-confirm-dialog.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('04i queue create error toast (503)', async ({ page }) => {
+    // Intercept POST to inject a 503 so the error toast is visible
+    await page.route('**/api/v1/management/queues**', (route) => {
+      if (route.request().method() === 'POST') {
+        route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Service unavailable', timestamp: new Date().toISOString() }),
+        })
+      } else {
+        route.continue()
+      }
+    })
+    await page.goto('/queues')
+    await expect(page.getByTestId('create-queue-btn')).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('create-queue-btn').click()
+    await expect(page.locator('.ant-modal')).toBeVisible()
+    await page.getByTestId('queue-name-input').fill('demo-queue')
+    await page.getByTestId('refresh-setups-btn').click()
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-setup-select'), SETUP_ID)
+    await page.locator('.ant-modal .ant-btn-primary').click()
+    await expect(page.locator('.ant-message-error').filter({ hasText: 'Service unavailable' }).first()).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '04i-queue-create-error-toast.png') })
+    await page.unrouteAll()
+    await page.keyboard.press('Escape')
+  })
+
   // ── 3. Database Setups ────────────────────────────────────────────────────
 
   test('05 database setups', async ({ page }) => {
@@ -286,6 +330,62 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.waitForTimeout(600)
     await page.screenshot({ path: path.join(DIR, '06-create-setup-modal.png') })
     await page.keyboard.press('Escape')
+  })
+
+  test('06b create setup error toast (503)', async ({ page }) => {
+    // Intercept POST to inject a 503 so the error toast is visible
+    await page.route('**/api/v1/database-setup/create', (route) => {
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Database connection failed', timestamp: new Date().toISOString() }),
+      })
+    })
+    await page.goto('/database-setups')
+    await expect(page.getByRole('button', { name: /create setup/i })).toBeVisible({ timeout: 15000 })
+    await page.getByRole('button', { name: /create setup/i }).click()
+    await expect(page.locator('.ant-modal')).toBeVisible()
+    await page.getByLabel('Setup ID').fill('demo-setup')
+    await page.getByLabel('Host').fill('localhost')
+    await page.getByLabel('Port').fill('5432')
+    await page.getByLabel('Database Name').fill('demodb')
+    await page.getByLabel('Username').fill('demo')
+    await page.getByLabel('Password').fill('demo')
+    await page.locator('.ant-modal .ant-btn-primary').click()
+    await expect(page.locator('.ant-message-error').filter({ hasText: 'Database connection failed' }).first()).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '06b-create-setup-error-toast.png') })
+    await page.unrouteAll()
+    await page.keyboard.press('Escape')
+  })
+
+  test('06c delete setup error toast (503)', async ({ page }) => {
+    // Intercept DELETE to inject a 503 so the error toast is visible
+    await page.route('**/api/v1/database-setup/**', (route) => {
+      if (route.request().method() === 'DELETE') {
+        route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'Cannot delete setup: service unavailable', timestamp: new Date().toISOString() }),
+        })
+      } else {
+        route.continue()
+      }
+    })
+    await page.goto('/database-setups')
+    await expect(page.locator('.ant-table')).toBeVisible({ timeout: 15000 })
+    // Use the real setup row that already exists
+    const row = page.locator('tr').filter({ hasText: SETUP_ID }).first()
+    await expect(row).toBeVisible({ timeout: 10000 })
+    await row.locator('.anticon-more').click()
+    await expect(page.locator('.ant-dropdown:not(.ant-dropdown-hidden)')).toBeVisible({ timeout: 5000 })
+    await page.locator('.ant-dropdown-menu-item').filter({ hasText: 'Delete' }).click()
+    await expect(page.locator('.ant-modal-confirm-btns')).toBeVisible({ timeout: 5000 })
+    await page.locator('.ant-modal-confirm-btns .ant-btn-dangerous').click()
+    await expect(page.locator('.ant-message-error').filter({ hasText: 'Cannot delete setup' }).first()).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '06c-delete-setup-error-toast.png') })
+    await page.unrouteAll()
   })
 
   // ── 4. Event Stores ───────────────────────────────────────────────────────

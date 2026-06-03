@@ -148,10 +148,9 @@ const Queues = () => {
                     await axios.delete(getVersionedApiUrl(`management/queues/${queue.key}`))
                     // Refresh the queue list after successful deletion
                     await fetchQueues()
-                } catch (error) {
+                } catch (error: any) {
                     console.error('Failed to delete queue:', error)
-                    // For now, still remove from local state as fallback
-                    setQueues(queues.filter(q => q.key !== queue.key))
+                    message.error(error.response?.data?.error || error.message || 'Failed to delete queue')
                 }
             },
         })
@@ -184,7 +183,7 @@ const Queues = () => {
             form.resetFields()
         } catch (error: any) {
             console.error('Failed to save queue:', error)
-            message.error(error.response?.data?.message || 'Failed to create queue')
+            message.error(error.response?.data?.error || error.response?.data?.message || 'Failed to create queue')
             // Keep modal open on error so user can retry
         }
     }
