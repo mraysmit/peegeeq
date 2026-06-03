@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
-import { Card, Select, Row, Col, Typography, message } from 'antd'
+import { Card, Select, Row, Col, Typography } from 'antd'
 import { BranchesOutlined } from '@ant-design/icons'
 import EventVisualization from '../components/EventVisualization'
+import SetupScopeBar from '../components/common/SetupScopeBar'
+import { useManagementStore } from '../stores/managementStore'
 
 const { Title } = Typography
 
@@ -14,22 +16,22 @@ interface EventStore {
 }
 
 const EventVisualizationPage = () => {
-    const [setups, setSetups] = useState<string[]>([])
+    const { selectedSetupId, setSelectedSetup } = useManagementStore()
     const [eventStores, setEventStores] = useState<EventStore[]>([])
-    const [selectedSetup, setSelectedSetup] = useState<string>('')
     const [selectedEventStore, setSelectedEventStore] = useState<string>('')
+    const [setupIds, setSetupIds] = useState<string[]>([])
 
     const fetchSetups = async () => {
         try {
             const response = await axios.get(getVersionedApiUrl('setups'))
             if (response.data && Array.isArray(response.data.setupIds)) {
-                setSetups(response.data.setupIds)
+                setSetupIds(response.data.setupIds)
             } else {
-                setSetups([])
+                setSetupIds([])
             }
         } catch (error) {
             console.error('Failed to fetch setups:', error)
-            message.error('Failed to load database setups')
+            setSetupIds([])
         }
     }
 
@@ -56,7 +58,11 @@ const EventVisualizationPage = () => {
         fetchEventStores()
     }, [])
 
-    const storesForSetup = eventStores.filter(s => s.setupId === selectedSetup)
+    useEffect(() => {
+        setSelectedEventStore('')
+    }, [selectedSetupId])
+
+    const storesForSetup = eventStores.filter(s => s.setupId === selectedSetupId)
 
     return (
         <div>
@@ -65,21 +71,20 @@ const EventVisualizationPage = () => {
                 Event Visualization
             </Title>
 
+            <SetupScopeBar />
+
             <Card title="Select Event Store" style={{ marginBottom: 16 }}>
                 <Row gutter={16}>
                     <Col xs={24} sm={12} md={8}>
                         <Select
+                            data-testid="viz-setup-select"
                             placeholder="Select setup"
                             style={{ width: '100%' }}
-                            value={selectedSetup || undefined}
-                            onChange={(value) => {
-                                setSelectedSetup(value)
-                                setSelectedEventStore('')
-                            }}
+                            value={selectedSetupId || undefined}
+                            onChange={(value) => setSelectedSetup(value)}
                             allowClear
-                            data-testid="viz-setup-select"
                         >
-                            {setups.map(id => (
+                            {setupIds.map(id => (
                                 <Select.Option key={id} value={id}>{id}</Select.Option>
                             ))}
                         </Select>
@@ -90,7 +95,7 @@ const EventVisualizationPage = () => {
                             style={{ width: '100%' }}
                             value={selectedEventStore || undefined}
                             onChange={(value) => setSelectedEventStore(value)}
-                            disabled={!selectedSetup}
+                            disabled={!selectedSetupId}
                             allowClear
                             data-testid="viz-eventstore-select"
                         >
@@ -105,7 +110,7 @@ const EventVisualizationPage = () => {
             </Card>
 
             <EventVisualization
-                setupId={selectedSetup}
+                setupId={selectedSetupId ?? ''}
                 eventStoreName={selectedEventStore}
             />
         </div>

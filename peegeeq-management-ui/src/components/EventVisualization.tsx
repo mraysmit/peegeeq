@@ -184,24 +184,26 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
     };
 
     const renderEventNode = (event: BiTemporalEvent) => (
-        <Space>
-            <Tag color="purple">{event.eventType}</Tag>
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-                {dayjs(event.transactionTime).format('HH:mm:ss.SSS')}
-            </Text>
-            {event.aggregateId && (
-                <Tag color="cyan" style={{ fontSize: '10px' }}>{event.aggregateId}</Tag>
-            )}
-            <Button 
-                type="link" 
-                size="small" 
-                icon={<SearchOutlined />} 
-                onClick={(e) => {
-                    e.stopPropagation();
-                    handleViewEventDetails(event);
-                }}
-            />
-        </Space>
+        <div style={{ borderBottom: '1px solid #d9d9d9', padding: '4px 0', width: '100%' }}>
+            <Space>
+                <Tag color="purple">{event.eventType}</Tag>
+                <Text type="secondary" style={{ fontSize: '12px' }}>
+                    {dayjs(event.transactionTime).format('HH:mm:ss.SSS')}
+                </Text>
+                {event.aggregateId && (
+                    <Tag color="cyan" style={{ fontSize: '10px' }}>{event.aggregateId}</Tag>
+                )}
+                <Button 
+                    type="link" 
+                    size="small" 
+                    icon={<SearchOutlined />} 
+                    onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewEventDetails(event);
+                    }}
+                />
+            </Space>
+        </div>
     );
 
     const handleViewEventDetails = (event: BiTemporalEvent) => {
@@ -307,6 +309,7 @@ const EventVisualization: React.FC<EventVisualizationProps> = ({ setupId, eventS
                     <Tree
                         showLine
                         showIcon={false}
+                        blockNode
                         defaultExpandAll
                         expandedKeys={expandedKeys}
                         onExpand={setExpandedKeys}

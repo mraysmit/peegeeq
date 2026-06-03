@@ -40,7 +40,11 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
+import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -659,4 +663,55 @@ class SystemMonitoringHandlerTest {
             })
             .onFailure(testContext::failNow);
     }
+
+    @Test
+    @Order(11)
+    void testSseClientDisconnectLogsDebugNotError(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== Test 11: SSE Client Disconnect Must Not Log ERROR ===");
+
+        ch.qos.logback.classic.Logger handlerLogger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(SystemMonitoringHandler.class);
+        ListAppender<ILoggingEvent> capture = new ListAppender<>();
+        capture.start();
+        handlerLogger.addAppender(capture);
+
+        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/sse/metrics")
+            .compose(io.vertx.core.http.HttpClientRequest::send)
+            .onSuccess(response -> {
+                testContext.verify(() -> assertEquals(200, response.statusCode()));
+
+                response.exceptionHandler(err -> {
+                    if (!(err instanceof io.vertx.core.http.HttpClosedException)) {
+                        testContext.failNow(err);
+                    }
+                });
+
+                // Abruptly close the connection after a short delay
+                vertx.setTimer(500, id -> {
+                    response.request().connection().close();
+
+                    // Give the server time to process the disconnect
+                    vertx.setTimer(500, id2 -> {
+                        testContext.verify(() -> {
+                            List<ILoggingEvent> errors = capture.list.stream().filter(e -> e.getLevel().equals(Level.ERROR)).toList();
+                            boolean hasSseError = errors.stream().anyMatch(e ->
+                                    e.getFormattedMessage().contains("SSE error for") ||
+                                    e.getFormattedMessage().contains("Error sending SSE"));
+                            assertFalse(hasSseError,
+                                    "Client disconnect must not be logged at ERROR level, but got: " +
+                                    errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                        });
+                        handlerLogger.detachAppender(capture);
+                        capture.stop();
+                        testContext.completeNow();
+                    });
+                });
+            })
+            .onFailure(err -> {
+                handlerLogger.detachAppender(capture);
+                capture.stop();
+                testContext.failNow(err);
+            });
+    }
+
 }
