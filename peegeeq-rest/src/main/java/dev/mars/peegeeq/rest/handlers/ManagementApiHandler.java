@@ -12,9 +12,14 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,13 +50,15 @@ public class ManagementApiHandler {
     private static final Logger logger = LoggerFactory.getLogger(ManagementApiHandler.class);
 
     private final DatabaseSetupService setupService;
+    private final Vertx vertx;
     // Cache for system metrics (updated periodically)
     private final Map<String, Object> systemMetricsCache = new ConcurrentHashMap<>();
     private long lastMetricsUpdate = 0;
     private static final long METRICS_CACHE_TTL = 30000; // 30 seconds
 
-    public ManagementApiHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
+    public ManagementApiHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, Vertx vertx) {
         this.setupService = setupService;
+        this.vertx = vertx;
     }
 
     /**
@@ -99,12 +106,13 @@ public class ManagementApiHandler {
                             return setups;
                         });
                     }
-                    return Future.all(setupsFuture, getRecentActivity()).map(cf -> {
+                    return Future.all(setupsFuture, getRecentActivity(), getTotalActiveConnections()).map(cf -> {
                         JsonArray setups = cf.resultAt(0);
                         JsonArray recentActivity = cf.resultAt(1);
+                        int activeConnections = cf.resultAt(2);
                         return new JsonObject()
                                 .put("setups", setups)
-                                .put("systemStats", buildSystemTotals(setups))
+                                .put("systemStats", buildSystemTotals(setups, activeConnections))
                                 .put("recentActivity", recentActivity)
                                 .put("timestamp", System.currentTimeMillis());
                     });
@@ -176,7 +184,7 @@ public class ManagementApiHandler {
     /**
      * Builds system-wide totals by summing across all setup summaries.
      */
-    private JsonObject buildSystemTotals(JsonArray setups) {
+    private JsonObject buildSystemTotals(JsonArray setups, int activeConnections) {
         int totalSetups = setups.size();
         int totalQueues = 0;
         int totalConsumerGroups = 0;
@@ -202,7 +210,72 @@ public class ManagementApiHandler {
                 .put("totalEventStores", totalEventStores)
                 .put("totalMessages", totalMessages)
                 .put("messagesPerSecond", messagesPerSecond)
+                .put("activeConnections", activeConnections)
                 .put("uptime", getUptimeString());
+    }
+
+    /**
+     * Queries pg_stat_activity for each active setup to count real database connections.
+     */
+    private Future<Integer> getTotalActiveConnections() {
+        return setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    if (activeSetupIds.isEmpty()) {
+                        return Future.succeededFuture(0);
+                    }
+                    List<Future<Integer>> futures = new ArrayList<>();
+                    for (String setupId : activeSetupIds) {
+                        futures.add(getActiveConnectionsForSetup(setupId));
+                    }
+                    return Future.all(futures).map(cf -> {
+                        int total = 0;
+                        for (int i = 0; i < cf.size(); i++) {
+                            total += (int) cf.resultAt(i);
+                        }
+                        return total;
+                    });
+                })
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get total active connections: {}", ar.cause().getMessage());
+                        return Future.succeededFuture(0);
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
+    }
+
+    /**
+     * Counts active PostgreSQL connections for a single setup by querying pg_stat_activity.
+     */
+    private Future<Integer> getActiveConnectionsForSetup(String setupId) {
+        return setupService.getDatabaseConfig(setupId)
+                .compose(dbConfig -> {
+                    PgConnectOptions connectOptions = new PgConnectOptions()
+                            .setHost(dbConfig.getHost())
+                            .setPort(dbConfig.getPort())
+                            .setDatabase(dbConfig.getDatabaseName())
+                            .setUser(dbConfig.getUsername())
+                            .setPassword(dbConfig.getPassword());
+
+                    Pool tempPool = PgBuilder.pool()
+                            .with(new PoolOptions().setMaxSize(1))
+                            .connectingTo(connectOptions)
+                            .using(vertx)
+                            .build();
+
+                    return tempPool
+                            .preparedQuery("SELECT count(*)::int FROM pg_stat_activity WHERE datname = current_database()")
+                            .execute()
+                            .map(rows -> rows.iterator().next().getInteger(0))
+                            .eventually(() -> tempPool.close());
+                })
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get active connections for setup {}: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(0);
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
     }
 
     /**
