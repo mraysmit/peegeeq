@@ -179,8 +179,32 @@ public class SetupManagementIntegrationTest {
                     assertEquals(200, response.statusCode(), "Expected 200 for get setup details");
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response should be a JSON object");
-                    assertEquals(setupId, body.getString("setupId"));
-                    assertTrue(body.containsKey("status"), "Response should contain status");
+
+                    // Identity
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+
+                    // Status should be ACTIVE after successful creation
+                    assertEquals("ACTIVE", body.getString("status"), "status should be ACTIVE");
+
+                    // Database connection config fields must be present and non-empty
+                    assertNotNull(body.getString("host"), "host should be present");
+                    assertFalse(body.getString("host").isBlank(), "host should not be blank");
+                    assertTrue(body.getInteger("port") > 0, "port should be a positive integer");
+                    assertNotNull(body.getString("databaseName"), "databaseName should be present");
+                    assertFalse(body.getString("databaseName").isBlank(), "databaseName should not be blank");
+                    assertEquals("public", body.getString("schema"), "schema should be public");
+
+                    // Queue created in Order 2 must appear in queueFactories
+                    JsonArray queueFactories = body.getJsonArray("queueFactories");
+                    assertNotNull(queueFactories, "queueFactories should be present");
+                    assertTrue(queueFactories.contains("test_queue"),
+                            "queueFactories should contain 'test_queue', got: " + queueFactories);
+
+                    // No event stores added yet (added at Order 6)
+                    JsonArray eventStores = body.getJsonArray("eventStores");
+                    assertNotNull(eventStores, "eventStores should be present");
+                    assertEquals(0, eventStores.size(), "eventStores should be empty at this point");
+
                     logger.info("Setup details: {}", body.encode());
                 });
                 testContext.completeNow();

@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import io.vertx.core.Context;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
