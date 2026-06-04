@@ -1203,10 +1203,13 @@ public class ManagementApiHandler {
                         if (queueFactory == null) {
                             return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                         }
-                        return Future.succeededFuture(queueFactory);
+                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                        if (subscriptionService == null) {
+                            return Future.failedFuture(new ResponseException(503, "Subscription service unavailable for setup: " + setupId));
+                        }
+                        return subscriptionService.subscribe(queueName, groupName);
                     })
-                    .map(queueFactory -> {
-                        queueFactory.createConsumerGroup(groupName, queueName, Object.class);
+                    .map(v -> {
                         logger.info("Consumer group {} created successfully for queue {} in setup {}",
                                 groupName, queueName, setupId);
                         return new JsonObject()
@@ -1214,7 +1217,6 @@ public class ManagementApiHandler {
                                 .put("groupName", groupName)
                                 .put("setupId", setupId)
                                 .put("queueName", queueName)
-                                .put("groupId", setupId + "-" + groupName)
                                 .put("timestamp", System.currentTimeMillis());
                     })
                     .onSuccess(response -> ctx.response()
@@ -1239,42 +1241,42 @@ public class ManagementApiHandler {
 
     /**
      * Delete a consumer group.
-     * DELETE /api/v1/management/consumer-groups/:groupId
+     * DELETE /api/v1/management/consumer-groups/:setupId/:queueName/:groupName
      */
     public void deleteConsumerGroup(RoutingContext ctx) {
         logger.debug("Delete consumer group requested");
 
         try {
-            String groupId = ctx.pathParam("groupId");
+            String setupId = ctx.pathParam("setupId");
+            String queueName = ctx.pathParam("queueName");
+            String groupName = ctx.pathParam("groupName");
 
-            // Extract group parameters - groupId format is typically "setupId-groupName"
-            String[] parts = groupId.split("-", 2);
-            if (parts.length != 2) {
-                sendError(ctx, 400, "Invalid group ID format. Expected: setupId-groupName");
+            if (setupId == null || setupId.isBlank() || queueName == null || queueName.isBlank()
+                    || groupName == null || groupName.isBlank()) {
+                sendError(ctx, 400, "setupId, queueName, and groupName path parameters are required");
                 return;
             }
 
-            String setupId = parts[0];
-            String groupName = parts[1];
+            logger.info("Consumer group deletion requested for setup: {}, queue: {}, group: {}", setupId, queueName, groupName);
 
-            logger.info("Consumer group deletion requested for setup: {}, group: {}", setupId, groupName);
-
-            // Verify the setup exists
             setupService.getSetupResult(setupId)
                     .compose(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
                         }
-                        return Future.succeededFuture(setupResult);
+                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                        if (subscriptionService == null) {
+                            return Future.failedFuture(new ResponseException(503, "Subscription service unavailable for setup: " + setupId));
+                        }
+                        return subscriptionService.cancel(queueName, groupName);
                     })
-                    .map(setupResult -> {
-                        logger.info("Consumer group {} deleted successfully from setup {}", groupName, setupId);
+                    .map(v -> {
+                        logger.info("Consumer group {} cancelled successfully for queue {} in setup {}", groupName, queueName, setupId);
                         return new JsonObject()
-                                .put("message", "Consumer group '" + groupName + "' deleted successfully from setup '" + setupId + "'")
-                                .put("groupId", groupId)
+                                .put("message", "Consumer group '" + groupName + "' cancelled successfully for queue '" + queueName + "' in setup '" + setupId + "'")
                                 .put("setupId", setupId)
+                                .put("queueName", queueName)
                                 .put("groupName", groupName)
-                                .put("note", "Consumer group has been stopped and cleaned up")
                                 .put("timestamp", System.currentTimeMillis());
                     })
                     .onSuccess(response -> ctx.response()
@@ -1285,9 +1287,9 @@ public class ManagementApiHandler {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
                         } else {
-                            logger.error("Error deleting consumer group {} from setup {}: {}", groupName, setupId,
+                            logger.error("Error cancelling consumer group {} for queue {} in setup {}: {}", groupName, queueName, setupId,
                                     throwable.getMessage());
-                            sendError(ctx, 404, "Setup not found: " + throwable.getMessage());
+                            sendError(ctx, 503, "Failed to cancel consumer group: " + throwable.getMessage());
                         }
                     });
 

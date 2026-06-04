@@ -322,35 +322,33 @@ const Overview = () => {
                                 </Tag>
                             </Space>
                             {selectedSetupId ? (
-                                <>
-                                    <Space wrap data-testid="selected-setup-info">
-                                        <span>Selected setup:</span>
-                                        <Tag color="blue" data-testid="selected-setup-tag">{selectedSetupId}</Tag>
-                                    </Space>
-                                    <Card
-                                        title={selectedSetupId}
-                                        size="small"
-                                        style={{ marginTop: 4 }}
-                                        data-testid="setup-details-panel"
-                                    >
-                                        {setupDetails ? (
-                                            <Descriptions column={{ xs: 1, sm: 2 }} size="small">
-                                                <Descriptions.Item label="Setup ID">{setupDetails.setupId}</Descriptions.Item>
-                                                <Descriptions.Item label="Status">
-                                                    <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
-                                                        {setupDetails.status}
-                                                    </Tag>
-                                                </Descriptions.Item>
-                                                <Descriptions.Item label="Host">{setupDetails.host}</Descriptions.Item>
-                                                <Descriptions.Item label="Port">{setupDetails.port}</Descriptions.Item>
-                                                <Descriptions.Item label="Database Name">{setupDetails.databaseName}</Descriptions.Item>
-                                                <Descriptions.Item label="Schema">{setupDetails.schema}</Descriptions.Item>
-                                            </Descriptions>
-                                        ) : (
-                                            <span style={{ color: '#8c8c8c' }}>Loading setup details</span>
-                                        )}
-                                    </Card>
-                                </>
+                                <Card
+                                    title={
+                                        <Space>
+                                            <span data-testid="selected-setup-tag">{selectedSetupId}</span>
+                                            {setupDetails && (
+                                                <Tag color={setupDetails.status === 'ACTIVE' ? 'green' : setupDetails.status === 'CREATING' ? 'orange' : 'red'}>
+                                                    {setupDetails.status}
+                                                </Tag>
+                                            )}
+                                        </Space>
+                                    }
+                                    size="small"
+                                    style={{ marginTop: 4 }}
+                                    data-testid="setup-details-panel"
+                                >
+                                    {setupDetails ? (
+                                        <Descriptions column={{ xs: 1, sm: 3 }} size="small">
+                                            <Descriptions.Item label="Setup ID">{setupDetails.setupId}</Descriptions.Item>
+                                            <Descriptions.Item label="Host">{setupDetails.host}</Descriptions.Item>
+                                            <Descriptions.Item label="Port">{setupDetails.port}</Descriptions.Item>
+                                            <Descriptions.Item label="Database Name">{setupDetails.databaseName}</Descriptions.Item>
+                                            <Descriptions.Item label="Schema">{setupDetails.schema}</Descriptions.Item>
+                                        </Descriptions>
+                                    ) : (
+                                        <span style={{ color: '#8c8c8c' }}>Loading setup details</span>
+                                    )}
+                                </Card>
                             ) : (
                                 <span data-testid="no-setup-info" style={{ color: '#8c8c8c' }}>Select a setup above to view data</span>
                             )}
