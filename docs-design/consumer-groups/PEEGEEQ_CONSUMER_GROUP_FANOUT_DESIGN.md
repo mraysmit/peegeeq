@@ -180,6 +180,7 @@ This document describes both **implemented features** and **future enhancements*
 17. [Migration Path](#migration-path) ✅
 18. [Comparison with Other Systems](#comparison-with-other-systems)
 19. [Partitioned Consumer Groups (OFFSET_WATERMARK Mode)](#partitioned-consumer-groups-offsetwatermark-mode) ❌
+20. [Implementation Plan — REST API Fixes and Management UI](#20-implementation-plan--rest-api-fixes-and-management-ui)
 
 ---
 
@@ -6464,6 +6465,298 @@ public class OutboxConsumerGroup<T> {
             started = true;
             logger.info("Consumer group '{}' started with {} members", groupName, members.size());
         }
+
+---
+
+## 20. Implementation Plan — REST API Fixes and Management UI
+
+> **Date**: 2026-06-04
+> **Status**: Not started
+
+This section documents the concrete work required to make the Consumer Groups management REST API and management UI functional, ordered by priority.
+
+---
+
+### Mandatory Pre-Work (applies to every phase)
+
+Before writing a single line of code for any phase, complete all six steps in `docs-design/dev/main-prompt.md`:
+
+1. Read `docs-design/dev/pgq-coding-principles.md` in full.
+2. Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` in full.
+3. Read the **full content** of every file you intend to modify. Do not skim.
+4. Read existing tests in the same module. Follow their pattern exactly.
+5. Grep every file you intend to touch for banned patterns — all must return zero results, and your edits must not introduce any:
+   - `\.recover\(` — banned
+   - `\.otherwise\(` — banned
+   - `\.await\(` on a Future — banned
+   - `CompletableFuture|toCompletionStage|toCompletableFuture|\.join\(\)|\.get\(\)` — banned
+   - `Thread\.sleep|LockSupport\.parkNanos` — banned
+   - `Handler<AsyncResult` — banned
+   - `\.onComplete\(ar -> .*succeeded` — use `.onSuccess`/`.onFailure` instead
+   - fire-and-forget Future (every Future must be observed via `.onFailure(...)` or chained)
+6. If any existing code in files you are reading uses a banned pattern, flag it. Do not copy it.
+
+**Only after all six steps are complete, proceed to the phase.**
+
+After completing each phase, validate all changes against `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming done.
+
+---
+
+### Current State Assessment
+
+The service layer (`SubscriptionService`, `BackfillService`, `DeadConsumerDetector`, `ConsumerGroupMetrics`) is **fully implemented and tested**. The gap is in the REST layer and the management UI that consumes it.
+
+**Management REST routes registered** (`PeeGeeQRestServer.java` lines 431–433):
+```
+GET    /api/v1/management/consumer-groups
+POST   /api/v1/management/consumer-groups
+DELETE /api/v1/management/consumer-groups/:groupId
+```
+
+| Route | Status | Root cause |
+|---|---|---|
+| GET | ✅ Correct | Calls `subscriptionService.listSubscriptions(topic)` for each queue |
+| POST | ❌ Broken | Calls `queueFactory.createConsumerGroup(...)` and discards the result; `subscriptionService.subscribe()` never called; no row written |
+| DELETE | ❌ Broken | Never calls `subscriptionService.cancel()`; parses identity by splitting `groupId` on `-` (ambiguous); subscription row stays ACTIVE |
+| Pause | ❌ Missing | Route does not exist; `subscriptionService.pause()` is never called |
+| Resume | ❌ Missing | Route does not exist; `subscriptionService.resume()` is never called |
+
+---
+
+### Phase 1 — Fix Broken Management REST Endpoints
+
+#### Pre-work checklist (Phase 1)
+
+- [ ] Read `docs-design/dev/pgq-coding-principles.md`
+- [ ] Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
+- [ ] Read `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` in full
+- [ ] Read `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java` in full
+- [ ] Read existing tests in `peegeeq-rest/src/test/` — identify the established integration test pattern for management routes
+- [ ] Grep both files for all banned patterns — confirm zero results before touching them
+
+**Files changed**:
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java`
+
+#### 1a — Fix DELETE route (ambiguous path param)
+
+In `PeeGeeQRestServer.java` line 433, change:
+```java
+router.delete("/api/v1/management/consumer-groups/:groupId")
+    .handler(managementHandler::deleteConsumerGroup);
+```
+To:
+```java
+router.delete("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName")
+    .handler(managementHandler::deleteConsumerGroup);
+```
+
+#### 1b — Fix `deleteConsumerGroup()` in `ManagementApiHandler`
+
+Replace the `split("-", 2)` identity parsing with three `ctx.pathParam()` calls, and add `subscriptionService.cancel(queueName, groupName)` before returning the success response.
+
+Pattern follows `getConsumerGroupsForSetup()` which already obtains the `SubscriptionService` via:
+```java
+SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+```
+
+The fixed method must:
+1. Read `setupId`, `queueName`, `groupName` from three separate path params
+2. Verify setup is ACTIVE via `setupService.getSetupResult(setupId)`
+3. Obtain `subscriptionService` via `setupService.getSubscriptionServiceForSetup(setupId)`
+4. Call `subscriptionService.cancel(queueName, groupName)`
+5. Return 200 on success; propagate 404/503 on failure
+
+#### 1c — Fix `createConsumerGroup()` in `ManagementApiHandler`
+
+Replace the `queueFactory.createConsumerGroup(...)` call with `subscriptionService.subscribe(queueName, groupName)`. The queueFactory lookup is still needed for queue-exists validation (return 404 if not found); just stop using its return value.
+
+The fixed method must:
+1. Parse `groupName`, `setupId`, `queueName` from request body (unchanged)
+2. Validate setup is ACTIVE (unchanged)
+3. Look up `queueFactory` from `setupResult` — if null, return 404 (unchanged)
+4. Obtain `subscriptionService` via `setupService.getSubscriptionServiceForSetup(setupId)`
+5. **Call `subscriptionService.subscribe(queueName, groupName)` instead of `queueFactory.createConsumerGroup(...)`**
+6. Return 201 on success
+
+`subscribe(topic, groupName)` with no `SubscriptionOptions` creates an ACTIVE subscription starting from NOW (no backfill). The subscription is immediately visible to the next GET.
+
+#### Phase 1 — Test discipline
+
+- Every `Future` chain in the new/modified methods must terminate with `.onSuccess(...)` and `.onFailure(...)`. No fire-and-forget.
+- Use `.compose(...)` for sequencing steps; `.map(...)` for transformation. Do not use `.onComplete(ar -> { if (ar.succeeded()) ... })`.
+- Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`. No mocks for database behaviour.
+- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- `Tests run: 0` means the test did not execute — check tagging and profile.
+- Validate the changed files against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
+
+---
+
+### Phase 2 — Management UI Rewrite (`ConsumerGroups.tsx`)
+
+#### Pre-work checklist (Phase 2)
+
+- [ ] Read `docs-design/dev/pgq-coding-principles.md`
+- [ ] Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
+- [ ] Read `peegeeq-management-ui/src/pages/ConsumerGroups.tsx` in full
+- [ ] Read `docs-design/tasks/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md` in full (the authoritative spec)
+- [ ] Read existing Playwright tests in `peegeeq-management-ui/tests/` for the consumer groups scope — follow their established selector and assertion patterns exactly
+- [ ] Confirm Phase 1 is complete and passing before starting Phase 2
+
+**File changed**:
+- `peegeeq-management-ui/src/pages/ConsumerGroups.tsx`
+
+See `docs-design/tasks/CONSUMER-GROUPS-UI-REDESIGN-PLAN.md` for the full spec. Summary of changes required:
+
+| Problem | Fix |
+|---|---|
+| `Math.random()` fake members/lag/performance | Remove; these fields are not returned by the GET endpoint |
+| Wrong status values (`active`/`inactive`) | Use `active`/`paused`/`dead`/`cancelled` from `mapSubscriptionState()` |
+| `queueName` string-stripped via `split('-')[1]` | Use `queueName` field directly |
+| No API call on delete | Wire to `DELETE /api/v1/management/consumer-groups/:setupId/:queueName/:groupName` |
+| Wrong TypeScript interfaces | Fix to match actual GET response shape (see GET response table in redesign plan) |
+| Kafka-style partition/member table | Remove; replace with subscription detail view |
+| Summary cards wrong | Replace with Dead Groups count + Backfill Active count |
+
+#### Phase 2 — Test discipline
+
+- Make one focused change at a time. Do not bulk-rewrite the entire file in one operation — change interfaces, then data mapping, then columns, then cards, then modals, verifying compilation at each step.
+- After each logical sub-change, run the Playwright consumer groups test to confirm no regression:
+  ```powershell
+  cd peegeeq-management-ui
+  npx playwright test --project=13-consumer-groups-scope-selectors --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\consumer-groups-YYYYMMDD.txt
+  ```
+- Do not update Playwright test selectors until the component renders the correct elements. Fix the component first, then align the tests to it.
+- Validate the changed file against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
+
+---
+
+### Phase 3 — Pause / Resume REST Endpoints
+
+#### Pre-work checklist (Phase 3)
+
+- [ ] Read `docs-design/dev/pgq-coding-principles.md`
+- [ ] Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
+- [ ] Read `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` in full
+- [ ] Read `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java` in full (the post-Phase-1 version)
+- [ ] Read existing tests for management routes — establish the test pattern for new action endpoints
+- [ ] Grep both files for all banned patterns — confirm zero results before touching them
+- [ ] Confirm Phase 1 and Phase 2 are complete and passing before starting Phase 3
+
+**Files changed**:
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java`
+
+Add two new routes:
+```java
+router.post("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause")
+    .handler(managementHandler::pauseConsumerGroup);
+router.post("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume")
+    .handler(managementHandler::resumeConsumerGroup);
+```
+
+Each handler:
+1. Reads `setupId`, `queueName`, `groupName` from path params
+2. Verifies setup ACTIVE
+3. Obtains `subscriptionService`
+4. Calls `subscriptionService.pause(queueName, groupName)` or `subscriptionService.resume(queueName, groupName)`
+5. Returns 200 on success
+
+State machine constraints (from fanout design Section 5):
+- `ACTIVE → PAUSED`: valid
+- `PAUSED → ACTIVE`: valid (resume)
+- `CANCELLED → PAUSED/ACTIVE`: invalid — the service layer rejects this; propagate the failure as 409
+
+The management UI action menu must show **Pause** when status is `active`, **Resume** when status is `paused`, and neither when status is `dead` or `cancelled`.
+
+#### Phase 3 — Test discipline
+
+- Every `Future` chain must terminate with `.onSuccess(...)` and `.onFailure(...)`.
+- Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`.
+- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- Validate the changed files against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
+
+---
+
+### Phase 4 — Backfill REST Endpoint (Management UI)
+
+#### Pre-work checklist (Phase 4)
+
+- [ ] Read `docs-design/dev/pgq-coding-principles.md`
+- [ ] Read `docs-design/testing/PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`
+- [ ] Read `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` in full
+- [ ] Read `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java` in full (post-Phase-3 version)
+- [ ] Read `peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/BackfillService.java` in full — understand what `startBackfill()` does and what it returns before writing the handler
+- [ ] Read existing `BackfillService` tests to understand expected behaviour
+- [ ] Grep all files for banned patterns — confirm zero results
+- [ ] Confirm Phases 1–3 are complete and passing before starting Phase 4
+
+**Files changed**:
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java`
+
+`SubscriptionService.startBackfill(topic, groupName)` exists as a default interface method returning `UnsupportedOperationException`. The concrete `BackfillService` (545 lines, fully tested) provides the implementation. No management route currently exposes this.
+
+Add:
+```java
+router.post("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill")
+    .handler(managementHandler::startConsumerGroupBackfill);
+```
+
+Handler calls `subscriptionService.startBackfill(queueName, groupName)` and returns the JSON backfill-result object.
+
+This is lower priority than Phase 1–3 since backfill is typically triggered automatically by `start(SubscriptionOptions.fromBeginning(true))` in application code, not by the management UI.
+
+#### Phase 4 — Test discipline
+
+- Every `Future` chain must terminate with `.onSuccess(...)` and `.onFailure(...)`.
+- Any new integration test must use `@Tag(TestCategories.INTEGRATION)`, `@Testcontainers`, `VertxTestContext`, and `Checkpoint`.
+- After changes, run: `mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt`
+- Validate the changed files against `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` before claiming phase complete.
+
+---
+
+### Verification Steps
+
+**After Phase 1:**
+```powershell
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt
+```
+
+**After Phase 2:**
+```powershell
+cd peegeeq-management-ui
+npx playwright test --project=13-consumer-groups-scope-selectors --headed --reporter=list 2>&1 | Tee-Object -FilePath ..\logs\consumer-groups-YYYYMMDD.txt
+```
+
+**Manual verification (Phases 1 + 2 combined):**
+1. POST a new consumer group → confirm row appears in `outbox_topic_subscriptions` with `subscription_status = 'ACTIVE'`
+2. GET consumer groups → confirm new group appears with `status: active`
+3. DELETE consumer group → confirm row status changes to `cancelled` in DB
+4. GET consumer groups → confirm deleted group no longer appears (or shows `cancelled`)
+
+**After Phase 3:**
+```powershell
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-YYYYMMDD.txt
+```
+5. Pause an ACTIVE group → confirm `subscription_status = 'PAUSED'` in DB
+6. Resume a PAUSED group → confirm `subscription_status = 'ACTIVE'` in DB
+7. Attempt to pause a CANCELLED group → confirm 409 response
+
+---
+
+### Files to Change Summary
+
+| Phase | File | Change |
+|---|---|---|
+| 1a | `peegeeq-rest/.../PeeGeeQRestServer.java` | Change DELETE route from `/:groupId` to `/:setupId/:queueName/:groupName` |
+| 1b | `peegeeq-rest/.../ManagementApiHandler.java` | Fix `deleteConsumerGroup()`: use path params, call `subscriptionService.cancel()` |
+| 1c | `peegeeq-rest/.../ManagementApiHandler.java` | Fix `createConsumerGroup()`: call `subscriptionService.subscribe()` instead of `queueFactory.createConsumerGroup()` |
+| 2 | `peegeeq-management-ui/src/pages/ConsumerGroups.tsx` | Full rewrite per redesign plan |
+| 3 | `peegeeq-rest/.../PeeGeeQRestServer.java` | Add pause/resume routes |
+| 3 | `peegeeq-rest/.../ManagementApiHandler.java` | Add `pauseConsumerGroup()` and `resumeConsumerGroup()` methods |
+| 4 | `peegeeq-rest/.../PeeGeeQRestServer.java` | Add backfill route |
+| 4 | `peegeeq-rest/.../ManagementApiHandler.java` | Add `startConsumerGroupBackfill()` method |
     }
 }
 ```

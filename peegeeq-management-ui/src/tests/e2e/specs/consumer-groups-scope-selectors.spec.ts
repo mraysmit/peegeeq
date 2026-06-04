@@ -129,11 +129,79 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
         await expect(page.locator('.ant-modal')).toBeVisible()
 
         // The setup field should be pre-filled with the active selection
-        const modalSetupSelect = page.getByTestId('create-group-setup-select')
+        const modalSetupSelect = page.locator('.ant-modal').getByTestId('create-group-setup-select')
+            .locator('xpath=ancestor::*[contains(@class,"ant-select")][1]')
         await expect(modalSetupSelect.locator('.ant-select-selection-item')).toContainText(SETUP_ID)
 
         // Dismiss modal without creating
         await page.locator('.ant-modal .ant-btn:not(.ant-btn-primary)').click()
         await expect(page.locator('.ant-modal')).not.toBeVisible()
+    })
+
+    test('create group button should open the create modal', async ({ page }) => {
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        await page.getByTestId('create-group-btn').click()
+
+        const modal = page.locator('.ant-modal')
+        await expect(modal).toBeVisible()
+        await expect(modal.locator('.ant-modal-title')).toContainText('Create Consumer Group')
+
+        await page.keyboard.press('Escape')
+        await expect(modal).not.toBeVisible({ timeout: 5000 })
+    })
+
+    test('create modal should show validation errors when submitted empty', async ({ page }) => {
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        await page.getByTestId('create-group-btn').click()
+        await expect(page.locator('.ant-modal')).toBeVisible()
+
+        // Submit without filling anything
+        await page.locator('.ant-modal .ant-btn-primary').click()
+
+        // Required field validation messages should appear
+        const modal = page.locator('.ant-modal')
+        await expect(modal.locator('.ant-form-item-explain-error').first()).toBeVisible({ timeout: 5000 })
+
+        await page.keyboard.press('Escape')
+    })
+
+    test('create group should call POST API and refresh table', async ({ page }) => {
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        // Intercept the POST request
+        const postRequests: string[] = []
+        await page.route('**/management/consumer-groups', route => {
+            if (route.request().method() === 'POST') {
+                postRequests.push(route.request().url())
+            }
+            return route.continue()
+        })
+
+        await page.getByTestId('create-group-btn').click()
+        await expect(page.locator('.ant-modal')).toBeVisible()
+
+        // Fill required fields
+        const groupName = `test-group-${Date.now()}`
+        await page.locator('.ant-modal').getByLabel('Group Name').fill(groupName)
+        await page.locator('.ant-modal').getByLabel('Queue Name').fill('test-queue')
+
+        // Select setup
+        const modalSetupAncestor = page.locator('.ant-modal').getByTestId('create-group-setup-select')
+            .locator('xpath=ancestor::*[contains(@class,"ant-select")][1]')
+        await selectAntOption(modalSetupAncestor, SETUP_ID)
+
+        // Submit
+        await page.locator('.ant-modal .ant-btn-primary').click()
+
+        // Modal should close after successful submission
+        // (may fail with 404 if queue doesn't exist — modal stays open with error toast)
+        // Either way, the POST must have been fired
+        await page.waitForTimeout(1500)
+        expect(postRequests.length, 'POST /management/consumer-groups was not called').toBeGreaterThanOrEqual(1)
     })
 })

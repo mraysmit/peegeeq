@@ -103,9 +103,8 @@ test.describe('Overview - Setup Details Panel', () => {
         // Wait for setup details to finish loading
         await expect(panel.getByText('Loading setup details')).not.toBeVisible({ timeout: 10000 })
 
-        // Status label should be present and a Tag rendered next to it
-        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Status' })).toBeVisible()
-        await expect(panel.locator('.ant-descriptions-item-content .ant-tag').first()).toBeVisible()
+        // Status tag is rendered in the card header next to the setup ID
+        await expect(panel.locator('.ant-card-head-title .ant-tag')).toBeVisible()
     })
 
     test('panel should show all connection fields with values', async ({ page }) => {
@@ -124,10 +123,10 @@ test.describe('Overview - Setup Details Panel', () => {
         // If the setup is active it connected successfully — all fields must be non-empty
         const descriptions = panel.locator('.ant-descriptions')
         await expect(descriptions).toBeVisible()
+        // Status tag is in the card header, not in descriptions
+        await expect(panel.locator('.ant-card-head-title .ant-tag')).toBeVisible()
         await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Setup ID' })).toBeVisible()
         await expect(panel.locator('.ant-descriptions-item-content').first()).toContainText(SETUP_ID)
-        await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Status' })).toBeVisible()
-        await expect(panel.locator('.ant-descriptions-item-content .ant-tag').first()).toBeVisible()
         await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Host' })).toBeVisible()
         await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Host' }).locator('..').locator('.ant-descriptions-item-content')).not.toBeEmpty()
         await expect(panel.locator('.ant-descriptions-item-label').filter({ hasText: 'Port' })).toBeVisible()

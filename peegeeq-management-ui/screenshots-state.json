@@ -1,6 +1,7 @@
 {
-  "queueName": "orders_queue_1780498892553",
-  "eventStoreName": "orders_store_1780498892553",
-  "correlationId": "corr-1780498892553",
-  "aggregateId": "order-agg-1780498892553"
+  "queueName": "orders_queue_1780553252935",
+  "eventStoreName": "orders_store_1780553252935",
+  "correlationId": "corr-1780553252935",
+  "aggregateId": "order-agg-1780553252935",
+  "consumerGroupName": "order-processors-1780553252935"
 }
