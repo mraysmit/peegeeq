@@ -46,18 +46,20 @@ test.describe('PeeGeeQ UI Screenshots', () => {
   test.use({ viewport: { width: 1440, height: 900 } })
   test.setTimeout(180000)
 
-  let queueName      = ''
-  let eventStoreName = ''
-  let correlationId  = ''
-  let aggregateId    = ''
+  let queueName         = ''
+  let eventStoreName    = ''
+  let correlationId     = ''
+  let aggregateId       = ''
+  let consumerGroupName = ''
 
   /** Reload shared state from file — allows individual tests to be re-run. */
   test.beforeEach(async () => {
     const s = loadState()
-    if (s.queueName)      queueName      = s.queueName
-    if (s.eventStoreName) eventStoreName = s.eventStoreName
-    if (s.correlationId)  correlationId  = s.correlationId
-    if (s.aggregateId)    aggregateId    = s.aggregateId
+    if (s.queueName)         queueName         = s.queueName
+    if (s.eventStoreName)    eventStoreName    = s.eventStoreName
+    if (s.correlationId)     correlationId     = s.correlationId
+    if (s.aggregateId)       aggregateId       = s.aggregateId
+    if (s.consumerGroupName) consumerGroupName = s.consumerGroupName
   })
 
   /** Full-page screenshot after sidebar confirms app is rendered. */
@@ -154,7 +156,17 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await       postEvent('OrderCancelled')
     await       postEvent('CustomerRegistered')
 
-    saveState({ queueName, eventStoreName, correlationId, aggregateId })
+    // ── Create consumer group via API ────────────────────────────────────
+    consumerGroupName = `order-processors-${ts}`
+    const cgResponse = await page.request.post('/api/v1/management/consumer-groups', {
+      data: { name: consumerGroupName, setup: SETUP_ID, queueName },
+      headers: { 'content-type': 'application/json' }
+    })
+    if (!cgResponse.ok()) {
+      console.warn(`Consumer group creation returned ${cgResponse.status()}:`, await cgResponse.text())
+    }
+
+    saveState({ queueName, eventStoreName, correlationId, aggregateId, consumerGroupName })
   })
 
   // ── 1. Overview ───────────────────────────────────────────────────────────
@@ -478,10 +490,55 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await shot(page, '09-consumer-groups.png')
   })
 
+  test('09b consumer groups - setup and queue selected', async ({ page }) => {
+    await page.goto('/consumer-groups')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(800)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await page.waitForTimeout(1200)
+    await shot(page, '09b-consumer-groups-queue-selected.png')
+  })
+
+  test('09c consumer groups - create group modal filled', async ({ page }) => {
+    await page.goto('/consumer-groups')
+    await expect(page.getByTestId('create-group-btn')).toBeVisible({ timeout: 10000 })
+    await page.getByTestId('create-group-btn').click()
+    await expect(page.locator('.ant-modal')).toBeVisible()
+    // Fill the form with realistic data so the screenshot shows a non-empty modal
+    await page.getByLabel('Group Name').fill('order-processors')
+    await selectAntOption(page.locator('.ant-modal .ant-select').filter({ has: page.locator('[id="setupId"], [id^="rc_select"]') }).first(), SETUP_ID)
+    await page.getByLabel('Queue Name').fill(queueName)
+    await page.getByLabel('Max Members').fill('5')
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '09c-consumer-groups-create-modal.png') })
+    await page.keyboard.press('Escape')
+  })
+
   test('10 message browser', async ({ page }) => {
     await page.goto('/messages')
     await page.waitForTimeout(1200)
     await shot(page, '10-message-browser.png')
+  })
+
+  test('10b message browser - queue selected with messages', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await page.waitForTimeout(1500)
+    await shot(page, '10b-message-browser-queue-selected.png')
+  })
+
+  test('10c message browser - filters drawer open', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await page.getByRole('button', { name: /filters/i }).click()
+    await expect(page.locator('.ant-drawer-open')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '10c-message-browser-filters-drawer.png') })
+    await page.keyboard.press('Escape')
   })
 
   // ── 7. Event Visualization ────────────────────────────────────────────────

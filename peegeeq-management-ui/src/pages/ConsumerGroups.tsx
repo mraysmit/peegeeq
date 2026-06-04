@@ -181,22 +181,20 @@ const ConsumerGroups: React.FC = () => {
     }
 
     const handleCreateModalOk = () => {
-        form.validateFields().then(values => {
-            const newGroup: ConsumerGroup = {
-                key: Date.now().toString(),
-                groupId: `group-${Date.now()}`,
-                ...values,
-                memberCount: 0,
-                status: 'inactive' as const,
-                createdAt: new Date().toISOString(),
-                totalPartitions: 8, // Default
-                assignedPartitions: 0,
-                messagesPerSecond: 0,
-                totalProcessed: 0,
-                members: []
+        form.validateFields().then(async values => {
+            try {
+                await axios.post(getVersionedApiUrl('management/consumer-groups'), {
+                    name: values.groupName,
+                    setup: values.setupId,
+                    queueName: values.queueName,
+                })
+                setIsCreateModalVisible(false)
+                form.resetFields()
+                fetchConsumerGroups()
+            } catch (error) {
+                console.error('Failed to create consumer group:', error)
+                message.error('Failed to create consumer group. Please check if the backend service is running.')
             }
-            setConsumerGroups(prev => [...prev, newGroup])
-            setIsCreateModalVisible(false)
         })
     }
 
