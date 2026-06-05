@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
-import SetupScopeBar from '../components/common/SetupScopeBar'
 import { useManagementStore } from '../stores/managementStore'
 import {
     Card,
@@ -335,7 +334,6 @@ const EventsPage = () => {
     return (
         <div>
             <Title level={1}>Events</Title>
-            <SetupScopeBar />
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
 
                 {/* Post Event */}

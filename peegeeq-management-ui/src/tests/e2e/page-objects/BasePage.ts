@@ -68,7 +68,7 @@ export class BasePage {
    * Click modal button (OK, Cancel, etc.)
    */
   async clickModalButton(buttonText: string) {
-    await this.page.locator(`.ant-modal-footer button:has-text("${buttonText}")`).click()
+    await this.page.locator('.ant-modal-footer button', { hasText: buttonText }).click()
   }
 
   /**

@@ -21,14 +21,14 @@ export class DatabaseSetupsPage extends BasePage {
    * Get setups table
    */
   getSetupsTable(): Locator {
-    return this.page.locator('.ant-table').first()
+    return this.page.getByTestId('database-setups-table')
   }
 
   /**
-   * Get create setup button
+   * Get create setup button (card header only — avoids ambiguity with modal submit)
    */
   getCreateButton(): Locator {
-    return this.page.getByRole('button', { name: /create setup/i })
+    return this.page.getByTestId('database-setups-create-btn')
   }
 
   /**
@@ -73,6 +73,20 @@ export class DatabaseSetupsPage extends BasePage {
     
     // Wait for modal to close
     await this.page.locator('.ant-modal').waitFor({ state: 'hidden', timeout: 5000 })
+  }
+
+  /**
+   * Get the action menu trigger button for a specific setup row
+   */
+  getActionButton(setupId: string): Locator {
+    return this.page.getByTestId(`setup-action-btn-${setupId}`)
+  }
+
+  /**
+   * Get the empty-state alert shown when no setups exist
+   */
+  getEmptyStateAlert(): Locator {
+    return this.page.getByTestId('no-setups-alert')
   }
 
   /**

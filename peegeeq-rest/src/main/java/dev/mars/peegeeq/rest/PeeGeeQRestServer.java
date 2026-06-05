@@ -431,6 +431,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/management/consumer-groups").handler(managementHandler::getConsumerGroups);
         router.post("/api/v1/management/consumer-groups").handler(managementHandler::createConsumerGroup);
         router.delete("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName").handler(managementHandler::deleteConsumerGroup);
+        router.post("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause").handler(managementHandler::pauseConsumerGroup);
+        router.post("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume").handler(managementHandler::resumeConsumerGroup);
+        router.post("/api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill").handler(managementHandler::backfillConsumerGroup);
         router.get("/api/v1/management/event-stores").handler(managementHandler::getEventStores);
         router.post("/api/v1/management/event-stores").handler(managementHandler::createEventStore);
         router.delete("/api/v1/management/event-stores/:storeId").handler(managementHandler::deleteEventStore);

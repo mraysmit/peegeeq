@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
+import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.support.ControllableSetupService;
@@ -17,6 +19,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -251,6 +254,161 @@ class ManagementApiHandlerErrorTest {
                 .send()
                 .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(404, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    // =========================================================================
+    // C9  pauseConsumerGroup where setup is not ACTIVE returns 404
+    //
+    // Per-test server: getSetupResult returns FAILED status.
+    // Handler detects non-ACTIVE via ResponseException(404).
+    // Route: POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause
+    // =========================================================================
+
+    @Test
+    void pauseConsumerGroup_setupNotActive_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C9: pauseConsumerGroup setup not ACTIVE → 404, ResponseException) ---");
+        DatabaseSetupResult failedResult = new DatabaseSetupResult(
+                "test-setup", Map.of(), Map.of(), DatabaseSetupStatus.FAILED);
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.succeededFuture(failedResult));
+        RestServerConfig config = new RestServerConfig(
+                AUX_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
+
+        vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
+                .compose(auxId ->
+                        webClient.post(AUX_PORT, "localhost",
+                                        "/api/v1/management/consumer-groups/test-setup/test-queue/test-group/pause")
+                                .send()
+                                .eventually(() -> vertx.undeploy(auxId)))
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(404, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    // =========================================================================
+    // C10  pauseConsumerGroup where subscription service is null returns 503
+    //
+    // defaults() service: getSubscriptionServiceForSetup returns null.
+    // Handler detects null via ResponseException(503).
+    // Route: POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause
+    // Uses class-level TEST_PORT server (defaults()).
+    // =========================================================================
+
+    @Test
+    void pauseConsumerGroup_subscriptionServiceUnavailable_returns503(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C10: pauseConsumerGroup subscription service null → 503, ResponseException) ---");
+        webClient.post(TEST_PORT, "localhost",
+                        "/api/v1/management/consumer-groups/setup1/test-queue/test-group/pause")
+                .send()
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(503, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    // =========================================================================
+    // C11  resumeConsumerGroup where setup is not ACTIVE returns 404
+    //
+    // Per-test server: getSetupResult returns FAILED status.
+    // Route: POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume
+    // =========================================================================
+
+    @Test
+    void resumeConsumerGroup_setupNotActive_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C11: resumeConsumerGroup setup not ACTIVE → 404, ResponseException) ---");
+        DatabaseSetupResult failedResult = new DatabaseSetupResult(
+                "test-setup", Map.of(), Map.of(), DatabaseSetupStatus.FAILED);
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.succeededFuture(failedResult));
+        RestServerConfig config = new RestServerConfig(
+                AUX_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
+
+        vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
+                .compose(auxId ->
+                        webClient.post(AUX_PORT, "localhost",
+                                        "/api/v1/management/consumer-groups/test-setup/test-queue/test-group/resume")
+                                .send()
+                                .eventually(() -> vertx.undeploy(auxId)))
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(404, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    // =========================================================================
+    // C12  resumeConsumerGroup where subscription service is null returns 503
+    //
+    // defaults() service: getSubscriptionServiceForSetup returns null.
+    // Route: POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume
+    // Uses class-level TEST_PORT server (defaults()).
+    // =========================================================================
+
+    @Test
+    void resumeConsumerGroup_subscriptionServiceUnavailable_returns503(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C12: resumeConsumerGroup subscription service null → 503, ResponseException) ---");
+        webClient.post(TEST_PORT, "localhost",
+                        "/api/v1/management/consumer-groups/setup1/test-queue/test-group/resume")
+                .send()
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(503, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    // =========================================================================
+    // C13  backfillConsumerGroup where setup is not ACTIVE returns 404
+    //
+    // Per-test server: getSetupResult returns FAILED status.
+    // Route: POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill
+    // =========================================================================
+
+    @Test
+    void backfillConsumerGroup_setupNotActive_returns404(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C13: backfillConsumerGroup setup not ACTIVE → 404, ResponseException) ---");
+        DatabaseSetupResult failedResult = new DatabaseSetupResult(
+                "test-setup", Map.of(), Map.of(), DatabaseSetupStatus.FAILED);
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withGetSetupResult(id -> Future.succeededFuture(failedResult));
+        RestServerConfig config = new RestServerConfig(
+                AUX_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
+
+        vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
+                .compose(auxId ->
+                        webClient.post(AUX_PORT, "localhost",
+                                        "/api/v1/management/consumer-groups/test-setup/test-queue/test-group/backfill")
+                                .send()
+                                .eventually(() -> vertx.undeploy(auxId)))
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(404, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
+
+    // =========================================================================
+    // C14  backfillConsumerGroup where subscription service is null returns 503
+    //
+    // defaults() service: getSubscriptionServiceForSetup returns null.
+    // Route: POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill
+    // Uses class-level TEST_PORT server (defaults()).
+    // =========================================================================
+
+    @Test
+    void backfillConsumerGroup_subscriptionServiceUnavailable_returns503(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (C14: backfillConsumerGroup subscription service null → 503, ResponseException) ---");
+        webClient.post(TEST_PORT, "localhost",
+                        "/api/v1/management/consumer-groups/setup1/test-queue/test-group/backfill")
+                .send()
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(503, response.statusCode());
                     assertNotNull(response.bodyAsJsonObject().getString("error"));
                     testContext.completeNow();
                 })));

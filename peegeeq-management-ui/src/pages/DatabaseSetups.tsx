@@ -250,7 +250,7 @@ const DatabaseSetups = () => {
             key: 'actions',
             render: (record: DatabaseSetup) => (
                 <Dropdown menu={getActionMenu(record)} trigger={['click']}>
-                    <Button type="text" icon={<MoreOutlined />} />
+                    <Button type="text" icon={<MoreOutlined />} data-testid={`setup-action-btn-${record.setupId}`} />
                 </Dropdown>
             ),
         },
@@ -263,7 +263,7 @@ const DatabaseSetups = () => {
                 <Card
                     title="Database Setups"
                     extra={
-                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSetup}>
+                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSetup} data-testid="database-setups-create-btn">
                             Create Setup
                         </Button>
                     }
@@ -275,6 +275,7 @@ const DatabaseSetups = () => {
                             type="info"
                             showIcon
                             style={{ marginBottom: 16 }}
+                            data-testid="no-setups-alert"
                         />
                     )}
 
@@ -287,6 +288,7 @@ const DatabaseSetups = () => {
                             showSizeChanger: true,
                             showTotal: (total) => `${total} setups`,
                         }}
+                        data-testid="database-setups-table"
                     />
                 </Card>
 

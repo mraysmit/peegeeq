@@ -53,15 +53,15 @@ const SetupScopeBar = ({ mode = 'setup', extra }: SetupScopeBarProps) => {
             try {
                 const response = await axios.get(getVersionedApiUrl(`setups/${selectedSetupId}`))
                 const factories = response.data?.queueFactories
-                if (factories && typeof factories === 'object') {
-                    const names = Object.keys(factories)
-                    setQueueNames(names)
-                    // Auto-select when exactly one queue exists and nothing is already selected
-                    if (names.length === 1 && !selectedQueueName) {
-                        setSelectedQueue(names[0])
-                    }
-                } else {
-                    setQueueNames([])
+                // The API returns queueFactories as a JSON array of queue name strings.
+                // Object.keys(array) returns numeric indices, not the values — handle both formats.
+                const names: string[] = Array.isArray(factories)
+                    ? factories
+                    : (factories && typeof factories === 'object' ? Object.keys(factories) : [])
+                setQueueNames(names)
+                // Auto-select when exactly one queue exists and nothing is already selected
+                if (names.length === 1 && !selectedQueueName) {
+                    setSelectedQueue(names[0])
                 }
             } catch {
                 setQueueNames([])

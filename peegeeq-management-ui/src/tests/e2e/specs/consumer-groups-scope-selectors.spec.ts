@@ -130,7 +130,6 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
 
         // The setup field should be pre-filled with the active selection
         const modalSetupSelect = page.locator('.ant-modal').getByTestId('create-group-setup-select')
-            .locator('xpath=ancestor::*[contains(@class,"ant-select")][1]')
         await expect(modalSetupSelect.locator('.ant-select-selection-item')).toContainText(SETUP_ID)
 
         // Dismiss modal without creating
@@ -148,7 +147,7 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
         await expect(modal).toBeVisible()
         await expect(modal.locator('.ant-modal-title')).toContainText('Create Consumer Group')
 
-        await page.keyboard.press('Escape')
+        await modal.locator('.ant-btn:not(.ant-btn-primary)').click()
         await expect(modal).not.toBeVisible({ timeout: 5000 })
     })
 
@@ -192,7 +191,6 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
 
         // Select setup
         const modalSetupAncestor = page.locator('.ant-modal').getByTestId('create-group-setup-select')
-            .locator('xpath=ancestor::*[contains(@class,"ant-select")][1]')
         await selectAntOption(modalSetupAncestor, SETUP_ID)
 
         // Submit
@@ -203,5 +201,243 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
         // Either way, the POST must have been fired
         await page.waitForTimeout(1500)
         expect(postRequests.length, 'POST /management/consumer-groups was not called').toBeGreaterThanOrEqual(1)
+    })
+
+    // -------------------------------------------------------------------------
+    // Action menu tests — use page.route() to inject a controlled group list
+    // so status-conditional menu items are predictable without needing real DB state.
+    // -------------------------------------------------------------------------
+
+    const MOCK_ACTIVE_GROUP = {
+        name: 'mock-active-group',
+        setup: SETUP_ID,
+        queueName: 'mock-queue',
+        members: 1,
+        implementationType: 'NATIVE_QUEUE',
+        status: 'active',
+        createdAt: new Date().toISOString(),
+        subscribedAt: new Date().toISOString(),
+        lastActiveAt: new Date().toISOString(),
+        lastHeartbeatAt: null,
+        backfillStatus: 'NONE',
+        lag: 0,
+    }
+
+    const MOCK_PAUSED_GROUP = {
+        ...MOCK_ACTIVE_GROUP,
+        name: 'mock-paused-group',
+        status: 'paused',
+    }
+
+    const MOCK_BACKFILLING_GROUP = {
+        ...MOCK_ACTIVE_GROUP,
+        name: 'mock-backfilling-group',
+        status: 'active',
+        backfillStatus: 'IN_PROGRESS',
+    }
+
+    async function mockGroupList(page: any, groups: any[]) {
+        await page.route('**/management/consumer-groups', route => {
+            if (route.request().method() === 'GET') {
+                return route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify({ consumerGroups: groups }),
+                })
+            }
+            return route.continue()
+        })
+    }
+
+    test('action menu for active group shows Pause and Start Backfill, not Resume', async ({ page }) => {
+        await mockGroupList(page, [MOCK_ACTIVE_GROUP])
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        // Open action menu for the first row
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await expect(actionBtn).toBeVisible()
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await expect(dropdown).toBeVisible()
+
+        await expect(dropdown.getByText('Pause Group')).toBeVisible()
+        await expect(dropdown.getByText('Start Backfill')).toBeVisible()
+        await expect(dropdown.getByText('Resume Group')).not.toBeVisible()
+
+        // Close dropdown
+        await page.keyboard.press('Escape')
+    })
+
+    test('action menu for paused group shows Resume and Start Backfill, not Pause', async ({ page }) => {
+        await mockGroupList(page, [MOCK_PAUSED_GROUP])
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await expect(actionBtn).toBeVisible()
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await expect(dropdown).toBeVisible()
+
+        await expect(dropdown.getByText('Resume Group')).toBeVisible()
+        await expect(dropdown.getByText('Start Backfill')).toBeVisible()
+        await expect(dropdown.getByText('Pause Group')).not.toBeVisible()
+
+        await page.keyboard.press('Escape')
+    })
+
+    test('action menu for group with backfill IN_PROGRESS hides Start Backfill', async ({ page }) => {
+        await mockGroupList(page, [MOCK_BACKFILLING_GROUP])
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await expect(actionBtn).toBeVisible()
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await expect(dropdown).toBeVisible()
+
+        await expect(dropdown.getByText('Start Backfill')).not.toBeVisible()
+
+        await page.keyboard.press('Escape')
+    })
+
+    test('clicking Pause Group calls POST .../pause endpoint', async ({ page }) => {
+        await mockGroupList(page, [MOCK_ACTIVE_GROUP])
+
+        const pauseRequests: string[] = []
+        await page.route('**/consumer-groups/**', route => {
+            if (route.request().method() === 'POST' && route.request().url().includes('/pause')) {
+                pauseRequests.push(route.request().url())
+                return route.fulfill({ status: 200, contentType: 'application/json',
+                    body: JSON.stringify({ message: 'paused', status: 'paused', setupId: SETUP_ID,
+                        queueName: 'mock-queue', groupName: 'mock-active-group', timestamp: Date.now() }) })
+            }
+            return route.continue()
+        })
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await dropdown.getByText('Pause Group').click()
+
+        await page.waitForTimeout(500)
+        expect(pauseRequests.length, 'POST .../pause was not called').toBeGreaterThanOrEqual(1)
+        expect(pauseRequests[0]).toContain('/pause')
+    })
+
+    test('clicking Resume Group calls POST .../resume endpoint', async ({ page }) => {
+        await mockGroupList(page, [MOCK_PAUSED_GROUP])
+
+        const resumeRequests: string[] = []
+        await page.route('**/consumer-groups/**', route => {
+            if (route.request().method() === 'POST' && route.request().url().includes('/resume')) {
+                resumeRequests.push(route.request().url())
+                return route.fulfill({ status: 200, contentType: 'application/json',
+                    body: JSON.stringify({ message: 'resumed', status: 'active', setupId: SETUP_ID,
+                        queueName: 'mock-queue', groupName: 'mock-paused-group', timestamp: Date.now() }) })
+            }
+            return route.continue()
+        })
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await dropdown.getByText('Resume Group').click()
+
+        await page.waitForTimeout(500)
+        expect(resumeRequests.length, 'POST .../resume was not called').toBeGreaterThanOrEqual(1)
+        expect(resumeRequests[0]).toContain('/resume')
+    })
+
+    test('clicking Start Backfill calls POST .../backfill endpoint', async ({ page }) => {
+        await mockGroupList(page, [MOCK_ACTIVE_GROUP])
+
+        const backfillRequests: string[] = []
+        await page.route('**/consumer-groups/**', route => {
+            if (route.request().method() === 'POST' && route.request().url().includes('/backfill')) {
+                backfillRequests.push(route.request().url())
+                return route.fulfill({ status: 200, contentType: 'application/json',
+                    body: JSON.stringify({ status: 'IN_PROGRESS', processedMessages: 0, totalMessages: 100 }) })
+            }
+            return route.continue()
+        })
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await dropdown.getByText('Start Backfill').click()
+
+        await page.waitForTimeout(500)
+        expect(backfillRequests.length, 'POST .../backfill was not called').toBeGreaterThanOrEqual(1)
+        expect(backfillRequests[0]).toContain('/backfill')
+    })
+
+    test('clicking Delete Group calls DELETE endpoint after confirmation', async ({ page }) => {
+        await mockGroupList(page, [MOCK_ACTIVE_GROUP])
+
+        const deleteRequests: string[] = []
+        await page.route('**/consumer-groups/**', route => {
+            if (route.request().method() === 'DELETE') {
+                deleteRequests.push(route.request().url())
+                return route.fulfill({ status: 200, contentType: 'application/json',
+                    body: JSON.stringify({ message: 'deleted' }) })
+            }
+            return route.continue()
+        })
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await dropdown.getByText('Delete Group').click()
+
+        // Ant Design confirm dialog — click OK
+        const confirmBtn = page.locator('.ant-modal-confirm .ant-btn-dangerous')
+        await expect(confirmBtn).toBeVisible({ timeout: 3000 })
+        await confirmBtn.click()
+
+        await page.waitForTimeout(500)
+        expect(deleteRequests.length, 'DELETE request was not called').toBeGreaterThanOrEqual(1)
+        expect(deleteRequests[0]).toContain(`${SETUP_ID}/mock-queue/mock-active-group`)
+    })
+
+    test('clicking View Details opens the details modal', async ({ page }) => {
+        await mockGroupList(page, [MOCK_ACTIVE_GROUP])
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const actionBtn = page.locator('.ant-table-row').first().getByRole('button')
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await dropdown.getByText('View Details').click()
+
+        const modal = page.locator('.ant-modal')
+        await expect(modal).toBeVisible()
+        await expect(modal.locator('.ant-modal-title')).toContainText('Consumer Group Details')
+        await expect(modal.getByText('mock-active-group')).toBeVisible()
+
+        await modal.locator('.ant-btn').filter({ hasText: 'Close' }).click()
+        await expect(modal).not.toBeVisible({ timeout: 3000 })
     })
 })
