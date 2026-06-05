@@ -663,6 +663,258 @@ public class ManagementApiIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    @Test
+    @Order(14)
+    @DisplayName("Management API - POST /management/consumer-groups creates a subscription")
+    void testCreateConsumerGroupEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 14: POST /management/consumer-groups creates a subscription ===");
+
+        String groupName = "mgmt_test_group_" + System.currentTimeMillis();
+
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Create consumer group response: {} - {}", response.statusCode(), response.bodyAsString());
+
+                    assertEquals(201, response.statusCode(), "POST should return 201 Created");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(groupName, body.getString("groupName"), "groupName should match");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+                    assertNotNull(body.getString("message"), "Response should contain message field");
+
+                    logger.info("Consumer group created: group={}, queue={}, setup={}",
+                        body.getString("groupName"), body.getString("queueName"), body.getString("setupId"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(15)
+    @DisplayName("Management API - DELETE /management/consumer-groups/:setupId/:queueName/:groupName cancels subscription")
+    void testDeleteConsumerGroupEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 15: DELETE /management/consumer-groups cancels a subscription ===");
+
+        // Create a group to delete, then delete it
+        String groupName = "mgmt_delete_group_" + System.currentTimeMillis();
+
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        // Step 1: create
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(201, createResponse.statusCode(),
+                        "Pre-condition: group creation should return 201, got: "
+                            + createResponse.statusCode() + " " + createResponse.bodyAsString());
+                });
+                logger.info("Consumer group created for deletion test: {}", groupName);
+
+                // Step 2: delete
+                String deletePath = String.format("/api/v1/management/consumer-groups/%s/%s/%s",
+                    setupId, QUEUE_NAME, groupName);
+                return webClient.delete(TEST_PORT, "localhost", deletePath).send();
+            })
+            .onSuccess(deleteResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Delete consumer group response: {} - {}", deleteResponse.statusCode(), deleteResponse.bodyAsString());
+
+                    assertEquals(200, deleteResponse.statusCode(), "DELETE should return 200 OK");
+
+                    JsonObject body = deleteResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(groupName, body.getString("groupName"), "groupName should match");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+                    assertNotNull(body.getString("message"), "Response should contain message field");
+
+                    logger.info("Consumer group cancelled: group={}, queue={}, setup={}",
+                        body.getString("groupName"), body.getString("queueName"), body.getString("setupId"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(16)
+    @DisplayName("Management API - POST /management/consumer-groups/:setupId/:queueName/:groupName/pause pauses subscription")
+    void testPauseConsumerGroupEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 16: POST /management/consumer-groups pause ===");
+
+        String groupName = "mgmt_pause_group_" + System.currentTimeMillis();
+
+        // Step 1: create a group
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                testContext.verify(() ->
+                    assertEquals(201, createResponse.statusCode(),
+                        "Pre-condition: group creation should return 201, got: "
+                            + createResponse.statusCode() + " " + createResponse.bodyAsString()));
+
+                logger.info("Consumer group created for pause test: {}", groupName);
+
+                // Step 2: pause it
+                String pausePath = String.format("/api/v1/management/consumer-groups/%s/%s/%s/pause",
+                    setupId, QUEUE_NAME, groupName);
+                return webClient.post(TEST_PORT, "localhost", pausePath).send();
+            })
+            .onSuccess(pauseResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Pause consumer group response: {} - {}", pauseResponse.statusCode(), pauseResponse.bodyAsString());
+
+                    assertEquals(200, pauseResponse.statusCode(), "POST pause should return 200 OK");
+
+                    JsonObject body = pauseResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(groupName, body.getString("groupName"), "groupName should match");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+                    assertEquals("paused", body.getString("status"), "status should be paused");
+                    assertNotNull(body.getString("message"), "Response should contain message field");
+
+                    logger.info("Consumer group paused: group={}, status={}", groupName, body.getString("status"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(17)
+    @DisplayName("Management API - POST /management/consumer-groups/:setupId/:queueName/:groupName/resume resumes subscription")
+    void testResumeConsumerGroupEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 17: POST /management/consumer-groups resume ===");
+
+        String groupName = "mgmt_resume_group_" + System.currentTimeMillis();
+
+        // Step 1: create a group
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                testContext.verify(() ->
+                    assertEquals(201, createResponse.statusCode(),
+                        "Pre-condition: group creation should return 201"));
+
+                // Step 2: pause it
+                String pausePath = String.format("/api/v1/management/consumer-groups/%s/%s/%s/pause",
+                    setupId, QUEUE_NAME, groupName);
+                return webClient.post(TEST_PORT, "localhost", pausePath).send();
+            })
+            .compose(pauseResponse -> {
+                testContext.verify(() ->
+                    assertEquals(200, pauseResponse.statusCode(),
+                        "Pre-condition: pause should return 200"));
+
+                logger.info("Consumer group paused for resume test: {}", groupName);
+
+                // Step 3: resume it
+                String resumePath = String.format("/api/v1/management/consumer-groups/%s/%s/%s/resume",
+                    setupId, QUEUE_NAME, groupName);
+                return webClient.post(TEST_PORT, "localhost", resumePath).send();
+            })
+            .onSuccess(resumeResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Resume consumer group response: {} - {}", resumeResponse.statusCode(), resumeResponse.bodyAsString());
+
+                    assertEquals(200, resumeResponse.statusCode(), "POST resume should return 200 OK");
+
+                    JsonObject body = resumeResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(groupName, body.getString("groupName"), "groupName should match");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+                    assertEquals("active", body.getString("status"), "status should be active");
+                    assertNotNull(body.getString("message"), "Response should contain message field");
+
+                    logger.info("Consumer group resumed: group={}, status={}", groupName, body.getString("status"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    // ========================================
+    // CRITICAL GAP TESTS - E2E with Real Database
+    // ========================================
+
+    @Test
+    @Order(18)
+    @DisplayName("Management API - POST /management/consumer-groups/:setupId/:queueName/:groupName/backfill starts backfill")
+    void testBackfillConsumerGroupEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 18: POST /management/consumer-groups backfill ===");
+
+        String groupName = "mgmt_backfill_group_" + System.currentTimeMillis();
+
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                testContext.verify(() ->
+                    assertEquals(201, createResponse.statusCode(),
+                        "Pre-condition: group creation should return 201"));
+
+                logger.info("Consumer group created for backfill test: {}", groupName);
+
+                String backfillPath = String.format("/api/v1/management/consumer-groups/%s/%s/%s/backfill",
+                    setupId, QUEUE_NAME, groupName);
+                return webClient.post(TEST_PORT, "localhost", backfillPath).send();
+            })
+            .onSuccess(backfillResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Backfill consumer group response: {} - {}", backfillResponse.statusCode(), backfillResponse.bodyAsString());
+
+                    assertEquals(200, backfillResponse.statusCode(), "POST backfill should return 200 OK");
+
+                    JsonObject body = backfillResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+
+                    logger.info("Consumer group backfill started: group={}", groupName);
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
     // ========================================
     // CRITICAL GAP TESTS - E2E with Real Database
     // ========================================

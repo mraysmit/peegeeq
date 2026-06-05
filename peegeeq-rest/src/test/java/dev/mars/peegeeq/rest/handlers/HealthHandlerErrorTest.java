@@ -13,6 +13,9 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -40,6 +43,8 @@ class HealthHandlerErrorTest {
 
     private static final int TEST_PORT = 18113;
     private static final int AUX_PORT  = 18114;
+
+    private static final Logger logger = LoggerFactory.getLogger(HealthHandlerErrorTest.class);
 
     private String deploymentId;
     private WebClient webClient;
@@ -154,6 +159,7 @@ class HealthHandlerErrorTest {
 
     @Test
     void getOverallHealth_asyncFails_returns500(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (E1: getOverallHealth async failure → 500, RuntimeException) ---");
         ControllableHealthService failingHealth = ControllableHealthService.alwaysFailing("health check unavailable");
 
         ControllableSetupService service = ControllableSetupService.defaults()
@@ -185,6 +191,7 @@ class HealthHandlerErrorTest {
 
     @Test
     void listComponentHealth_asyncFails_returns500(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (E2: listComponentHealth async failure → 500, RuntimeException) ---");
         ControllableHealthService failingHealth = ControllableHealthService.alwaysFailing("health check unavailable");
 
         ControllableSetupService service = ControllableSetupService.defaults()
@@ -215,6 +222,7 @@ class HealthHandlerErrorTest {
 
     @Test
     void getComponentHealth_asyncFails_returns500(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (E3: getComponentHealth async failure → 500, RuntimeException) ---");
         ControllableHealthService failingHealth = ControllableHealthService.alwaysFailing("health check unavailable");
 
         ControllableSetupService service = ControllableSetupService.defaults()

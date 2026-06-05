@@ -147,6 +147,13 @@ export default defineConfig({
       use: chromeMaximized,
       // No dependencies - standalone test that creates event store and posts events
     },
+    // Step 8b: Events Filter - Creates event store, seeds 5 events, validates all filter controls
+    {
+      name: '8b-events-filter',
+      testMatch: '**/events-filter.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 9: Event Visualization - Tests Causation Tree and Aggregate Stream (standalone)
     {
       name: '9-event-visualization',

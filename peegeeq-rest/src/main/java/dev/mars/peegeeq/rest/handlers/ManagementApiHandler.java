@@ -1300,6 +1300,185 @@ public class ManagementApiHandler {
     }
 
     /**
+     * Pause a consumer group subscription.
+     * POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause
+     */
+    public void pauseConsumerGroup(RoutingContext ctx) {
+        logger.debug("Pause consumer group requested");
+
+        try {
+            String setupId = ctx.pathParam("setupId");
+            String queueName = ctx.pathParam("queueName");
+            String groupName = ctx.pathParam("groupName");
+
+            if (setupId == null || setupId.isBlank() || queueName == null || queueName.isBlank()
+                    || groupName == null || groupName.isBlank()) {
+                sendError(ctx, 400, "setupId, queueName, and groupName path parameters are required");
+                return;
+            }
+
+            logger.info("Consumer group pause requested for setup: {}, queue: {}, group: {}", setupId, queueName, groupName);
+
+            setupService.getSetupResult(setupId)
+                    .compose(setupResult -> {
+                        if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
+                        }
+                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                        if (subscriptionService == null) {
+                            return Future.failedFuture(new ResponseException(503, "Subscription service unavailable for setup: " + setupId));
+                        }
+                        return subscriptionService.pause(queueName, groupName);
+                    })
+                    .map(v -> {
+                        logger.info("Consumer group {} paused successfully for queue {} in setup {}", groupName, queueName, setupId);
+                        return new JsonObject()
+                                .put("message", "Consumer group '" + groupName + "' paused successfully for queue '" + queueName + "' in setup '" + setupId + "'")
+                                .put("setupId", setupId)
+                                .put("queueName", queueName)
+                                .put("groupName", groupName)
+                                .put("status", "paused")
+                                .put("timestamp", System.currentTimeMillis());
+                    })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
+                    .onFailure(throwable -> {
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.error("Error pausing consumer group {} for queue {} in setup {}: {}", groupName, queueName, setupId,
+                                    throwable.getMessage());
+                            int code = throwable.getMessage() != null && throwable.getMessage().contains("invalid") ? 409 : 503;
+                            sendError(ctx, code, "Failed to pause consumer group: " + throwable.getMessage());
+                        }
+                    });
+
+        } catch (Exception e) {
+            logger.error("Error parsing pause consumer group request", e);
+            sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Resume a paused consumer group subscription.
+     * POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume
+     */
+    public void resumeConsumerGroup(RoutingContext ctx) {
+        logger.debug("Resume consumer group requested");
+
+        try {
+            String setupId = ctx.pathParam("setupId");
+            String queueName = ctx.pathParam("queueName");
+            String groupName = ctx.pathParam("groupName");
+
+            if (setupId == null || setupId.isBlank() || queueName == null || queueName.isBlank()
+                    || groupName == null || groupName.isBlank()) {
+                sendError(ctx, 400, "setupId, queueName, and groupName path parameters are required");
+                return;
+            }
+
+            logger.info("Consumer group resume requested for setup: {}, queue: {}, group: {}", setupId, queueName, groupName);
+
+            setupService.getSetupResult(setupId)
+                    .compose(setupResult -> {
+                        if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
+                        }
+                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                        if (subscriptionService == null) {
+                            return Future.failedFuture(new ResponseException(503, "Subscription service unavailable for setup: " + setupId));
+                        }
+                        return subscriptionService.resume(queueName, groupName);
+                    })
+                    .map(v -> {
+                        logger.info("Consumer group {} resumed successfully for queue {} in setup {}", groupName, queueName, setupId);
+                        return new JsonObject()
+                                .put("message", "Consumer group '" + groupName + "' resumed successfully for queue '" + queueName + "' in setup '" + setupId + "'")
+                                .put("setupId", setupId)
+                                .put("queueName", queueName)
+                                .put("groupName", groupName)
+                                .put("status", "active")
+                                .put("timestamp", System.currentTimeMillis());
+                    })
+                    .onSuccess(response -> ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode()))
+                    .onFailure(throwable -> {
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.error("Error resuming consumer group {} for queue {} in setup {}: {}", groupName, queueName, setupId,
+                                    throwable.getMessage());
+                            int code = throwable.getMessage() != null && throwable.getMessage().contains("invalid") ? 409 : 503;
+                            sendError(ctx, code, "Failed to resume consumer group: " + throwable.getMessage());
+                        }
+                    });
+
+        } catch (Exception e) {
+            logger.error("Error parsing resume consumer group request", e);
+            sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Start or resume a backfill operation for a consumer group subscription.
+     * POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill
+     */
+    public void backfillConsumerGroup(RoutingContext ctx) {
+        logger.debug("Backfill consumer group requested");
+
+        try {
+            String setupId = ctx.pathParam("setupId");
+            String queueName = ctx.pathParam("queueName");
+            String groupName = ctx.pathParam("groupName");
+
+            if (setupId == null || setupId.isBlank() || queueName == null || queueName.isBlank()
+                    || groupName == null || groupName.isBlank()) {
+                sendError(ctx, 400, "setupId, queueName, and groupName path parameters are required");
+                return;
+            }
+
+            logger.info("Consumer group backfill requested for setup: {}, queue: {}, group: {}", setupId, queueName, groupName);
+
+            setupService.getSetupResult(setupId)
+                    .compose(setupResult -> {
+                        if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                            return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
+                        }
+                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                        if (subscriptionService == null) {
+                            return Future.failedFuture(new ResponseException(503, "Subscription service unavailable for setup: " + setupId));
+                        }
+                        return subscriptionService.startBackfill(queueName, groupName);
+                    })
+                    .onSuccess(result -> {
+                        logger.info("Consumer group {} backfill started for queue {} in setup {}", groupName, queueName, setupId);
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(result.encode());
+                    })
+                    .onFailure(throwable -> {
+                        if (throwable instanceof ResponseException re) {
+                            sendError(ctx, re.statusCode, re.getMessage());
+                        } else {
+                            logger.error("Error starting backfill for consumer group {} queue {} in setup {}: {}", groupName, queueName, setupId,
+                                    throwable.getMessage());
+                            int code = throwable.getMessage() != null && throwable.getMessage().contains("invalid") ? 409 : 503;
+                            sendError(ctx, code, "Failed to start backfill: " + throwable.getMessage());
+                        }
+                    });
+
+        } catch (Exception e) {
+            logger.error("Error parsing backfill consumer group request", e);
+            sendError(ctx, 400, "Invalid request format: " + e.getMessage());
+        }
+    }
+
+    /**
      * Create a new event store.
      * POST /api/v1/management/event-stores
      */
