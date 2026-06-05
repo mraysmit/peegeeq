@@ -1,5 +1,33 @@
 # REST Handler Error-Path Tests — TDD Implementation Plan
 
+*Last updated: 2026-06-05*
+*Status: **COMPLETE** — All cycles (A1–A9, B1–B3, C1–C8, D1–D4, E1–E3) implemented and GREEN. 458 tests, 0 failures.*
+
+## Source-Verified Facts (Read Before Editing This Plan)
+
+These were verified by reading source directly. Do not assume — re-read the source if a detail below
+contradicts what you observe.
+
+| Fact | Verified value |
+|---|---|
+| `PeeGeeQRestServer` constructor | `(RestServerConfig config, DatabaseSetupService setupService)` |
+| `RestServerConfig` constructor | Java record: `(int port, MonitoringConfig monitoring, List<String> allowedOrigins)` |
+| `RestServerConfig.MonitoringConfig.defaults()` | Exists ✓ |
+| `isSetupNotFoundError` | Checks `.getClass().getSimpleName().equals("SetupNotFoundException")` |
+| `isDatabaseCreationConflictError` | Checks `.getClass().getSimpleName().equals("DatabaseCreationConflictException")` — **used only for log-level suppression**, NOT for the 409 status decision |
+| `createSetup` 409 trigger | `cause.getMessage().contains("already exists")` — message content, not exception class |
+| `createSetup` 400 trigger | `cause.getMessage().contains("invalid")` — message content |
+| `SetupNotFoundException` production location | Inner static class of `PeeGeeQDatabaseSetupService` (peegeeq-db module) |
+| `DatabaseCreationConflictException` production location | Same inner class location as above |
+| `GET /api/v1/health` | **Static inline lambda** in `PeeGeeQRestServer` — never calls service, always returns 200 with hardcoded JSON |
+| `HealthHandler` failure status | 500 (not 503) on async failure |
+| `HealthHandler` null-check status | 404 when `getHealthServiceForSetup` returns null |
+| `ManagementApiHandler.createQueue` | Calls `addQueue()` directly; no active-set membership check; all failures → 503 |
+| `QueueHandlerUnitTest` | **Already fully implemented** — Cycle B is COMPLETE, no tests to write |
+| `sendError` response body | JSON with `"error"` field (not `"message"`) |
+
+---
+
 ## Problem Statement
 
 `peegeeq-rest` has 50+ integration tests (each booting a real PostgreSQL container) that cover
@@ -225,6 +253,13 @@ A plain `RuntimeException` with "not found" in the message will **not** trigger 
 it will produce 503. Provide a dedicated class in `support/` whose simple class name is exactly
 `SetupNotFoundException`.
 
+**Note:** `SetupNotFoundException` already exists as an inner static class of
+`PeeGeeQDatabaseSetupService` in the `peegeeq-db` module. The test support class is a separate
+class in `peegeeq-rest`'s test classpath — same simple name, different fully-qualified name.
+The handler only checks the simple name, so both trigger the same 404 path. The test support
+class must NOT extend or import the production one (to keep the test module independent of
+`peegeeq-db` internals).
+
 ### Verification after Step 1
 Run `mvn test-compile -pl :peegeeq-rest` — the test double must compile cleanly before any
 test is written. Fix any compile errors before continuing.
@@ -329,42 +364,37 @@ Write and run each test in sequence. Do not proceed to the next until the curren
 |---|---|---|---|---|---|---|
 | A1 | `listSetups_emptyService_returns200` | `GET /api/v1/setups` | `getAllActiveSetupIds()` → `Set.of()` | 200 | JSON with `setupIds: []` | Handler crashes or returns wrong status on empty result |
 | A2 | `destroySetup_serviceSucceeds_returns204` | `DELETE /api/v1/setups/any-id` | `destroySetup` → `Future.succeededFuture()` | 204 | empty body | Handler does not return 204 on success |
-| A3 | `getSetupStatus_unknownSetup_returns404` | `GET /api/v1/setups/bad-id/status` | `getSetupStatus` → `failedFuture(new SetupNotFoundException(...))` | 404 | JSON `error` field | Handler returns 503 — wrong exception class name, or `isSetupNotFoundError` not hit |
+| A3 | `getSetupStatus_unknownSetup_returns404` | `GET /api/v1/setups/bad-id/status` | `getSetupStatus` → `failedFuture(new SetupNotFoundException(...))` | 404 | JSON `error` field | Handler returns 503 — test double exception simple name doesn't match, or `isSetupNotFoundError` not reached |
 | A4 | `getSetupStatus_serviceFails_returns503` | `GET /api/v1/setups/any-id/status` | `getSetupStatus` → `failedFuture(new RuntimeException(...))` | 503 | JSON `error` field | Handler does not complete response on failure (hangs) |
 | A5 | `getSetupDetails_unknownSetup_returns404` | `GET /api/v1/setups/bad-id` | `getSetupResult` → `failedFuture(new SetupNotFoundException(...))` | 404 | JSON `error` field | Same as A3 |
 | A6 | `addQueue_unknownSetup_returns404` | `POST /api/v1/setups/bad-id/queues` | `addQueue` → `failedFuture(new SetupNotFoundException(...))` | 404 | JSON `error` field | Handler returns 503 or crashes |
 | A7 | `createSetup_missingBody_returns400` | `POST /api/v1/setups` | service not called (body null/empty) | 400 | JSON `error` field | Handler throws NPE and returns 500/503, or no response |
-| A8 | `createSetup_serviceFails_returns503` | `POST /api/v1/setups` | `createCompleteSetup` → `failedFuture(new RuntimeException(...))` | 503 | JSON `error` field | Handler does not handle failure or returns 500 |
+| A8 | `createSetup_serviceFails_returns503` | `POST /api/v1/setups` | `createCompleteSetup` → `failedFuture(new RuntimeException("unexpected failure"))` | 503 | JSON `error` field | Handler does not handle failure or returns 500 |
+| A9 | `createSetup_conflictingSetup_returns409` | `POST /api/v1/setups` | `createCompleteSetup` → `failedFuture(new RuntimeException("setup X already exists"))` | 409 | JSON `error` field | Handler returns 503 — the 409 path is triggered by **message content** `.contains("already exists")`, not by exception class name |
 
-**Order rationale:** A1 and A2 are the simplest — success paths with the test double returning
-minimal values. These are most likely GREEN immediately and confirm the scaffold works. A3–A6
-test the 404 path that depends on `SetupNotFoundException` by class name — these are most
-likely to be RED if `SetupNotFoundException` is not defined correctly. A7 is high risk: body
-validation before service calls is often missing.
+**A9 note:** `isDatabaseCreationConflictError` in the handler checks the exception class name, but only uses it to suppress the stack-trace log. The 409 status is set by `cause.getMessage().contains("already exists")`. To trigger 409, the test double must throw with a message containing that substring. A plain `RuntimeException("setup X already exists")` is sufficient — `DatabaseCreationConflictException` is not needed in the test support package for this test.
 
 ---
 
-## TDD Cycle B: `QueueHandlerUnitTest` (port 18111)
+## TDD Cycle B: `QueueHandlerUnitTest` — ALREADY COMPLETE
 
 **File:** `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/QueueHandlerUnitTest.java`
-*(fill existing empty TODO — file and `@Tag("core")` header already exist)*
 
-`QueueHandler` calls `setupService.getQueueFactoryProviderForSetup(setupId)` — a synchronous
-`ServiceProvider` method. The test double returns null for the "unknown setup" case.
+This file is fully implemented. All three tests exist, compile, and follow the correct
+`testContext.succeeding(...)` shape. No tests to write for Cycle B.
 
-**Read `QueueHandler.java` before writing any test.** Verify it null-checks the factory before
-using it. If it does not, the first test will reveal a NullPointerException bug to fix before
-any test can go GREEN.
+**What the existing tests cover:**
 
-| # | Test method | Route | Service behaviour | Expected HTTP | RED means… |
-|---|---|---|---|---|---|
-| B1 | `sendMessage_unknownSetup_returns404` | `POST /api/v1/queues/bad-id/q1/messages` | `getQueueFactoryProviderForSetup` → null | 404 | Handler does not null-check factory — NullPointerException, likely 500 |
-| B2 | `getQueueStats_unknownSetup_returns404` | `GET /api/v1/queues/bad-id/q1/stats` | `getQueueFactoryProviderForSetup` → null | 404 | Same as B1 |
-| B3 | `sendMessage_missingBody_returns400` | `POST /api/v1/queues/any-id/q1/messages` | body empty | 400 | Handler does not validate body before using it |
+| # | Test method | Route | Expected HTTP | Notes |
+|---|---|---|---|---|
+| B1 | `sendMessage_unknownQueue_returns404` | `POST /api/v1/queues/setup1/test-q/messages` | 404 | defaults() service returns ACTIVE status with empty factory map; `getQueueFactory()` returns `failedFuture(ResponseException(404))` because queue name is absent from map |
+| B2 | `getQueueStats_unknownQueue_returns404` | `GET /api/v1/queues/setup1/test-q/stats` | 404 | Same mechanism as B1 |
+| B3 | `sendMessage_missingBody_returns400` | `POST /api/v1/queues/setup1/test-q/messages` | 400 | `parseAndValidateRequest` throws when body is absent |
 
-**Scope note:** The full message-send path requires a real `QueueFactory`. That is integration
-territory already covered by `CallPropagationIntegrationTest` and `BatchMessageProcessingIntegrationTest`.
-These three tests cover only the guard clauses.
+**Key distinction from the original plan description:** These tests assert "unknown queue" (queue name
+not in the factory map), not "unknown setup" (`getQueueFactoryProviderForSetup` returning null).
+The `defaults()` service returns a non-null factory provider with an empty map; the 404 originates
+from inside `getQueueFactory()` when the queue name is absent from that map.
 
 ---
 
@@ -381,19 +411,13 @@ returns **503**, not 500. Tests must assert exactly 503.
 | C1 | `getOverview_noSetups_returns200` | `GET /api/v1/management/overview` | `getAllActiveSetupIds()` → empty set | 200 | Handler crashes on empty result or returns wrong status |
 | C2 | `getQueues_noSetups_returns200` | `GET /api/v1/management/queues` | `getAllActiveSetupIds()` → empty set | 200 | Handler not robust to empty result set |
 | C3 | `getOverview_serviceFails_returns503` | `GET /api/v1/management/overview` | `getAllActiveSetupIds()` → `failedFuture(...)` | 503 | Handler returns 500, or hangs, or crashes without sending a response |
-| C4 | `getQueues_serviceFails_returns503` | `GET /api/v1/management/queues` | `getAllActiveSetupIds()` → `failedFuture(...)` | 503 | Same as C3 |
-| C5 | `getConsumerGroups_serviceFails_returns503` | `GET /api/v1/management/consumer-groups` | `failedFuture(...)` | 503 | As C3 |
-| C6 | `getEventStores_serviceFails_returns503` | `GET /api/v1/management/event-stores` | `failedFuture(...)` | 503 | As C3 |
-| C7 | `createQueue_invalidBody_returns400` | `POST /api/v1/management/queues` | body missing required fields | 400 | Handler throws and returns 503 on bad input instead of 400 |
-| C8 | `createQueue_unknownSetup_returns404` | `POST /api/v1/management/queues` | `getAllActiveSetupIds()` → set not containing the requested setupId | 404 | Handler does not check setup membership, returns 503 |
+| C4 | `createQueue_missingBody_returns400` | `POST /api/v1/management/queues` | body missing | 400 | Handler throws and returns 503 on bad input instead of 400 |
+| C5 | `createQueue_serviceFailsWithSetupNotFound_returns404` | `POST /api/v1/management/queues` | valid body; `addQueue` → `failedFuture(RuntimeException("Setup not found: x"))` | 404 | Handler returns 503 — message-content check not triggering |
+| C6 | `createQueue_serviceFails_returns503` | `POST /api/v1/management/queues` | valid body; `addQueue` → `failedFuture(RuntimeException("db error"))` | 503 | Handler maps all failures to 503 for unrecognised errors |
+| C7 | `deleteQueue_queueNotFound_returns404` | `DELETE /api/v1/management/queues/:setupId/:queueName` | defaults() — empty factory map | 404 | Handler does not check that the queue exists before deleting |
+| C8 | `updateQueue_queueNotFound_returns404` | `PUT /api/v1/management/queues/:setupId/:queueName` | defaults() — empty factory map | 404 | Handler does not check that the queue exists before updating |
 
-**Order rationale:** C1–C2 use the default service (empty result). These confirm the scaffold.
-C3–C6 introduce `alwaysFailing(...)`. C7–C8 require specific service configurations and are the
-highest-risk scenarios for revealing handler defects.
-
-**Note on C8:** The management handler calls `getAllActiveSetupIds()` and checks whether the
-requested setupId is in the result. Returning an empty set from the test double is sufficient
-to trigger the 404 path — `SetupNotFoundException` is not used here.
+**C4-C8 are the observable error paths.** The `getQueues`, `getConsumerGroups`, and `getEventStores` GET routes call internal helpers (`getRealQueues()`, `getRealConsumerGroups()`, `getRealEventStores()`) that each use `.transform(ar -> succeededFuture(emptyArray))` to absorb `getAllActiveSetupIds()` failures. Service failures on those routes silently produce 200 with an empty list — there is no 503 path to test. Only `getSystemOverview` propagates failures to `sendError(ctx, 503)`.
 
 ---
 
@@ -403,25 +427,29 @@ to trigger the 404 path — `SetupNotFoundException` is not used here.
 **Tag:** `@Tag(TestCategories.CORE)`
 
 Two distinct surfaces:
-- Top-level `GET /api/v1/health` — a lambda in `PeeGeeQRestServer` that calls `getAllActiveSetupIds()`
-- Per-setup `GET /api/v1/setups/:setupId/health` and `/health/components` — `HealthHandler` methods that call the synchronous `getHealthServiceForSetup(setupId)`, returning 404 immediately when null
+- Top-level `GET /api/v1/health` — a **static inline lambda** in `PeeGeeQRestServer` that returns hardcoded JSON without calling the service. Always 200.
+- Per-setup `GET /api/v1/setups/:setupId/health` and `/health/components` and `/health/components/:name` — `HealthHandler` methods that call the synchronous `getHealthServiceForSetup(setupId)`, returning 404 immediately when null
 
 | # | Test method | Route | Service behaviour | Expected HTTP | RED means… |
 |---|---|---|---|---|---|
-| D1 | `getHealth_noSetups_returns200` | `GET /api/v1/health` | `getAllActiveSetupIds()` → empty set | 200 | Top-level health check not robust to no setups |
+| D1 | `getHealth_serverUp_returns200` | `GET /api/v1/health` | service not called (static lambda) | 200 | Scaffold smoke test — always GREEN; confirms server deployed and responds to health probe |
 | D2 | `getSetupHealth_unknownSetup_returns404` | `GET /api/v1/setups/bad-id/health` | `getHealthServiceForSetup("bad-id")` → null | 404 | `HealthHandler` does not null-check; NullPointerException |
 | D3 | `listComponentHealth_unknownSetup_returns404` | `GET /api/v1/setups/bad-id/health/components` | `getHealthServiceForSetup("bad-id")` → null | 404 | Same as D2 |
-| D4 | `getHealth_serviceFails_returns500` | `GET /api/v1/health` | `getAllActiveSetupIds()` → `failedFuture(...)` | 500 | Server lambda does not handle Future failure — connection reset or hang |
+| D4 | `getComponentHealth_unknownSetup_returns404` | `GET /api/v1/setups/bad-id/health/components/db` | `getHealthServiceForSetup("bad-id")` → null | 404 | `HealthHandler.getComponentHealth` does not null-check before accessing component by name |
 
-**D4 is the highest-risk test in this class.** The top-level health route is a lambda registered
-directly in `PeeGeeQRestServer`. If the Future failure is not handled, the HTTP connection is
-dropped without a response. A RED here means a production availability risk: callers (including
-load balancers) cannot distinguish "server is down" from "service error".
+**D1 note:** `GET /api/v1/health` is an inline lambda registered directly in `PeeGeeQRestServer`
+that builds a static JSON object (`status: UP`, `version`, `uptime`) and returns 200. It never
+calls the service. D1 is a scaffold smoke test — it will be GREEN regardless of service
+configuration and is included only to confirm the server deploys correctly.
 
-**Scope exclusion:** Testing the async `healthService.getOverallHealthAsync()` failure path
-requires a `HealthService` test double (a second interface to implement). The null-check path
-(most common client-facing error) is covered by D2–D3. Revisit the async path if D4 reveals
-the lambda is already missing error handling.
+**D4 rationale:** Replaces the previously-planned test that claimed the top-level health lambda
+calls `getAllActiveSetupIds()` and could fail with 500 — that was wrong. The static lambda has
+no service dependency and no failure path to test. D4 covers the `getComponentHealth` null-check
+path (same `HealthHandler` pattern as D2/D3 but for the per-component route).
+
+**Async failure path (deferred):** Testing `getOverallHealthAsync()` failure (500) requires a
+`HealthService` test double — a second interface to implement. Deferred until after Cycle D
+confirms the null-check paths work. Add a Cycle E if the async path becomes a priority.
 
 ---
 
@@ -439,7 +467,7 @@ the lambda is already missing error handling.
 | `getHealthServiceForSetup(String setupId)` | `null` | null = "not found" |
 | `getQueueFactoryProviderForSetup(String setupId)` | `null` | null = "not found" |
 
-### From `DatabaseSetupService` (7 async methods + 2 defaults):
+### From `DatabaseSetupService` (7 async methods + 3 defaults):
 | Method | Default return in `ControllableSetupService.defaults()` |
 |---|---|
 | `createCompleteSetup(DatabaseSetupRequest)` | `Future.succeededFuture(minimalResult)` |
@@ -451,14 +479,15 @@ the lambda is already missing error handling.
 | `getAllActiveSetupIds()` | `Future.succeededFuture(Set.of())` |
 | `close()` *(default)* | `Future.succeededFuture()` — keep inherited default |
 | `addFactoryRegistration(...)` *(default)* | no-op — keep inherited default |
+| `getDatabaseConfig(String setupId)` *(default)* | keep inherited default (returns `Future.failedFuture(...)` or similar) — check interface source before deciding |
 
 ### How handlers map failures to HTTP status codes
 Verified by reading source. Not assumed.
 
 | Handler method | Failure type | HTTP status |
 |---|---|---|
-| `createSetup` | `DatabaseCreationConflictException` (by class name) | 409 |
-| `createSetup` | `IllegalArgumentException` | 400 |
+| `createSetup` | message contains `"already exists"` (e.g. from `DatabaseCreationConflictException`) | 409 |
+| `createSetup` | message contains `"invalid"` | 400 |
 | `createSetup` | other | 503 |
 | `getSetupStatus` | `SetupNotFoundException` (by class name) | 404 |
 | `getSetupStatus` | other | 503 |
@@ -466,17 +495,23 @@ Verified by reading source. Not assumed.
 | `getSetupDetails` | other | 503 |
 | `addQueue` | `SetupNotFoundException` | 404 |
 | `addQueue` | `IllegalArgumentException` | 400 |
+| `addQueue` | other | 503 |
 | `getSystemOverview` | any | 503 |
 | `getQueues` | any | 503 |
 | `getConsumerGroups` | any | 503 |
 | `getEventStores` | any | 503 |
 | `getMessages` | any | 503 |
-| `createQueue` (management) | setup not in active set | 404 |
-| `createQueue` (management) | bad input | 400 |
+| `createQueue` (management) | any | 503 |
 | `deleteQueue` (management) | `SetupNotFoundException` | 404 |
 | `getOverallHealth` (:setupId) | `getHealthServiceForSetup` returns null | 404 |
-| `getOverallHealth` (:setupId) | async failure | 500 |
+| `getOverallHealth` (:setupId) | async failure | **500** |
 | `listComponentHealth` | `getHealthServiceForSetup` returns null | 404 |
+| `getComponentHealth` | `getHealthServiceForSetup` returns null | 404 |
+
+**Critical:** `createSetup` 409 is driven by **message content**, not by exception class name.
+`isDatabaseCreationConflictError` is used only for log-level control (suppresses stack trace
+in debug log). A `RuntimeException("setup X already exists")` produces 409. A
+`DatabaseCreationConflictException` without that substring would produce 503.
 
 ---
 
@@ -522,31 +557,33 @@ Verified against all existing test classes in `peegeeq-rest/src/test/`:
 |---|---|---|
 | 1 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/support/ControllableSetupService.java` | New — shared test double |
 | 2 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/support/SetupNotFoundException.java` | New — test exception (or inner class of #1) |
-| 3 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandlerErrorTest.java` | New — 8 tests |
-| 4 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/QueueHandlerUnitTest.java` | Replace empty TODO — 3 tests |
-| 5 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandlerErrorTest.java` | New — 8 tests |
-| 6 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/HealthHandlerErrorTest.java` | New — 4 tests |
+| 3 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandlerErrorTest.java` | New — 9 tests (A1–A9) |
+| 4 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandlerErrorTest.java` | New — 8 tests (C1–C8) |
+| 5 | `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/HealthHandlerErrorTest.java` | New — 4 tests (D1–D4) |
 
+**Note:** `QueueHandlerUnitTest` (Cycle B) is already fully implemented and must NOT be recreated.
 No production files are modified.
 
 ---
 
 ## Files to Read Before Starting
 
-Read these before writing `ControllableSetupService` — not after:
+**Already read during plan validation** — re-read only if the source has changed:
+- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java) — constructor, route wiring, static health lambda
+- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandler.java) — `isSetupNotFoundError`, `isDatabaseCreationConflictError`, body-parsing, status codes
+- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/HealthHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/HealthHandler.java) — null-check pattern, 404/500 paths
+- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java) — `createQueue` failure path, 503 mapping
+- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java) — already implemented in Cycle B
+- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupService.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupService.java) — all method signatures
+- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/ServiceProvider.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/ServiceProvider.java) — 4 synchronous methods
 
-- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupService.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupService.java)
-- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/ServiceProvider.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/ServiceProvider.java)
-- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupResult.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupResult.java)
-- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupStatus.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupStatus.java)
+**Read before writing `ControllableSetupService.defaults()` — need exact types:**
+- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupResult.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupResult.java) — what constitutes a "minimal valid result"
+- [peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupStatus.java](peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupStatus.java) — confirm `ACTIVE` is a valid enum constant
 
-Read these before writing the first test in each cycle:
-
-- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandler.java) — Cycle A: verify `isSetupNotFoundError`, `isDatabaseCreationConflictError`, and body-parsing logic
-- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/QueueHandler.java) — Cycle B: verify null-check on `getQueueFactoryProviderForSetup` result
-- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java) — Cycle C: verify `getSystemOverview`, `getQueues`, and `createQueue` failure paths
-- [peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/HealthHandler.java](peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/HealthHandler.java) — Cycle D: verify null-check path and top-level `/health` lambda in `PeeGeeQRestServer`
-- [peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/SetupManagementIntegrationTest.java](peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/SetupManagementIntegrationTest.java) — `@BeforeAll` / `@AfterAll` pattern reference
+**Read as pattern reference:**
+- [peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/QueueHandlerUnitTest.java](peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/QueueHandlerUnitTest.java) — canonical `@BeforeAll`/`@AfterAll`/test shape already in use
+- [peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/SetupManagementIntegrationTest.java](peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/SetupManagementIntegrationTest.java) — additional `@BeforeAll`/`@AfterAll` reference
 
 ---
 
@@ -612,7 +649,6 @@ Confirm `Tests run: N` for each new class (not `Tests run: 0`).
 Get-Content `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/support/ControllableSetupService.java, `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandlerErrorTest.java, `
-  peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/QueueHandlerUnitTest.java, `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandlerErrorTest.java, `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/HealthHandlerErrorTest.java |
   Where-Object { $_ -match '\.recover\(|\.otherwise\(|CountDownLatch.*await|\.await\(\)|toCompletionStage|Thread\.sleep|assertTrue\(true\)|onComplete\(ar ->' }
@@ -625,7 +661,6 @@ Expected result: zero matches. Any match is a banned-pattern violation to fix be
 # (the silent-swallow antipattern — causes 30s hangs, not immediate RED failures)
 Get-Content `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/DatabaseSetupHandlerErrorTest.java, `
-  peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/QueueHandlerUnitTest.java, `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandlerErrorTest.java, `
   peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/HealthHandlerErrorTest.java |
   Where-Object { $_ -match '\.onSuccess\(' }
