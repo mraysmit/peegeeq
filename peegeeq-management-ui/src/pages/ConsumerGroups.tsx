@@ -17,7 +17,6 @@ import {
     Progress,
     Tooltip,
     Dropdown,
-    Badge,
     Typography,
     Descriptions,
     message
@@ -28,14 +27,16 @@ import {
     DeleteOutlined,
     EyeOutlined,
     MoreOutlined,
-    UserOutlined,
-    PartitionOutlined,
     ClockCircleOutlined,
     CheckCircleOutlined,
     ExclamationCircleOutlined,
+    PauseCircleOutlined,
+    PlayCircleOutlined,
+    StopOutlined,
     ReloadOutlined,
     ApiOutlined,
-    HeartOutlined
+    HeartOutlined,
+    HistoryOutlined
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -47,35 +48,24 @@ import { useManagementStore } from '../stores/managementStore'
 
 const { Text, Title } = Typography
 
-interface ConsumerGroupMember {
-    memberId: string
-    memberName: string
-    joinedAt: string
-    lastHeartbeat: string
-    assignedPartitions: number[]
-    status: 'active' | 'inactive' | 'rebalancing'
-    processedMessages: number
-    errorCount: number
-}
-
 interface ConsumerGroup {
     key: string
-    groupId: string
     groupName: string
     setupId: string
     queueName: string
     memberCount: number
-    maxMembers: number
-    loadBalancingStrategy: 'ROUND_ROBIN' | 'RANGE' | 'STICKY' | 'RANDOM'
-    sessionTimeout: number
-    status: 'active' | 'inactive' | 'rebalancing' | 'error'
+    implementationType: string
+    status: 'active' | 'paused' | 'dead' | 'cancelled'
     createdAt: string
-    lastRebalance?: string
-    members: ConsumerGroupMember[]
-    totalPartitions: number
-    assignedPartitions: number
-    messagesPerSecond: number
-    totalProcessed: number
+    subscribedAt: string
+    lastActiveAt: string
+    lastHeartbeatAt: string | null
+    backfillStatus: string
+    lag: number
+    backfillProcessedMessages?: number
+    backfillTotalMessages?: number
+    backfillStartedAt?: string
+    backfillCompletedAt?: string
 }
 
 
@@ -101,26 +91,26 @@ const ConsumerGroups: React.FC = () => {
             if (response.data.consumerGroups && Array.isArray(response.data.consumerGroups)) {
                 setConsumerGroups(response.data.consumerGroups.map((group: any, index: number) => ({
                     key: index.toString(),
-                    groupId: `group-${index + 1}`,
                     groupName: group.name,
                     setupId: group.setup,
-                    queueName: group.name.replace('-processors', '').replace('-handlers', '').replace('-senders', '').replace('-workers', ''),
-                    memberCount: group.members,
-                    maxMembers: group.members + Math.floor(Math.random() * 3) + 1,
-                    loadBalancingStrategy: 'ROUND_ROBIN',
-                    sessionTimeout: 30000,
+                    queueName: group.queueName,
+                    memberCount: group.members || 0,
+                    implementationType: group.implementationType || 'NATIVE_QUEUE',
                     status: group.status,
-                    messagesPerSecond: Math.floor(Math.random() * 100) + 10,
-                    lag: group.lag || 0,
-                    partition: group.partition || 0,
-                    lastRebalance: group.lastRebalance || new Date().toISOString(),
                     createdAt: group.createdAt || new Date().toISOString(),
-                    members: [] // Will be populated with mock member data for now
+                    subscribedAt: group.subscribedAt || group.createdAt || new Date().toISOString(),
+                    lastActiveAt: group.lastActiveAt || group.createdAt || new Date().toISOString(),
+                    lastHeartbeatAt: group.lastHeartbeatAt || null,
+                    backfillStatus: group.backfillStatus || 'NONE',
+                    lag: group.lag || 0,
+                    backfillProcessedMessages: group.backfillProcessedMessages,
+                    backfillTotalMessages: group.backfillTotalMessages,
+                    backfillStartedAt: group.backfillStartedAt,
+                    backfillCompletedAt: group.backfillCompletedAt,
                 })))
             }
         } catch (error) {
             console.error('Failed to fetch consumer groups:', error)
-            // Show error message instead of mock data
             message.error('Failed to load consumer groups. Please check if the backend service is running.')
         } finally {
             setLoading(false)
@@ -129,7 +119,6 @@ const ConsumerGroups: React.FC = () => {
 
     useEffect(() => {
         fetchConsumerGroups()
-        // Refresh every 30 seconds
         const interval = setInterval(fetchConsumerGroups, 30000)
         return () => clearInterval(interval)
     }, [])
@@ -151,15 +140,25 @@ const ConsumerGroups: React.FC = () => {
         }
     }
 
+    const fetchQueuesForSetup = async (_setupId: string) => {
+        // queue suggestions removed — Input accepts free text
+    }
+
+    useEffect(() => {
+        if (isCreateModalVisible) {
+            form.resetFields()
+            if (selectedSetupId) {
+                form.setFieldValue('setupId', selectedSetupId)
+                fetchQueuesForSetup(selectedSetupId)
+            }
+            if (selectedQueueName) {
+                form.setFieldValue('queueName', selectedQueueName)
+            }
+        }
+    }, [isCreateModalVisible])
+
     const handleCreateGroup = () => {
-        form.resetFields()
         fetchSetups()
-        if (selectedSetupId) {
-            form.setFieldValue('setupId', selectedSetupId)
-        }
-        if (selectedQueueName) {
-            form.setFieldValue('queueName', selectedQueueName)
-        }
         setIsCreateModalVisible(true)
     }
 
@@ -171,11 +170,19 @@ const ConsumerGroups: React.FC = () => {
     const handleDeleteGroup = (group: ConsumerGroup) => {
         Modal.confirm({
             title: 'Delete Consumer Group',
-            content: `Are you sure you want to delete consumer group "${group.groupName}"? This will disconnect all members.`,
+            content: `Are you sure you want to delete consumer group "${group.groupName}"? This will cancel the subscription.`,
             okText: 'Delete',
             okType: 'danger',
-            onOk: () => {
-                setConsumerGroups(prev => prev.filter(g => g.key !== group.key))
+            onOk: async () => {
+                try {
+                    await axios.delete(getVersionedApiUrl(
+                        `management/consumer-groups/${group.setupId}/${group.queueName}/${group.groupName}`
+                    ))
+                    fetchConsumerGroups()
+                } catch (error) {
+                    console.error('Failed to delete consumer group:', error)
+                    message.error('Failed to delete consumer group.')
+                }
             },
         })
     }
@@ -199,32 +206,70 @@ const ConsumerGroups: React.FC = () => {
     }
 
     const getStatusColor = (status: string) => {
-        const colors = {
+        const colors: Record<string, string> = {
             active: 'green',
-            inactive: 'orange',
-            rebalancing: 'blue',
-            error: 'red'
+            paused: 'orange',
+            dead: 'red',
+            cancelled: 'default'
         }
-        return colors[status as keyof typeof colors] || 'default'
+        return colors[status] || 'default'
     }
 
     const getStatusIcon = (status: string) => {
-        const icons = {
+        const icons: Record<string, React.ReactNode> = {
             active: <CheckCircleOutlined />,
-            inactive: <ClockCircleOutlined />,
-            rebalancing: <ReloadOutlined spin />,
-            error: <ExclamationCircleOutlined />
+            paused: <PauseCircleOutlined />,
+            dead: <ExclamationCircleOutlined />,
+            cancelled: <StopOutlined />
         }
-        return icons[status as keyof typeof icons]
+        return icons[status]
     }
 
-    const getMemberStatusColor = (status: string) => {
-        const colors = {
-            active: 'green',
-            inactive: 'red',
-            rebalancing: 'blue'
+    const getBackfillColor = (status: string) => {
+        const colors: Record<string, string> = {
+            NONE: 'default',
+            IN_PROGRESS: 'blue',
+            COMPLETED: 'green',
+            FAILED: 'red'
         }
-        return colors[status as keyof typeof colors] || 'default'
+        return colors[status] || 'default'
+    }
+
+    const handlePauseGroup = async (group: ConsumerGroup) => {
+        try {
+            await axios.post(getVersionedApiUrl(
+                `management/consumer-groups/${group.setupId}/${group.queueName}/${group.groupName}/pause`
+            ))
+            fetchConsumerGroups()
+        } catch (error) {
+            console.error('Failed to pause consumer group:', error)
+            message.error('Failed to pause consumer group.')
+        }
+    }
+
+    const handleResumeGroup = async (group: ConsumerGroup) => {
+        try {
+            await axios.post(getVersionedApiUrl(
+                `management/consumer-groups/${group.setupId}/${group.queueName}/${group.groupName}/resume`
+            ))
+            fetchConsumerGroups()
+        } catch (error) {
+            console.error('Failed to resume consumer group:', error)
+            message.error('Failed to resume consumer group.')
+        }
+    }
+
+    const handleBackfillGroup = async (group: ConsumerGroup) => {
+        try {
+            await axios.post(getVersionedApiUrl(
+                `management/consumer-groups/${group.setupId}/${group.queueName}/${group.groupName}/backfill`
+            ))
+            message.success(`Backfill started for group '${group.groupName}'`)
+            fetchConsumerGroups()
+        } catch (error) {
+            console.error('Failed to start backfill:', error)
+            message.error('Failed to start backfill.')
+        }
     }
 
     const getActionMenu = (group: ConsumerGroup) => ({
@@ -235,12 +280,24 @@ const ConsumerGroups: React.FC = () => {
                 label: 'View Details',
                 onClick: () => handleViewDetails(group),
             },
-            {
-                key: 'rebalance',
-                icon: <ReloadOutlined />,
-                label: 'Trigger Rebalance',
-                onClick: () => {/* console.log('Rebalance', group.groupName) */ },
-            },
+            ...(group.status === 'active' ? [{
+                key: 'pause',
+                icon: <PauseCircleOutlined />,
+                label: 'Pause Group',
+                onClick: () => handlePauseGroup(group),
+            }] : []),
+            ...(group.status === 'paused' ? [{
+                key: 'resume',
+                icon: <PlayCircleOutlined />,
+                label: 'Resume Group',
+                onClick: () => handleResumeGroup(group),
+            }] : []),
+            ...((group.status === 'active' || group.status === 'paused') && group.backfillStatus !== 'IN_PROGRESS' ? [{
+                key: 'backfill',
+                icon: <HistoryOutlined />,
+                label: 'Start Backfill',
+                onClick: () => handleBackfillGroup(group),
+            }] : []),
             {
                 type: 'divider' as const,
             },
@@ -267,63 +324,18 @@ const ConsumerGroups: React.FC = () => {
                     </Space>
                     <Space size="small">
                         <Tag color="purple">{record.queueName}</Tag>
-                        <Tag color="cyan">{record.loadBalancingStrategy}</Tag>
+                        <Tag color={record.implementationType === 'OUTBOX' ? 'gold' : 'geekblue'}>
+                            {record.implementationType}
+                        </Tag>
                     </Space>
                 </Space>
             ),
         },
         {
             title: 'Members',
-            key: 'members',
-            render: (record: ConsumerGroup) => (
-                <Space direction="vertical" size="small">
-                    <Space>
-                        <UserOutlined />
-                        <Text>{record.memberCount}/{record.maxMembers}</Text>
-                    </Space>
-                    <Progress
-                        percent={(record.memberCount / record.maxMembers) * 100}
-                        size="small"
-                        showInfo={false}
-                        strokeColor={record.memberCount === record.maxMembers ? '#faad14' : '#52c41a'}
-                    />
-                </Space>
-            ),
-        },
-        {
-            title: 'Partitions',
-            key: 'partitions',
-            render: (record: ConsumerGroup) => (
-                <Space direction="vertical" size="small">
-                    <Space>
-                        <PartitionOutlined />
-                        <Text>{record.assignedPartitions}/{record.totalPartitions}</Text>
-                    </Space>
-                    <Progress
-                        percent={(record.assignedPartitions / record.totalPartitions) * 100}
-                        size="small"
-                        showInfo={false}
-                        strokeColor={record.assignedPartitions === record.totalPartitions ? '#52c41a' : '#faad14'}
-                    />
-                </Space>
-            ),
-        },
-        {
-            title: 'Performance',
-            key: 'performance',
-            render: (record: ConsumerGroup) => (
-                <Space direction="vertical" size="small">
-                    <div>
-                        <ApiOutlined style={{ color: '#1890ff', marginRight: 4 }} />
-                        {record.messagesPerSecond.toFixed(1)} msg/s
-                    </div>
-                    <div>
-                        <Text type="secondary" style={{ fontSize: '12px' }}>
-                            {record.totalProcessed.toLocaleString()} total
-                        </Text>
-                    </div>
-                </Space>
-            ),
+            dataIndex: 'memberCount',
+            key: 'memberCount',
+            render: (count: number) => <Text>{count}</Text>,
         },
         {
             title: 'Status',
@@ -334,10 +346,10 @@ const ConsumerGroups: React.FC = () => {
                     <Tag color={getStatusColor(status)} icon={getStatusIcon(status)}>
                         {status.toUpperCase()}
                     </Tag>
-                    {record.lastRebalance && (
-                        <Tooltip title={`Last rebalance: ${dayjs(record.lastRebalance).format('MMM DD, HH:mm')}`}>
+                    {record.lastHeartbeatAt && (
+                        <Tooltip title={`Last heartbeat: ${dayjs(record.lastHeartbeatAt).format('MMM DD, HH:mm')}`}>
                             <Text type="secondary" style={{ fontSize: '11px' }}>
-                                <ReloadOutlined /> {dayjs(record.lastRebalance).fromNow()}
+                                <HeartOutlined /> {dayjs(record.lastHeartbeatAt).fromNow()}
                             </Text>
                         </Tooltip>
                     )}
@@ -345,13 +357,37 @@ const ConsumerGroups: React.FC = () => {
             ),
         },
         {
-            title: 'Created',
-            dataIndex: 'createdAt',
-            key: 'createdAt',
+            title: 'Heartbeat',
+            dataIndex: 'lastHeartbeatAt',
+            key: 'lastHeartbeatAt',
+            render: (value: string | null) =>
+                value
+                    ? (
+                        <Tooltip title={value}>
+                            <Space>
+                                <HeartOutlined style={{ color: '#52c41a' }} />
+                                <Text>{dayjs(value).fromNow()}</Text>
+                            </Space>
+                        </Tooltip>
+                    )
+                    : <Text type="secondary">Never</Text>,
+        },
+        {
+            title: 'Subscribed',
+            dataIndex: 'subscribedAt',
+            key: 'subscribedAt',
             render: (text: string) => (
                 <Tooltip title={text}>
                     <Text>{dayjs(text).format('MMM DD, YYYY')}</Text>
                 </Tooltip>
+            ),
+        },
+        {
+            title: 'Backfill',
+            dataIndex: 'backfillStatus',
+            key: 'backfillStatus',
+            render: (status: string) => (
+                <Tag color={getBackfillColor(status)}>{status}</Tag>
             ),
         },
         {
@@ -371,10 +407,8 @@ const ConsumerGroups: React.FC = () => {
         .filter(g => !selectedQueueName || g.queueName === selectedQueueName)
     const totalGroups = filteredGroups.length
     const activeGroups = filteredGroups.filter(g => g.status === 'active').length
-    const totalMembers = filteredGroups.reduce((sum, g) => sum + g.memberCount, 0)
-    const avgMessagesPerSecond = totalGroups > 0
-        ? filteredGroups.reduce((sum, g) => sum + g.messagesPerSecond, 0) / totalGroups
-        : 0
+    const deadGroups = filteredGroups.filter(g => g.status === 'dead').length
+    const backfillActive = filteredGroups.filter(g => g.backfillStatus === 'IN_PROGRESS').length
 
     return (
         <div className="fade-in">
@@ -406,19 +440,18 @@ const ConsumerGroups: React.FC = () => {
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
-                                title="Total Members"
-                                value={totalMembers}
-                                prefix={<UserOutlined style={{ color: '#722ed1' }} />}
+                                title="Dead Groups"
+                                value={deadGroups}
+                                prefix={<ExclamationCircleOutlined style={{ color: '#ff4d4f' }} />}
                             />
                         </Card>
                     </Col>
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
-                                title="Avg Throughput"
-                                value={avgMessagesPerSecond.toFixed(1)}
-                                suffix="msg/s"
-                                prefix={<ApiOutlined style={{ color: '#fa8c16' }} />}
+                                title="Backfill Active"
+                                value={backfillActive}
+                                prefix={<ReloadOutlined style={{ color: '#1890ff' }} />}
                             />
                         </Card>
                     </Col>
@@ -432,10 +465,7 @@ const ConsumerGroups: React.FC = () => {
                             <Button
                                 icon={<ReloadOutlined />}
                                 loading={loading}
-                                onClick={() => {
-                                    setLoading(true)
-                                    setTimeout(() => setLoading(false), 1000)
-                                }}
+                                onClick={fetchConsumerGroups}
                             >
                                 Refresh
                             </Button>
@@ -470,7 +500,16 @@ const ConsumerGroups: React.FC = () => {
                     onCancel={() => setIsCreateModalVisible(false)}
                     width={600}
                 >
-                    <Form form={form} layout="vertical">
+                    <Form
+                        form={form}
+                        layout="vertical"
+                        onValuesChange={(changed) => {
+                            if (changed.setupId) {
+                                form.setFieldValue('queueName', undefined)
+                                fetchQueuesForSetup(changed.setupId)
+                            }
+                        }}
+                    >
                         <Row gutter={16}>
                             <Col span={12}>
                                 <Form.Item
@@ -491,11 +530,8 @@ const ConsumerGroups: React.FC = () => {
                                         placeholder="Select setup"
                                         loading={setupsLoading}
                                         data-testid="create-group-setup-select"
-                                    >
-                                        {setups.map(s => (
-                                            <Select.Option key={s.setupId} value={s.setupId}>{s.setupId}</Select.Option>
-                                        ))}
-                                    </Select>
+                                        options={setups.map(s => ({ value: s.setupId, label: s.setupId }))}
+                                    />
                                 </Form.Item>
                             </Col>
                         </Row>
@@ -506,42 +542,10 @@ const ConsumerGroups: React.FC = () => {
                                     label="Queue Name"
                                     rules={[{ required: true, message: 'Please enter queue name' }]}
                                 >
-                                    <Input placeholder="e.g., orders" />
-                                </Form.Item>
-                            </Col>
-                            <Col span={12}>
-                                <Form.Item
-                                    name="maxMembers"
-                                    label="Max Members"
-                                    initialValue={5}
-                                    rules={[{ required: true, message: 'Please enter max members' }]}
-                                >
-                                    <Input type="number" min={1} max={50} />
-                                </Form.Item>
-                            </Col>
-                        </Row>
-                        <Row gutter={16}>
-                            <Col span={12}>
-                                <Form.Item
-                                    name="loadBalancingStrategy"
-                                    label="Load Balancing Strategy"
-                                    initialValue="ROUND_ROBIN"
-                                >
-                                    <Select>
-                                        <Select.Option value="ROUND_ROBIN">Round Robin</Select.Option>
-                                        <Select.Option value="RANGE">Range</Select.Option>
-                                        <Select.Option value="STICKY">Sticky</Select.Option>
-                                        <Select.Option value="RANDOM">Random</Select.Option>
-                                    </Select>
-                                </Form.Item>
-                            </Col>
-                            <Col span={12}>
-                                <Form.Item
-                                    name="sessionTimeout"
-                                    label="Session Timeout (ms)"
-                                    initialValue={30000}
-                                >
-                                    <Input type="number" min={5000} max={300000} />
+                                    <Input
+                                        placeholder="Type queue name"
+                                        data-testid="create-group-queue-input"
+                                    />
                                 </Form.Item>
                             </Col>
                         </Row>
@@ -578,8 +582,10 @@ const ConsumerGroups: React.FC = () => {
                                     <Descriptions.Item label="Group Name">
                                         <Text strong>{selectedGroup.groupName}</Text>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label="Group ID">
-                                        <Text code>{selectedGroup.groupId}</Text>
+                                    <Descriptions.Item label="Status">
+                                        <Tag color={getStatusColor(selectedGroup.status)} icon={getStatusIcon(selectedGroup.status)}>
+                                            {selectedGroup.status.toUpperCase()}
+                                        </Tag>
                                     </Descriptions.Item>
                                     <Descriptions.Item label="Setup">
                                         <Tag color="blue">{selectedGroup.setupId}</Tag>
@@ -587,187 +593,114 @@ const ConsumerGroups: React.FC = () => {
                                     <Descriptions.Item label="Queue">
                                         <Tag color="purple">{selectedGroup.queueName}</Tag>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label="Load Balancing">
-                                        <Tag color="cyan">{selectedGroup.loadBalancingStrategy}</Tag>
+                                    <Descriptions.Item label="Implementation Type">
+                                        <Tag color={selectedGroup.implementationType === 'OUTBOX' ? 'gold' : 'geekblue'}>
+                                            {selectedGroup.implementationType}
+                                        </Tag>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label="Session Timeout">
-                                        <Text>{selectedGroup.sessionTimeout}ms</Text>
+                                    <Descriptions.Item label="Backfill Status">
+                                        <Tag color={getBackfillColor(selectedGroup.backfillStatus)}>
+                                            {selectedGroup.backfillStatus}
+                                        </Tag>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label="Created">
-                                        <Text>{dayjs(selectedGroup.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Text>
+                                    <Descriptions.Item label="Subscribed At">
+                                        <Text>{dayjs(selectedGroup.subscribedAt).format('YYYY-MM-DD HH:mm:ss')}</Text>
                                     </Descriptions.Item>
-                                    <Descriptions.Item label="Last Rebalance">
+                                    <Descriptions.Item label="Last Heartbeat">
                                         <Text>
-                                            {selectedGroup.lastRebalance
-                                                ? dayjs(selectedGroup.lastRebalance).format('YYYY-MM-DD HH:mm:ss')
+                                            {selectedGroup.lastHeartbeatAt
+                                                ? dayjs(selectedGroup.lastHeartbeatAt).format('YYYY-MM-DD HH:mm:ss')
                                                 : 'Never'
                                             }
                                         </Text>
                                     </Descriptions.Item>
+                                    <Descriptions.Item label="Created">
+                                        <Text>{dayjs(selectedGroup.createdAt).format('YYYY-MM-DD HH:mm:ss')}</Text>
+                                    </Descriptions.Item>
                                 </Descriptions>
                             </Card>
 
-                            {/* Performance Metrics */}
+                            {/* Subscription Details */}
                             <Row gutter={[16, 16]}>
                                 <Col span={6}>
                                     <Card size="small">
                                         <Statistic
-                                            title="Members"
-                                            value={selectedGroup.memberCount}
-                                            suffix={`/ ${selectedGroup.maxMembers}`}
-                                            prefix={<UserOutlined />}
+                                            title="Subscribed At"
+                                            value={dayjs(selectedGroup.subscribedAt).format('MMM DD')}
+                                            prefix={<ClockCircleOutlined />}
                                         />
                                     </Card>
                                 </Col>
                                 <Col span={6}>
                                     <Card size="small">
                                         <Statistic
-                                            title="Partitions"
-                                            value={selectedGroup.assignedPartitions}
-                                            suffix={`/ ${selectedGroup.totalPartitions}`}
-                                            prefix={<PartitionOutlined />}
+                                            title="Last Active"
+                                            value={dayjs(selectedGroup.lastActiveAt).fromNow()}
+                                            prefix={<ReloadOutlined />}
                                         />
                                     </Card>
                                 </Col>
                                 <Col span={6}>
                                     <Card size="small">
                                         <Statistic
-                                            title="Throughput"
-                                            value={selectedGroup.messagesPerSecond.toFixed(1)}
-                                            suffix="msg/s"
+                                            title="Last Heartbeat"
+                                            value={selectedGroup.lastHeartbeatAt ? dayjs(selectedGroup.lastHeartbeatAt).fromNow() : 'Never'}
+                                            prefix={<HeartOutlined style={{ color: selectedGroup.lastHeartbeatAt ? '#52c41a' : '#ff4d4f' }} />}
+                                        />
+                                    </Card>
+                                </Col>
+                                <Col span={6}>
+                                    <Card size="small">
+                                        <Statistic
+                                            title="Consumer Lag"
+                                            value={selectedGroup.lag}
                                             prefix={<ApiOutlined />}
-                                        />
-                                    </Card>
-                                </Col>
-                                <Col span={6}>
-                                    <Card size="small">
-                                        <Statistic
-                                            title="Total Processed"
-                                            value={selectedGroup.totalProcessed}
-                                            prefix={<CheckCircleOutlined />}
                                         />
                                     </Card>
                                 </Col>
                             </Row>
 
-                            {/* Members Table */}
-                            <Card size="small" title={`Members (${selectedGroup.members.length})`}>
-                                <Table
-                                    columns={[
-                                        {
-                                            title: 'Member Name',
-                                            dataIndex: 'memberName',
-                                            key: 'memberName',
-                                            render: (text: string, record: ConsumerGroupMember) => (
-                                                <Space direction="vertical" size="small">
-                                                    <Text strong>{text}</Text>
-                                                    <Text code style={{ fontSize: '11px' }}>{record.memberId}</Text>
-                                                </Space>
-                                            )
-                                        },
-                                        {
-                                            title: 'Status',
-                                            dataIndex: 'status',
-                                            key: 'status',
-                                            render: (status: string) => (
-                                                <Tag color={getMemberStatusColor(status)}>
-                                                    {status.toUpperCase()}
-                                                </Tag>
-                                            )
-                                        },
-                                        {
-                                            title: 'Assigned Partitions',
-                                            dataIndex: 'assignedPartitions',
-                                            key: 'assignedPartitions',
-                                            render: (partitions: number[]) => (
-                                                <Space wrap>
-                                                    {partitions.map(p => (
-                                                        <Tag key={p} color="geekblue">{p}</Tag>
-                                                    ))}
-                                                </Space>
-                                            )
-                                        },
-                                        {
-                                            title: 'Processed',
-                                            dataIndex: 'processedMessages',
-                                            key: 'processedMessages',
-                                            render: (value: number) => value.toLocaleString()
-                                        },
-                                        {
-                                            title: 'Errors',
-                                            dataIndex: 'errorCount',
-                                            key: 'errorCount',
-                                            render: (value: number) => (
-                                                <Badge count={value} style={{ backgroundColor: value > 0 ? '#ff4d4f' : '#52c41a' }} />
-                                            )
-                                        },
-                                        {
-                                            title: 'Last Heartbeat',
-                                            dataIndex: 'lastHeartbeat',
-                                            key: 'lastHeartbeat',
-                                            render: (timestamp: string) => (
-                                                <Tooltip title={timestamp}>
-                                                    <Space>
-                                                        <HeartOutlined style={{ color: '#52c41a' }} />
-                                                        <Text>{dayjs(timestamp).fromNow()}</Text>
-                                                    </Space>
-                                                </Tooltip>
-                                            )
-                                        },
-                                        {
-                                            title: 'Joined',
-                                            dataIndex: 'joinedAt',
-                                            key: 'joinedAt',
-                                            render: (timestamp: string) => (
-                                                <Tooltip title={timestamp}>
-                                                    <Text>{dayjs(timestamp).format('MMM DD, HH:mm')}</Text>
-                                                </Tooltip>
-                                            )
-                                        }
-                                    ]}
-                                    dataSource={selectedGroup.members}
-                                    pagination={false}
-                                    size="small"
-                                />
-                            </Card>
-
-                            {/* Partition Assignment Visualization */}
-                            <Card size="small" title="Partition Assignment">
-                                <Row gutter={[8, 8]}>
-                                    {Array.from({ length: selectedGroup.totalPartitions }, (_, i) => {
-                                        const assignedMember = selectedGroup.members.find(m =>
-                                            m.assignedPartitions.includes(i)
-                                        )
-                                        return (
-                                            <Col key={i}>
-                                                <Tooltip
-                                                    title={assignedMember
-                                                        ? `Partition ${i} assigned to ${assignedMember.memberName}`
-                                                        : `Partition ${i} unassigned`
-                                                    }
-                                                >
-                                                    <div
-                                                        style={{
-                                                            width: 40,
-                                                            height: 40,
-                                                            border: '1px solid #d9d9d9',
-                                                            borderRadius: 4,
-                                                            display: 'flex',
-                                                            alignItems: 'center',
-                                                            justifyContent: 'center',
-                                                            backgroundColor: assignedMember ? '#e6f7ff' : '#f5f5f5',
-                                                            color: assignedMember ? '#1890ff' : '#8c8c8c',
-                                                            fontSize: '12px',
-                                                            fontWeight: 'bold'
-                                                        }}
-                                                    >
-                                                        {i}
-                                                    </div>
-                                                </Tooltip>
-                                            </Col>
-                                        )
-                                    })}
-                                </Row>
+                            {/* Backfill Details */}
+                            <Card size="small" title="Backfill Details">
+                                <Descriptions column={2} size="small">
+                                    <Descriptions.Item label="Backfill Status">
+                                        <Tag color={getBackfillColor(selectedGroup.backfillStatus)}>
+                                            {selectedGroup.backfillStatus}
+                                        </Tag>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Processed Messages">
+                                        <Text>{selectedGroup.backfillProcessedMessages ?? 'N/A'}</Text>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Total Messages">
+                                        <Text>{selectedGroup.backfillTotalMessages ?? 'N/A'}</Text>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Started At">
+                                        <Text>
+                                            {selectedGroup.backfillStartedAt
+                                                ? dayjs(selectedGroup.backfillStartedAt).format('YYYY-MM-DD HH:mm:ss')
+                                                : 'N/A'
+                                            }
+                                        </Text>
+                                    </Descriptions.Item>
+                                    <Descriptions.Item label="Completed At">
+                                        <Text>
+                                            {selectedGroup.backfillCompletedAt
+                                                ? dayjs(selectedGroup.backfillCompletedAt).format('YYYY-MM-DD HH:mm:ss')
+                                                : 'N/A'
+                                            }
+                                        </Text>
+                                    </Descriptions.Item>
+                                </Descriptions>
+                                {selectedGroup.backfillStatus === 'IN_PROGRESS' &&
+                                    selectedGroup.backfillTotalMessages != null &&
+                                    selectedGroup.backfillTotalMessages > 0 && (
+                                        <Progress
+                                            percent={Math.round(
+                                                ((selectedGroup.backfillProcessedMessages ?? 0) / selectedGroup.backfillTotalMessages) * 100
+                                            )}
+                                            style={{ marginTop: 12 }}
+                                        />
+                                    )}
                             </Card>
                         </Space>
                     )}

@@ -62,11 +62,20 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     if (s.consumerGroupName) consumerGroupName = s.consumerGroupName
   })
 
-  /** Full-page screenshot after sidebar confirms app is rendered. */
+  /** Full-page screenshot after sidebar confirms app is rendered.
+   *
+   * The app layout uses height:100vh with an internal scroll container, so
+   * fullPage:true has no effect.  Instead we temporarily expand the viewport
+   * to 2400 px tall (enough for any page), take the shot, then restore the
+   * original size so subsequent interactions are unaffected.
+   */
   async function shot(page: Page, filename: string): Promise<void> {
     await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
-    await page.waitForTimeout(1000)
+    const vp = page.viewportSize() ?? { width: 1440, height: 900 }
+    await page.setViewportSize({ width: vp.width, height: 2400 })
+    await page.waitForTimeout(500)
     await page.screenshot({ path: path.join(DIR, filename) })
+    await page.setViewportSize(vp)
   }
 
   // ── 0. Create all live data ───────────────────────────────────────────────
@@ -476,6 +485,76 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.keyboard.press('Escape')
   })
 
+  test('07h events - filter by event type partial match', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    // Type partial name so the filter and results table are both captured
+    await page.getByPlaceholder('Event Type').fill('Order')
+    await page.waitForTimeout(600)
+    await shot(page, '07h-events-filter-by-type.png')
+    await page.getByPlaceholder('Event Type').clear()
+  })
+
+  test('07i events - filter by correlation ID', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    await page.getByPlaceholder('Correlation/Causation ID').fill(correlationId)
+    await page.waitForTimeout(600)
+    await shot(page, '07i-events-filter-by-correlation.png')
+    await page.getByPlaceholder('Correlation/Causation ID').clear()
+  })
+
+  test('07j events - combined type and correlation filter', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    await page.getByPlaceholder('Event Type').fill('OrderCreated')
+    await page.getByPlaceholder('Correlation/Causation ID').fill(correlationId)
+    await page.waitForTimeout(600)
+    await shot(page, '07j-events-filter-combined.png')
+    await page.getByPlaceholder('Event Type').clear()
+    await page.getByPlaceholder('Correlation/Causation ID').clear()
+  })
+
+  test('07k events - filter footer showing filtered count', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    await page.getByPlaceholder('Event Type').fill('OrderShipped')
+    await page.waitForTimeout(600)
+    await shot(page, '07k-events-filter-footer.png')
+    await page.getByPlaceholder('Event Type').clear()
+  })
+
+  test('07l events - filter with no results (empty state)', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    // Type a value that matches nothing
+    await page.getByPlaceholder('Event Type').fill('NonExistentEventType_xyz')
+    await expect(page.locator('.ant-table-placeholder')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await shot(page, '07l-events-filter-empty-state.png')
+    await page.getByPlaceholder('Event Type').clear()
+  })
+
   // ── 6. Consumer Groups / Messages / Settings ──────────────────────────────
 
   test('08 settings', async ({ page }) => {
@@ -509,7 +588,6 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.getByLabel('Group Name').fill('order-processors')
     await selectAntOption(page.locator('.ant-modal .ant-select').filter({ has: page.locator('[id="setupId"], [id^="rc_select"]') }).first(), SETUP_ID)
     await page.getByLabel('Queue Name').fill(queueName)
-    await page.getByLabel('Max Members').fill('5')
     await page.waitForTimeout(400)
     await page.screenshot({ path: path.join(DIR, '09c-consumer-groups-create-modal.png') })
     await page.keyboard.press('Escape')
