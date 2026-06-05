@@ -256,4 +256,45 @@ class DatabaseSetupHandlerErrorTest {
                     testContext.completeNow();
                 })));
     }
+
+    // =========================================================================
+    // A9  createSetup where service fails with "already exists" message returns 409
+    //
+    // Per-test server: the 409 path is triggered by cause.getMessage().contains("already exists").
+    // isDatabaseCreationConflictError is used only for log suppression — it does NOT set the
+    // status code. A plain RuntimeException with the right message is sufficient.
+    // RED means: handler returns 503  the message-content check is not reached or not matching.
+    // =========================================================================
+
+    @Test
+    void createSetup_conflictingSetup_returns409(Vertx vertx, VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A9: createSetup conflict → 409, 'already exists' message) ---");
+        ControllableSetupService svc = ControllableSetupService.defaults()
+                .withCreateCompleteSetup(req -> Future.failedFuture(
+                        new RuntimeException("Setup '" + req.getSetupId() + "' already exists")));
+        RestServerConfig config = new RestServerConfig(
+                AUX_PORT, RestServerConfig.MonitoringConfig.defaults(), List.of("*"));
+
+        io.vertx.core.json.JsonObject body = io.vertx.core.json.JsonObject.of(
+                "setupId", "duplicate-setup",
+                "databaseConfig", io.vertx.core.json.JsonObject.of(
+                        "host", "localhost",
+                        "port", 5432,
+                        "databaseName", "testdb",
+                        "username", "postgres",
+                        "password", "postgres",
+                        "schema", "public"));
+
+        vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
+                .compose(auxId ->
+                        webClient.post(AUX_PORT, "localhost", "/api/v1/setups")
+                                .putHeader("Content-Type", "application/json")
+                                .sendJsonObject(body)
+                                .eventually(() -> vertx.undeploy(auxId)))
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(409, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
 }
