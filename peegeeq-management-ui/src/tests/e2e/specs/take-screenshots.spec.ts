@@ -72,7 +72,7 @@ test.describe('PeeGeeQ UI Screenshots', () => {
   async function shot(page: Page, filename: string): Promise<void> {
     await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
     const vp = page.viewportSize() ?? { width: 1440, height: 900 }
-    await page.setViewportSize({ width: vp.width, height: 2400 })
+    await page.setViewportSize({ width: vp.width, height: 1200 })
     await page.waitForTimeout(500)
     await page.screenshot({ path: path.join(DIR, filename) })
     await page.setViewportSize(vp)
