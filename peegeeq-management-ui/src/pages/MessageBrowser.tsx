@@ -385,7 +385,7 @@ const MessageBrowser = () => {
                 )}
 
                 {/* Quick Filters */}
-                <Card size="small">
+                <Card size="small" data-testid="quick-filters-card">
                     <Row gutter={[16, 8]}>
                         <Col xs={24} sm={12} md={8}>
                             <Select

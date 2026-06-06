@@ -117,6 +117,19 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.locator('.ant-modal .ant-btn-primary').click()
     await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 15000 })
 
+    // ── Publish messages to queue (needed for Message Browser screenshots) ─
+    const publishPayloads = [
+      { orderId: 'ORD-001', amount: 49.99,  customer: 'Alice Johnson', status: 'new',        items: 1 },
+      { orderId: 'ORD-002', amount: 129.00, customer: 'Bob Smith',     status: 'processing', items: 3 },
+      { orderId: 'ORD-003', amount: 79.50,  customer: 'Carol White',   status: 'confirmed',  items: 2 },
+      { orderId: 'ORD-004', amount: 249.99, customer: 'Dan Brown',     status: 'shipped',    items: 5 },
+      { orderId: 'ORD-005', amount: 19.99,  customer: 'Eve Davis',     status: 'cancelled',  items: 1 },
+    ]
+    for (const payload of publishPayloads) {
+      const r = await page.request.post(`/api/v1/queues/${SETUP_ID}/${queueName}/publish`, { data: { payload } })
+      if (!r.ok()) console.warn(`Publish ${payload.orderId} failed: ${r.status()}`)
+    }
+
     // ── Create event store ────────────────────────────────────────────────
     await page.goto('/event-stores')
     await page.getByRole('button', { name: /create event store/i }).click()
@@ -304,6 +317,61 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await expect(page.locator('.ant-modal-confirm')).toBeVisible({ timeout: 5000 })
     await page.waitForTimeout(400)
     await page.screenshot({ path: path.join(DIR, '04h-queue-delete-confirm-dialog.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('04j queue details - get messages modal', async ({ page }) => {
+    await page.goto(`/queues/${SETUP_ID}/${queueName}`)
+    await expect(page.getByTestId('queue-details-tabs')).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('queue-details-tabs').getByRole('tab', { name: /messages/i }).click()
+    await page.waitForTimeout(400)
+    await page.getByRole('button', { name: /get messages/i }).click()
+    await expect(page.locator('.ant-modal')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '04j-queue-details-get-messages-modal.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('04k queue details - actions menu open', async ({ page }) => {
+    await page.goto(`/queues/${SETUP_ID}/${queueName}`)
+    await expect(page.getByTestId('queue-details-tabs')).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('queue-actions-btn').click()
+    const dropdown = page.locator('.ant-dropdown')
+      .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
+      .last()
+    await expect(dropdown).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '04k-queue-details-actions-menu.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('04l queue details - pause confirm dialog', async ({ page }) => {
+    await page.goto(`/queues/${SETUP_ID}/${queueName}`)
+    await expect(page.getByTestId('queue-details-tabs')).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('queue-actions-btn').click()
+    const dropdown = page.locator('.ant-dropdown')
+      .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
+      .last()
+    await expect(dropdown).toBeVisible({ timeout: 5000 })
+    await dropdown.getByText('Pause Queue').click()
+    await expect(page.locator('.ant-modal-confirm')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '04l-queue-details-pause-confirm.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('04m queue details - purge messages confirm dialog', async ({ page }) => {
+    await page.goto(`/queues/${SETUP_ID}/${queueName}`)
+    await expect(page.getByTestId('queue-details-tabs')).toBeVisible({ timeout: 15000 })
+    await page.getByTestId('queue-actions-btn').click()
+    const dropdown = page.locator('.ant-dropdown')
+      .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
+      .last()
+    await expect(dropdown).toBeVisible({ timeout: 5000 })
+    await dropdown.getByText('Purge Messages').click()
+    await expect(page.locator('.ant-modal-confirm')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '04m-queue-details-purge-confirm.png') })
     await page.keyboard.press('Escape')
   })
 
@@ -555,12 +623,113 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.getByPlaceholder('Event Type').clear()
   })
 
+  test('07m events - aggregate type filter active', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    // Type a value — the seeded events have no aggregateType so 0 results are shown,
+    // which clearly illustrates the filter input and empty-state together.
+    await page.getByPlaceholder('Aggregate Type').fill('OrderAggregate')
+    await expect(page.locator('.ant-table-placeholder')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await shot(page, '07m-events-aggregate-type-filter.png')
+    await page.getByPlaceholder('Aggregate Type').clear()
+  })
+
+  test('07n events - date range filter active', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.getByTestId('query-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('query-eventstore-select'), eventStoreName)
+    await page.getByRole('button', { name: 'Load Events' }).click()
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 20000 })
+    // Set a past date range (2025) so all 2026 events are excluded — shows picker + empty state.
+    const rangeStart = page.locator('.ant-picker-range').locator('input').first()
+    await rangeStart.click()
+    await rangeStart.fill('2025-01-01 00:00:00')
+    await page.keyboard.press('Tab')
+    const rangeEnd = page.locator('.ant-picker-range').locator('input').last()
+    await rangeEnd.fill('2025-12-31 23:59:59')
+    await page.keyboard.press('Enter')
+    await expect(page.locator('.ant-table-placeholder')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await shot(page, '07n-events-date-range-filter.png')
+    // Clear range picker
+    await page.locator('.ant-picker-range .ant-picker-clear').click()
+  })
+
+  test('07o events - json validation error on post form', async ({ page }) => {
+    await page.goto('/events')
+    await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+    // Fill event type and invalid JSON so the rule validator fires on submit
+    await page.locator('#eventType').fill('TestEvent')
+    await page.locator('#eventData').fill('{ this is not valid json }')
+    await page.getByRole('button', { name: 'Post Event' }).click()
+    await expect(
+      page.locator('.ant-form-item-explain-error').filter({ hasText: /valid JSON/i })
+    ).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await shot(page, '07o-events-json-validation-error.png')
+  })
+
   // ── 6. Consumer Groups / Messages / Settings ──────────────────────────────
 
   test('08 settings', async ({ page }) => {
     await page.goto('/settings')
     await page.waitForTimeout(1500)
     await shot(page, '08-settings.png')
+  })
+
+  test('08b settings - REST ping success result', async ({ page }) => {
+    await page.goto('/settings')
+    await page.waitForTimeout(800)
+    await page.getByTestId('ping-rest-btn').click()
+    await expect(page.getByTestId('ping-rest-result')).toBeVisible({ timeout: 10000 })
+    await page.waitForTimeout(400)
+    await shot(page, '08b-settings-ping-rest-result.png')
+  })
+
+  test('08c settings - all three pings completed', async ({ page }) => {
+    await page.goto('/settings')
+    await page.waitForTimeout(800)
+    // Trigger all three pings so every card shows a result
+    await page.getByTestId('ping-rest-btn').click()
+    await page.getByTestId('ping-ws-btn').click()
+    await page.getByTestId('ping-sse-btn').click()
+    await expect(page.getByTestId('ping-rest-result')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByTestId('ping-ws-result')).toBeVisible({ timeout: 10000 })
+    await expect(page.getByTestId('ping-sse-result')).toBeVisible({ timeout: 10000 })
+    await page.waitForTimeout(400)
+    await shot(page, '08c-settings-all-pings-done.png')
+  })
+
+  test('08d settings - auto-ping enabled with interval visible', async ({ page }) => {
+    await page.goto('/settings')
+    await page.waitForTimeout(800)
+    // Enable auto-ping on all three cards to show the interval inputs.
+    // Use :scope > .ant-card-head so the outer "Connection Health Checks" card
+    // (which contains these cards as descendants) is not also matched.
+    const restCard = page.locator('.ant-card').filter({
+      has: page.locator(':scope > .ant-card-head .ant-card-head-title', { hasText: 'REST API' }),
+    })
+    const wsCard = page.locator('.ant-card').filter({
+      has: page.locator(':scope > .ant-card-head .ant-card-head-title', { hasText: 'WebSocket' }),
+    })
+    const sseCard = page.locator('.ant-card').filter({
+      has: page.locator(':scope > .ant-card-head .ant-card-head-title', { hasText: 'Server-Sent Events' }),
+    })
+    await restCard.locator('.ant-switch').click()
+    await wsCard.locator('.ant-switch').click()
+    await sseCard.locator('.ant-switch').click()
+    await page.waitForTimeout(400)
+    await shot(page, '08d-settings-auto-ping-enabled.png')
+    // Turn switches off so no timers run after the screenshot
+    await restCard.locator('.ant-switch').click()
+    await wsCard.locator('.ant-switch').click()
+    await sseCard.locator('.ant-switch').click()
   })
 
   test('09 consumer groups', async ({ page }) => {
@@ -616,6 +785,199 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await expect(page.locator('.ant-drawer-open')).toBeVisible({ timeout: 5000 })
     await page.waitForTimeout(400)
     await page.screenshot({ path: path.join(DIR, '10c-message-browser-filters-drawer.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  // Helper: navigate to /messages with setup + queue selected and wait for message rows.
+  // Extracted inline because Playwright test helpers cannot be standalone async functions
+  // that reference `page` — each test calls this pattern directly.
+
+  test('10d message browser - messages table with data', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    await page.waitForTimeout(600)
+    await shot(page, '10d-message-browser-with-messages.png')
+  })
+
+  test('10e message browser - control bar (Live toggle, Filters, Clear, Refresh, badge)', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    // Capture just the controls card (Message Browser heading + all buttons)
+    await page.locator('.ant-card').filter({ has: page.getByTestId('live-switch') })
+      .screenshot({ path: path.join(DIR, '10e-message-browser-controls-bar.png') })
+  })
+
+  test('10f message browser - live mode active banner', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await page.locator('[data-testid="live-switch"]').click()
+    await expect(page.locator('[data-testid="live-alert"]')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(600)
+    await shot(page, '10f-message-browser-live-mode.png')
+    await page.locator('[data-testid="live-switch"]').click()
+  })
+
+  test('10g message browser - quick filters card', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    // Capture the Quick Filters card showing Message Status dropdown + Search input
+    const quickFiltersCard = page.getByTestId('quick-filters-card')
+    await expect(quickFiltersCard).toBeVisible({ timeout: 5000 })
+    await quickFiltersCard.screenshot({ path: path.join(DIR, '10g-message-browser-quick-filters.png') })
+  })
+
+  test('10h message browser - status dropdown open showing all options', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    // Open the Status dropdown without selecting — captures all 4 options visible
+    await page.locator('.ant-select').filter({ hasText: 'Message Status' }).click()
+    await expect(page.locator('.ant-select-dropdown').filter({ hasNot: page.locator('.ant-select-dropdown-hidden') })).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(300)
+    await page.screenshot({ path: path.join(DIR, '10h-message-browser-status-dropdown.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('10i message browser - status filter applied with filtered results', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    const statusSelect = page.locator('.ant-select').filter({ hasText: 'Message Status' })
+    await selectAntOption(statusSelect, 'Pending')
+    await page.waitForTimeout(400)
+    await shot(page, '10i-message-browser-status-filter.png')
+  })
+
+  test('10j message browser - search text filters the table', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    // Search for "Alice" — matches the first seeded message payload
+    await page.getByPlaceholder('Search messages...').fill('Alice')
+    await page.waitForTimeout(400)
+    await shot(page, '10j-message-browser-search-results.png')
+  })
+
+  test('10k message browser - status and search combined', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    await selectAntOption(page.locator('.ant-select').filter({ hasText: 'Message Status' }), 'Pending')
+    await page.getByPlaceholder('Search messages...').fill('ORD')
+    await page.waitForTimeout(400)
+    await shot(page, '10k-message-browser-combined-filters.png')
+  })
+
+  test('10l message browser - clear filters restores all messages', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    // Apply filters then clear — captures the page after clearing with full count restored
+    await selectAntOption(page.locator('.ant-select').filter({ hasText: 'Message Status' }), 'Pending')
+    await page.getByPlaceholder('Search messages...').fill('Alice')
+    await page.waitForTimeout(400)
+    await page.getByTestId('clear-filters-btn').click()
+    await page.waitForTimeout(400)
+    await shot(page, '10l-message-browser-cleared-filters.png')
+  })
+
+  test('10m message browser - message details modal', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    await page.waitForTimeout(400)
+    await page.locator('.ant-table-tbody tr.ant-table-row').first()
+      .locator('[data-testid="view-message-btn"]').click()
+    await expect(page.locator('.ant-modal')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(600)
+    await page.screenshot({ path: path.join(DIR, '10m-message-browser-message-detail.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('10n message browser - message detail modal payload section', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    await page.locator('.ant-table-tbody tr.ant-table-row').first()
+      .locator('[data-testid="view-message-btn"]').click()
+    await expect(page.locator('.ant-modal')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    // Capture just the Payload card inside the modal
+    const payloadCard = page.locator('.ant-modal-body .ant-card').filter({
+      has: page.locator('.ant-card-head-title', { hasText: 'Payload' })
+    })
+    await payloadCard.screenshot({ path: path.join(DIR, '10n-message-browser-payload-card.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('10o message browser - filters drawer empty', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await page.getByRole('button', { name: /filters/i }).click()
+    await expect(page.locator('.ant-drawer-open')).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '10o-message-browser-filters-drawer.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('10p message browser - filters drawer with all fields filled', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await page.getByRole('button', { name: /filters/i }).click()
+    await expect(page.locator('.ant-drawer-open')).toBeVisible({ timeout: 5000 })
+    const drawer = page.locator('.ant-drawer-open')
+    await drawer.getByPlaceholder('Message Type').fill('OrderMessage')
+    await selectAntOption(drawer.locator('.ant-select').filter({ hasText: 'Status' }), 'Pending')
+    await drawer.getByPlaceholder(/search in message payload/i).fill('orderId')
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '10p-message-browser-filters-drawer-filled.png') })
+    await page.keyboard.press('Escape')
+  })
+
+  test('10q message browser - filters drawer time range picker', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await page.getByRole('button', { name: /filters/i }).click()
+    await expect(page.locator('.ant-drawer-open')).toBeVisible({ timeout: 5000 })
+    // Click the RangePicker start input to open the calendar panel
+    await page.locator('.ant-drawer-open .ant-picker-range').locator('input').first().click()
+    await expect(page.locator('.ant-picker-dropdown').filter({ hasNot: page.locator('.ant-picker-dropdown-hidden') })).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '10q-message-browser-time-range-picker.png') })
+    await page.keyboard.press('Escape')
     await page.keyboard.press('Escape')
   })
 
