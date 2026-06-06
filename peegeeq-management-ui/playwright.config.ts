@@ -172,6 +172,20 @@ export default defineConfig({
       testMatch: '**/visualization-isolated.spec.ts',
       use: chromeMaximized,
     },
+    // Causation Tree Page - integration tests (requires setup-prerequisite)
+    {
+      name: 'causation-tree',
+      testMatch: '**/causation-tree.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Aggregate Stream Page - integration tests (requires setup-prerequisite)
+    {
+      name: 'aggregate-stream',
+      testMatch: '**/aggregate-stream.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 10: Overview Scope Selector - Tests Setup selector on Overview page
     {
       name: '10-overview-scope-selector',
@@ -213,6 +227,13 @@ export default defineConfig({
       testMatch: '**/message-browser-scope-selectors.spec.ts',
       use: chromeMaximized,
       dependencies: ['4-database-setup'],
+    },
+    // Step 14b: Message Browser - Retrieval, filtering, and SSE Live mode integration tests
+    {
+      name: '14b-message-browser',
+      testMatch: '**/message-browser.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
     },
     // Error paths: validates that backend error responses surface as UI toasts (standalone, no dependencies)
     {

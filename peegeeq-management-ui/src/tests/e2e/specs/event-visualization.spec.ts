@@ -115,19 +115,18 @@ test.describe('Event Visualization', () => {
     // Post Grandchild
     await postEvent('GrandChildEvent', childEventId)
 
-    // --- 4. Navigate to visualization page and select event store ---
-    await page.goto('/event-visualization')
+    // --- 4. Navigate to Causation Tree page and select event store ---
+    await page.goto('/causation-tree')
     await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
 
-    const vizSetupSelect = page.getByTestId('viz-setup-select')
+    const vizSetupSelect = page.getByTestId('causation-setup-select')
     await selectAntOption(vizSetupSelect, SETUP_ID)
 
-    const vizEventStoreSelect = page.getByTestId('viz-eventstore-select')
+    const vizEventStoreSelect = page.getByTestId('causation-eventstore-select')
     await selectAntOption(vizEventStoreSelect, eventStoreName)
 
-    // Verify Visualization sections are visible as stacked cards
+    // Verify Causation Tree section is visible
     await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
-    await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).toBeVisible()
 
     // --- 5. Test Causation Tree ---
     await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
@@ -143,10 +142,18 @@ test.describe('Event Visualization', () => {
     await expect(page.locator('.ant-tree-treenode').filter({ hasText: /^GrandChildEvent/ })).toBeVisible()
 
     // --- 6. Test Aggregate Stream ---
-    // Aggregate Stream is always visible as a stacked card — no tab click needed
-    
-    // Click Refresh List
-    await page.getByRole('button', { name: /refresh list/i }).click()
+    // Navigate to the dedicated Aggregate Stream page
+    await page.goto('/aggregate-stream')
+    await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
+
+    const aggSetupSelect = page.getByTestId('aggregate-setup-select')
+    await selectAntOption(aggSetupSelect, SETUP_ID)
+
+    const aggEventStoreSelect = page.getByTestId('aggregate-eventstore-select')
+    await selectAntOption(aggEventStoreSelect, eventStoreName)
+
+    // Click Load Aggregates
+    await page.getByRole('button', { name: /load aggregates/i }).click()
     
     // Verify Aggregate ID appears in the list
     const aggRow = page.locator('tr').filter({ hasText: aggregateId })
