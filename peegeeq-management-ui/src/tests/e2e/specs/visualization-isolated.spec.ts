@@ -18,27 +18,50 @@ test.describe('Event Visualization Component Isolated', () => {
   });
 
   test('should render causation tree correctly with mocked data', async ({ page }) => {
-    // 1. Mock the specific query that fetches the tree data
-    // Note: The component uses the setupId and eventStoreName from props
-    await page.route('**/api/v1/eventstores/test-setup/test-store/events*', async route => {
-      console.log('Mocking events response');
-      await route.fulfill({ 
+    // Mock: setups list
+    await page.route('**/api/v1/setups', async route => {
+      await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(MOCK_EVENTS) 
+        body: JSON.stringify({ setupIds: ['test-setup'] })
       });
     });
 
-    // 2. Navigate to the test harness
-    // We pass setupId and eventStoreName as query params which the harness passes as props
-    await page.goto('http://localhost:3000/test-harness?setupId=test-setup&eventStoreName=test-store');
-    
-    // 3. Enter Correlation ID and Trace
-    // The component still requires user interaction to trigger the fetch
+    // Mock: event stores list
+    await page.route('**/api/v1/management/event-stores', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ eventStores: [{ setup: 'test-setup', name: 'test-store', events: 3 }] })
+      });
+    });
+
+    // Mock: events query for the causation tree trace
+    await page.route('**/api/v1/eventstores/test-setup/test-store/events*', async route => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(MOCK_EVENTS)
+      });
+    });
+
+    await page.goto('http://localhost:3000/causation-tree');
+
+    // Select setup
+    const setupSelect = page.getByTestId('causation-setup-select');
+    await setupSelect.click();
+    await page.locator('.ant-select-item-option', { hasText: 'test-setup' }).click();
+
+    // Select event store
+    const storeSelect = page.getByTestId('causation-eventstore-select');
+    await storeSelect.click();
+    await page.locator('.ant-select-item-option', { hasText: 'test-store' }).click();
+
+    // Enter Correlation ID and Trace
     await page.getByPlaceholder(/enter correlation id/i).fill('corr-123');
     await page.getByRole('button', { name: /trace/i }).click();
 
-    // 4. Verify Tree Rendering
+    // Verify Tree Rendering
     await expect(page.locator('.ant-tree-treenode').filter({ hasText: /RootEvent/ }).first()).toBeVisible();
     await expect(page.locator('.ant-tree-treenode').filter({ hasText: /ChildEvent/ }).first()).toBeVisible();
     await expect(page.locator('.ant-tree-treenode').filter({ hasText: /GrandChildEvent/ }).first()).toBeVisible();

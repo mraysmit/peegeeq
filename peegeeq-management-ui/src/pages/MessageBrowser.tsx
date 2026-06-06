@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
 // import { useMessageStream } from '../hooks/useRealTimeUpdates'
@@ -88,7 +88,7 @@ const MessageBrowser = () => {
     const { selectedSetupId, selectedQueueName } = useManagementStore()
     const [messages, setMessages] = useState<Message[]>([])
     const [filteredMessages, setFilteredMessages] = useState<Message[]>([])
-    const [queues, setQueues] = useState<QueueInfo[]>([])
+    const [, setQueues] = useState<QueueInfo[]>([])
     const [messageTypeFilter, setMessageTypeFilter] = useState<string>('')
     const [statusFilter, setStatusFilter] = useState<string>('')
     const [searchText, setSearchText] = useState<string>('')
@@ -127,19 +127,17 @@ const MessageBrowser = () => {
             const response = await axios.get(getVersionedApiUrl(`management/messages?${params.toString()}`))
             if (response.data.messages && Array.isArray(response.data.messages)) {
                 const fetchedMessages = response.data.messages.map((msg: any, index: number) => ({
-                    key: msg.id || index.toString(),
-                    id: msg.id,
-                    type: msg.type,
-                    status: msg.status,
-                    priority: msg.priority,
-                    retries: msg.retries,
-                    createdAt: msg.createdAt,
-                    processedAt: msg.processedAt,
-                    payload: msg.payload,
-                    headers: msg.headers,
-                    queue: selectedQueueName || 'unknown',
+                    key: String(msg.id ?? index),
+                    id: String(msg.id ?? index),
+                    queueName: selectedQueueName || 'unknown',
                     setup: selectedSetupId || 'unknown',
-                    correlationId: msg.headers?.correlationId || 'unknown'
+                    messageType: msg.type || msg.messageType || 'Unknown',
+                    status: msg.status || 'pending',
+                    payload: msg.payload,
+                    headers: msg.headers || {},
+                    timestamp: msg.createdAt || msg.timestamp || new Date().toISOString(),
+                    size: JSON.stringify(msg.payload || '').length,
+                    correlationId: msg.headers?.correlationId || msg.correlationId || 'unknown'
                 }))
                 setMessages(fetchedMessages)
                 setFilteredMessages(fetchedMessages)
@@ -182,33 +180,50 @@ const MessageBrowser = () => {
     //   }
     // }, [liveMessages, isRealTimeEnabled, messages])
 
-    // Real-time message simulation
+    // Live SSE connection — streams real messages from the backend queue
+    const liveEventSourceRef = useRef<EventSource | null>(null)
     useEffect(() => {
-        if (!isRealTimeEnabled) return
+        if (liveEventSourceRef.current) {
+            liveEventSourceRef.current.close()
+            liveEventSourceRef.current = null
+        }
 
-        const interval = setInterval(() => {
-            // Simulate new messages arriving
-            if (Math.random() > 0.7) {
-                const newMessage: Message = {
-                    key: `msg-${Date.now()}`,
-                    id: `msg-${Date.now()}`,
-                    queueName: queues.length > 0 ? queues[Math.floor(Math.random() * queues.length)].name : 'unknown',
-                    setup: 'production',
-                    messageType: ['OrderCreated', 'PaymentProcessed', 'EmailNotification'][Math.floor(Math.random() * 3)],
-                    payload: { data: 'Real-time message', timestamp: new Date().toISOString() },
-                    headers: { source: 'real-time-service', version: '1.0' },
-                    timestamp: new Date().toISOString(),
-                    size: Math.floor(Math.random() * 2048) + 256,
-                    status: ['pending', 'processing', 'completed'][Math.floor(Math.random() * 3)] as any,
-                    correlationId: `corr-${Date.now()}`
+        if (!isRealTimeEnabled || !selectedSetupId || !selectedQueueName) {
+            return
+        }
+
+        const sseUrl = getVersionedApiUrl(`queues/${selectedSetupId}/${selectedQueueName}/stream`)
+        const eventSource = new EventSource(sseUrl)
+        liveEventSourceRef.current = eventSource
+
+        eventSource.addEventListener('message', (event) => {
+            try {
+                const sseData = JSON.parse(event.data)
+                if (sseData.type === 'data') {
+                    const newMsg: Message = {
+                        key: sseData.messageId,
+                        id: sseData.messageId,
+                        queueName: selectedQueueName,
+                        setup: selectedSetupId,
+                        messageType: sseData.messageType || 'Live',
+                        payload: sseData.payload,
+                        headers: sseData.headers || {},
+                        timestamp: new Date(sseData.timestamp).toISOString(),
+                        size: JSON.stringify(sseData.payload || '').length,
+                        status: 'pending'
+                    }
+                    setMessages(prev => [newMsg, ...prev.slice(0, 49)])
                 }
-
-                setMessages(prev => [newMessage, ...prev.slice(0, 49)]) // Keep last 50 messages
+            } catch (e) {
+                console.error('Failed to parse SSE message:', e)
             }
-        }, 3000)
+        })
 
-        return () => clearInterval(interval)
-    }, [isRealTimeEnabled])
+        return () => {
+            eventSource.close()
+            liveEventSourceRef.current = null
+        }
+    }, [isRealTimeEnabled, selectedSetupId, selectedQueueName])
 
     // Filter messages based on current filters
     useEffect(() => {
@@ -223,7 +238,7 @@ const MessageBrowser = () => {
         }
 
         if (messageTypeFilter) {
-            filtered = filtered.filter(msg => msg.messageType.toLowerCase().includes(messageTypeFilter.toLowerCase()))
+            filtered = filtered.filter(msg => msg.messageType?.toLowerCase().includes(messageTypeFilter.toLowerCase()))
         }
 
         if (statusFilter) {
@@ -315,6 +330,7 @@ const MessageBrowser = () => {
                                         <Space>
                                             <Text>Live</Text>
                                             <Switch
+                                                data-testid="live-switch"
                                                 checked={isRealTimeEnabled}
                                                 onChange={setIsRealTimeEnabled}
                                                 checkedChildren={<PlayCircleOutlined />}
@@ -356,6 +372,7 @@ const MessageBrowser = () => {
                 {/* Real-time Status Alert */}
                 {isRealTimeEnabled && (
                     <Alert
+                        data-testid="live-alert"
                         message="Real-time Mode Active"
                         description="New messages will appear automatically. Disable to pause updates."
                         type="info"
@@ -408,6 +425,25 @@ const MessageBrowser = () => {
                                     render: (text: string) => <Text code>{text}</Text>
                                 },
                                 {
+                                    title: 'Payload',
+                                    dataIndex: 'payload',
+                                    key: 'payload',
+                                    width: 220,
+                                    render: (payload: any) => {
+                                        const str = typeof payload === 'string'
+                                            ? payload
+                                            : JSON.stringify(payload)
+                                        const truncated = str && str.length > 80
+                                            ? str.substring(0, 80) + '…'
+                                            : str || '-'
+                                        return (
+                                            <Tooltip title={str}>
+                                                <Text code style={{ fontSize: '11px' }}>{truncated}</Text>
+                                            </Tooltip>
+                                        )
+                                    }
+                                },
+                                {
                                     title: 'Queue',
                                     key: 'queue',
                                     width: 150,
@@ -432,7 +468,7 @@ const MessageBrowser = () => {
                                     width: 120,
                                     render: (status: string) => (
                                         <Tag color={getStatusColor(status)} icon={getStatusIcon(status)}>
-                                            {status.toUpperCase()}
+                                            {status?.toUpperCase() ?? '-'}
                                         </Tag>
                                     )
                                 },

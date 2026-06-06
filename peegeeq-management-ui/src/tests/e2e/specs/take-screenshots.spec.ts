@@ -621,25 +621,25 @@ test.describe('PeeGeeQ UI Screenshots', () => {
 
   // ── 7. Event Visualization ────────────────────────────────────────────────
 
-  test('11 event visualization - empty state', async ({ page }) => {
-    await page.goto('/event-visualization')
+  test('11 causation tree - empty state', async ({ page }) => {
+    await page.goto('/causation-tree')
     await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
-    await shot(page, '11-event-visualization-empty.png')
+    await shot(page, '11-causation-tree-empty.png')
   })
 
-  test('11b event visualization - store selected', async ({ page }) => {
-    await page.goto('/event-visualization')
+  test('11b causation tree - store selected', async ({ page }) => {
+    await page.goto('/causation-tree')
     await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
-    await selectAntOption(page.getByTestId('viz-setup-select'), SETUP_ID)
-    await selectAntOption(page.getByTestId('viz-eventstore-select'), eventStoreName)
+    await selectAntOption(page.getByTestId('causation-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('causation-eventstore-select'), eventStoreName)
     await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible({ timeout: 10000 })
-    await shot(page, '11b-event-visualization-store-selected.png')
+    await shot(page, '11b-causation-tree-store-selected.png')
   })
 
-  test('12 event visualization - causation tree traced', async ({ page }) => {
-    await page.goto('/event-visualization')
-    await selectAntOption(page.getByTestId('viz-setup-select'), SETUP_ID)
-    await selectAntOption(page.getByTestId('viz-eventstore-select'), eventStoreName)
+  test('12 causation tree - traced', async ({ page }) => {
+    await page.goto('/causation-tree')
+    await selectAntOption(page.getByTestId('causation-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('causation-eventstore-select'), eventStoreName)
     await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible({ timeout: 10000 })
     await page.getByPlaceholder(/enter correlation id/i).fill(correlationId)
     await page.getByRole('button', { name: /trace/i }).click()
@@ -647,21 +647,20 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     // but are not visible — use ant-tree-node-content-wrapper to target real nodes)
     await expect(page.locator('.ant-tree-node-content-wrapper').first()).toBeVisible({ timeout: 20000 })
     await page.waitForTimeout(1000)
-    await shot(page, '12-event-visualization-causation-tree.png')
+    await shot(page, '12-causation-tree-traced.png')
   })
 
-  test('12b event visualization - aggregate stream', async ({ page }) => {
-    await page.goto('/event-visualization')
-    await selectAntOption(page.getByTestId('viz-setup-select'), SETUP_ID)
-    await selectAntOption(page.getByTestId('viz-eventstore-select'), eventStoreName)
+  test('12b aggregate stream - with data', async ({ page }) => {
+    await page.goto('/aggregate-stream')
+    await selectAntOption(page.getByTestId('aggregate-setup-select'), SETUP_ID)
+    await selectAntOption(page.getByTestId('aggregate-eventstore-select'), eventStoreName)
     await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).toBeVisible({ timeout: 10000 })
-    await page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i }).scrollIntoViewIfNeeded()
-    await page.getByRole('button', { name: /refresh list/i }).click()
+    await page.getByRole('button', { name: /load aggregates/i }).click()
     const aggRow = page.locator('tr').filter({ hasText: aggregateId }).first()
     await expect(aggRow).toBeVisible({ timeout: 15000 })
     await aggRow.getByText('View Stream').click()
     await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
     await page.waitForTimeout(800)
-    await shot(page, '12b-event-visualization-aggregate-stream.png')
+    await shot(page, '12b-aggregate-stream.png')
   })
 })
