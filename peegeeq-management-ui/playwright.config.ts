@@ -85,6 +85,13 @@ export default defineConfig({
       testMatch: '**/settings.spec.ts',
       use: chromeMaximized,
     },
+    // Step 1b: Settings Health Checks - Ping buttons, auto-ping toggles, Disconnect
+    {
+      name: '1b-settings-health-checks',
+      testMatch: '**/settings-health-checks.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['1-settings'],
+    },
     // Step 2: Connection Status - Tests connection status functionality
     {
       name: '2-connection-status',
@@ -139,6 +146,13 @@ export default defineConfig({
       testMatch: '**/queue-messaging-workflow.spec.ts',
       use: chromeMaximized,
       // No dependencies - standalone test that creates queue and sends messages
+    },
+    // Step 7b: Queue Details Operations - Pause/Resume, Get Messages, Purge, Delete via UI
+    {
+      name: '7b-queue-details-operations',
+      testMatch: '**/queue-details-operations.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
     },
     // Step 8: Event Store Workflow - Comprehensive event store workflow with event posting (standalone)
     {
@@ -232,6 +246,13 @@ export default defineConfig({
     {
       name: '14b-message-browser',
       testMatch: '**/message-browser.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 14c: Message SSE Stream – Direct API tests (no UI components, pure REST+EventSource)
+    {
+      name: '14c-message-sse-stream',
+      testMatch: '**/message-sse-stream.spec.ts',
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },

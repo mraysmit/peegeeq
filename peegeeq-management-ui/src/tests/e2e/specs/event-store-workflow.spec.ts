@@ -912,8 +912,9 @@ test.describe('Event Store Workflow', () => {
 
       const aggregateCard = page.locator('.ant-card').filter({ has: page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i }) })
       await expect(aggregateCard).toBeVisible()
-      
-      await aggregateCard.getByRole('button', { name: /load aggregates/i }).click()
+
+      // "Load Aggregates" is in the "Select Event Store" card above, not inside the Aggregate Stream card
+      await page.getByRole('button', { name: /load aggregates/i }).click()
       
       const aggRow = aggregateCard.locator('tr').filter({ hasText: aggregateId })
       await expect(aggRow).toBeVisible()
