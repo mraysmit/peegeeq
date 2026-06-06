@@ -349,6 +349,7 @@ const MessageBrowser = () => {
                                 </Col>
                                 <Col>
                                     <Button
+                                        data-testid="clear-filters-btn"
                                         icon={<ClearOutlined />}
                                         onClick={handleClearFilters}
                                     >
@@ -513,6 +514,7 @@ const MessageBrowser = () => {
                                         <Space>
                                             <Tooltip title="View Details">
                                                 <Button
+                                                    data-testid="view-message-btn"
                                                     type="text"
                                                     icon={<EyeOutlined />}
                                                     onClick={() => handleViewMessage(record)}

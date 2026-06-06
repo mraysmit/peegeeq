@@ -186,8 +186,8 @@ test.describe('Message Browser', () => {
         await searchInput.fill('apple-001')
         await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(1, { timeout: 5000 })
 
-        // The "Clear" button in the header card
-        await page.getByRole('button', { name: /^clear$/i }).first().click()
+        // Use data-testid to avoid matching Ant Design Input's own clear button
+        await page.getByTestId('clear-filters-btn').click()
 
         await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(4, { timeout: 5000 })
         await expect(searchInput).toHaveValue('')
@@ -244,32 +244,27 @@ test.describe('Message Browser', () => {
     test('10 clicking the eye icon opens the Message Details modal', async ({ page }) => {
         await loadMessages(page)
 
-        // Click the eye icon (EyeOutlined button) in the first table row's actions column
-        const firstRow = page.locator('.ant-table-tbody tr.ant-table-row').first()
-        const eyeButton = firstRow.locator('button[aria-label]').first()
-        // Fall back to any button if aria-label not set
-        const actionBtn = firstRow.locator('button').first()
-        await actionBtn.click()
+        // Click the eye (View Details) button in the first table row
+        await page.getByTestId('view-message-btn').first().click()
 
-        const modal = page.locator('.ant-modal-open')
-        await expect(modal).toBeVisible({ timeout: 5000 })
-        await expect(modal.locator('.ant-modal-title')).toContainText('Message Details')
+        // In Ant Design v5 the modal title is directly queryable once the modal opens
+        const modalTitle = page.locator('.ant-modal-title').filter({ hasText: 'Message Details' })
+        await expect(modalTitle).toBeVisible({ timeout: 5000 })
 
         // Payload section must be present
-        await expect(modal.getByText('Payload')).toBeVisible()
+        await expect(page.locator('.ant-modal-content').getByText('Payload')).toBeVisible()
     })
 
     test('11 Message Details modal closes on Close button click', async ({ page }) => {
         await loadMessages(page)
 
-        const firstRow = page.locator('.ant-table-tbody tr.ant-table-row').first()
-        await firstRow.locator('button').first().click()
+        await page.getByTestId('view-message-btn').first().click()
 
-        const modal = page.locator('.ant-modal-open')
-        await expect(modal).toBeVisible({ timeout: 5000 })
+        const modalTitle = page.locator('.ant-modal-title').filter({ hasText: 'Message Details' })
+        await expect(modalTitle).toBeVisible({ timeout: 5000 })
 
-        await modal.getByRole('button', { name: /close/i }).click()
-        await expect(page.locator('.ant-modal-open')).not.toBeVisible({ timeout: 5000 })
+        await page.locator('.ant-modal-content').getByRole('button', { name: /close/i }).click()
+        await expect(modalTitle).not.toBeVisible({ timeout: 5000 })
     })
 
     // ── 7. Live / SSE mode ────────────────────────────────────────────────────
