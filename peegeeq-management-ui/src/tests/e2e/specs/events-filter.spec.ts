@@ -250,4 +250,118 @@ test.describe('Events Page – Filter Functionality', () => {
         // Empty state placeholder shown instead of rows
         await expect(page.locator('.ant-table-placeholder')).toBeVisible()
     })
+
+    // ── 5. Aggregate Type filter ──────────────────────────────────────────────
+
+    test('09 aggregate type filter hides events whose aggregateType does not match', async ({ page }) => {
+        await loadEvents(page, 5)
+
+        // The seeded events do not carry an aggregateType value so any non-empty
+        // filter reduces the visible set to 0 — this exercises the filter wiring.
+        await page.getByPlaceholder('Aggregate Type').fill('NonExistentType')
+
+        await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Events (0)' })).toBeVisible()
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(0)
+        await expect(page.locator('.ant-table-placeholder')).toBeVisible()
+    })
+
+    test('10 clearing the aggregate type filter restores all rows', async ({ page }) => {
+        await loadEvents(page, 5)
+
+        const filterInput = page.getByPlaceholder('Aggregate Type')
+        await filterInput.fill('NonExistentType')
+        await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Events (0)' })).toBeVisible()
+
+        await filterInput.clear()
+
+        await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Events (5)' })).toBeVisible()
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(5)
+        await expect(page.locator('.ant-table-footer')).not.toContainText('Showing')
+    })
+
+    // ── 6. Date Range filter ──────────────────────────────────────────────────
+
+    test('11 date range filter excludes events outside the range', async ({ page }) => {
+        await loadEvents(page, 5)
+
+        // Set a date range entirely in the past (2025) — all events were created in 2026
+        // so none fall within this range, reducing visible rows to 0.
+        const rangePickerStart = page.locator('.ant-picker-range').locator('input').first()
+        await rangePickerStart.click()
+        await rangePickerStart.fill('2025-01-01 00:00:00')
+        await page.keyboard.press('Tab')
+
+        const rangePickerEnd = page.locator('.ant-picker-range').locator('input').last()
+        await rangePickerEnd.fill('2025-12-31 23:59:59')
+        await page.keyboard.press('Enter')
+
+        await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Events (0)' })).toBeVisible({ timeout: 5000 })
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(0)
+        await expect(page.locator('.ant-table-placeholder')).toBeVisible()
+    })
+
+    test('12 clearing the date range filter restores all rows', async ({ page }) => {
+        await loadEvents(page, 5)
+
+        // Apply a past range to reduce results
+        const rangePickerStart = page.locator('.ant-picker-range').locator('input').first()
+        await rangePickerStart.click()
+        await rangePickerStart.fill('2025-01-01 00:00:00')
+        await page.keyboard.press('Tab')
+        const rangePickerEnd = page.locator('.ant-picker-range').locator('input').last()
+        await rangePickerEnd.fill('2025-12-31 23:59:59')
+        await page.keyboard.press('Enter')
+        await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Events (0)' })).toBeVisible({ timeout: 5000 })
+
+        // Clear via the × button on the range picker
+        await page.locator('.ant-picker-range .ant-picker-clear').click()
+
+        await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Events (5)' })).toBeVisible({ timeout: 5000 })
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(5)
+    })
+
+    // ── 7. JSON validation errors ─────────────────────────────────────────────
+    //
+    // The Post Event form has a rule-level validator on the eventData and metadata
+    // TextArea fields.  When invalid JSON is submitted, Ant Design's validateFields()
+    // rejects and shows an inline error — no API call is made.
+
+    test('13 invalid JSON in Event Data field shows inline validation error and does not post', async ({ page }) => {
+        await page.goto('/events')
+        await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+
+        // Fill eventType and eventData (invalid JSON) — the setup/store fields are
+        // also required but we only need to trigger the eventData JSON validator.
+        await page.locator('#eventType').fill('TestEvent')
+        await page.locator('#eventData').fill('{ this is not valid json }')
+        await page.getByRole('button', { name: 'Post Event' }).click()
+
+        // The rule-level validator shows an inline error on the eventData field.
+        // No success toast should appear (the form rejected before any API call).
+        await expect(
+            page.locator('.ant-form-item-explain-error').filter({ hasText: /valid JSON/i })
+        ).toBeVisible({ timeout: 5000 })
+        await expect(page.locator('.ant-message-success')).not.toBeVisible()
+    })
+
+    test('14 invalid JSON in Metadata field shows inline validation error and does not post', async ({ page }) => {
+        await page.goto('/events')
+        await expect(page.getByRole('button', { name: 'Post Event' })).toBeVisible({ timeout: 15000 })
+
+        // Open the Advanced section to expose the Metadata TextArea
+        await page.getByRole('button', { name: /show advanced/i }).click()
+        await expect(page.locator('#metadata')).toBeVisible({ timeout: 5000 })
+
+        // Fill eventType and valid eventData; only metadata is invalid JSON
+        await page.locator('#eventType').fill('TestEvent')
+        await page.locator('#eventData').fill('{"valid": true}')
+        await page.locator('#metadata').fill('not valid json at all')
+        await page.getByRole('button', { name: 'Post Event' }).click()
+
+        // Metadata rule-level validator shows inline error; no API call made
+        await expect(
+            page.locator('.ant-form-item-explain-error').filter({ hasText: /valid JSON/i })
+        ).toBeVisible({ timeout: 5000 })
+        await expect(page.locator('.ant-message-success')).not.toBeVisible()
+    })
 })

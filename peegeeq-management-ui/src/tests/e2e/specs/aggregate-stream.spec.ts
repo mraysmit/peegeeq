@@ -245,9 +245,10 @@ test.describe('Aggregate Stream Page', () => {
             page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` })
         ).toBeVisible({ timeout: 10000 })
 
+        // Use .last() because the outer "Aggregate Stream" card also matches (it contains the inner stream card)
         const streamCard = page.locator('.ant-card').filter({
             has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` }),
-        })
+        }).last()
         // Wait for stream rows to load before clicking Details
         await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
         await streamCard.locator('.ant-table-tbody tr.ant-table-row').first().getByText('Details').click()
@@ -267,13 +268,57 @@ test.describe('Aggregate Stream Page', () => {
             page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` })
         ).toBeVisible({ timeout: 10000 })
 
+        // Use .last() because the outer "Aggregate Stream" card also matches (it contains the inner stream card)
         const streamCard = page.locator('.ant-card').filter({
             has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` }),
-        })
+        }).last()
+        // Wait for stream rows to load before clicking Details
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
         await streamCard.locator('.ant-table-tbody tr.ant-table-row').first().getByText('Details').click()
         await expect(page.locator('.ant-drawer-open')).toBeVisible({ timeout: 5000 })
 
         await page.locator('.ant-drawer-close').click()
         await expect(page.locator('.ant-drawer-open')).not.toBeVisible({ timeout: 5000 })
+    })
+
+    // ── 5. Filter by Event Type ───────────────────────────────────────────────
+
+    test('12 Filter by Event Type scopes the aggregate list via the API', async ({ page }) => {
+        await page.goto('/aggregate-stream')
+        await selectStore(page)
+
+        // Type a filter that matches only aggB's event type (OrderCancelled)
+        await page.getByPlaceholder('Filter by Event Type').fill('OrderCancelled')
+
+        // Load Aggregates with filter applied
+        await page.getByRole('button', { name: /load aggregates/i }).click()
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+
+        // Only aggB (which has OrderCancelled events) should appear
+        await expect(page.locator('td').filter({ hasText: aggB })).toBeVisible()
+        await expect(page.locator('td').filter({ hasText: aggA })).not.toBeVisible()
+
+        console.log('Filter by EventType=OrderCancelled: only aggB returned')
+    })
+
+    test('13 clearing the Event Type filter restores all aggregates', async ({ page }) => {
+        await page.goto('/aggregate-stream')
+        await selectStore(page)
+
+        // Apply a filter first
+        await page.getByPlaceholder('Filter by Event Type').fill('OrderCancelled')
+        await page.getByRole('button', { name: /load aggregates/i }).click()
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+
+        // Clear the filter using the allowClear × icon
+        await page.getByPlaceholder('Filter by Event Type').clear()
+
+        // Reload — both aggregates should appear
+        await page.getByRole('button', { name: /load aggregates/i }).click()
+        await expect(page.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(2, { timeout: 15000 })
+        await expect(page.locator('td').filter({ hasText: aggA })).toBeVisible()
+        await expect(page.locator('td').filter({ hasText: aggB })).toBeVisible()
+
+        console.log('Clearing filter restored both aggregates')
     })
 })

@@ -251,8 +251,8 @@ test.describe('Message Browser', () => {
         const modalTitle = page.locator('.ant-modal-title').filter({ hasText: 'Message Details' })
         await expect(modalTitle).toBeVisible({ timeout: 5000 })
 
-        // Payload section must be present
-        await expect(page.locator('.ant-modal-content').getByText('Payload')).toBeVisible()
+        // Payload section card title must be present (use card heading to avoid matching JSON content)
+        await expect(page.locator('.ant-modal-content .ant-card-head-title').filter({ hasText: 'Payload' })).toBeVisible()
     })
 
     test('11 Message Details modal closes on Close button click', async ({ page }) => {
@@ -263,7 +263,8 @@ test.describe('Message Browser', () => {
         const modalTitle = page.locator('.ant-modal-title').filter({ hasText: 'Message Details' })
         await expect(modalTitle).toBeVisible({ timeout: 5000 })
 
-        await page.locator('.ant-modal-content').getByRole('button', { name: /close/i }).click()
+        // Click the footer Close button specifically (not the X close icon)
+        await page.locator('.ant-modal-footer').getByRole('button', { name: /close/i }).click()
         await expect(modalTitle).not.toBeVisible({ timeout: 5000 })
     })
 
