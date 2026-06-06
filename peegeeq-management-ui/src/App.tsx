@@ -20,7 +20,8 @@ import QueueDetails from './pages/QueueDetails'
 import QueueDetailsEnhanced from './pages/QueueDetailsEnhanced'
 import ConsumerGroups from './pages/ConsumerGroups'
 import EventStores from './pages/EventStores'
-import EventVisualizationPage from './pages/EventVisualizationPage'
+import CausationTreePage from './pages/CausationTreePage'
+import AggregateStreamPage from './pages/AggregateStreamPage'
 import EventsPage from './pages/EventsPage'
 import MessageBrowser from './pages/MessageBrowser'
 import DatabaseSetups from './pages/DatabaseSetups'
@@ -70,9 +71,14 @@ function Navigation() {
       label: <Link to="/events" data-testid="nav-events">Events</Link>,
     },
     {
-      key: '/event-visualization',
+      key: '/causation-tree',
       icon: <BranchesOutlined />,
-      label: <Link to="/event-visualization" data-testid="nav-event-visualization">Visualization</Link>,
+      label: <Link to="/causation-tree" data-testid="nav-causation-tree">Causation Tree</Link>,
+    },
+    {
+      key: '/aggregate-stream',
+      icon: <DatabaseOutlined />,
+      label: <Link to="/aggregate-stream" data-testid="nav-aggregate-stream">Aggregate Stream</Link>,
     },
     {
       key: '/messages',
@@ -143,7 +149,8 @@ function AppContent() {
                 <Route path="/consumer-groups" element={<ConsumerGroups />} />
                 <Route path="/event-stores" element={<EventStores />} />
                 <Route path="/events" element={<EventsPage />} />
-                <Route path="/event-visualization" element={<EventVisualizationPage />} />
+                <Route path="/causation-tree" element={<CausationTreePage />} />
+                <Route path="/aggregate-stream" element={<AggregateStreamPage />} />
                 <Route path="/messages" element={<MessageBrowser />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>

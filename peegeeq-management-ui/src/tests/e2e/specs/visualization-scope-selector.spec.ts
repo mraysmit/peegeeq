@@ -3,66 +3,70 @@ import { SETUP_ID } from '../test-constants'
 import { selectAntOption } from '../utils/ant-helpers'
 
 /**
- * Event Visualization Page - Setup Scope Selector Tests
+ * Causation Tree and Aggregate Stream pages - setup selector tests.
  *
- * The Event Visualization page mounts a SetupScopeBar (scope-bar /
- * setup-scope-selector) AND retains a legacy inline setup selector
- * (viz-setup-select) that also reads selectedSetupId from the global store.
- * Both selectors should be present and the SetupScopeBar should be the
- * primary scope control.
- *
+ * Each page has its own independent inline setup + event-store selectors.
  * Prerequisite: database-setup.spec.ts runs first and creates SETUP_ID.
  */
 
 test.describe.configure({ mode: 'serial' })
 
-test.describe('Event Visualization Page - Setup Scope Selector', () => {
+test.describe('Causation Tree Page - Setup Selector', () => {
 
     test.beforeEach(async ({ page }) => {
         page.on('console', msg => {
-            if (msg.type() === 'error') {
-                console.error('❌ Browser console error:', msg.text())
-            }
+            if (msg.type() === 'error') console.error('❌ Browser console error:', msg.text())
         })
         page.on('pageerror', error => {
             console.error('❌ Page error:', error.message)
         })
     })
 
-    test('should display SetupScopeBar on the event visualization page', async ({ page }) => {
+    test('should display setup selector on the Causation Tree page', async ({ page }) => {
         await page.goto('/')
-        await page.getByTestId('nav-event-visualization').click()
+        await page.getByTestId('nav-causation-tree').click()
         await page.waitForLoadState('networkidle')
 
-        // Scope bar container is present
-        const scopeBar = page.getByTestId('scope-bar')
-        await expect(scopeBar).toBeVisible()
-
-        // Setup selector rendered inside the scope bar
-        const setupSelector = page.getByTestId('setup-scope-selector')
-        await expect(setupSelector).toBeVisible()
+        await expect(page.getByTestId('causation-setup-select')).toBeVisible()
+        await expect(page.getByTestId('causation-eventstore-select')).toBeVisible()
     })
 
-    test('should also have a legacy inline viz-setup-select alongside SetupScopeBar', async ({ page }) => {
-        await page.goto('/')
-        await page.getByTestId('nav-event-visualization').click()
+    test('should allow selecting a setup on the Causation Tree page', async ({ page }) => {
+        await page.goto('/causation-tree')
         await page.waitForLoadState('networkidle')
 
-        // SetupScopeBar selector
-        await expect(page.getByTestId('setup-scope-selector')).toBeVisible()
+        const setupSelect = page.getByTestId('causation-setup-select')
+        await selectAntOption(setupSelect, SETUP_ID)
+        await expect(setupSelect.locator('.ant-select-selection-item')).toContainText(SETUP_ID)
+    })
+})
 
-        // Legacy inline selector still rendered (both drive the same store state)
-        await expect(page.getByTestId('viz-setup-select')).toBeVisible()
+test.describe('Aggregate Stream Page - Setup Selector', () => {
+
+    test.beforeEach(async ({ page }) => {
+        page.on('console', msg => {
+            if (msg.type() === 'error') console.error('❌ Browser console error:', msg.text())
+        })
+        page.on('pageerror', error => {
+            console.error('❌ Page error:', error.message)
+        })
     })
 
-    test('should allow selecting a setup via SetupScopeBar on visualization page', async ({ page }) => {
+    test('should display setup selector on the Aggregate Stream page', async ({ page }) => {
         await page.goto('/')
-        await page.getByTestId('nav-event-visualization').click()
+        await page.getByTestId('nav-aggregate-stream').click()
         await page.waitForLoadState('networkidle')
 
-        const setupSelector = page.getByTestId('setup-scope-selector')
-        await selectAntOption(setupSelector, SETUP_ID)
+        await expect(page.getByTestId('aggregate-setup-select')).toBeVisible()
+        await expect(page.getByTestId('aggregate-eventstore-select')).toBeVisible()
+    })
 
-        await expect(setupSelector.locator('.ant-select-selection-item')).toContainText(SETUP_ID)
+    test('should allow selecting a setup on the Aggregate Stream page', async ({ page }) => {
+        await page.goto('/aggregate-stream')
+        await page.waitForLoadState('networkidle')
+
+        const setupSelect = page.getByTestId('aggregate-setup-select')
+        await selectAntOption(setupSelect, SETUP_ID)
+        await expect(setupSelect.locator('.ant-select-selection-item')).toContainText(SETUP_ID)
     })
 })

@@ -134,10 +134,15 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('.ant-card-head-title', { hasText: /post event/i })).toBeVisible()
       await expect(page.locator('.ant-card-head-title', { hasText: /query events/i })).toBeVisible()
 
-      // Event Visualization page: Causation Tree and Aggregate Stream cards
-      await page.goto('/event-visualization')
+      // Event Visualization: Causation Tree page
+      await page.goto('/causation-tree')
       await expect(page.locator('.ant-card-head-title').filter({ hasText: /causation tree/i })).toBeVisible()
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).not.toBeVisible()
+
+      // Aggregate Stream page
+      await page.goto('/aggregate-stream')
       await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).toBeVisible()
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: /post event/i })).not.toBeVisible()
 
       console.log('All sections visible on their separate pages')
     })
@@ -863,17 +868,17 @@ test.describe('Event Store Workflow', () => {
       // Post Grandchild
       await postEvent('GrandChildEvent', childEventId)
 
-      // --- Navigate to Event Visualization page ---
-      await page.goto('/event-visualization')
+      // --- Navigate to Causation Tree page ---
+      await page.goto('/causation-tree')
 
       // Wait for the page to load
       await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
       
       // Use data-testid for robust selection
-      const setupSelect = page.getByTestId('viz-setup-select')
+      const setupSelect = page.getByTestId('causation-setup-select')
       await selectAntOption(setupSelect, SETUP_ID)
       
-      const eventStoreSelect = page.getByTestId('viz-eventstore-select')
+      const eventStoreSelect = page.getByTestId('causation-eventstore-select')
       await selectAntOption(eventStoreSelect, createdEventStoreName)
 
       // --- Verify API Layer ---
@@ -895,10 +900,20 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('.ant-tree-treenode').filter({ hasText: /GrandChildEvent/ }).first()).toBeVisible()
 
       // --- Test Aggregate Stream ---
+      // Navigate to the dedicated Aggregate Stream page
+      await page.goto('/aggregate-stream')
+      await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Select Event Store' })).toBeVisible()
+
+      const aggSetupSelect = page.getByTestId('aggregate-setup-select')
+      await selectAntOption(aggSetupSelect, SETUP_ID)
+
+      const aggEventStoreSelect = page.getByTestId('aggregate-eventstore-select')
+      await selectAntOption(aggEventStoreSelect, createdEventStoreName)
+
       const aggregateCard = page.locator('.ant-card').filter({ has: page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i }) })
       await expect(aggregateCard).toBeVisible()
       
-      await aggregateCard.getByRole('button', { name: /refresh list/i }).click()
+      await aggregateCard.getByRole('button', { name: /load aggregates/i }).click()
       
       const aggRow = aggregateCard.locator('tr').filter({ hasText: aggregateId })
       await expect(aggRow).toBeVisible()
