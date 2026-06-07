@@ -67,8 +67,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     /**
      * Custom exception for database creation conflicts that doesn't generate stack
-     * traces
-     * for expected race conditions in concurrent test scenarios.
+     * traces for expected race conditions when concurrent setup requests collide.
      */
     public static class DatabaseCreationConflictException extends RuntimeException {
         public DatabaseCreationConflictException(String message) {
@@ -266,7 +265,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     Throwable ex = ar.cause();
                     if (isDatabaseCreationConflict(ex)) {
                         logger.debug(
-                                "EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                                "Database creation conflict for setup: {} — concurrent request already created it",
                                 request.getSetupId());
                         return Future.failedFuture(new DatabaseCreationConflictException(
                                 "Database creation conflict: " + request.getSetupId()));
@@ -276,7 +275,6 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
                     // Clean up any partially created resources asynchronously
                     return destroySetup(request.getSetupId())
-                            .compose(ignore -> dropTestDatabase(request.getDatabaseConfig()))
                             .onFailure(cleanupEx ->
                                 logger.error("Failed to clean up after setup failure: {}", request.getSetupId(),
                                         cleanupEx))
@@ -578,47 +576,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 shutdownFuture = closeResourcesFuture;
             }
 
-            return shutdownFuture
-                    .compose(v -> {
-                        // Drop the database if it's a test setup
-                        if (dbConfig != null && setupId.contains("test")) {
-                            return dropTestDatabase(dbConfig);
-                        }
-                        return Future.succeededFuture();
-                    });
+            return shutdownFuture;
         } catch (Exception e) {
             return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
-        }
-    }
-
-    private Future<Void> dropTestDatabase(DatabaseConfig dbConfig) {
-        try {
-            // Use environment variables for admin connection if available, otherwise use request values
-            String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
-            int adminPort = getEnvOrDefault("PEEGEEQ_DATABASE_PORT", String.valueOf(dbConfig.getPort()), dbConfig.getPort());
-            String adminUsername = getEnvOrDefault("PEEGEEQ_DATABASE_USERNAME", dbConfig.getUsername());
-            String adminPassword = getEnvOrDefault("PEEGEEQ_DATABASE_PASSWORD", dbConfig.getPassword());
-
-            return templateManager.dropDatabaseFromAdmin(
-                    adminHost,
-                    adminPort,
-                    adminUsername,
-                    adminPassword,
-                    dbConfig.getDatabaseName())
-                    .onSuccess(v -> logger.info("Test database {} dropped successfully", dbConfig.getDatabaseName()))
-                    .onFailure(error -> {
-                        if (error.getMessage().contains("is being accessed by other users")) {
-                            logger.warn("Database {} is still being accessed by other users, will retry cleanup later",
-                                    dbConfig.getDatabaseName());
-                        } else {
-                            logger.warn("Failed to drop test database: {} - {}", dbConfig.getDatabaseName(),
-                                    error.getMessage());
-                        }
-                    })
-                    .mapEmpty();
-        } catch (Exception e) {
-            logger.warn("Failed to drop test database: {}", dbConfig.getDatabaseName(), e);
-            return Future.failedFuture(e);
         }
     }
 
@@ -626,7 +586,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
-            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {}", setupId);
             return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
         return Future.succeededFuture(setup.getStatus());
@@ -636,7 +596,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     public Future<DatabaseSetupResult> getSetupResult(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
-            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {}", setupId);
             return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
         return Future.succeededFuture(setup);
@@ -669,7 +629,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         PeeGeeQManager manager = activeManagers.get(setupId);
 
         if (setup == null || dbConfig == null || manager == null) {
-            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {}", setupId);
             return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
@@ -742,7 +702,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         PeeGeeQManager manager = activeManagers.get(setupId);
 
         if (setup == null || dbConfig == null || manager == null) {
-            logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
+            logger.debug("Setup not found: {}", setupId);
             return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
