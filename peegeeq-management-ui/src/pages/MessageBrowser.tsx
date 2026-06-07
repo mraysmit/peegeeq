@@ -90,7 +90,7 @@ const MessageBrowser = () => {
     const [filteredMessages, setFilteredMessages] = useState<Message[]>([])
     const [, setQueues] = useState<QueueInfo[]>([])
     const [messageTypeFilter, setMessageTypeFilter] = useState<string>('')
-    const [statusFilter, setStatusFilter] = useState<string>('')
+    const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
     const [searchText, setSearchText] = useState<string>('')
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null)
     const [isMessageModalVisible, setIsMessageModalVisible] = useState(false)
@@ -275,7 +275,7 @@ const MessageBrowser = () => {
 
     const handleClearFilters = () => {
         setMessageTypeFilter('')
-        setStatusFilter('')
+        setStatusFilter(undefined)
         setSearchText('')
         setDateRange(null)
     }
@@ -394,6 +394,7 @@ const MessageBrowser = () => {
                                 onChange={setStatusFilter}
                                 style={{ width: '100%' }}
                                 allowClear
+                                data-testid="status-filter-select"
                             >
                                 <Select.Option value="pending">Pending</Select.Option>
                                 <Select.Option value="processing">Processing</Select.Option>
@@ -702,6 +703,7 @@ const MessageBrowser = () => {
                                     onChange={setStatusFilter}
                                     style={{ width: '100%' }}
                                     allowClear
+                                    data-testid="drawer-status-filter-select"
                                 >
                                     <Select.Option value="pending">Pending</Select.Option>
                                     <Select.Option value="processing">Processing</Select.Option>

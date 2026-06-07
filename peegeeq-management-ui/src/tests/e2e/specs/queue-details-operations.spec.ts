@@ -75,6 +75,16 @@ test.describe('Queue Details - Operations', () => {
         // Brief pause for queue initialisation before publishing
         await page.waitForTimeout(1000)
 
+        // Create a consumer group so that pause/resume can flip subscription state.
+        // getQueueDetails derives "paused" status only when subscriptions exist.
+        const cgResp = await page.request.post(
+            '/api/v1/management/consumer-groups',
+            { data: { setup: SETUP_ID, queueName, name: `${queueName}_cg` } }
+        )
+        if (!cgResp.ok()) {
+            throw new Error(`Create consumer group failed: ${cgResp.status()} ${await cgResp.text()}`)
+        }
+
         await publishMessage(page, { orderId: 'OP-001', category: 'OrderOps' })
         await publishMessage(page, { orderId: 'OP-002', category: 'OrderOps' })
         await publishMessage(page, { orderId: 'OP-003', category: 'OrderOps' })
@@ -186,7 +196,9 @@ test.describe('Queue Details - Operations', () => {
     test('05 Resume Queue shows confirm dialog and calls POST .../resume', async ({ page }) => {
         await gotoDetails(page)
 
-        // Queue is paused from previous test — dropdown should show "Resume Queue"
+        // Queue was paused by test 04 — the backend now reflects that in
+        // queue.status (fixed: getQueueDetails derives "paused" from subscription
+        // states), so the Actions menu should show "Resume Queue".
         const resumeRequests: string[] = []
         page.on('request', req => {
             if (req.url().includes('/resume') && req.method() === 'POST') {

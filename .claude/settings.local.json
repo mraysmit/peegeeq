@@ -21,7 +21,9 @@
       "Bash(grep -v \"//\\\\|import\")",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\mraysmit\\\\dev\\\\idea-projects\\\\peegeeq\" -Directory)",
       "Bash(Select-Object Name)",
-      "Bash(node -e \"const {Document}=require\\('docx'\\); console.log\\('docx ok'\\)\")"
+      "Bash(node -e \"const {Document}=require\\('docx'\\); console.log\\('docx ok'\\)\")",
+      "Bash(mvn install *)",
+      "Bash(grep -E \"\\\\.java$|pom\\\\.xml\")"
     ]
   }
 }

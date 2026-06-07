@@ -51,17 +51,81 @@ export const queuesApi = createApi({
         // Get detailed information about a specific queue
         getQueueDetails: builder.query<QueueDetails, { setupId: string; queueName: string }>({
             query: ({ setupId, queueName }) => `/queues/${setupId}/${queueName}`,
+            transformResponse: (raw: Record<string, any>): QueueDetails => {
+                // Backend field names differ from the TypeScript interface:
+                //   name → queueName, setup → setupId, implementationType → type,
+                //   messages → messageCount, messageRate → messagesPerSecond,
+                //   lastActivity → updatedAt
+                // Statistics sub-object also uses different names:
+                //   totalMessages → messageCount, avgProcessingTimeMs → processingTime.avg
+                const stats = raw.statistics ?? {};
+                const cfg = raw.config ?? {};
+                const queueType = (raw.implementationType ?? raw.type ?? 'native') as import('../../types/queue').QueueType;
+                return {
+                    setupId: raw.setup ?? raw.setupId ?? '',
+                    queueName: raw.name ?? raw.queueName ?? '',
+                    type: queueType,
+                    status: raw.status ?? 'active',
+                    messageCount: raw.messages ?? raw.messageCount ?? 0,
+                    consumerCount: raw.consumers ?? raw.consumerCount ?? 0,
+                    messagesPerSecond: raw.messageRate ?? raw.messagesPerSecond ?? 0,
+                    errorRate: raw.errorRate ?? 0,
+                    createdAt: typeof raw.createdAt === 'number'
+                        ? new Date(raw.createdAt).toISOString()
+                        : (raw.createdAt ?? ''),
+                    updatedAt: raw.lastActivity ?? raw.updatedAt ?? raw.createdAt ?? '',
+                    description: raw.description,
+                    tags: raw.tags,
+                    config: {
+                        type: queueType,
+                        visibilityTimeoutSeconds: cfg.visibilityTimeoutSeconds ?? 300,
+                        maxRetries: cfg.maxRetries ?? 3,
+                        deadLetterEnabled: cfg.deadLetterEnabled ?? true,
+                        batchSize: cfg.batchSize ?? 10,
+                        pollingIntervalSeconds: cfg.pollingIntervalSeconds ?? 5,
+                        fifoEnabled: cfg.fifoEnabled ?? false,
+                        deadLetterQueueName: cfg.deadLetterQueueName ?? null,
+                    } as any,
+                    consumers: raw.consumersList ?? [],
+                    statistics: {
+                        messageCount: stats.totalMessages ?? stats.messageCount ?? raw.messages ?? 0,
+                        messagesPerSecond: stats.messagesPerSecond ?? raw.messageRate ?? 0,
+                        consumerCount: stats.activeConsumers ?? stats.consumerCount ?? raw.consumers ?? 0,
+                        activeConsumers: stats.activeConsumers ?? 0,
+                        processingTime: {
+                            avg: stats.avgProcessingTimeMs ?? stats.processingTime?.avg ?? 0,
+                            p50: stats.processingTime?.p50 ?? 0,
+                            p95: stats.processingTime?.p95 ?? 0,
+                            p99: stats.processingTime?.p99 ?? 0,
+                        },
+                        errorRate: stats.errorRate ?? 0,
+                        queueDepth: stats.queueDepth ?? stats.totalMessages ?? raw.messages ?? 0,
+                    },
+                } as QueueDetails;
+            },
             providesTags: (_result, _error, { setupId, queueName }) => [
                 { type: 'QueueDetails', id: `${setupId}:${queueName}` },
             ],
         }),
 
         // Create a new queue
-        createQueue: builder.mutation<QueueDetails, { setupId: string; name: string; type?: string }>({
-            query: ({ setupId, name, type = 'native' }) => ({
+        createQueue: builder.mutation<QueueDetails, {
+            setupId: string;
+            name: string;
+            type?: string;
+            visibilityTimeoutSeconds?: number;
+            maxRetries?: number;
+            deadLetterEnabled?: boolean;
+            batchSize?: number;
+            pollingIntervalSeconds?: number;
+            fifoEnabled?: boolean;
+            deadLetterQueueName?: string;
+        }>({
+            query: ({ setupId, name, type = 'native', ...config }) => ({
                 url: `/management/queues`,
                 method: 'POST',
-                body: { setup: setupId, name, type },  // Backend expects "setup" not "setupId"
+                // Backend expects "setup" not "setupId"; config fields are passed at top level
+                body: { setup: setupId, name, type, ...config },
             }),
             invalidatesTags: [{ type: 'Queue', id: 'LIST' }],
         }),

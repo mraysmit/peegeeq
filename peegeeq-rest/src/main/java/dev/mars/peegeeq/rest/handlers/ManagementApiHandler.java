@@ -504,6 +504,11 @@ public class ManagementApiHandler {
 
     /**
      * Updates the system metrics cache.
+     *
+     * <p>JVM metrics (memory, threads, uptime) are synchronous and updated
+     * immediately.  Messaging metrics require async I/O; they are computed in
+     * the background and written into the cache when they resolve.  The cache
+     * therefore always serves the most recent values without blocking.
      */
     private void updateSystemMetricsCache() {
         Runtime runtime = Runtime.getRuntime();
@@ -516,10 +521,43 @@ public class ManagementApiHandler {
         systemMetricsCache.put("cpuCores", runtime.availableProcessors());
         systemMetricsCache.put("threadsActive", Thread.activeCount());
 
-        // Real messaging metrics - these will be calculated from actual data
-        systemMetricsCache.put("messagesPerSecond", 0.0);
-        systemMetricsCache.put("activeConnections", 0);
-        systemMetricsCache.put("totalMessages", 0);
+        // Async: sum real throughput and message counts across all active setups.
+        // Uses the same helpers as getSystemOverview so the numbers are consistent.
+        setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    if (activeSetupIds.isEmpty()) {
+                        return Future.succeededFuture(new long[]{0L, 0L}); // {totalMessages, totalMsgPerSec*1000}
+                    }
+                    List<Future<JsonArray>> queuesFutures = new ArrayList<>();
+                    for (String sid : activeSetupIds) {
+                        queuesFutures.add(getQueuesForSetup(sid));
+                    }
+                    return Future.all(queuesFutures).map(cf -> {
+                        long totalMessages = 0;
+                        long totalMsgPerSecx1000 = 0; // accumulate as long to avoid FP issues
+                        for (int i = 0; i < cf.size(); i++) {
+                            JsonArray queues = cf.resultAt(i);
+                            for (Object obj : queues) {
+                                if (obj instanceof JsonObject q) {
+                                    totalMessages += q.getLong("messages", 0L);
+                                    totalMsgPerSecx1000 += (long) (q.getDouble("messageRate", 0.0) * 1000);
+                                }
+                            }
+                        }
+                        return new long[]{totalMessages, totalMsgPerSecx1000};
+                    });
+                })
+                .compose(counts ->
+                    getTotalActiveConnections().map(connections -> new Object[]{counts, connections})
+                )
+                .onSuccess(tuple -> {
+                    long[] counts = (long[]) tuple[0];
+                    int connections = (int) tuple[1];
+                    systemMetricsCache.put("totalMessages", counts[0]);
+                    systemMetricsCache.put("messagesPerSecond", counts[1] / 1000.0);
+                    systemMetricsCache.put("activeConnections", connections);
+                })
+                .onFailure(e -> logger.debug("Failed to update messaging metrics in cache: {}", e.getMessage()));
     }
 
     /**
@@ -584,10 +622,35 @@ public class ManagementApiHandler {
                                         .map(events -> {
                                             List<JsonObject> activities = new ArrayList<>();
                                             for (BiTemporalEvent<?> event : events) {
+                                                // Derive a UI-friendly status from the event type so that
+                                                // Overview.tsx can colour-code the Recent Activity table rows.
+                                                // Convention: error/fail/dead → "error", warn/retry → "warning",
+                                                //             everything else → "success".
+                                                String eventType = event.getEventType() != null
+                                                        ? event.getEventType().toLowerCase()
+                                                        : "";
+                                                String activityStatus;
+                                                if (eventType.contains("error") || eventType.contains("fail")
+                                                        || eventType.contains("dead")) {
+                                                    activityStatus = "error";
+                                                } else if (eventType.contains("warn") || eventType.contains("retry")) {
+                                                    activityStatus = "warning";
+                                                } else {
+                                                    activityStatus = "success";
+                                                }
+
+                                                // Build a human-readable detail string from available fields.
+                                                String details = "aggregate=" + event.getAggregateId();
+                                                if (event.getCorrelationId() != null) {
+                                                    details += " correlation=" + event.getCorrelationId();
+                                                }
+
                                                 JsonObject activity = new JsonObject()
                                                         .put("id", event.getEventId())
                                                         .put("type", "event")
                                                         .put("action", event.getEventType())
+                                                        .put("status", activityStatus)
+                                                        .put("details", details)
                                                         .put("source", storeName)
                                                         .put("setup", setupId)
                                                         .put("aggregateId", event.getAggregateId())
@@ -719,12 +782,19 @@ public class ManagementApiHandler {
                                             .map(subscriptions -> {
                                                 JsonArray groups = new JsonArray();
                                                 for (SubscriptionInfo sub : subscriptions) {
+                                                    // Infer at least one active member when the heartbeat is
+                                                    // fresh (i.e. within the configured timeout window).
+                                                    // Without a dedicated member-count API this is the best
+                                                    // approximation available from SubscriptionInfo.
+                                                    int inferredMembers = (sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE
+                                                            && !sub.isHeartbeatTimedOut()) ? 1 : 0;
+
                                                     JsonObject group = new JsonObject()
                                                             .put("name", sub.groupName())
                                                             .put("setup", setupId)
                                                             .put("queueName", queueName)
                                                             .put("implementationType", factory.getImplementationType())
-                                                            .put("members", 0)
+                                                            .put("members", inferredMembers)
                                                             .put("status", mapSubscriptionState(sub.state()))
                                                             .put("partition", 0)
                                                             .put("lag", 0)
@@ -735,6 +805,12 @@ public class ManagementApiHandler {
                                                             .put("lastHeartbeatAt",
                                                                     sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
                                                             .put("backfillStatus", sub.backfillStatus())
+                                                            // Backfill progress fields — used by ConsumerGroups.tsx
+                                                            // progress bars.  Emit 0 when null (not yet started).
+                                                            .put("backfillProcessedMessages",
+                                                                    sub.backfillProcessedMessages() != null ? sub.backfillProcessedMessages() : 0L)
+                                                            .put("backfillTotalMessages",
+                                                                    sub.backfillTotalMessages() != null ? sub.backfillTotalMessages() : 0L)
                                                             .put("createdAt", setupResult.getCreatedAt());
                                                     groups.add(group);
                                                 }
@@ -1788,18 +1864,44 @@ public class ManagementApiHandler {
                     if (queueFactory == null) {
                         return Future.failedFuture(new ResponseException(404, "Queue not found: " + queueName));
                     }
+
+                    // Fetch subscriptions so we can derive "paused" status when all subs are paused.
+                    // Failures or a missing service both collapse to an empty list so they never
+                    // prevent the rest of the details from being returned.
+                    SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                    Future<List<SubscriptionInfo>> subsFuture = subscriptionService != null
+                            ? subscriptionService.listSubscriptions(queueName)
+                                    .transform(ar -> Future.succeededFuture(ar.succeeded() ? ar.result() : List.of()))
+                            : Future.succeededFuture(List.of());
+
                     return getRealConsumerCount(setupResult, queueName)
                             .compose(consumerCount ->
                                 Future.all(
                                         queueFactory.countMessages(queueName),
                                         getRealMessageRate(setupResult, queueName),
                                         getRealAvgProcessingTime(setupResult, queueName),
-                                        queueFactory.isHealthy()
+                                        queueFactory.isHealthy(),
+                                        subsFuture
                                 ).map(cf -> {
                                         long messageCount = cf.resultAt(0);
                                         double messageRate = cf.resultAt(1);
                                         double avgProcessingTime = cf.resultAt(2);
                                         boolean healthy = cf.resultAt(3);
+                                        List<SubscriptionInfo> subs = cf.resultAt(4);
+
+                                        // Derive status from health and subscription states:
+                                        //   "paused"  — all subscriptions are paused (and there is at least one)
+                                        //   "error"   — the queue factory reports unhealthy
+                                        //   "active"  — everything else
+                                        String status;
+                                        if (!healthy) {
+                                            status = "error";
+                                        } else if (!subs.isEmpty() && subs.stream().allMatch(
+                                                s -> s.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.PAUSED)) {
+                                            status = "paused";
+                                        } else {
+                                            status = "active";
+                                        }
 
                                         JsonObject statistics = new JsonObject()
                                                 .put("totalMessages", messageCount)
@@ -1807,14 +1909,34 @@ public class ManagementApiHandler {
                                                 .put("messagesPerSecond", messageRate)
                                                 .put("avgProcessingTimeMs", avgProcessingTime);
 
+                                        dev.mars.peegeeq.api.database.QueueConfig cfg =
+                                                setupResult.getQueueConfig(queueName);
+
+                                        JsonObject config = new JsonObject()
+                                                .put("visibilityTimeoutSeconds", cfg != null ? cfg.getVisibilityTimeout().getSeconds() : 300)
+                                                .put("maxRetries",               cfg != null ? cfg.getMaxRetries()          : 3)
+                                                .put("deadLetterEnabled",         cfg != null ? cfg.isDeadLetterEnabled()   : true)
+                                                .put("batchSize",                 cfg != null ? cfg.getBatchSize()          : 10)
+                                                .put("pollingIntervalSeconds",    cfg != null ? cfg.getPollingInterval().getSeconds() : 5)
+                                                .put("fifoEnabled",               cfg != null ? cfg.isFifoEnabled()         : false)
+                                                .put("deadLetterQueueName",       cfg != null ? cfg.getDeadLetterQueueName() : null);
+
                                         return new JsonObject()
                                                 .put("name", queueName)
                                                 .put("setup", setupId)
                                                 .put("implementationType", queueFactory.getImplementationType())
-                                                .put("status", healthy ? "active" : "error")
+                                                .put("status", status)
                                                 .put("messages", messageCount)
                                                 .put("consumers", consumerCount)
+                                                // Top-level rate fields expected by the management UI.
+                                                // messageRate mirrors statistics.messagesPerSecond so both
+                                                // the legacy QueueDetails page and QueueDetailsEnhanced work.
+                                                // consumerRate requires time-series data not yet collected;
+                                                // 0.0 is returned to prevent JS crashes from undefined.toFixed().
+                                                .put("messageRate", messageRate)
+                                                .put("consumerRate", 0.0)
                                                 .put("statistics", statistics)
+                                                .put("config", config)
                                                 .put("durability", "durable")
                                                 .put("autoDelete", false)
                                                 .put("createdAt", setupResult.getCreatedAt())

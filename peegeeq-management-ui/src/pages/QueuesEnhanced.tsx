@@ -19,7 +19,10 @@ import {
     Modal,
     Form,
     Input,
+    InputNumber,
     Select,
+    Switch,
+    Divider,
     type TableColumnsType,
 } from 'antd';
 import {
@@ -148,7 +151,14 @@ const QueuesPage: React.FC = () => {
             const requestBody = {
                 setup: values.setup,
                 name: values.name,
-                type: 'native'
+                type: values.type ?? 'native',
+                visibilityTimeoutSeconds: values.visibilityTimeoutSeconds,
+                maxRetries: values.maxRetries,
+                deadLetterEnabled: values.deadLetterEnabled,
+                batchSize: values.batchSize,
+                pollingIntervalSeconds: values.pollingIntervalSeconds,
+                fifoEnabled: values.fifoEnabled ?? false,
+                deadLetterQueueName: values.deadLetterQueueName || undefined,
             };
 
             await axios.post(getVersionedApiUrl(`management/queues`), requestBody);
@@ -519,9 +529,10 @@ const QueuesPage: React.FC = () => {
                     open={isModalVisible}
                     onOk={handleModalOk}
                     onCancel={() => setIsModalVisible(false)}
-                    width={600}
+                    width={700}
                 >
                     <Form form={form} layout="vertical">
+                        {/* Identity */}
                         <Row gutter={16}>
                             <Col span={12}>
                                 <Form.Item
@@ -570,26 +581,59 @@ const QueuesPage: React.FC = () => {
                         <Row gutter={16}>
                             <Col span={12}>
                                 <Form.Item
-                                    name="durability"
-                                    label="Durability"
-                                    initialValue="durable"
+                                    name="type"
+                                    label="Queue Type"
+                                    initialValue="native"
+                                    rules={[{ required: true }]}
                                 >
-                                    <Select>
-                                        <Select.Option value="durable">Durable</Select.Option>
-                                        <Select.Option value="transient">Transient</Select.Option>
+                                    <Select data-testid="queue-type-select">
+                                        <Select.Option value="native">Native (LISTEN/NOTIFY — low latency)</Select.Option>
+                                        <Select.Option value="outbox">Outbox (transactional — exactly-once)</Select.Option>
                                     </Select>
                                 </Form.Item>
                             </Col>
+                        </Row>
+
+                        <Divider orientation="left" plain style={{ fontSize: 12, color: '#8c8c8c' }}>Delivery</Divider>
+
+                        <Row gutter={16}>
+                            <Col span={8}>
+                                <Form.Item name="maxRetries" label="Max Retries" initialValue={3}>
+                                    <InputNumber min={0} max={100} style={{ width: '100%' }} />
+                                </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                                <Form.Item name="visibilityTimeoutSeconds" label="Visibility Timeout (s)" initialValue={300}>
+                                    <InputNumber min={1} max={86400} style={{ width: '100%' }} />
+                                </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                                <Form.Item name="batchSize" label="Batch Size" initialValue={10}>
+                                    <InputNumber min={1} max={1000} style={{ width: '100%' }} />
+                                </Form.Item>
+                            </Col>
+                        </Row>
+                        <Row gutter={16}>
+                            <Col span={8}>
+                                <Form.Item name="pollingIntervalSeconds" label="Polling Interval (s)" initialValue={5}>
+                                    <InputNumber min={1} max={3600} style={{ width: '100%' }} />
+                                </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                                <Form.Item name="fifoEnabled" label="FIFO Ordering" valuePropName="checked" initialValue={false}>
+                                    <Switch />
+                                </Form.Item>
+                            </Col>
+                            <Col span={8}>
+                                <Form.Item name="deadLetterEnabled" label="Dead Letter Queue" valuePropName="checked" initialValue={true}>
+                                    <Switch />
+                                </Form.Item>
+                            </Col>
+                        </Row>
+                        <Row gutter={16}>
                             <Col span={12}>
-                                <Form.Item
-                                    name="autoDelete"
-                                    label="Auto Delete"
-                                    initialValue={false}
-                                >
-                                    <Select>
-                                        <Select.Option value={false}>No</Select.Option>
-                                        <Select.Option value={true}>Yes</Select.Option>
-                                    </Select>
+                                <Form.Item name="deadLetterQueueName" label="DLQ Name (optional)">
+                                    <Input placeholder="Leave blank for default" />
                                 </Form.Item>
                             </Col>
                         </Row>
