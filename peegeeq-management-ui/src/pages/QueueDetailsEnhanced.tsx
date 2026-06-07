@@ -546,6 +546,37 @@ const QueueDetailsPage = () => {
                                             </Card>
                                         </Col>
                                     </Row>
+                                    <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+                                        <Col span={12}>
+                                            <Card title="Queue Configuration" size="small">
+                                                <Space direction="vertical" style={{ width: '100%' }}>
+                                                    <div>
+                                                        <Text strong>Max Retries:</Text> <Text>{queue.config?.maxRetries ?? 3}</Text>
+                                                    </div>
+                                                    <div>
+                                                        <Text strong>Visibility Timeout:</Text> <Text>{queue.config?.visibilityTimeoutSeconds ?? 300}s</Text>
+                                                    </div>
+                                                    <div>
+                                                        <Text strong>Batch Size:</Text> <Text>{queue.config?.batchSize ?? 10}</Text>
+                                                    </div>
+                                                    <div>
+                                                        <Text strong>Polling Interval:</Text> <Text>{queue.config?.pollingIntervalSeconds ?? 5}s</Text>
+                                                    </div>
+                                                    <div>
+                                                        <Text strong>FIFO:</Text> <Tag color={queue.config?.fifoEnabled ? 'green' : 'default'}>{queue.config?.fifoEnabled ? 'Enabled' : 'Disabled'}</Tag>
+                                                    </div>
+                                                    <div>
+                                                        <Text strong>Dead Letter:</Text> <Tag color={queue.config?.deadLetterEnabled ? 'orange' : 'default'}>{queue.config?.deadLetterEnabled ? 'Enabled' : 'Disabled'}</Tag>
+                                                    </div>
+                                                    {queue.config?.deadLetterQueueName && (
+                                                        <div>
+                                                            <Text strong>DLQ Name:</Text> <Text code>{queue.config.deadLetterQueueName}</Text>
+                                                        </div>
+                                                    )}
+                                                </Space>
+                                            </Card>
+                                        </Col>
+                                    </Row>
                                 </div>
                             ),
                         },

@@ -154,6 +154,20 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 7c: Queue Details Overview – validates field mapping between backend response and UI
+    {
+      name: '7c-queue-details-overview',
+      testMatch: '**/queue-details-overview.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 7d: Queue Config Create and Display – create-form fields + config card on Overview tab
+    {
+      name: '7d-queue-config-create-and-display',
+      testMatch: '**/queue-config-create-and-display.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 8: Event Store Workflow - Comprehensive event store workflow with event posting (standalone)
     {
       name: '8-event-store-workflow',

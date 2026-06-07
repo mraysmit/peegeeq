@@ -107,6 +107,12 @@ test.describe('Settings – Connection Health Checks', () => {
         await page.goto('/settings')
         await page.waitForLoadState('load')
 
+        // Wait for the page-level Connected badge before pinging.
+        // The badge appearing means checkCurrentConnection() already succeeded on
+        // mount, which uses the same testRestConnection() path — so the ping to
+        // this backend URL is known-good before we click.
+        await expect(page.locator('.ant-badge-status-text', { hasText: /^Connected$/ })).toBeVisible({ timeout: 15000 })
+
         await page.getByTestId('ping-rest-btn').click()
 
         // REST ping to the running backend should succeed
@@ -114,9 +120,12 @@ test.describe('Settings – Connection Health Checks', () => {
         await expect(result).toBeVisible({ timeout: 10000 })
         await expect(result).toHaveClass(/ant-alert-success/)
 
-        // A green check-circle icon appears in the card header
+        // A green check-circle icon appears in the card header extra slot.
+        // Scope to .ant-card-extra to avoid matching the check-circle
+        // that also appears as the showIcon inside the ping-result Alert.
+        // (AntD 5 renders the extra slot as .ant-card-extra, not .ant-card-head-extra)
         const card = healthCard(page, 'REST API')
-        await expect(card.locator('.anticon-check-circle')).toBeVisible()
+        await expect(card.locator('.ant-card-extra .anticon-check-circle')).toBeVisible()
     })
 
     test('05 Ping WebSocket returns a result and shows it in the card', async ({ page }) => {
@@ -255,18 +264,18 @@ test.describe('Settings – Connection Health Checks', () => {
         await page.waitForLoadState('load')
 
         // Verify currently connected
-        await expect(page.getByText('Connected')).toBeVisible({ timeout: 10000 })
+        await expect(page.locator('.ant-badge-status-text', { hasText: /^Connected$/ })).toBeVisible({ timeout: 10000 })
         await expect(page.getByTestId('disconnect-btn')).toBeEnabled()
 
         await page.getByTestId('disconnect-btn').click()
 
         // Status badge changes to Disconnected (URL set to localhost:9999)
-        await expect(page.getByText('Disconnected')).toBeVisible({ timeout: 10000 })
+        await expect(page.locator('.ant-badge-status-text', { hasText: 'Disconnected' })).toBeVisible({ timeout: 10000 })
         await expect(page.getByTestId('disconnect-btn')).toBeDisabled()
 
         // Restore: reset to defaults (http://127.0.0.1:8088) so later tests work
         await page.getByTestId('reset-settings-btn').click()
-        await expect(page.getByText('Connected')).toBeVisible({ timeout: 10000 })
+        await expect(page.locator('.ant-badge-status-text', { hasText: /^Connected$/ })).toBeVisible({ timeout: 10000 })
     })
 
     test('14 Disconnect button is disabled when already disconnected', async ({ page }) => {
@@ -274,11 +283,11 @@ test.describe('Settings – Connection Health Checks', () => {
         await page.waitForLoadState('load')
 
         await page.getByTestId('disconnect-btn').click()
-        await expect(page.getByText('Disconnected')).toBeVisible({ timeout: 10000 })
+        await expect(page.locator('.ant-badge-status-text', { hasText: 'Disconnected' })).toBeVisible({ timeout: 10000 })
         await expect(page.getByTestId('disconnect-btn')).toBeDisabled()
 
         // Restore
         await page.getByTestId('reset-settings-btn').click()
-        await expect(page.getByText('Connected')).toBeVisible({ timeout: 10000 })
+        await expect(page.locator('.ant-badge-status-text', { hasText: 'Connected' })).toBeVisible({ timeout: 10000 })
     })
 })
