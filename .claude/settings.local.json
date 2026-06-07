@@ -9,7 +9,19 @@
       "Bash(Get-ChildItem \"C:\\\\Users\\\\mraysmit\\\\dev\\\\idea-projects\\\\peegeeq\\\\logs\")",
       "Bash(Sort-Object LastWriteTime -Descending)",
       "Bash(Select-Object -First 1)",
-      "Bash(Select-Object Name, LastWriteTime)"
+      "Bash(Select-Object Name, LastWriteTime)",
+      "Bash(npm install *)",
+      "Bash(node generate-metrics-report.js)",
+      "Bash(npx playwright *)",
+      "Bash(grep -v \"webhook\\\\|//\\\\|dead\")",
+      "Bash(npx tsc *)",
+      "Skill(code-review)",
+      "Skill(code-review:*)",
+      "Bash(grep -v \"//\")",
+      "Bash(grep -v \"//\\\\|import\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\mraysmit\\\\dev\\\\idea-projects\\\\peegeeq\" -Directory)",
+      "Bash(Select-Object Name)",
+      "Bash(node -e \"const {Document}=require\\('docx'\\); console.log\\('docx ok'\\)\")"
     ]
   }
 }
