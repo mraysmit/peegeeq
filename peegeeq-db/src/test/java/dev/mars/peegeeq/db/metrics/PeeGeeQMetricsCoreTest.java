@@ -264,66 +264,59 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecordTestTimer() {
+    void testRecordTimer() {
         java.util.Map<String, String> tags = new java.util.HashMap<>();
         tags.put("custom", "value");
-        metrics.recordTestTimer("test.timer", 100L, "test-profile", "test-name", tags);
+        metrics.recordTimer("peegeeq.timer", 100L, tags);
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordTestCounter() {
+    void testIncrementCounter() {
         java.util.Map<String, String> tags = new java.util.HashMap<>();
         tags.put("custom", "value");
-        metrics.recordTestCounter("test.counter", "test-profile", "test-name", tags);
+        metrics.incrementCounter("peegeeq.counter", tags);
         // Verify no exception thrown
     }
 
     @Test
-    void testRecordTestGauge() {
+    void testRecordGauge() {
         java.util.Map<String, String> tags = new java.util.HashMap<>();
+        tags.put("instance", "test-instance");
         tags.put("custom", "value");
-        metrics.recordTestGauge("test.gauge", 42.0, "test-profile", "test-name", tags);
+        metrics.recordGauge("peegeeq.gauge", 42.0, tags);
 
-        Gauge gauge = meterRegistry.find("peegeeq.test.test.gauge")
+        Gauge gauge = meterRegistry.find("peegeeq.gauge")
             .tag("instance", "test-instance")
-            .tag("profile", "test-profile")
-            .tag("test_name", "test-name")
-            .tag("test_instance", "test-instance")
             .tag("custom", "value")
             .gauge();
 
         assertNotNull(gauge);
         assertEquals(42.0, gauge.value(), 0.0001);
 
-        // Recording again with the same tags should update the same gauge.
-        metrics.recordTestGauge("test.gauge", 99.0, "test-profile", "test-name", tags);
+        metrics.recordGauge("peegeeq.gauge", 99.0, tags);
         assertEquals(99.0, gauge.value(), 0.0001);
     }
 
     @Test
-    void testRecordTestGaugeWithDelimiterValues() {
+    void testRecordGaugeWithDelimiterValues() {
         java.util.Map<String, String> tagsPipe = new java.util.HashMap<>();
+        tagsPipe.put("instance", "test-instance");
         tagsPipe.put("custom", "a|b");
-        metrics.recordTestGauge("test.gauge.delimited", 11.0, "test-profile", "test-name", tagsPipe);
+        metrics.recordGauge("peegeeq.gauge.delimited", 11.0, tagsPipe);
 
         java.util.Map<String, String> tagsEquals = new java.util.HashMap<>();
+        tagsEquals.put("instance", "test-instance");
         tagsEquals.put("custom", "a=b");
-        metrics.recordTestGauge("test.gauge.delimited", 22.0, "test-profile", "test-name", tagsEquals);
+        metrics.recordGauge("peegeeq.gauge.delimited", 22.0, tagsEquals);
 
-        Gauge gaugePipe = meterRegistry.find("peegeeq.test.test.gauge.delimited")
+        Gauge gaugePipe = meterRegistry.find("peegeeq.gauge.delimited")
             .tag("instance", "test-instance")
-            .tag("profile", "test-profile")
-            .tag("test_name", "test-name")
-            .tag("test_instance", "test-instance")
             .tag("custom", "a|b")
             .gauge();
 
-        Gauge gaugeEquals = meterRegistry.find("peegeeq.test.test.gauge.delimited")
+        Gauge gaugeEquals = meterRegistry.find("peegeeq.gauge.delimited")
             .tag("instance", "test-instance")
-            .tag("profile", "test-profile")
-            .tag("test_name", "test-name")
-            .tag("test_instance", "test-instance")
             .tag("custom", "a=b")
             .gauge();
 
@@ -334,33 +327,23 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecordTestGaugeAfterRegistryRebind() {
+    void testRecordGaugeAfterRegistryRebind() {
         java.util.Map<String, String> tags = new java.util.HashMap<>();
+        tags.put("instance", "test-instance");
         tags.put("custom", "value");
-        metrics.recordTestGauge("test.gauge.rebind", 10.0, "test-profile", "test-name", tags);
+        metrics.recordGauge("peegeeq.gauge.rebind", 10.0, tags);
 
         SimpleMeterRegistry reboundRegistry = new SimpleMeterRegistry();
         metrics.bindTo(reboundRegistry);
-        metrics.recordTestGauge("test.gauge.rebind", 55.0, "test-profile", "test-name", tags);
+        metrics.recordGauge("peegeeq.gauge.rebind", 55.0, tags);
 
-        Gauge reboundGauge = reboundRegistry.find("peegeeq.test.test.gauge.rebind")
+        Gauge reboundGauge = reboundRegistry.find("peegeeq.gauge.rebind")
             .tag("instance", "test-instance")
-            .tag("profile", "test-profile")
-            .tag("test_name", "test-name")
-            .tag("test_instance", "test-instance")
             .tag("custom", "value")
             .gauge();
 
         assertNotNull(reboundGauge);
         assertEquals(55.0, reboundGauge.value(), 0.0001);
-    }
-
-    @Test
-    void testRecordPerformanceTestExecution() {
-        java.util.Map<String, Object> additionalMetrics = new java.util.HashMap<>();
-        additionalMetrics.put("custom", "value");
-        metrics.recordPerformanceTestExecution("test-name", "test-profile", 1000L, true, 100.0, additionalMetrics);
-        // Verify no exception thrown
     }
 
     @Test
