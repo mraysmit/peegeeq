@@ -164,10 +164,25 @@ export interface Queue {
 }
 
 /**
+ * Resolved queue configuration as returned by the details endpoint.
+ * All fields are present (backend fills in defaults when not supplied at creation).
+ */
+export interface QueueConfigResolved {
+  type: QueueType;
+  visibilityTimeoutSeconds: number;  // seconds a message stays locked during processing
+  maxRetries: number;                // max delivery attempts before dead-lettering
+  deadLetterEnabled: boolean;        // whether failed messages are moved to a DLQ
+  batchSize: number;                 // messages fetched per poll cycle
+  pollingIntervalSeconds: number;    // seconds between poll cycles (outbox) / fallback poll (native)
+  fifoEnabled: boolean;              // strict first-in-first-out ordering
+  deadLetterQueueName: string | null; // explicit DLQ name, or null to use default
+}
+
+/**
  * Detailed queue information
  */
 export interface QueueDetails extends Queue {
-  config: QueueConfig;
+  config: QueueConfigResolved;
   statistics: QueueStatistics;
   consumers: QueueConsumer[];
   description?: string;

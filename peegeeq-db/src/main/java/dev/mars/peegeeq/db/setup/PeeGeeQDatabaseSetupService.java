@@ -239,12 +239,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         }
 
                         // 4. Create queues and event stores
-                        Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues());
+                        Map<String, QueueConfig> queueConfigs = new HashMap<>();
+                        Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues(), queueConfigs);
                         Map<String, EventStore<?>> eventStores = createEventStores(manager, req.getEventStores(),
                                 eventStoreFactory);
 
                         DatabaseSetupResult result = new DatabaseSetupResult(
                                 req.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
+                        queueConfigs.forEach(result::putQueueConfig);
 
                         activeSetups.put(req.getSetupId(), result);
                         setupDatabaseConfigs.put(req.getSetupId(), req.getDatabaseConfig());
@@ -698,13 +700,15 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                queueConfig.getQueueName(), setupId);
 
                     // Create a single queue factory for the new queue
-                    Map<String, QueueFactory> newFactories = createQueueFactories(manager, List.of(queueConfig));
+                    Map<String, QueueConfig> newConfigs = new HashMap<>();
+                    Map<String, QueueFactory> newFactories = createQueueFactories(manager, List.of(queueConfig), newConfigs);
 
                     if (!newFactories.isEmpty()) {
-                        // Add the new factory to the existing setup's queue factories
+                        // Add the new factory and its config to the existing setup
                         QueueFactory newFactory = newFactories.get(queueConfig.getQueueName());
                         if (newFactory != null) {
                             setup.getQueueFactories().put(queueConfig.getQueueName(), newFactory);
+                            newConfigs.forEach(setup::putQueueConfig);
                             logger.info("Added queue factory for '{}' to setup '{}'. Total factories: {}",
                                        queueConfig.getQueueName(), setupId, setup.getQueueFactories().size());
                         } else {
@@ -826,6 +830,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues) {
+        return createQueueFactories(manager, queues, null);
+    }
+
+    private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues,
+                                                            Map<String, QueueConfig> configsByName) {
         Map<String, QueueFactory> factories = new HashMap<>();
 
         logger.info("createQueueFactories called with queues: {}", queues != null ? queues.size() : "null");
@@ -875,6 +884,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     // Create a queue factory for this queue using the resolved type WITH configuration
                     QueueFactory factory = queueFactoryProvider.createFactory(implementationType, databaseService, factoryConfig);
                     factories.put(queueConfig.getQueueName(), factory);
+                    if (configsByName != null) {
+                        configsByName.put(queueConfig.getQueueName(), queueConfig);
+                    }
 
                     logger.info("Created {} queue factory for queue: {} with schema: {}", implementationType,
                             queueConfig.getQueueName(), configuration.getDatabaseConfig().getSchema());
