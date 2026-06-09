@@ -8,7 +8,7 @@ async function globalSetup() {
   console.log('\n🔍 Checking if PeeGeeQ backend is running...')
   
   try {
-    const response = await fetch(`${API_BASE_URL}/health`, {
+    const response = await fetch(`${API_BASE_URL}/api/v1/health`, {
       method: 'GET',
       signal: AbortSignal.timeout(5000), // 5 second timeout
     })

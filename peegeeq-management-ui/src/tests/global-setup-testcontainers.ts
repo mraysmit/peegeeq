@@ -244,7 +244,7 @@ async function globalSetup() {
     let backendAlreadyRunning = false
 
     try {
-      const response = await fetch(`${API_BASE_URL}/health`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/health`, {
         method: 'GET',
         signal: AbortSignal.timeout(3000),
       })
@@ -253,7 +253,7 @@ async function globalSetup() {
         // dev server origin.  If config is stale (http://localhost:3000 not
         // in allowedOrigins) the browser will see 403 / missing CORS headers.
         console.log('   Verifying backend CORS configuration for http://localhost:3000...')
-        const corsOk = await verifyCors(`${API_BASE_URL}/health`, 'http://localhost:3000')
+        const corsOk = await verifyCors(`${API_BASE_URL}/api/v1/health`, 'http://localhost:3000')
         if (corsOk) {
           console.log('OK: Backend is already running and healthy (CORS OK)')
           backendAlreadyRunning = true
@@ -343,7 +343,7 @@ async function globalSetup() {
 
       console.log('Waiting for backend to become healthy (up to 120s)...')
       try {
-        await waitForBackend(`${API_BASE_URL}/health`, 120000)
+        await waitForBackend(`${API_BASE_URL}/api/v1/health`, 120000)
         console.log('OK: Backend started and healthy')
       } catch (err) {
         console.error('ERROR: Backend did not start in time:', err instanceof Error ? err.message : String(err))

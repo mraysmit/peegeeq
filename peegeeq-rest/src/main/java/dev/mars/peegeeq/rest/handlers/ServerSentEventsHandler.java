@@ -106,6 +106,75 @@ public class ServerSentEventsHandler {
     }
     
     /**
+     * Handles SSE connections for real-time queue list updates.
+     * SSE URL: GET /api/v1/sse/queues/{setupId}
+     *
+     * Pushes a "queue-changed" event whenever a queue is created, updated, or
+     * deleted in the given setup. The frontend reacts by calling refetch() —
+     * it does not use the event payload directly.
+     */
+    public void handleQueueUpdates(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String connectionId = "queue-updates-" + connectionIdCounter.incrementAndGet();
+
+        logger.info("Queue updates SSE connection established: {} for setup {}", connectionId, setupId);
+
+        HttpServerResponse response = ctx.response();
+        response.putHeader("Content-Type", "text/event-stream")
+                .putHeader("Cache-Control", "no-cache")
+                .putHeader("Connection", "keep-alive")
+                .putHeader("Access-Control-Allow-Origin", "*")
+                .putHeader("Access-Control-Allow-Headers", "Cache-Control")
+                .setChunked(true);
+
+        writeSSEEvent(response, "connected", new JsonObject()
+                .put("type", "connected")
+                .put("connectionId", connectionId)
+                .put("setupId", setupId)
+                .put("timestamp", System.currentTimeMillis()));
+
+        String address = "peegeeq.queues.changed." + setupId;
+        io.vertx.core.eventbus.MessageConsumer<JsonObject> busConsumer =
+                vertx.eventBus().consumer(address, msg -> {
+                    if (!response.closed()) {
+                        writeSSEEvent(response, "queue-changed", msg.body());
+                    }
+                });
+
+        long[] timerIdRef = {0};
+        timerIdRef[0] = vertx.setPeriodic(30000L, id -> {
+            if (response.closed()) {
+                vertx.cancelTimer(timerIdRef[0]);
+                busConsumer.unregister();
+            } else {
+                writeSSEEvent(response, "heartbeat", new JsonObject()
+                        .put("type", "heartbeat")
+                        .put("connectionId", connectionId)
+                        .put("timestamp", System.currentTimeMillis()));
+            }
+        });
+
+        ctx.request().connection().closeHandler(v -> {
+            logger.info("Queue updates SSE connection closed: {}", connectionId);
+            vertx.cancelTimer(timerIdRef[0]);
+            busConsumer.unregister();
+        });
+    }
+
+    /**
+     * Writes a single SSE event directly to an HTTP response.
+     * Used by lightweight notification streams that don't need a full SSEConnection.
+     */
+    private void writeSSEEvent(HttpServerResponse response, String eventType, JsonObject data) {
+        if (response.closed()) return;
+        try {
+            response.write("event: " + eventType + "\ndata: " + data.encode() + "\n\n");
+        } catch (Exception e) {
+            logger.error("Error writing SSE event: {}", e.getMessage());
+        }
+    }
+
+    /**
      * Parses query parameters to configure the SSE connection.
      */
     private void parseConnectionParameters(RoutingContext ctx, SSEConnection connection) {

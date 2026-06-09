@@ -5,7 +5,7 @@
 
 // Get API base URL from environment or default to localhost
 export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-export const API_V1_PREFIX = '';
+export const API_V1_PREFIX = '/api/v1';
 
 // ============================================================================
 // Setup Endpoints

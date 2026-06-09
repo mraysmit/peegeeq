@@ -151,7 +151,7 @@ export const queuesApi = createApi({
                 if (options?.ackMode) params.append('ackMode', options.ackMode);
                 if (options?.offset) params.append('offset', options.offset.toString());
                 if (options?.filter) params.append('filter', options.filter);
-                return `/management/queues/${setupId}/${queueName}/messages?${params.toString()}`;
+                return `/queues/${setupId}/${queueName}/messages?${params.toString()}`;
             },
             providesTags: (_result, _error, { setupId, queueName }) => [
                 { type: 'QueueMessages', id: `${setupId}:${queueName}` },
@@ -161,7 +161,7 @@ export const queuesApi = createApi({
         // Publish a test message to queue
         publishMessage: builder.mutation<{ messageId: string }, { setupId: string; queueName: string; message: PublishMessageRequest }>({
             query: ({ setupId, queueName, message }) => ({
-                url: `/management/queues/${setupId}/${queueName}/publish`,
+                url: `/queues/${setupId}/${queueName}/publish`,
                 method: 'POST',
                 body: message,
             }),
@@ -177,7 +177,7 @@ export const queuesApi = createApi({
                 switch (request.operation) {
                     case 'PURGE':
                         return {
-                            url: `/management/queues/${setupId}/${queueName}/purge`,
+                            url: `/queues/${setupId}/${queueName}/purge`,
                             method: 'POST',
                         };
                     case 'DELETE': {
@@ -191,12 +191,12 @@ export const queuesApi = createApi({
                     }
                     case 'PAUSE':
                         return {
-                            url: `/management/queues/${setupId}/${queueName}/pause`,
+                            url: `/queues/${setupId}/${queueName}/pause`,
                             method: 'POST',
                         };
                     case 'RESUME':
                         return {
-                            url: `/management/queues/${setupId}/${queueName}/resume`,
+                            url: `/queues/${setupId}/${queueName}/resume`,
                             method: 'POST',
                         };
                     default:

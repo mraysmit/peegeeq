@@ -399,6 +399,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
         // Queue routes - Phase 4: Real-time Streaming
         router.get("/api/v1/queues/:setupId/:queueName/stream").handler(sseHandler::handleQueueStream);
+        router.get("/api/v1/sse/queues/:setupId").handler(sseHandler::handleQueueUpdates);
 
         // Queue routes - Phase 4: Consumer Group Management
         router.post("/api/v1/queues/:setupId/:queueName/consumer-groups")
