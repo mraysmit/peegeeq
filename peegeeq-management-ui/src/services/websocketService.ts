@@ -258,7 +258,7 @@ export const createSystemMetricsSSE = (
     onDisconnect?: () => void
 ) => {
     const service = new SSEService(
-        getApiUrl('sse/metrics'),
+        getVersionedApiUrl('sse/metrics'),
         onUpdate,
         onConnect,
         onDisconnect,

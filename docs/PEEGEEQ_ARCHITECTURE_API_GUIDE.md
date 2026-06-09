@@ -1628,8 +1628,8 @@ Content-Type: application/json
 - `WS /ws/monitoring` - System monitoring updates
 
 #### Server-Sent Events (SSE)
-- `GET /sse/metrics` - Real-time system metrics stream
-- `GET /sse/queues/{setupId}` - Real-time queue updates stream
+- `GET /api/v1/sse/metrics` - Real-time system metrics stream
+- `GET /api/v1/sse/queues/{setupId}` - Real-time queue updates stream
 - `GET /api/v1/queues/{setupId}/{queueName}/stream` - Queue message stream
 
 ### Consumer Group Endpoints
@@ -1666,7 +1666,7 @@ peegeeq-management-ui/
 #### **Integration Points**
 - **REST API**: `/api/v1/management/*` endpoints for data operations
 - **WebSocket**: `/ws/monitoring` for real-time system updates
-- **Server-Sent Events**: `/sse/metrics` for live metrics streaming
+- **Server-Sent Events**: `/api/v1/sse/metrics` for live metrics streaming
 - **Static Serving**: Built application served at `/ui/` by PeeGeeQ REST server
 
 #### **Technology Stack**
@@ -1763,7 +1763,7 @@ peegeeq-management-ui/
 - **Error Handling**: Structured error messages with error codes and descriptions
 
 #### **Server-Sent Events (SSE) Specification**
-- **Endpoint Pattern**: `/sse/{stream-type}` (metrics, queues, monitoring)
+- **Endpoint Pattern**: `/api/v1/sse/{stream-type}` (metrics, queues, monitoring)
 - **Event Types**: `message`, `queue-update`, `consumer-group-update`, `system-alert`
 - **Data Format**: JSON payload in event data field
 - **Connection Management**: Automatic reconnection with exponential backoff

@@ -88,13 +88,13 @@ test.describe('Queues - Setup Scope Selector', () => {
     })
 
     test('should send setupId query parameter to API when setup is selected', async ({ page }) => {
-        // Collect all /management/queues requests from the moment the route handler is installed
-        // (before navigation, so auto-select requests are also captured)
-        const queueRequestUrls: string[] = []
-        await page.route('**/management/queues**', route => {
-            queueRequestUrls.push(route.request().url())
-            return route.continue()
-        })
+        // Set up request watcher BEFORE navigation so auto-select requests are also captured.
+        // waitForRequest is more reliable than page.route + networkidle because networkidle
+        // may return before the auto-select triggers its RTK Query dispatch.
+        const setupIdRequestPromise = page.waitForRequest(
+            req => req.url().includes('/management/queues') && req.url().includes(`setupId=${SETUP_ID}`),
+            { timeout: 15000 }
+        )
 
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
@@ -105,11 +105,10 @@ test.describe('Queues - Setup Scope Selector', () => {
         const alreadySelected = await setupSelector.locator('.ant-select-selection-item').isVisible()
         if (!alreadySelected) {
             await selectAntOption(setupSelector, SETUP_ID)
-            await page.waitForLoadState('networkidle')
         }
 
-        // At least one queues request should have included setupId=default
-        const hasSetupRequest = queueRequestUrls.some(url => url.includes(`setupId=${SETUP_ID}`))
-        expect(hasSetupRequest).toBe(true)
+        // Wait for the queues API call that includes setupId
+        const request = await setupIdRequestPromise
+        expect(request.url()).toContain(`setupId=${SETUP_ID}`)
     })
 })

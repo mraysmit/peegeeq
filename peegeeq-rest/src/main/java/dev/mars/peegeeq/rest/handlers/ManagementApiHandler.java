@@ -1091,10 +1091,13 @@ public class ManagementApiHandler {
                         }
                         return response;
                     })
-                    .onSuccess(response -> ctx.response()
+                    .onSuccess(response -> {
+                        publishQueueChanged(setupId, queueName, "QUEUE_CREATED");
+                        ctx.response()
                             .setStatusCode(201)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode()))
+                            .end(response.encode());
+                    })
                     .onFailure(throwable -> {
                         logger.error("Error creating queue '{}' in setup '{}': {}", queueName, setupId,
                                 throwable.getMessage());
@@ -1160,10 +1163,13 @@ public class ManagementApiHandler {
                                 .put("note", "Configuration updates are applied to runtime settings")
                                 .put("timestamp", System.currentTimeMillis());
                     })
-                    .onSuccess(response -> ctx.response()
+                    .onSuccess(response -> {
+                        publishQueueChanged(setupId, queueName, "QUEUE_UPDATED");
+                        ctx.response()
                             .setStatusCode(200)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode()))
+                            .end(response.encode());
+                    })
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
@@ -1228,10 +1234,13 @@ public class ManagementApiHandler {
                             .put("note", "Queue resources have been cleaned up")
                             .put("timestamp", System.currentTimeMillis()));
                     })
-                    .onSuccess(response -> ctx.response()
+                    .onSuccess(response -> {
+                        publishQueueChanged(setupId, queueName, "QUEUE_DELETED");
+                        ctx.response()
                             .setStatusCode(200)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode()))
+                            .end(response.encode());
+                    })
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
@@ -2403,6 +2412,14 @@ public class ManagementApiHandler {
     private boolean isSetupNotFoundError(Throwable throwable) {
         return throwable != null &&
                 throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+    }
+
+    private void publishQueueChanged(String setupId, String queueName, String event) {
+        vertx.eventBus().publish("peegeeq.queues.changed." + setupId, new JsonObject()
+                .put("event", event)
+                .put("setupId", setupId)
+                .put("queueName", queueName)
+                .put("timestamp", System.currentTimeMillis()));
     }
 
     /**
