@@ -21,6 +21,8 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag(TestCategories.SMOKE)
@@ -94,25 +96,17 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
                     .addQueryParam("causationId", rootId)
                     .send();
             })
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+            .compose(response -> {
                 assertEquals(200, response.statusCode());
                 JsonObject body = response.bodyAsJsonObject();
-                if (body == null) {
-                    testContext.failNow("Response body is null");
-                    return;
-                }
+                assertNotNull(body, "Response body must not be null");
                 JsonArray events = body.getJsonArray("events");
-                if (events == null) {
-                    testContext.failNow("Response body does not contain 'events': " + body.encodePrettily());
-                    return;
-                }
-                
+                assertNotNull(events, "Response must contain 'events' array");
                 assertEquals(1, events.size(), "Should find exactly 1 child event");
                 assertEquals("payment.processed", events.getJsonObject(0).getString("eventType"));
-                
-                cleanupSetup(setupId);
-                testContext.completeNow();
-            })));
+                return cleanupSetupStrict(setupId);
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     @Test
@@ -167,34 +161,198 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
             })
             .compose(response -> {
                 assertEquals(200, response.statusCode());
-                JsonArray aggregates = response.bodyAsJsonObject().getJsonArray("aggregates");
+                JsonObject body = response.bodyAsJsonObject();
+                JsonArray aggregates = body.getJsonArray("aggregates");
                 assertEquals(3, aggregates.size());
-                assertTrue(aggregates.contains("order-A"));
-                assertTrue(aggregates.contains("order-B"));
-                assertTrue(aggregates.contains("payment-1"));
+                // Response shape: each element is an AggregateInfo object
+                var aggIds = aggregates.stream()
+                        .map(o -> ((JsonObject) o).getString("aggregateId"))
+                        .toList();
+                assertTrue(aggIds.contains("order-A"));
+                assertTrue(aggIds.contains("order-B"));
+                assertTrue(aggIds.contains("payment-1"));
+                // Pagination metadata must be present
+                assertEquals(3, body.getInteger("count"));
+                assertEquals(3L, body.getLong("totalCount"));
+                assertFalse(body.getBoolean("truncated"), "3 results should not be truncated");
+                // Each aggregate carries enriched metadata
+                aggregates.stream().map(o -> (JsonObject) o).forEach(info -> {
+                    assertNotNull(info.getString("aggregateId"));
+                    assertTrue(info.getLong("eventCount") > 0, "eventCount must be positive");
+                    assertNotNull(info.getJsonArray("eventTypes"), "eventTypes must be present");
+                });
 
                 // 4. Query Unique Aggregates (Filtered by Event Type)
-                return webClient.get( 
+                return webClient.get(
                         "/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/aggregates")
                     .addQueryParam("eventType", "order.placed")
                     .send();
             })
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+            .compose(response -> {
                 assertEquals(200, response.statusCode());
-                JsonArray aggregates = response.bodyAsJsonObject().getJsonArray("aggregates");
-                
+                JsonObject body = response.bodyAsJsonObject();
+                JsonArray aggregates = body.getJsonArray("aggregates");
+
                 assertEquals(2, aggregates.size(), "Should only find 2 order aggregates");
-                assertTrue(aggregates.contains("order-A"));
-                assertTrue(aggregates.contains("order-B"));
-                
-                cleanupSetup(setupId);
-                testContext.completeNow();
-            })));
+                var aggIds = aggregates.stream()
+                        .map(o -> ((JsonObject) o).getString("aggregateId"))
+                        .toList();
+                assertTrue(aggIds.contains("order-A"));
+                assertTrue(aggIds.contains("order-B"));
+                assertEquals(2L, body.getLong("totalCount"));
+                assertFalse(body.getBoolean("truncated"));
+
+                return cleanupSetupStrict(setupId);
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
-    private void cleanupSetup(String setupId) {
-        webClient.delete( "/api/v1/setups/" + setupId)
-            .send()
-            .onFailure(err -> logger.warn("Failed to cleanup setup: {}", setupId));
+    @Test
+    @DisplayName("Aggregate list: limit and offset query params are honoured, truncated flag is correct")
+    void testAggregateListPagination(VertxTestContext testContext) {
+        String setupId = generateSetupId();
+
+        JsonObject setupRequest = createDatabaseSetupRequest(setupId, "dummy_queue");
+        setupRequest.getJsonArray("eventStores").add(new JsonObject()
+                .put("eventStoreName", STORE_NAME)
+                .put("biTemporalEnabled", true));
+
+        // Seed 3 events across 3 distinct aggregates
+        webClient.post("/api/v1/database-setup/create")
+                .sendJsonObject(setupRequest)
+                .compose(r -> webClient.post("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
+                        .sendJsonObject(new JsonObject()
+                                .put("eventType", "page.event")
+                                .put("aggregateId", "page-agg-1")
+                                .put("validTime", Instant.now().toString())
+                                .put("eventData", new JsonObject())))
+                .compose(r -> webClient.post("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
+                        .sendJsonObject(new JsonObject()
+                                .put("eventType", "page.event")
+                                .put("aggregateId", "page-agg-2")
+                                .put("validTime", Instant.now().toString())
+                                .put("eventData", new JsonObject())))
+                .compose(r -> webClient.post("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
+                        .sendJsonObject(new JsonObject()
+                                .put("eventType", "page.event")
+                                .put("aggregateId", "page-agg-3")
+                                .put("validTime", Instant.now().toString())
+                                .put("eventData", new JsonObject())))
+                // Page 1: limit=2, offset=0
+                .compose(r -> webClient.get("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/aggregates")
+                        .addQueryParam("limit", "2")
+                        .addQueryParam("offset", "0")
+                        .send())
+                .compose(page1Response -> {
+                    assertEquals(200, page1Response.statusCode());
+                    JsonObject body = page1Response.bodyAsJsonObject();
+                    JsonArray aggs = body.getJsonArray("aggregates");
+
+                    assertEquals(2, aggs.size(), "Page 1 must return exactly 2 aggregates");
+                    assertEquals(3L, body.getLong("totalCount"), "totalCount must reflect all 3 aggregates");
+                    assertTrue(body.getBoolean("truncated"), "truncated must be true on page 1");
+                    assertEquals(2, body.getInteger("limit"), "limit must be echoed in response");
+                    assertEquals(0, body.getInteger("offset"), "offset must be echoed in response");
+
+                    var page1Ids = aggs.stream()
+                            .map(o -> ((JsonObject) o).getString("aggregateId"))
+                            .toList();
+
+                    // Page 2: limit=2, offset=2
+                    return webClient.get("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/aggregates")
+                            .addQueryParam("limit", "2")
+                            .addQueryParam("offset", "2")
+                            .send()
+                            .map(page2Response -> new JsonObject()
+                                    .put("page1Ids", new JsonArray(page1Ids))
+                                    .put("page2Body", page2Response.bodyAsJsonObject())
+                                    .put("page2Status", page2Response.statusCode()));
+                })
+                .compose(combined -> {
+                    assertEquals(200, combined.getInteger("page2Status"));
+                    JsonObject page2Body = combined.getJsonObject("page2Body");
+                    JsonArray page2Aggs = page2Body.getJsonArray("aggregates");
+
+                    assertEquals(1, page2Aggs.size(), "Page 2 must contain the remaining 1 aggregate");
+                    assertEquals(3L, page2Body.getLong("totalCount"), "totalCount must remain 3 on page 2");
+                    assertFalse(page2Body.getBoolean("truncated"), "truncated must be false on the last page");
+                    assertEquals(2, page2Body.getInteger("offset"), "offset must be echoed as 2 on page 2");
+
+                    // Verify no overlap between the two pages
+                    var page1Ids = combined.getJsonArray("page1Ids").stream()
+                            .map(Object::toString)
+                            .toList();
+                    var page2Ids = page2Aggs.stream()
+                            .map(o -> ((JsonObject) o).getString("aggregateId"))
+                            .toList();
+                    page2Ids.forEach(id ->
+                            assertFalse(page1Ids.contains(id), "Page 2 must not repeat a page 1 aggregate: " + id));
+
+                    // All 3 aggregate IDs are accounted for across both pages
+                    var allIds = new java.util.ArrayList<>(page1Ids);
+                    allIds.addAll(page2Ids);
+                    assertTrue(allIds.contains("page-agg-1"));
+                    assertTrue(allIds.contains("page-agg-2"));
+                    assertTrue(allIds.contains("page-agg-3"));
+
+                    return cleanupSetupStrict(setupId);
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
+
+    @Test
+    @DisplayName("Aggregate list: firstEventTime and lastEventTime are populated in REST response")
+    void testAggregateEnrichedTemporalMetadata(VertxTestContext testContext) {
+        String setupId = generateSetupId();
+
+        JsonObject setupRequest = createDatabaseSetupRequest(setupId, "dummy_queue");
+        setupRequest.getJsonArray("eventStores").add(new JsonObject()
+                .put("eventStoreName", STORE_NAME)
+                .put("biTemporalEnabled", true));
+
+        // Two events for the same aggregate so eventCount=2 and temporal range is verifiable
+        webClient.post("/api/v1/database-setup/create")
+                .sendJsonObject(setupRequest)
+                .compose(r -> webClient.post("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
+                        .sendJsonObject(new JsonObject()
+                                .put("eventType", "meta.event")
+                                .put("aggregateId", "meta-agg-A")
+                                .put("validTime", Instant.now().toString())
+                                .put("eventData", new JsonObject())))
+                .compose(r -> webClient.post("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/events")
+                        .sendJsonObject(new JsonObject()
+                                .put("eventType", "meta.event")
+                                .put("aggregateId", "meta-agg-A")
+                                .put("validTime", Instant.now().toString())
+                                .put("eventData", new JsonObject())))
+                .compose(r -> webClient.get("/api/v1/eventstores/" + setupId + "/" + STORE_NAME + "/aggregates")
+                        .send())
+                .compose(response -> {
+                    assertEquals(200, response.statusCode());
+                    JsonObject body = response.bodyAsJsonObject();
+                    JsonArray aggs = body.getJsonArray("aggregates");
+                    assertEquals(1, aggs.size(), "Only one distinct aggregate should be present");
+
+                    JsonObject info = aggs.getJsonObject(0);
+                    assertEquals("meta-agg-A", info.getString("aggregateId"));
+                    assertEquals(2L, info.getLong("eventCount"), "Both events must be counted");
+
+                    String firstEventTime = info.getString("firstEventTime");
+                    String lastEventTime  = info.getString("lastEventTime");
+                    assertNotNull(firstEventTime, "firstEventTime must be present in REST response");
+                    assertNotNull(lastEventTime,  "lastEventTime must be present in REST response");
+                    // Both must be parseable ISO-8601 timestamps
+                    Instant first = Instant.parse(firstEventTime);
+                    Instant last  = Instant.parse(lastEventTime);
+                    assertFalse(first.isAfter(last), "firstEventTime must not be after lastEventTime");
+
+                    JsonArray eventTypes = info.getJsonArray("eventTypes");
+                    assertNotNull(eventTypes, "eventTypes must be present");
+                    assertTrue(eventTypes.contains("meta.event"), "eventTypes must include 'meta.event'");
+
+                    return cleanupSetupStrict(setupId);
+                })
+                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+    }
+
 }

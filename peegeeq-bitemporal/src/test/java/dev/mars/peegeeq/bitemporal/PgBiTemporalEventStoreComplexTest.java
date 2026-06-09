@@ -1121,13 +1121,24 @@ class PgBiTemporalEventStoreComplexTest {
                 .validTime(validTime).headers(Map.of()).correlationId(null).causationId(null).aggregateId("agg-001").execute())
             .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("e4", "data", 4))
                 .validTime(validTime).headers(Map.of()).correlationId(null).causationId(null).aggregateId("agg-003").execute())
-            .compose(v -> eventStore.getUniqueAggregates(eventType))
-            .onComplete(testContext.succeeding(uniqueAggregates -> testContext.verify(() -> {
-                assertNotNull(uniqueAggregates);
-                assertEquals(3, uniqueAggregates.size());
-                assertTrue(uniqueAggregates.contains("agg-001"));
-                assertTrue(uniqueAggregates.contains("agg-002"));
-                assertTrue(uniqueAggregates.contains("agg-003"));
+            .compose(v -> eventStore.getUniqueAggregates(eventType, 1000, 0))
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertNotNull(result);
+                assertEquals(3, result.getCount());
+                assertEquals(3L, result.getTotalCount());
+                assertFalse(result.isTruncated());
+                var ids = result.getAggregates().stream()
+                        .map(dev.mars.peegeeq.api.EventStore.AggregateInfo::getAggregateId)
+                        .toList();
+                assertTrue(ids.contains("agg-001"));
+                assertTrue(ids.contains("agg-002"));
+                assertTrue(ids.contains("agg-003"));
+                // Each aggregate has enriched metadata
+                result.getAggregates().forEach(info -> {
+                    assertNotNull(info.getEventTypes());
+                    assertFalse(info.getEventTypes().isEmpty());
+                    assertTrue(info.getEventCount() > 0);
+                });
                 testContext.completeNow();
             })));
 
@@ -1136,7 +1147,140 @@ class PgBiTemporalEventStoreComplexTest {
             throw new RuntimeException(testContext.causeOfFailure());
         }
     }
-    
+
+    @Test
+    void testGetUniqueAggregatesNoFilter(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+
+        // Two different event types, three aggregates total
+        eventStore.appendBuilder().eventType("TypeA").payload(new TestEvent("a1", "d", 1))
+            .validTime(validTime).aggregateId("agg-x").execute()
+            .compose(v -> eventStore.appendBuilder().eventType("TypeB").payload(new TestEvent("b1", "d", 2))
+                .validTime(validTime).aggregateId("agg-y").execute())
+            .compose(v -> eventStore.getUniqueAggregates(null, 1000, 0))
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertNotNull(result);
+                // At minimum both test aggregates are present (other tests may have added more)
+                assertTrue(result.getCount() >= 2, "Should find at least 2 aggregates without filter");
+                assertFalse(result.isTruncated());
+                var ids = result.getAggregates().stream()
+                        .map(dev.mars.peegeeq.api.EventStore.AggregateInfo::getAggregateId)
+                        .toList();
+                assertTrue(ids.contains("agg-x"));
+                assertTrue(ids.contains("agg-y"));
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testGetUniqueAggregatesTemporalMetadata(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "MetaTestEvent";
+        String aggregateId = "meta-agg-" + System.nanoTime();
+
+        // Append two events to the same aggregate so eventCount > 1
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("m1", "data", 1))
+            .validTime(validTime).aggregateId(aggregateId).execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("m2", "data", 2))
+                .validTime(validTime).aggregateId(aggregateId).execute())
+            .compose(v -> eventStore.getUniqueAggregates(eventType, 1000, 0))
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                var info = result.getAggregates().stream()
+                        .filter(a -> aggregateId.equals(a.getAggregateId()))
+                        .findFirst()
+                        .orElse(null);
+                assertNotNull(info, "Target aggregate must be present");
+                assertEquals(2L, info.getEventCount(), "Both events must be counted");
+                assertNotNull(info.getFirstEventTime(), "firstEventTime must be populated");
+                assertNotNull(info.getLastEventTime(), "lastEventTime must be populated");
+                assertFalse(info.getFirstEventTime().isAfter(info.getLastEventTime()),
+                        "firstEventTime must not be after lastEventTime");
+                assertFalse(info.getEventTypes().isEmpty(), "eventTypes must be non-empty");
+                assertTrue(info.getEventTypes().contains(eventType));
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testGetUniqueAggregatesTruncation(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "TruncTestEvent-" + System.nanoTime();
+
+        // Append 3 events to 3 different aggregates, then query with limit=2
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("t1", "d", 1))
+            .validTime(validTime).aggregateId("trunc-agg-1").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("t2", "d", 2))
+                .validTime(validTime).aggregateId("trunc-agg-2").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("t3", "d", 3))
+                .validTime(validTime).aggregateId("trunc-agg-3").execute())
+            .compose(v -> eventStore.getUniqueAggregates(eventType, 2, 0))
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                assertEquals(2, result.getCount(), "limit=2 must return exactly 2 aggregates");
+                assertEquals(3L, result.getTotalCount(), "totalCount must reflect all 3 aggregates");
+                assertTrue(result.isTruncated(), "isTruncated must be true when count < totalCount");
+                assertEquals(2, result.getLimit());
+                assertEquals(0, result.getOffset());
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testGetUniqueAggregatesPagination(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "PageTestEvent-" + System.nanoTime();
+
+        // 3 aggregates; fetch page 1 (limit=2, offset=0) then page 2 (limit=2, offset=2)
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("p1", "d", 1))
+            .validTime(validTime).aggregateId("page-agg-1").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("p2", "d", 2))
+                .validTime(validTime).aggregateId("page-agg-2").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("p3", "d", 3))
+                .validTime(validTime).aggregateId("page-agg-3").execute())
+            .compose(v -> eventStore.getUniqueAggregates(eventType, 2, 0))
+            .compose(page1 -> {
+                assertEquals(2, page1.getCount());
+                assertEquals(3L, page1.getTotalCount());
+                assertTrue(page1.isTruncated());
+                return eventStore.getUniqueAggregates(eventType, 2, 2)
+                        .map(page2 -> {
+                            assertEquals(1, page2.getCount(), "Second page must contain the remaining 1 aggregate");
+                            assertEquals(3L, page2.getTotalCount());
+                            assertFalse(page2.isTruncated(), "Last page must not be truncated");
+                            // No overlap between pages
+                            var p1Ids = page1.getAggregates().stream()
+                                    .map(dev.mars.peegeeq.api.EventStore.AggregateInfo::getAggregateId)
+                                    .toList();
+                            var p2Ids = page2.getAggregates().stream()
+                                    .map(dev.mars.peegeeq.api.EventStore.AggregateInfo::getAggregateId)
+                                    .toList();
+                            p2Ids.forEach(id ->
+                                    assertFalse(p1Ids.contains(id), "Page 2 must not repeat page 1 aggregate: " + id));
+                            return page2;
+                        });
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
     @Test
     void testAppendWithAllOverloads(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();

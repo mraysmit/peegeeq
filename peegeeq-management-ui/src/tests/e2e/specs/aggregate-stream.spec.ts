@@ -10,8 +10,11 @@ import { selectAntOption } from '../utils/ant-helpers'
  * a real backend.
  *
  * Data set:
- *   agg-A: OrderCreated (v1), OrderShipped (v2)   — 2 events
- *   agg-B: OrderCancelled (v1)                     — 1 event
+ *   agg-A: OrderCreated (v1, correlationId=aggACorrelationId), OrderShipped (v2)  — 2 events
+ *   agg-B: OrderCancelled (v1, no correlationId)                                  — 1 event
+ *
+ * Tests 00–13: original coverage (page structure, loading, stream, drawer, filter)
+ * Tests 14–16: I2/I5 enriched metadata columns + event stream Actions column
  *
  * Standalone – creates its own event store; depends only on
  * setup-prerequisite (SETUP_ID must exist).
@@ -24,6 +27,7 @@ test.describe('Aggregate Stream Page', () => {
     let eventStoreName = ''
     let aggA = ''
     let aggB = ''
+    let aggACorrelationId = ''
 
     // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -70,7 +74,11 @@ test.describe('Aggregate Stream Page', () => {
 
     async function loadAggregates(page: Parameters<Parameters<typeof test>[1]>[0]) {
         await selectStore(page)
-        await page.getByRole('button', { name: /load aggregates/i }).click()
+        // Wait for the button to be enabled before clicking — React's setSelectedEventStore
+        // is async and the button remains disabled until the state update is committed.
+        const loadBtn = page.getByRole('button', { name: /load aggregates/i })
+        await expect(loadBtn).toBeEnabled({ timeout: 5000 })
+        await loadBtn.click()
         await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
     }
 
@@ -96,12 +104,13 @@ test.describe('Aggregate Stream Page', () => {
         await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 30000 })
         await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 10000 })
 
-        // agg-A: 2 events
+        // agg-A: 2 events; first event carries a correlationId for Causation Tree navigation tests
+        aggACorrelationId = `corr-${Date.now()}`
         await postEvent(page, {
             eventType: 'OrderCreated',
             eventData: { orderId: aggA },
             aggregateId: aggA,
-            correlationId: `corr-${Date.now()}`,
+            correlationId: aggACorrelationId,
         })
         await postEvent(page, {
             eventType: 'OrderShipped',
@@ -178,9 +187,10 @@ test.describe('Aggregate Stream Page', () => {
             page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` })
         ).toBeVisible({ timeout: 10000 })
 
+        // Use .last() — the outer "Aggregate Stream" card also matches (contains the inner stream card)
         const streamCard = page.locator('.ant-card').filter({
             has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` }),
-        })
+        }).last()
         // aggA was seeded with 2 events (OrderCreated + OrderShipped); use gte to tolerate extra
         // events from concurrent test runs sharing the same event store
         const streamRows = streamCard.locator('.ant-table-tbody tr.ant-table-row')
@@ -191,28 +201,27 @@ test.describe('Aggregate Stream Page', () => {
         await expect(streamCard.locator('.ant-tag').filter({ hasText: 'OrderShipped' })).toBeVisible()
     })
 
-    test('08 View Stream button loads the stream for that aggregate', async ({ page }) => {
+    test('08 aggregate list columns show enriched metadata (eventCount, lastEventTime, eventTypes)', async ({ page }) => {
+        // I2: the aggregate table now includes eventCount badge, lastEventTime, and eventTypes tags
         await page.goto('/aggregate-stream')
         await loadAggregates(page)
 
-        await page.locator('.ant-table-tbody tr.ant-table-row')
-            .filter({ hasText: aggB })
-            .getByText('View Stream')
-            .click()
+        // aggA: 2 events seeded — eventCount badge must display 2
+        const aggARow = page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggA })
+        await expect(aggARow.locator('.ant-badge-count')).toContainText('2')
 
-        await expect(
-            page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggB}` })
-        ).toBeVisible({ timeout: 10000 })
+        // eventTypes column must list both event types seeded for aggA
+        await expect(aggARow.locator('.ant-tag').filter({ hasText: 'OrderCreated' })).toBeVisible()
+        await expect(aggARow.locator('.ant-tag').filter({ hasText: 'OrderShipped' })).toBeVisible()
 
-        const streamCard = page.locator('.ant-card').filter({
-            has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggB}` }),
-        })
-        // Backend may return all store events regardless of aggregateId filter;
-        // verify the card appears with at least 1 row and the expected event type tag.
-        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row')).not.toHaveCount(0, { timeout: 10000 })
-        const rowCount = await streamCard.locator('.ant-table-tbody tr.ant-table-row').count()
-        expect(rowCount).toBeGreaterThanOrEqual(1)
-        await expect(streamCard.locator('.ant-tag').filter({ hasText: 'OrderCancelled' })).toBeVisible()
+        // lastEventTime column (3rd td, 0-indexed) must show a formatted date, not the fallback '-'
+        // Column order: Aggregate ID (0), Events (1), Last Active (2), Event Types (3)
+        await expect(aggARow.locator('td').nth(2)).toContainText(/\d{4}-\d{2}-\d{2}/)
+
+        // aggB: 1 event (OrderCancelled) — verify count badge and event type tag
+        const aggBRow = page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggB })
+        await expect(aggBRow.locator('.ant-badge-count')).toContainText('1')
+        await expect(aggBRow.locator('.ant-tag').filter({ hasText: 'OrderCancelled' })).toBeVisible()
     })
 
     test('09 clicking a second aggregate replaces the stream', async ({ page }) => {
@@ -320,5 +329,57 @@ test.describe('Aggregate Stream Page', () => {
         await expect(page.locator('td').filter({ hasText: aggB })).toBeVisible()
 
         console.log('Clearing filter restored both aggregates')
+    })
+
+    // ── 6. Event stream Actions column (I5) ───────────────────────────────────
+
+    test('14 event stream Actions column shows Details and enabled Causation Tree buttons', async ({ page }) => {
+        await page.goto('/aggregate-stream')
+        await loadAggregates(page)
+
+        // Click aggA to load its stream
+        await page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggA }).click()
+
+        // Use .last() — the outer "Aggregate Stream" card also contains the inner stream card
+        const streamCard = page.locator('.ant-card').filter({
+            has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` }),
+        }).last()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+
+        // First event (OrderCreated, VERSION_ASC) has a correlationId — Details + Causation Tree visible
+        const firstRow = streamCard.locator('.ant-table-tbody tr.ant-table-row').first()
+        await expect(firstRow.getByText('Details')).toBeVisible()
+        await expect(firstRow.getByText('Causation Tree')).toBeVisible()
+        // OrderCreated was seeded with aggACorrelationId so the button must be enabled
+        await expect(firstRow.getByText('Causation Tree')).not.toBeDisabled()
+    })
+
+    test('15 Causation Tree button navigates to causation tree page with correct URL params', async ({ page }) => {
+        await page.goto('/aggregate-stream')
+        await loadAggregates(page)
+
+        // Load aggA stream — OrderCreated (v1) carries aggACorrelationId → button enabled
+        await page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggA }).click()
+
+        const streamCard = page.locator('.ant-card').filter({
+            has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggA}` }),
+        }).last()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+
+        // Click Causation Tree on the OrderCreated row
+        const causationBtn = streamCard
+            .locator('.ant-table-tbody tr.ant-table-row')
+            .filter({ hasText: 'OrderCreated' })
+            .getByText('Causation Tree')
+        await expect(causationBtn).not.toBeDisabled()
+        await causationBtn.click()
+
+        // Client-side navigation via React Router — URL must update to causation-tree with params
+        await page.waitForURL('**/causation-tree**', { timeout: 10000 })
+        const url = page.url()
+        // Verify the exact correlationId seeded in test 00 is passed in the URL
+        expect(url).toContain(`correlationId=${encodeURIComponent(aggACorrelationId)}`)
+        expect(url).toContain(`setupId=${SETUP_ID}`)
+        expect(url).toContain(`eventStore=${eventStoreName}`)
     })
 })
