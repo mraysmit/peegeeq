@@ -215,4 +215,25 @@ test.describe('Causation Tree Page', () => {
         await page.locator('.ant-drawer-close').click()
         await expect(page.locator('.ant-drawer-open')).not.toBeVisible({ timeout: 5000 })
     })
+
+    // ── 4. Deep-link from Aggregate Stream (I5) ───────────────────────────────
+
+    test('11 deep-link URL params auto-populate the form and trigger trace without manual Trace click', async ({ page }) => {
+        // I5: CausationTreePage reads correlationId/setupId/eventStore from URL search params
+        // on mount and auto-triggers fetchCausationTree() once the event-store list loads.
+        // This test verifies the full deep-link path — no Trace button click required.
+        await page.goto(
+            `/causation-tree` +
+            `?correlationId=${encodeURIComponent(correlationId)}` +
+            `&setupId=${encodeURIComponent(SETUP_ID)}` +
+            `&eventStore=${encodeURIComponent(eventStoreName)}`
+        )
+
+        // All 3 seeded events must appear without any manual Trace button click
+        await expect(page.locator('.ant-tree-node-content-wrapper').first()).toBeVisible({ timeout: 20000 })
+        await expect(page.locator('.ant-tree-node-content-wrapper')).toHaveCount(3)
+
+        // The correlation ID input must be pre-populated from the URL param
+        await expect(page.getByTestId('causation-correlation-input')).toHaveValue(correlationId)
+    })
 })

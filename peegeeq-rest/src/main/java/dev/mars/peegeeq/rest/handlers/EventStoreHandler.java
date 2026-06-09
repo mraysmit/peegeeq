@@ -32,6 +32,7 @@ import dev.mars.peegeeq.rest.dto.EventStoreStats;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServerResponse;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -327,15 +328,33 @@ public class EventStoreHandler {
     }
     
     /**
-     * Gets unique aggregates from the event store.
+     * Gets unique aggregates from the event store with metadata and pagination.
+     * Query params: eventType (optional filter), limit (default 1000, max 1000), offset (default 0).
      */
     public void getUniqueAggregates(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String eventStoreName = ctx.pathParam("eventStoreName");
         String eventType = ctx.request().getParam("eventType");
-        
-        logger.info("Getting unique aggregates for event store {} in setup: {}", eventStoreName, setupId);
-        
+
+        int limit = 1000;
+        int offset = 0;
+        String limitStr = ctx.request().getParam("limit");
+        String offsetStr = ctx.request().getParam("offset");
+        if (limitStr != null && !limitStr.isBlank()) {
+            try { limit = Math.max(1, Math.min(1000, Integer.parseInt(limitStr))); }
+            catch (NumberFormatException ignored) { /* use default */ }
+        }
+        if (offsetStr != null && !offsetStr.isBlank()) {
+            try { offset = Math.max(0, Integer.parseInt(offsetStr)); }
+            catch (NumberFormatException ignored) { /* use default */ }
+        }
+
+        logger.info("Getting unique aggregates for event store {} in setup: {} (limit={}, offset={})",
+                eventStoreName, setupId, limit, offset);
+
+        final int finalLimit = limit;
+        final int finalOffset = offset;
+
         setupService.getSetupResult(setupId)
                 .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
@@ -347,12 +366,30 @@ public class EventStoreHandler {
                     }
                     return Future.succeededFuture(eventStore);
                 })
-                .compose(eventStore -> eventStore.getUniqueAggregates(eventType))
-                .map(aggregates -> new JsonObject()
-                        .put("aggregates", aggregates)
-                        .put("count", aggregates.size()))
+                .compose(eventStore -> eventStore.getUniqueAggregates(eventType, finalLimit, finalOffset))
+                .map(result -> {
+                    JsonArray aggregatesJson = new JsonArray();
+                    for (var info : result.getAggregates()) {
+                        aggregatesJson.add(new JsonObject()
+                                .put("aggregateId", info.getAggregateId())
+                                .put("eventCount", info.getEventCount())
+                                .put("firstEventTime", info.getFirstEventTime() != null
+                                        ? info.getFirstEventTime().toString() : null)
+                                .put("lastEventTime", info.getLastEventTime() != null
+                                        ? info.getLastEventTime().toString() : null)
+                                .put("eventTypes", new JsonArray(info.getEventTypes())));
+                    }
+                    return new JsonObject()
+                            .put("aggregates", aggregatesJson)
+                            .put("count", result.getCount())
+                            .put("totalCount", result.getTotalCount())
+                            .put("truncated", result.isTruncated())
+                            .put("limit", result.getLimit())
+                            .put("offset", result.getOffset());
+                })
                 .onSuccess(response -> {
-                    logger.info("Retrieved unique aggregates for event store {}", eventStoreName);
+                    logger.info("Retrieved {} aggregates (totalCount={}) for event store {}",
+                            response.getInteger("count"), response.getLong("totalCount"), eventStoreName);
                     sendResponse(ctx, 200, response);
                 })
                 .onFailure(throwable -> {

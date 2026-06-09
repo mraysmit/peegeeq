@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
+import { useSearchParams } from 'react-router-dom'
 import { getVersionedApiUrl } from '../services/configService'
 import {
     Card,
@@ -38,13 +39,17 @@ interface TreeNode {
 }
 
 const CausationTreePage = () => {
+    const [searchParams] = useSearchParams()
+    // Track whether we have already auto-triggered from URL params
+    const autoTriggered = useRef(false)
+
     const [setupIds, setSetupIds] = useState<string[]>([])
     const [eventStores, setEventStores] = useState<EventStore[]>([])
-    const [selectedSetupId, setSelectedSetupId] = useState<string>('')
-    const [selectedEventStore, setSelectedEventStore] = useState<string>('')
+    const [selectedSetupId, setSelectedSetupId] = useState<string>(searchParams.get('setupId') ?? '')
+    const [selectedEventStore, setSelectedEventStore] = useState<string>(searchParams.get('eventStore') ?? '')
     const [setupsLoading, setSetupsLoading] = useState(false)
 
-    const [correlationId, setCorrelationId] = useState('')
+    const [correlationId, setCorrelationId] = useState(searchParams.get('correlationId') ?? '')
     const [causationTreeData, setCausationTreeData] = useState<TreeNode[]>([])
     const [causationLoading, setCausationLoading] = useState(false)
     const [expandedKeys, setExpandedKeys] = useState<React.Key[]>([])
@@ -93,8 +98,24 @@ const CausationTreePage = () => {
     }, [])
 
     useEffect(() => {
+        // Only reset event store when the user manually changes the setup — not on the initial URL-param mount
+        if (!autoTriggered.current) return
         setSelectedEventStore('')
     }, [selectedSetupId])
+
+    // When arriving via deep-link from Aggregate Stream, auto-trigger the causation tree fetch
+    // once both the setup/event-store dropdowns are populated from the URL params.
+    useEffect(() => {
+        if (autoTriggered.current) return
+        const paramCorrelationId = searchParams.get('correlationId')
+        const paramSetupId = searchParams.get('setupId')
+        const paramEventStore = searchParams.get('eventStore')
+        if (paramCorrelationId && paramSetupId && paramEventStore && eventStores.length > 0) {
+            autoTriggered.current = true
+            // Ensure the event store list for the selected setup is available before triggering
+            fetchCausationTree()
+        }
+    }, [eventStores])
 
     const storesForSetup = eventStores.filter(s => s.setupId === selectedSetupId)
 
