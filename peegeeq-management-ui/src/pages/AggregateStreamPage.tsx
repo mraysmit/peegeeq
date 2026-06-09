@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
+import { useNavigate } from 'react-router-dom'
 import { getVersionedApiUrl } from '../services/configService'
 import {
+    Alert,
     Card,
     Select,
     Row,
@@ -18,12 +20,14 @@ import {
     Badge,
     message
 } from 'antd'
-import { DatabaseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
+import { BranchesOutlined, DatabaseOutlined, ReloadOutlined, SearchOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { peeGeeQClient } from '../api/PeeGeeQClient'
-import { BiTemporalEvent } from '../api/types'
+import { AggregateInfo, BiTemporalEvent } from '../api/types'
 
 const { Text, Title } = Typography
+
+const AGGREGATE_PAGE_SIZE = 1000
 
 interface EventStore {
     key: string
@@ -32,15 +36,21 @@ interface EventStore {
 }
 
 const AggregateStreamPage = () => {
+    const navigate = useNavigate()
+
     const [setupIds, setSetupIds] = useState<string[]>([])
     const [eventStores, setEventStores] = useState<EventStore[]>([])
     const [selectedSetupId, setSelectedSetupId] = useState<string>('')
     const [selectedEventStore, setSelectedEventStore] = useState<string>('')
     const [setupsLoading, setSetupsLoading] = useState(false)
 
-    const [aggregates, setAggregates] = useState<string[]>([])
+    const [aggregates, setAggregates] = useState<AggregateInfo[]>([])
+    const [aggregatesTotalCount, setAggregatesTotalCount] = useState(0)
+    const [aggregatesTruncated, setAggregatesTruncated] = useState(false)
+    const [aggregatesOffset, setAggregatesOffset] = useState(0)
     const [selectedAggregate, setSelectedAggregate] = useState<string | null>(null)
     const [aggregateEvents, setAggregateEvents] = useState<BiTemporalEvent[]>([])
+    const [eventsTruncated, setEventsTruncated] = useState(false)
     const [aggregatesLoading, setAggregatesLoading] = useState(false)
     const [aggregateEventsLoading, setAggregateEventsLoading] = useState(false)
     const [eventTypeFilter, setEventTypeFilter] = useState<string>('')
@@ -83,12 +93,28 @@ const AggregateStreamPage = () => {
         }
     }
 
-    const fetchAggregates = async () => {
+    /** Fetch aggregates. Pass append=true to load the next page and add to the existing list. */
+    const fetchAggregates = async (append = false) => {
         if (!selectedSetupId || !selectedEventStore) return
+        const nextOffset = append ? aggregatesOffset + AGGREGATE_PAGE_SIZE : 0
         setAggregatesLoading(true)
         try {
-            const response = await peeGeeQClient.getUniqueAggregates(selectedSetupId, selectedEventStore, eventTypeFilter)
-            setAggregates(response.aggregates || [])
+            const response = await peeGeeQClient.getUniqueAggregates(
+                selectedSetupId, selectedEventStore,
+                eventTypeFilter || undefined,
+                AGGREGATE_PAGE_SIZE, nextOffset
+            )
+            if (append) {
+                setAggregates(prev => [...prev, ...(response.aggregates || [])])
+            } else {
+                setAggregates(response.aggregates || [])
+                setSelectedAggregate(null)
+                setAggregateEvents([])
+                setEventsTruncated(false)
+            }
+            setAggregatesOffset(nextOffset)
+            setAggregatesTotalCount(response.totalCount)
+            setAggregatesTruncated(response.truncated)
         } catch (error: any) {
             message.error(`Failed to fetch aggregates: ${error.message}`)
         } finally {
@@ -100,6 +126,7 @@ const AggregateStreamPage = () => {
         if (!selectedSetupId || !selectedEventStore) return
         setAggregateEventsLoading(true)
         setSelectedAggregate(aggregateId)
+        setEventsTruncated(false)
         try {
             const response = await peeGeeQClient.queryEvents(selectedSetupId, selectedEventStore, {
                 aggregateId,
@@ -109,6 +136,7 @@ const AggregateStreamPage = () => {
                 includeCorrections: true
             })
             setAggregateEvents(response.events || [])
+            setEventsTruncated(response.hasMore)
         } catch (error: any) {
             message.error(`Failed to fetch events for aggregate ${aggregateId}: ${error.message}`)
         } finally {
@@ -126,12 +154,16 @@ const AggregateStreamPage = () => {
         setAggregates([])
         setSelectedAggregate(null)
         setAggregateEvents([])
+        setAggregatesTruncated(false)
+        setEventsTruncated(false)
     }, [selectedSetupId])
 
     useEffect(() => {
         setAggregates([])
         setSelectedAggregate(null)
         setAggregateEvents([])
+        setAggregatesTruncated(false)
+        setEventsTruncated(false)
     }, [selectedEventStore])
 
     const storesForSetup = eventStores.filter(s => s.setupId === selectedSetupId)
@@ -144,12 +176,28 @@ const AggregateStreamPage = () => {
             render: (text: string) => <Text strong>{text}</Text>
         },
         {
-            title: 'Actions',
-            key: 'actions',
-            render: (_: any, record: any) => (
-                <Button type="link" onClick={() => fetchAggregateEvents(record.aggregateId)}>
-                    View Stream
-                </Button>
+            title: 'Events',
+            dataIndex: 'eventCount',
+            key: 'eventCount',
+            width: 70,
+            render: (count: number) => <Badge count={count} showZero style={{ backgroundColor: '#722ed1' }} />
+        },
+        {
+            title: 'Last Active',
+            dataIndex: 'lastEventTime',
+            key: 'lastEventTime',
+            width: 160,
+            render: (ts: string | undefined) =>
+                ts ? <Text type="secondary" style={{ fontSize: '12px' }}>{dayjs(ts).format('YYYY-MM-DD HH:mm')}</Text> : '-'
+        },
+        {
+            title: 'Event Types',
+            dataIndex: 'eventTypes',
+            key: 'eventTypes',
+            render: (types: string[]) => (
+                <Space size={2} wrap>
+                    {(types || []).map(t => <Tag key={t} color="purple" style={{ fontSize: '10px', margin: 0 }}>{t}</Tag>)}
+                </Space>
             )
         }
     ]
@@ -184,13 +232,27 @@ const AggregateStreamPage = () => {
             title: 'Actions',
             key: 'actions',
             render: (_: any, record: BiTemporalEvent) => (
-                <Button
-                    type="link"
-                    icon={<SearchOutlined />}
-                    onClick={() => { setSelectedEvent(record); setDrawerVisible(true) }}
-                >
-                    Details
-                </Button>
+                <Space>
+                    <Button
+                        type="link"
+                        icon={<SearchOutlined />}
+                        onClick={() => { setSelectedEvent(record); setDrawerVisible(true) }}
+                    >
+                        Details
+                    </Button>
+                    <Button
+                        type="link"
+                        icon={<BranchesOutlined />}
+                        disabled={!record.correlationId}
+                        onClick={() => navigate(
+                            `/causation-tree?correlationId=${encodeURIComponent(record.correlationId!)}`
+                            + `&setupId=${encodeURIComponent(selectedSetupId)}`
+                            + `&eventStore=${encodeURIComponent(selectedEventStore)}`
+                        )}
+                    >
+                        Causation Tree
+                    </Button>
+                </Space>
             )
         }
     ]
@@ -240,7 +302,7 @@ const AggregateStreamPage = () => {
                         <Button
                             type="primary"
                             icon={<ReloadOutlined />}
-                            onClick={fetchAggregates}
+                            onClick={() => fetchAggregates(false)}
                             loading={aggregatesLoading}
                             disabled={!selectedSetupId || !selectedEventStore}
                         >
@@ -252,7 +314,7 @@ const AggregateStreamPage = () => {
 
             <Card title={<span><DatabaseOutlined /> Aggregate Stream</span>}>
                 <div style={{ display: 'flex', gap: 16 }}>
-                    <Card title="Aggregates" style={{ width: 300 }} styles={{ body: { padding: 0 } }}>
+                    <Card title="Aggregates" style={{ width: 560 }} styles={{ body: { padding: 0 } }}>
                         <div style={{ padding: 16, borderBottom: '1px solid #f0f0f0' }}>
                             <Space direction="vertical" style={{ width: '100%' }}>
                                 <Input
@@ -264,7 +326,7 @@ const AggregateStreamPage = () => {
                                 <Button
                                     block
                                     icon={<ReloadOutlined />}
-                                    onClick={fetchAggregates}
+                                    onClick={() => fetchAggregates(false)}
                                     loading={aggregatesLoading}
                                     disabled={!selectedSetupId || !selectedEventStore}
                                 >
@@ -272,6 +334,17 @@ const AggregateStreamPage = () => {
                                 </Button>
                             </Space>
                         </div>
+
+                        {aggregatesTruncated && (
+                            <Alert
+                                style={{ margin: '8px 16px 0' }}
+                                type="warning"
+                                showIcon
+                                message={`Showing ${aggregates.length.toLocaleString()} of ${aggregatesTotalCount.toLocaleString()} aggregates`}
+                                description='Use the Event Type filter to narrow results, or click "Load More" below.'
+                            />
+                        )}
+
                         <div style={{ maxHeight: 600, overflowY: 'auto' }}>
                             {aggregates.length === 0 && !aggregatesLoading ? (
                                 <Empty
@@ -284,7 +357,7 @@ const AggregateStreamPage = () => {
                                 />
                             ) : (
                                 <Table
-                                    dataSource={aggregates.map(id => ({ key: id, aggregateId: id }))}
+                                    dataSource={aggregates.map(a => ({ ...a, key: a.aggregateId }))}
                                     columns={aggregateColumns}
                                     pagination={false}
                                     loading={aggregatesLoading}
@@ -299,12 +372,32 @@ const AggregateStreamPage = () => {
                                 />
                             )}
                         </div>
+
+                        {aggregatesTruncated && (
+                            <div style={{ padding: 12, borderTop: '1px solid #f0f0f0' }}>
+                                <Button
+                                    block
+                                    onClick={() => fetchAggregates(true)}
+                                    loading={aggregatesLoading}
+                                >
+                                    Load More ({aggregates.length.toLocaleString()} of {aggregatesTotalCount.toLocaleString()})
+                                </Button>
+                            </div>
+                        )}
                     </Card>
 
                     <Card
                         title={selectedAggregate ? `Stream: ${selectedAggregate}` : 'Select an Aggregate'}
                         style={{ flex: 1 }}
                     >
+                        {eventsTruncated && (
+                            <Alert
+                                style={{ marginBottom: 12 }}
+                                type="warning"
+                                showIcon
+                                message="Showing first 1,000 events — stream may be truncated"
+                            />
+                        )}
                         {selectedAggregate ? (
                             <Table
                                 dataSource={aggregateEvents}
@@ -339,7 +432,26 @@ const AggregateStreamPage = () => {
                             {selectedEvent.aggregateId ? <Text copyable>{selectedEvent.aggregateId}</Text> : '-'}
                         </Descriptions.Item>
                         <Descriptions.Item label="Correlation ID">
-                            {selectedEvent.correlationId ? <Text copyable>{selectedEvent.correlationId}</Text> : '-'}
+                            {selectedEvent.correlationId ? (
+                                <Space>
+                                    <Text copyable>{selectedEvent.correlationId}</Text>
+                                    <Button
+                                        type="link"
+                                        size="small"
+                                        icon={<BranchesOutlined />}
+                                        onClick={() => {
+                                            setDrawerVisible(false)
+                                            navigate(
+                                                `/causation-tree?correlationId=${encodeURIComponent(selectedEvent.correlationId!)}`
+                                                + `&setupId=${encodeURIComponent(selectedSetupId)}`
+                                                + `&eventStore=${encodeURIComponent(selectedEventStore)}`
+                                            )
+                                        }}
+                                    >
+                                        View Causation Tree
+                                    </Button>
+                                </Space>
+                            ) : '-'}
                         </Descriptions.Item>
                         <Descriptions.Item label="Causation ID">
                             {selectedEvent.causationId ? <Text copyable>{selectedEvent.causationId}</Text> : '-'}

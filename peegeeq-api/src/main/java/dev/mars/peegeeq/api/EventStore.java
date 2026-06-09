@@ -313,13 +313,15 @@ public interface EventStore<T> {
     Future<Void> unsubscribe();
 
     /**
-     * Gets a list of unique aggregate IDs, optionally filtered by event type.
-     * This is useful for discovering aggregates in the system.
+     * Gets aggregate metadata, optionally filtered by event type, with pagination.
+     * Each entry includes event count, first/last event times, and the distinct event types present.
      *
      * @param eventType The event type to filter by (optional, can be null)
-    * @return A Vert.x Future that completes with a list of unique aggregate IDs
+     * @param limit     Maximum number of aggregates to return (capped at 1000)
+     * @param offset    Number of aggregates to skip for pagination
+     * @return A Vert.x Future that completes with the aggregate list result
      */
-    Future<List<String>> getUniqueAggregates(String eventType);
+    Future<AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset);
     
     /**
      * Gets statistics about the event store.
@@ -335,6 +337,32 @@ public interface EventStore<T> {
      */
     Future<Void> close();
     
+    /**
+     * Metadata for a single aggregate — derived from its event history.
+     */
+    interface AggregateInfo {
+        String getAggregateId();
+        long getEventCount();
+        Instant getFirstEventTime();
+        Instant getLastEventTime();
+        List<String> getEventTypes();
+    }
+
+    /**
+     * Paginated result of a {@link #getUniqueAggregates} query.
+     */
+    interface AggregateListResult {
+        List<AggregateInfo> getAggregates();
+        /** Number of aggregates returned in this page. */
+        int getCount();
+        /** Total number of matching aggregates across all pages. */
+        long getTotalCount();
+        /** True when more aggregates exist beyond the current page. */
+        boolean isTruncated();
+        int getLimit();
+        int getOffset();
+    }
+
     /**
      * Statistics about the event store.
      */

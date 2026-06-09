@@ -1148,35 +1148,87 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     @Override
-    public Future<List<String>> getUniqueAggregates(String eventType) {
+    public Future<EventStore.AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset) {
         if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        StringBuilder sql = new StringBuilder("SELECT DISTINCT aggregate_id FROM %s");
-        List<Object> params = new ArrayList<>();
-        
-        if (eventType != null) {
-            sql.append(" WHERE event_type = $1");
-            params.add(eventType);
+        int cappedLimit = Math.max(1, Math.min(limit, 1000));
+
+        // Total count query — determines pagination metadata
+        StringBuilder countSqlBuilder = new StringBuilder(
+                "SELECT COUNT(DISTINCT aggregate_id) AS total_count FROM %s WHERE aggregate_id IS NOT NULL"
+                        .formatted(quotedTableName));
+
+        // List query — per-aggregate metadata via GROUP BY
+        StringBuilder listSqlBuilder = new StringBuilder("""
+                SELECT
+                    aggregate_id,
+                    COUNT(*) AS event_count,
+                    MIN(valid_time) AS first_event_time,
+                    MAX(transaction_time) AS last_event_time,
+                    string_agg(DISTINCT event_type, ',') AS event_types
+                FROM %s
+                WHERE aggregate_id IS NOT NULL
+                """.formatted(quotedTableName));
+
+        List<Object> listParams = new ArrayList<>();
+        List<Object> countParams = new ArrayList<>();
+
+        if (eventType != null && !eventType.isBlank()) {
+            countSqlBuilder.append(" AND event_type = $1");
+            listSqlBuilder.append(" AND event_type = $1");
+            countParams.add(eventType);
+            listParams.add(eventType);
         }
-        
-        sql.append(" ORDER BY aggregate_id LIMIT 1000"); // Safety limit
 
-        String finalSql = sql.toString().formatted(quotedTableName);
-        Tuple tuple = Tuple.tuple(params);
+        int limitParamIdx = listParams.size() + 1;
+        int offsetParamIdx = listParams.size() + 2;
+        listSqlBuilder.append(" GROUP BY aggregate_id ORDER BY last_event_time DESC NULLS LAST")
+                      .append(" LIMIT $").append(limitParamIdx)
+                      .append(" OFFSET $").append(offsetParamIdx);
+        listParams.add(cappedLimit);
+        listParams.add(offset);
 
-        return getOptimalReadClient().preparedQuery(finalSql)
-                .execute(tuple)
-                .map(rows -> {
-                    List<String> aggregates = new ArrayList<>();
-                    for (Row row : rows) {
-                        String aggId = row.getString("aggregate_id");
-                        if (aggId != null) {
-                            aggregates.add(aggId);
-                        }
+        String countSql = countSqlBuilder.toString();
+        String listSql = listSqlBuilder.toString();
+        Tuple countTuple = Tuple.tuple(countParams);
+        Tuple listTuple = Tuple.tuple(listParams);
+
+        return getOptimalReadClient().preparedQuery(countSql)
+                .execute(countTuple)
+                .compose(countRows -> {
+                    long totalCount = 0;
+                    if (countRows.size() > 0) {
+                        totalCount = countRows.iterator().next().getLong("total_count");
                     }
-                    return aggregates;
+                    final long finalTotalCount = totalCount;
+
+                    return getOptimalReadClient().preparedQuery(listSql)
+                            .execute(listTuple)
+                            .map(listRows -> {
+                                List<EventStore.AggregateInfo> aggregates = new ArrayList<>();
+                                for (Row row : listRows) {
+                                    String aggId = row.getString("aggregate_id");
+                                    if (aggId == null) continue;
+
+                                    long eventCount = row.getLong("event_count");
+                                    OffsetDateTime firstOdt = row.getOffsetDateTime("first_event_time");
+                                    OffsetDateTime lastOdt = row.getOffsetDateTime("last_event_time");
+                                    String eventTypesStr = row.getString("event_types");
+
+                                    Instant firstEventTime = firstOdt != null ? firstOdt.toInstant() : null;
+                                    Instant lastEventTime = lastOdt != null ? lastOdt.toInstant() : null;
+                                    List<String> eventTypes = eventTypesStr != null && !eventTypesStr.isBlank()
+                                            ? List.of(eventTypesStr.split(","))
+                                            : List.of();
+
+                                    aggregates.add(new AggregateInfoImpl(aggId, eventCount,
+                                            firstEventTime, lastEventTime, eventTypes));
+                                }
+                                return (EventStore.AggregateListResult) new AggregateListResultImpl(
+                                        aggregates, finalTotalCount, cappedLimit, offset);
+                            });
                 });
     }
 
@@ -2199,6 +2251,57 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     ", uniqueAggregateCount=" + uniqueAggregateCount +
                     '}';
         }
+    }
+
+    /**
+     * Implementation of EventStore.AggregateInfo.
+     */
+    private static class AggregateInfoImpl implements EventStore.AggregateInfo {
+        private final String aggregateId;
+        private final long eventCount;
+        private final Instant firstEventTime;
+        private final Instant lastEventTime;
+        private final List<String> eventTypes;
+
+        AggregateInfoImpl(String aggregateId, long eventCount,
+                Instant firstEventTime, Instant lastEventTime, List<String> eventTypes) {
+            this.aggregateId = aggregateId;
+            this.eventCount = eventCount;
+            this.firstEventTime = firstEventTime;
+            this.lastEventTime = lastEventTime;
+            this.eventTypes = List.copyOf(eventTypes);
+        }
+
+        @Override public String getAggregateId()    { return aggregateId; }
+        @Override public long getEventCount()        { return eventCount; }
+        @Override public Instant getFirstEventTime() { return firstEventTime; }
+        @Override public Instant getLastEventTime()  { return lastEventTime; }
+        @Override public List<String> getEventTypes(){ return eventTypes; }
+    }
+
+    /**
+     * Implementation of EventStore.AggregateListResult.
+     */
+    private static class AggregateListResultImpl implements EventStore.AggregateListResult {
+        private final List<EventStore.AggregateInfo> aggregates;
+        private final long totalCount;
+        private final int limit;
+        private final int offset;
+
+        AggregateListResultImpl(List<EventStore.AggregateInfo> aggregates,
+                long totalCount, int limit, int offset) {
+            this.aggregates = List.copyOf(aggregates);
+            this.totalCount = totalCount;
+            this.limit = limit;
+            this.offset = offset;
+        }
+
+        @Override public List<EventStore.AggregateInfo> getAggregates() { return aggregates; }
+        @Override public int getCount()           { return aggregates.size(); }
+        @Override public long getTotalCount()     { return totalCount; }
+        @Override public boolean isTruncated()    { return (long) offset + aggregates.size() < totalCount; }
+        @Override public int getLimit()           { return limit; }
+        @Override public int getOffset()          { return offset; }
     }
 
     /**

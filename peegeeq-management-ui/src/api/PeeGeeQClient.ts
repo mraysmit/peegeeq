@@ -52,6 +52,7 @@ import type {
     EventStoreListResponse,
     QueueConfigDto,
     EventStoreConfigDto,
+    AggregateListResult,
 } from './types';
 
 // ============================================================================
@@ -396,12 +397,20 @@ export class PeeGeeQClient {
         );
     }
 
-    async getUniqueAggregates(setupId: string, storeName: string, eventType?: string): Promise<{ aggregates: string[]; count: number }> {
-        return this.request<{ aggregates: string[]; count: number }>(
+    async getUniqueAggregates(
+        setupId: string,
+        storeName: string,
+        eventType?: string,
+        limit = 1000,
+        offset = 0
+    ): Promise<AggregateListResult> {
+        const params: Record<string, string | number | boolean | undefined> = { limit, offset };
+        if (eventType) params.eventType = eventType;
+        return this.request<AggregateListResult>(
             'GET',
             EVENT_STORE_ENDPOINTS.AGGREGATES(setupId, storeName),
             undefined,
-            eventType ? { eventType } : undefined
+            params
         );
     }
 

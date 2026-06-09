@@ -211,6 +211,23 @@ export interface EventQueryResult<T = unknown> {
   hasMore: boolean;
 }
 
+export interface AggregateInfo {
+  aggregateId: string;
+  eventCount: number;
+  firstEventTime?: string; // ISO-8601 timestamp, may be null
+  lastEventTime?: string;  // ISO-8601 timestamp, may be null
+  eventTypes: string[];
+}
+
+export interface AggregateListResult {
+  aggregates: AggregateInfo[];
+  count: number;
+  totalCount: number;
+  truncated: boolean;
+  limit: number;
+  offset: number;
+}
+
 export interface AppendEventRequest<T = unknown> {
   eventType: string;
   payload: T;
