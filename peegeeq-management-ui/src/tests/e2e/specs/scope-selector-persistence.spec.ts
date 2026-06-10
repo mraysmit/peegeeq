@@ -34,7 +34,7 @@ test.describe('Scope Selector - State Persistence', () => {
         // Select a setup on the Queues page
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         const queuesSetupSelector = page.getByTestId('setup-scope-selector')
         await selectAntOption(queuesSetupSelector, SETUP_ID)
@@ -42,7 +42,7 @@ test.describe('Scope Selector - State Persistence', () => {
 
         // Navigate to Event Stores page
         await page.getByTestId('nav-event-stores').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         // Setup selector on Event Stores page should still reflect the previous selection
         const eventStoresSetupSelector = page.getByTestId('setup-scope-selector')
@@ -70,13 +70,27 @@ test.describe('Scope Selector - State Persistence', () => {
         await page.goto('/')
         await page.waitForLoadState('load')
 
-        // Verify no setup is stored yet (or clear it)
-        await page.evaluate(() => localStorage.removeItem('pgq-selected-setup'))
-
         const setupSelector = page.getByTestId('setup-scope-selector')
+        await expect(setupSelector).toBeVisible()
+
+        // Wait for SetupScopeBar to finish loading its options (async fetch)
+        await expect(setupSelector.locator('.ant-select-selection-item, .ant-select-selection-placeholder')).toBeVisible({ timeout: 10000 })
+
+        // Clear any existing selection so onChange will fire when we re-select
+        await setupSelector.hover()
+        const clearBtn = setupSelector.locator('.ant-select-clear')
+        if (await clearBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+            await clearBtn.click()
+            // Store should now write null to localStorage
+            await expect
+                .poll(() => page.evaluate(() => localStorage.getItem('pgq-selected-setup')), { timeout: 3000 })
+                .toBeNull()
+        }
+
+        // Now select SETUP_ID — this must trigger setSelectedSetup → localStorage write
         await selectAntOption(setupSelector, SETUP_ID)
 
-        // Check that localStorage now contains the selected setup ID
+        // localStorage must contain the selected setup ID
         const storedSetup = await page.evaluate(() => localStorage.getItem('pgq-selected-setup'))
         expect(storedSetup).toBe(SETUP_ID)
     })
