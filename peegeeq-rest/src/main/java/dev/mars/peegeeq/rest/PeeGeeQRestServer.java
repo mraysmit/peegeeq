@@ -293,8 +293,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Add Micrometer metrics aggregation handler
         router.route().handler(this::handleHttpRequestMetrics);
 
-                // Initialize per-request trace context before request logging and business handlers.
-                router.route().handler(this::handleRequestTracing);
+        // Initialize per-request trace context before request logging and business handlers.
+        router.route().handler(this::handleRequestTracing);
 
         // Global handlers
         router.route().handler(LoggerHandler.create());
@@ -324,8 +324,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         ConsumerAlertHandler consumerAlertHandler = new ConsumerAlertHandler(setupService);
 
         // System monitoring handler for real-time metrics streaming
-        this.monitoringHandler = new SystemMonitoringHandler(
-                setupService, vertx, config.monitoring(), meterRegistry);
+        this.monitoringHandler = new SystemMonitoringHandler(setupService, vertx, config.monitoring(), meterRegistry);
 
         // Queue streaming handler
         this.webSocketHandler = new WebSocketHandler(setupService, objectMapper);
