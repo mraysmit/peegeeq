@@ -300,7 +300,7 @@ async function globalSetup() {
       const backendProc = spawn(
         mvnCmd,
         [
-          'exec:java', '-pl', 'peegeeq-rest',
+          'exec:java', '-pl', 'peegeeq-rest', '-am',
           `-DPEEGEEQ_DATABASE_HOST=${connectionInfo.host}`,
           `-DPEEGEEQ_DATABASE_PORT=${connectionInfo.port}`,
           `-DPEEGEEQ_DATABASE_NAME=${connectionInfo.database}`,

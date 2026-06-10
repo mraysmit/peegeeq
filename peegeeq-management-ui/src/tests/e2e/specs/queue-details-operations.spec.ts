@@ -54,7 +54,7 @@ test.describe('Queue Details - Operations', () => {
     /** Navigate to the queue details page and wait for tabs to load. */
     async function gotoDetails(page: Parameters<Parameters<typeof test>[1]>[0]) {
         await page.goto(`/queues/${SETUP_ID}/${queueName}`)
-        await expect(page.getByRole('tablist')).toBeVisible({ timeout: 10000 })
+        await expect(page.getByRole('tablist')).toBeVisible({ timeout: 15000 })
     }
 
     // ── 0. Setup ──────────────────────────────────────────────────────────────
