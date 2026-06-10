@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message, Typography, Descriptions } from 'antd'
 import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
@@ -49,6 +50,7 @@ interface RecentActivity {
 
 
 const Overview = () => {
+    const navigate = useNavigate()
     // Use Zustand store for centralized state management
     const {
         systemStats: stats,
@@ -477,7 +479,7 @@ const Overview = () => {
                 {/* Tables */}
                 <Row gutter={[16, 16]}>
                     <Col xs={24} lg={14}>
-                        <Card title="Queue Overview" extra={<Button type="link">View All</Button>}>
+                        <Card title="Queue Overview" extra={<Button type="link" onClick={() => navigate('/queues')}>View All</Button>}>
                             <Table
                                 data-testid="queue-overview-table"
                                 columns={queueColumns}

@@ -25,8 +25,15 @@ test.describe('Database Setups – Form Defaults and Port Range', () => {
     test.afterEach(async ({ page }) => {
         const modal = page.locator('.ant-modal')
         if (await modal.isVisible()) {
-            await page.keyboard.press('Escape')
-            await expect(modal).not.toBeVisible({ timeout: 3000 })
+            // Prefer clicking the modal's X button — more reliable than Escape
+            // because AntD modal animations can exceed a short timeout
+            const closeBtn = page.locator('.ant-modal-close')
+            if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+                await closeBtn.click()
+            } else {
+                await page.keyboard.press('Escape')
+            }
+            await expect(modal).not.toBeVisible({ timeout: 10000 })
         }
     })
 
