@@ -300,7 +300,7 @@ async function globalSetup() {
       const backendProc = spawn(
         mvnCmd,
         [
-          'exec:java', '-pl', 'peegeeq-rest', '-am',
+          'exec:java', '-pl', 'peegeeq-rest',
           `-DPEEGEEQ_DATABASE_HOST=${connectionInfo.host}`,
           `-DPEEGEEQ_DATABASE_PORT=${connectionInfo.port}`,
           `-DPEEGEEQ_DATABASE_NAME=${connectionInfo.database}`,
@@ -341,9 +341,9 @@ async function globalSetup() {
         console.log(`Backend startup log: ${backendLogPath}`)
       }
 
-      console.log('Waiting for backend to become healthy (up to 120s)...')
+      console.log('Waiting for backend to become healthy (up to 30s)...')
       try {
-        await waitForBackend(`${API_BASE_URL}/api/v1/health`, 120000)
+        await waitForBackend(`${API_BASE_URL}/api/v1/health`, 30000)
         console.log('OK: Backend started and healthy')
       } catch (err) {
         console.error('ERROR: Backend did not start in time:', err instanceof Error ? err.message : String(err))
