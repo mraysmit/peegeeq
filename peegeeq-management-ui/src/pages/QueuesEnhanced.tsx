@@ -169,9 +169,6 @@ const QueuesPage: React.FC = () => {
             setIsModalVisible(false);
             form.resetFields();
         } catch (error: any) {
-            console.error('Failed to create queue:', error);
-            console.error('Error response:', error.response);
-            console.error('Error response data:', JSON.stringify(error.response?.data, null, 2));
             const errorMessage = error.response?.data?.message
                 || error.response?.data?.error
                 || (typeof error.response?.data === 'string' ? error.response?.data : null)
