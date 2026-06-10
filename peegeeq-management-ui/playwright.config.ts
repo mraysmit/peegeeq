@@ -98,6 +98,20 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['1-settings'],
     },
+    // Step 1c: Settings Ping Utilities – individual REST/WS/SSE ping buttons
+    {
+      name: '1c-settings-ping-utilities',
+      testMatch: '**/settings-ping-utilities.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['1-settings'],
+    },
+    // Step 1d: Settings Auto-Ping – toggle + interval fires background pings
+    {
+      name: '1d-settings-auto-ping',
+      testMatch: '**/settings-auto-ping.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['1-settings'],
+    },
     // Step 2: Connection Status - Tests connection status functionality
     {
       name: '2-connection-status',
@@ -195,6 +209,20 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 8b2: Event Detail Modal - Verifies every card in the detail modal (event info, bitemporal, correlation, metadata, event data)
+    {
+      name: '8b2-event-detail-modal',
+      testMatch: '**/event-detail-modal.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 8c: Events Scope Selector – inline setup selector on Events page
+    {
+      name: '8c-events-scope-selector',
+      testMatch: '**/events-scope-selector.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 9: Event Visualization - Tests Causation Tree and Aggregate Stream (standalone)
     {
       name: '9-event-visualization',
@@ -212,6 +240,13 @@ export default defineConfig({
       name: 'visualization-isolated',
       testMatch: '**/visualization-isolated.spec.ts',
       use: chromeMaximized,
+    },
+    // Visualization Scope Selector – setup/event-store selectors on Causation Tree and Aggregate Stream
+    {
+      name: 'visualization-scope-selector',
+      testMatch: '**/visualization-scope-selector.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['4-database-setup'],
     },
     // Causation Tree Page - integration tests (requires setup-prerequisite)
     {
@@ -231,6 +266,13 @@ export default defineConfig({
     {
       name: '10-overview-scope-selector',
       testMatch: '**/overview-setup-selector.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 10a: Scope Selector Persistence – selected setup/queue survives page nav and reload
+    {
+      name: '10a-scope-selector-persistence',
+      testMatch: '**/scope-selector-persistence.spec.ts',
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
@@ -254,12 +296,25 @@ export default defineConfig({
       testMatch: '**/overview-reconnecting-banner.spec.ts',
       use: chromeMaximized,
     },
+    // Step 10e: Overview Live Stats Update – SSE metrics event updates stats cards/charts
+    {
+      name: '10e-overview-live-stats-update',
+      testMatch: '**/overview-live-stats-update.spec.ts',
+      use: chromeMaximized,
+    },
     // Step 11: Queues Scope Selector - Tests Setup selector on Queues page
     {
       name: '11-queues-scope-selector',
       testMatch: '**/queues-setup-selector.spec.ts',
       use: chromeMaximized,
       dependencies: ['4-database-setup'],
+    },
+    // Step 11b: Queues Filter and Sort – search box, type/status multi-select, column sort
+    {
+      name: '11b-queues-filter-sort',
+      testMatch: '**/queues-filter-sort.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
     },
     // Step 12: Event Stores Scope Selector - Tests Setup selector on Event Stores page
     {
@@ -268,12 +323,26 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['4-database-setup'],
     },
+    // Step 12b: Event Stores Scope Filter – row count updates when scope changes
+    {
+      name: '12b-event-stores-scope-filter',
+      testMatch: '**/event-stores-scope-filter.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 13: Consumer Groups Scope Selectors - Tests Setup+Queue selectors on Consumer Groups page
     {
       name: '13-consumer-groups-scope-selectors',
       testMatch: '**/consumer-groups-scope-selectors.spec.ts',
       use: chromeMaximized,
       dependencies: ['4-database-setup'],
+    },
+    // Step 13b: Consumer Groups Validation – duplicate name produces error toast
+    {
+      name: '13b-consumer-groups-validation',
+      testMatch: '**/consumer-groups-validation.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
     },
     // Step 14: Message Browser Scope Selectors - Tests Setup+Queue selectors on Message Browser page
     {
@@ -289,10 +358,24 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 14b2: Message Browser Advanced Filters – drawer filter inputs applied to table rows
+    {
+      name: '14b2-message-browser-advanced-filters',
+      testMatch: '**/message-browser-advanced-filters.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 14c: Message SSE Stream – Direct API tests (no UI components, pure REST+EventSource)
     {
       name: '14c-message-sse-stream',
       testMatch: '**/message-sse-stream.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 14c2: Message Browser SSE Failure Recovery – EventSource abort/dropout handling
+    {
+      name: '14c2-message-browser-sse-failure',
+      testMatch: '**/message-browser-sse-failure.spec.ts',
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },

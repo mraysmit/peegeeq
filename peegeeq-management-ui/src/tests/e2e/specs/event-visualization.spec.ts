@@ -156,11 +156,11 @@ test.describe('Event Visualization', () => {
     await page.getByRole('button', { name: /load aggregates/i }).click()
     
     // Verify Aggregate ID appears in the list
-    const aggRow = page.locator('tr').filter({ hasText: aggregateId })
+    const aggRow = page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggregateId })
     await expect(aggRow).toBeVisible()
     
-    // Click View Stream
-    await aggRow.getByText('View Stream').click()
+    // Click the row to load the stream
+    await aggRow.click()
     
     // Verify Events in Stream Table (Right side)
     // We should see all 3 events

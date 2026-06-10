@@ -99,8 +99,18 @@ test.describe('Queues – Search, Filter, and Sort', () => {
 
         const captured = await captureQueuesRequests(page)
 
-        const typeSelect = page.locator('.ant-select').filter({ hasText: 'All Types' }).first()
-        await selectAntOption(typeSelect, 'Native')
+        // Type filter is a multi-select — clicking an option does NOT close the dropdown
+        // so we open it, click the option, then press Escape to close rather than using
+        // selectAntOption (which expects single-select close behaviour).
+        // Ant Design 5 multi-select puts the placeholder text in a span, not on the input attr
+        const typeSelect = page.locator('.ant-select').filter({
+            has: page.locator('.ant-select-selection-placeholder', { hasText: 'All Types' })
+        }).first()
+        await typeSelect.click()
+        const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
+        await expect(dropdown).toBeVisible()
+        await dropdown.locator('.ant-select-item-option-content').filter({ hasText: 'Native' }).first().click()
+        await page.keyboard.press('Escape')
 
         await page.waitForTimeout(1000)
 
@@ -118,8 +128,15 @@ test.describe('Queues – Search, Filter, and Sort', () => {
 
         const captured = await captureQueuesRequests(page)
 
-        const statusSelect = page.locator('.ant-select').filter({ hasText: 'All Statuses' }).first()
-        await selectAntOption(statusSelect, 'Active')
+        // Status filter is also multi-select — same pattern as Type filter
+        const statusSelect = page.locator('.ant-select').filter({
+            has: page.locator('.ant-select-selection-placeholder', { hasText: 'All Statuses' })
+        }).first()
+        await statusSelect.click()
+        const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
+        await expect(dropdown).toBeVisible()
+        await dropdown.locator('.ant-select-item-option-content').filter({ hasText: 'Active' }).first().click()
+        await page.keyboard.press('Escape')
 
         await page.waitForTimeout(1000)
 
@@ -189,18 +206,26 @@ test.describe('Queues – Search, Filter, and Sort', () => {
     // ── 5. Setup scope selector ────────────────────────────────────────────────
 
     test('08 selecting a setup passes setupId to the queues API', async ({ page, queuesPage }) => {
+        // Register the capture BEFORE navigating so the component's initial RTK Query
+        // fetch (triggered by the auto-selected setup) is included in the captured list.
+        // Re-selecting the same value after page load does not re-fetch due to RTK cache.
+        const captured = await captureQueuesRequests(page)
+
         await page.goto('/')
         await queuesPage.goto()
         await expect(queuesPage.getQueuesTable()).toBeVisible()
 
-        const captured = await captureQueuesRequests(page)
-
+        // If SetupScopeBar did not auto-select (no single-setup heuristic fired), select manually
         const setupSelector = page.getByTestId('setup-scope-selector')
-        await selectAntOption(setupSelector, SETUP_ID)
+        const alreadySelected = await setupSelector.locator('.ant-select-selection-item').count()
+        if (alreadySelected === 0) {
+            await selectAntOption(setupSelector, SETUP_ID)
+        }
 
-        await page.waitForTimeout(1000)
+        await page.waitForTimeout(500)
 
-        const setupCalls = captured.filter(u => u.includes(`setupId=${SETUP_ID}`))
+        // RTK Query serialises the filter as ?setupId=<id> in the management/queues URL
+        const setupCalls = captured.filter(u => u.includes(`setupId=${SETUP_ID}`) || u.includes(`setup=${SETUP_ID}`))
         expect(setupCalls.length, `API should be called with setupId=${SETUP_ID}`).toBeGreaterThanOrEqual(1)
     })
 })

@@ -161,6 +161,8 @@ test.describe('PeeGeeQ UI Screenshots', () => {
       await page.locator('#aggregateId').fill(aggregateId)
       await page.locator('#correlationId').fill(correlationId)
       if (causeId) await page.locator('#causationId').fill(causeId)
+      // Fill metadata so the Metadata card in the detail modal shows real values
+      await page.locator('#metadata').fill(JSON.stringify({ source: 'order-service', environment: 'demo', version: '2.1' }))
 
       await page.getByRole('button', { name: 'Post Event' }).click()
 
@@ -229,6 +231,18 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await expect(panel.getByText('Loading setup details')).not.toBeVisible({ timeout: 10000 })
     await page.waitForTimeout(400)
     await page.screenshot({ path: path.join(DIR, '01d-overview-setup-details-panel.png') })
+  })
+
+  test('01e overview - SSE stats cards with data', async ({ page }) => {
+    // Navigate to overview and wait for SSE to deliver the first metrics event.
+    // We do NOT select a setup here — SSE stats are visible at global level and
+    // the purpose is to capture the layout with real-time numbers populated.
+    await page.goto('/')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await page.waitForLoadState('load')
+    // Allow SSE up to 10 s to deliver a stats event (shows non-dash values)
+    await page.waitForTimeout(10000)
+    await shot(page, '01e-overview-sse-stats-cards.png')
   })
 
   test('02 header', async ({ page }) => {
@@ -373,6 +387,22 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.waitForTimeout(400)
     await page.screenshot({ path: path.join(DIR, '04m-queue-details-purge-confirm.png') })
     await page.keyboard.press('Escape')
+  })
+
+  test('04n queues - type filter active', async ({ page }) => {
+    await page.goto('/queues')
+    await expect(page.getByTestId('queues-table')).toBeVisible({ timeout: 15000 })
+    // Open the Type filter multi-select and select Native
+    const typeFilter = page.locator('.ant-select').filter({
+      has: page.locator('.ant-select-selection-placeholder', { hasText: 'All Types' })
+    })
+    await typeFilter.click()
+    const dropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)').last()
+    await expect(dropdown).toBeVisible({ timeout: 5000 })
+    await dropdown.locator('.ant-select-item-option-content').filter({ hasText: 'Native' }).first().click()
+    await page.keyboard.press('Escape')
+    await page.waitForTimeout(400)
+    await shot(page, '04n-queues-type-filter-active.png')
   })
 
   test('04i queue create error toast (503)', async ({ page }) => {
@@ -762,6 +792,19 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.keyboard.press('Escape')
   })
 
+  test('09d consumer groups - create modal validation errors', async ({ page }) => {
+    await page.goto('/consumer-groups')
+    await expect(page.getByTestId('create-group-btn')).toBeVisible({ timeout: 10000 })
+    await page.getByTestId('create-group-btn').click()
+    await expect(page.locator('.ant-modal')).toBeVisible()
+    // Submit empty form to trigger required-field validation errors
+    await page.locator('.ant-modal .ant-btn-primary').click()
+    await expect(page.locator('.ant-form-item-explain-error').first()).toBeVisible({ timeout: 5000 })
+    await page.waitForTimeout(400)
+    await page.screenshot({ path: path.join(DIR, '09d-consumer-groups-create-modal-validation.png') })
+    await page.keyboard.press('Escape')
+  })
+
   test('10 message browser', async ({ page }) => {
     await page.goto('/messages')
     await page.waitForTimeout(1200)
@@ -1018,9 +1061,9 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await selectAntOption(page.getByTestId('aggregate-eventstore-select'), eventStoreName)
     await expect(page.locator('.ant-card-head-title').filter({ hasText: /aggregate stream/i })).toBeVisible({ timeout: 10000 })
     await page.getByRole('button', { name: /load aggregates/i }).click()
-    const aggRow = page.locator('tr').filter({ hasText: aggregateId }).first()
+    const aggRow = page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggregateId }).first()
     await expect(aggRow).toBeVisible({ timeout: 15000 })
-    await aggRow.getByText('View Stream').click()
+    await aggRow.click()
     await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
     await page.waitForTimeout(800)
     await shot(page, '12b-aggregate-stream.png')

@@ -348,10 +348,10 @@ test.describe('Aggregate Stream Page', () => {
 
         // First event (OrderCreated, VERSION_ASC) has a correlationId — Details + Causation Tree visible
         const firstRow = streamCard.locator('.ant-table-tbody tr.ant-table-row').first()
-        await expect(firstRow.getByText('Details')).toBeVisible()
-        await expect(firstRow.getByText('Causation Tree')).toBeVisible()
+        await expect(firstRow.getByRole('button', { name: /details/i })).toBeVisible()
+        await expect(firstRow.getByRole('button', { name: /causation tree/i })).toBeVisible()
         // OrderCreated was seeded with aggACorrelationId so the button must be enabled
-        await expect(firstRow.getByText('Causation Tree')).not.toBeDisabled()
+        await expect(firstRow.getByRole('button', { name: /causation tree/i })).not.toBeDisabled()
     })
 
     test('15 Causation Tree button navigates to causation tree page with correct URL params', async ({ page }) => {
@@ -382,4 +382,8 @@ test.describe('Aggregate Stream Page', () => {
         expect(url).toContain(`setupId=${SETUP_ID}`)
         expect(url).toContain(`eventStore=${eventStoreName}`)
     })
+
+    // Note: the Causation Tree button's disabled={!record.correlationId} guard cannot be
+    // exercised in E2E because the backend always auto-assigns a correlationId on append.
+    // The disabled branch is covered by component unit tests.
 })
