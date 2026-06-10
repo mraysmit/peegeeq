@@ -21,7 +21,7 @@ export class BasePage {
     }
     
     await this.page.getByTestId(navMap[pageName]).click()
-    await this.page.waitForLoadState('networkidle')
+    await this.page.waitForLoadState('load')
   }
 
   /**
