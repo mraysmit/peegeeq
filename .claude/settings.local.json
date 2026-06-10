@@ -23,7 +23,22 @@
       "Bash(Select-Object Name)",
       "Bash(node -e \"const {Document}=require\\('docx'\\); console.log\\('docx ok'\\)\")",
       "Bash(mvn install *)",
-      "Bash(grep -E \"\\\\.java$|pom\\\\.xml\")"
+      "Bash(grep -E \"\\\\.java$|pom\\\\.xml\")",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\markr\\\\dev\\\\java\\\\corejava\\\\peegeeq\\\\peegeeq-management-ui\\\\docs\" -Recurse)",
+      "Bash(Select-Object FullName)",
+      "Bash(Get-ChildItem \"C:\\\\Users\\\\markr\\\\dev\\\\java\\\\corejava\\\\peegeeq\\\\peegeeq-management-ui\\\\src\\\\tests\\\\e2e\\\\specs\" -Filter \"*.spec.ts\")",
+      "Bash(Select-Object -ExpandProperty Name)",
+      "Bash(Sort-Object)",
+      "Bash(xargs grep -l \"router\\\\|addRoute\\\\|/queues\")",
+      "Bash(xargs grep -l \"router.get\\\\|addRoute\\\\|/queues\")",
+      "Bash(xargs grep -l \"Javalin\\\\|Vert.x\\\\|vertx\\\\|Jooby\\\\|Micronaut\\\\|Quarkus\\\\|RouterFactory\\\\|Router\")",
+      "Bash(xargs grep -l \"\\\\/queues\\\\/\")",
+      "Bash(xargs grep -l \"implements DatabaseSetupService\")",
+      "Bash(xargs grep -l \"void addQueue\\\\|addQueue.*QueueConfig\\\\|getSetupResult\")",
+      "Bash(xargs grep -l \"addQueue\")",
+      "Bash(xargs grep -l \"addQueue\\\\|getSetupResult\")",
+      "Bash(npm run *)",
+      "Bash(Select-String \"node_modules|node\")"
     ]
   }
 }

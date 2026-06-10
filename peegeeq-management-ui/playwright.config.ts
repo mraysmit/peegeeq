@@ -79,6 +79,12 @@ export default defineConfig({
       testMatch: '**/websocket-sse-connection.spec.ts',
       use: chromeMaximized,
     },
+    // Quick test: System Metrics SSE – validates /api/v1/sse/metrics versioned URL (standalone)
+    {
+      name: 'system-metrics-sse',
+      testMatch: '**/system-metrics-sse.spec.ts',
+      use: chromeMaximized,
+    },
     // Step 1: Settings - Validates REST API connection to backend (MUST run first)
     {
       name: '1-settings',
@@ -270,6 +276,13 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 14d: Queue Updates SSE – Direct API tests for GET /api/v1/sse/queues/:setupId
+    {
+      name: '14d-queue-updates-sse',
+      testMatch: '**/queue-updates-sse.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Error paths: validates that backend error responses surface as UI toasts (standalone, no dependencies)
     {
       name: 'error-paths',
@@ -287,7 +300,7 @@ export default defineConfig({
   /* Run your local dev server before starting the tests */
   webServer: [
     {
-      command: 'npm run dev',
+      command: 'npm run dev -- --mode test',
       url: 'http://localhost:3000',
       reuseExistingServer: !process.env.CI,  // Reuse in dev, fresh in CI
       timeout: 120 * 1000,
