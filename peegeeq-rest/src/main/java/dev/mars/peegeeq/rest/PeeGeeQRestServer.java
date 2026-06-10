@@ -362,7 +362,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
             logger.info("SSE health check response sent and connection closed");
         });
 
-        // System monitoring SSE metrics endpoint
+        // System monitoring SSE metrics endpoint (versioned + legacy unversioned for backward compat)
+        router.get("/api/v1/sse/metrics").handler(monitoringHandler::handleSSEMetrics);
         router.get("/sse/metrics").handler(monitoringHandler::handleSSEMetrics);
 
         // Database setup routes (legacy /database-setup path - kept for backward compatibility)
@@ -455,17 +456,13 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Event store routes
         // NOTE: SSE streaming route MUST come before :eventId routes to avoid "stream"
         // being matched as eventId
-        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/stream")
-                .handler(eventStoreHandler::handleEventStream);
+        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/stream").handler(eventStoreHandler::handleEventStream);
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::storeEvent);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events").handler(eventStoreHandler::queryEvents);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId").handler(eventStoreHandler::getEvent);
-        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions")
-                .handler(eventStoreHandler::getAllVersions);
-        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at")
-                .handler(eventStoreHandler::getAsOfTransactionTime);
-        router.post("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections")
-                .handler(eventStoreHandler::appendCorrection);
+        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/versions").handler(eventStoreHandler::getAllVersions);
+        router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at").handler(eventStoreHandler::getAsOfTransactionTime);
+        router.post("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections").handler(eventStoreHandler::appendCorrection);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/aggregates").handler(eventStoreHandler::getUniqueAggregates);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
         // Standard REST DELETE for event stores (matches queue deletion pattern)
@@ -474,57 +471,38 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Dead Letter Queue routes
         router.get("/api/v1/setups/:setupId/deadletter/messages").handler(deadLetterHandler::listMessages);
         router.get("/api/v1/setups/:setupId/deadletter/messages/:messageId").handler(deadLetterHandler::getMessage);
-        router.post("/api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess")
-                .handler(deadLetterHandler::reprocessMessage);
-        router.delete("/api/v1/setups/:setupId/deadletter/messages/:messageId")
-                .handler(deadLetterHandler::deleteMessage);
+        router.post("/api/v1/setups/:setupId/deadletter/messages/:messageId/reprocess").handler(deadLetterHandler::reprocessMessage);
+        router.delete("/api/v1/setups/:setupId/deadletter/messages/:messageId").handler(deadLetterHandler::deleteMessage);
         router.get("/api/v1/setups/:setupId/deadletter/stats").handler(deadLetterHandler::getStats);
         router.post("/api/v1/setups/:setupId/deadletter/cleanup").handler(deadLetterHandler::cleanup);
 
         // Subscription Lifecycle routes
         router.get("/api/v1/setups/:setupId/subscriptions/:topic").handler(subscriptionHandler::listSubscriptions);
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic")
-                .handler(subscriptionHandler::createSubscription);
-        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName")
-                .handler(subscriptionHandler::getSubscription);
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause")
-                .handler(subscriptionHandler::pauseSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic").handler(subscriptionHandler::createSubscription);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName").handler(subscriptionHandler::getSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause").handler(subscriptionHandler::pauseSubscription);
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume")
-                .handler(subscriptionHandler::resumeSubscription);
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat")
-                .handler(subscriptionHandler::updateHeartbeat);
-        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName")
-                .handler(subscriptionHandler::cancelSubscription);
-        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove")
-                .handler(subscriptionHandler::forceRemoveConsumerGroup);
+.handler(subscriptionHandler::resumeSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat").handler(subscriptionHandler::updateHeartbeat);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName").handler(subscriptionHandler::cancelSubscription);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove").handler(subscriptionHandler::forceRemoveConsumerGroup);
 
         // Backfill Lifecycle routes
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
-                .handler(subscriptionHandler::startBackfill);
-        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
-                .handler(subscriptionHandler::getBackfillProgress);
-        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
-                .handler(subscriptionHandler::cancelBackfill);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill").handler(subscriptionHandler::startBackfill);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill").handler(subscriptionHandler::getBackfillProgress);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill").handler(subscriptionHandler::cancelBackfill);
 
         // Partitioned Consumption routes (OFFSET_WATERMARK mode)
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join")
-                .handler(subscriptionHandler::joinPartitionedGroup);
-        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave")
-                .handler(subscriptionHandler::leavePartitionedGroup);
-        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions")
-                .handler(subscriptionHandler::getPartitionAssignments);
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch")
-                .handler(subscriptionHandler::fetchPartitioned);
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit")
-                .handler(subscriptionHandler::commitPartitionedOffset);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join").handler(subscriptionHandler::joinPartitionedGroup);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave").handler(subscriptionHandler::leavePartitionedGroup);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions").handler(subscriptionHandler::getPartitionAssignments);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch").handler(subscriptionHandler::fetchPartitioned);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit").handler(subscriptionHandler::commitPartitionedOffset);
 
         // Consumer Alerting routes - dead consumer detection and blocked message stats
-        router.get("/api/v1/setups/:setupId/consumer-alerts/dead")
-                .handler(consumerAlertHandler::listDeadSubscriptions);
-        router.get("/api/v1/setups/:setupId/consumer-alerts/summary")
-                .handler(consumerAlertHandler::getHealthSummary);
-        router.get("/api/v1/setups/:setupId/consumer-alerts/blocked")
-                .handler(consumerAlertHandler::getBlockedStats);
+        router.get("/api/v1/setups/:setupId/consumer-alerts/dead").handler(consumerAlertHandler::listDeadSubscriptions);
+        router.get("/api/v1/setups/:setupId/consumer-alerts/summary").handler(consumerAlertHandler::getHealthSummary);
+        router.get("/api/v1/setups/:setupId/consumer-alerts/blocked").handler(consumerAlertHandler::getBlockedStats);
 
         // Health API routes - per-setup health endpoints
         router.get("/api/v1/setups/:setupId/health").handler(healthHandler::getOverallHealth);
