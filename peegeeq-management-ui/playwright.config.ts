@@ -133,6 +133,13 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 4b: Database Setup Form Defaults and Port Range Validation
+    {
+      name: '4b-database-setup-form',
+      testMatch: '**/database-setup-form-defaults.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 5: Queue Management - Standalone tests (creates own database setup)
     {
       name: '5-queue-management',
@@ -233,6 +240,19 @@ export default defineConfig({
       testMatch: '**/overview-setup-details-modal.spec.ts',
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 10c: Overview Recent Activity - Recent Activity table rows, status tags, Queue Overview table + "View All"
+    {
+      name: '10c-overview-recent-activity',
+      testMatch: '**/overview-recent-activity.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
+    // Step 10d: Overview Reconnecting Banner - WS/SSE gold reconnecting tag via route interception
+    {
+      name: '10d-overview-reconnecting-banner',
+      testMatch: '**/overview-reconnecting-banner.spec.ts',
+      use: chromeMaximized,
     },
     // Step 11: Queues Scope Selector - Tests Setup selector on Queues page
     {
