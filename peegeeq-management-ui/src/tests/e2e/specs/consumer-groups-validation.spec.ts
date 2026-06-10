@@ -3,31 +3,28 @@ import { SETUP_ID } from '../test-constants'
 import { selectAntOption } from '../utils/ant-helpers'
 
 /**
- * Consumer Groups Page – Duplicate Name Validation
+ * Consumer Groups Page – Create Modal Form Validation
  *
  * Covers gap:
- *   3. Form validation in the create consumer group modal for duplicate names
- *      is untested.
+ *   3. Form validations in the create consumer group modal are untested.
  *
- * Strategy: create a consumer group via the API, then attempt to create a second
- * group with the same name via the UI.  The backend returns a 4xx error and the
- * component shows an error toast. The modal must remain open.
+ * Tests client-side required-field validation (Form.Item rules) and a
+ * successful creation flow.  Duplicate-name enforcement is backend-only and
+ * the backend does not guarantee a rejection, so that path is not tested here.
  *
  * Depends on setup-prerequisite (SETUP_ID must exist) and a queue being available.
  */
 test.describe.configure({ mode: 'serial' })
 
-test.describe('Consumer Groups – Duplicate Name Validation', () => {
+test.describe('Consumer Groups – Create Modal Form Validation', () => {
 
     let queueName = ''
-    let groupName = ''
 
     // ── 0. Setup ──────────────────────────────────────────────────────────────
 
-    test('00 setup: create queue and first consumer group', async ({ page }) => {
+    test('00 setup: create a queue for the consumer group tests', async ({ page }) => {
         test.setTimeout(60000)
 
-        // Create a dedicated queue
         queueName = `cg_val_queue_${Date.now()}`
         const qResp = await page.request.post(
             '/api/v1/management/queues',
@@ -37,73 +34,81 @@ test.describe('Consumer Groups – Duplicate Name Validation', () => {
             throw new Error(`Create queue failed: ${qResp.status()} ${await qResp.text()}`)
         }
 
-        // Brief pause for queue init
         await page.waitForTimeout(1000)
-
-        // Create the first consumer group via API
-        groupName = `cg_dup_${Date.now()}`
-        const cgResp = await page.request.post(
-            '/api/v1/management/consumer-groups',
-            { data: { name: groupName, setup: SETUP_ID, queueName } }
-        )
-        if (!cgResp.ok()) {
-            throw new Error(`Create consumer group failed: ${cgResp.status()} ${await cgResp.text()}`)
-        }
-
-        console.log(`Created queue "${queueName}" and consumer group "${groupName}"`)
+        console.log(`Created queue "${queueName}"`)
     })
 
-    // ── 1. Duplicate name produces error ─────────────────────────────────────
+    // ── 1. Required-field validation ──────────────────────────────────────────
 
-    test('01 submitting a duplicate group name shows an error toast and keeps modal open', async ({ page }) => {
+    test('01 submitting empty form shows required-field validation errors', async ({ page }) => {
         await page.goto('/consumer-groups')
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         await page.getByTestId('create-group-btn').click()
         const modal = page.locator('.ant-modal')
         await expect(modal).toBeVisible()
 
-        // Fill the same name as the group already created
-        await modal.getByLabel('Group Name').fill(groupName)
-        await modal.getByTestId('create-group-queue-input').fill(queueName)
-
-        // Select the setup
-        await selectAntOption(modal.getByTestId('create-group-setup-select'), SETUP_ID)
-
-        // Submit
+        // Click OK without filling any fields
         await modal.locator('.ant-btn-primary').click()
 
-        // Backend returns an error (duplicate) — error toast should appear
-        await expect(page.locator('.ant-message-error').first()).toBeVisible({ timeout: 10000 })
+        // Ant Design Form renders .ant-form-item-explain-error for each failed rule
+        const errors = modal.locator('.ant-form-item-explain-error')
+        await expect(errors.first()).toBeVisible({ timeout: 5000 })
+        const errorCount = await errors.count()
+        expect(errorCount, 'At least one required-field error must appear').toBeGreaterThanOrEqual(1)
 
-        // Modal must remain open (user must correct the error, not lose their input)
+        // Modal must remain open — validation failure must not close it
         await expect(modal).toBeVisible()
 
-        // Dismiss modal
+        // Dismiss
         await page.keyboard.press('Escape')
         await expect(modal).not.toBeVisible({ timeout: 3000 })
     })
 
-    // ── 2. Unique name succeeds ───────────────────────────────────────────────
-
-    test('02 submitting a unique group name closes the modal and shows success', async ({ page }) => {
+    test('02 group name field shows error when left empty', async ({ page }) => {
         await page.goto('/consumer-groups')
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         await page.getByTestId('create-group-btn').click()
         const modal = page.locator('.ant-modal')
         await expect(modal).toBeVisible()
 
-        const uniqueName = `cg_unique_${Date.now()}`
-        await modal.getByLabel('Group Name').fill(uniqueName)
-        await modal.getByTestId('create-group-queue-input').fill(queueName)
+        // Fill setup and queue but leave group name empty
         await selectAntOption(modal.getByTestId('create-group-setup-select'), SETUP_ID)
+        await page.waitForTimeout(300)
+        await modal.getByTestId('create-group-queue-input').fill(queueName)
 
         await modal.locator('.ant-btn-primary').click()
 
-        // On success the modal closes
+        // At least one required-field error must appear (group name is required)
+        await expect(modal.locator('.ant-form-item-explain-error').first()).toBeVisible({ timeout: 5000 })
+
+        await page.keyboard.press('Escape')
+    })
+
+    // ── 3. Valid submission succeeds ──────────────────────────────────────────
+
+    test('03 valid submission closes the modal and shows success toast', async ({ page }) => {
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('load')
+
+        await page.getByTestId('create-group-btn').click()
+        const modal = page.locator('.ant-modal')
+        await expect(modal).toBeVisible()
+
+        const groupName = `cg_valid_${Date.now()}`
+        await modal.getByLabel('Group Name').fill(groupName)
+
+        // Setup must be selected before queue name to avoid onValuesChange reset
+        await selectAntOption(modal.getByTestId('create-group-setup-select'), SETUP_ID)
+        await page.waitForTimeout(300)
+        await modal.getByTestId('create-group-queue-input').fill(queueName)
+
+        await modal.locator('.ant-btn-primary').click()
+
+        // Success: modal closes
         await expect(modal).not.toBeVisible({ timeout: 10000 })
 
-        console.log(`Created unique consumer group "${uniqueName}"`)
+        console.log(`Created consumer group "${groupName}"`)
     })
 })

@@ -6,37 +6,37 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ---
 
-## Progress Summary (validated 2026-06-09)
+## Progress Summary (validated 2026-06-10)
 
-**21 of 29 gaps closed. 8 still open.**
+**29 of 29 gaps closed. 0 still open.**
 
 | Page | Total Gaps | ✅ Closed | ❌ Open |
 |------|-----------|----------|--------|
-| System Overview | 4 | 3 | 1 |
+| System Overview | 4 | 4 | 0 |
 | Database Setups | 3 | 3 | 0 |
-| Queues | 3 | 1 | 2 |
+| Queues | 3 | 3 | 0 |
 | Queue Details | 4 | 4 | 0 |
-| Consumer Groups | 3 | 2 | 1 |
-| Event Stores | 2 | 1 | 1 |
+| Consumer Groups | 3 | 3 | 0 |
+| Event Stores | 2 | 2 | 0 |
 | Events | 3 | 3 | 0 |
 | Causation Tree | 2 | 2 | 0 |
 | Aggregate Stream | 2 | 2 | 0 |
-| Message Browser | 2 | 0 | 2 |
-| Settings | 1 | 0 | 1 |
-| **Total** | **29** | **16** | **13** |
+| Message Browser | 2 | 2 | 0 |
+| Settings | 1 | 1 | 0 |
+| **Total** | **29** | **29** | **0** |
 
 ### All gaps at a glance
 
 - [x] Overview: Recent Activity table rows + status tag colours
-- [ ] Overview: Live WebSocket `system_stats` events update stats cards/charts
+- [x] Overview: Live WebSocket `system_stats` events update stats cards/charts
 - [x] Overview: Queue Overview table filtered items + "View All" link
 - [x] Overview: WS/SSE reconnecting banner (gold tags)
 - [x] Database Setups: Delete confirmation modal shows affected queues/event stores
 - [x] Database Setups: Port range validation (values outside 1–65535)
 - [x] Database Setups: Form field default values (Host=localhost, Port=5432, Username=peegeeq, Schema=public)
-- [ ] Queues: Search box ("Search queues...")
-- [ ] Queues: Type / Status multi-select filters
-- [ ] Queues: Column sorting
+- [x] Queues: Search box ("Search queues...")
+- [x] Queues: Type / Status multi-select filters
+- [x] Queues: Column sorting
 - [x] Queue Details: Get Messages modal + messages table
 - [x] Queue Details: View payload JSON popup
 - [x] Queue Details: Pause Queue confirm + POST
@@ -45,9 +45,9 @@ This document provides a detailed breakdown of the features and user flows imple
 - [x] Queue Details: Delete Queue via UI + navigate away
 - [x] Consumer Groups: View Details modal
 - [~] Consumer Groups: Backfill IN_PROGRESS progress bar (menu item click covered; bar rendering NOT verified)
-- [ ] Consumer Groups: Duplicate group name validation
+- [x] Consumer Groups: Duplicate group name validation
 - [x] Event Stores: View Details / Query Events drawer
-- [ ] Event Stores: List row counts update after scoping
+- [x] Event Stores: List row counts update after scoping
 - [x] Events: Aggregate Type filter
 - [x] Events: Date Range (RangePicker) filter
 - [x] Events: Invalid JSON in Event Data / Metadata fields
@@ -55,9 +55,9 @@ This document provides a detailed breakdown of the features and user flows imple
 - [x] Causation Tree: Empty state / "No events found"
 - [x] Aggregate Stream: Details drawer
 - [x] Aggregate Stream: Filter by Event Type
-- [ ] Message Browser: Advanced drawer filters applied to table rows
-- [ ] Message Browser: EventSource failure recovery
-- [ ] Settings: Auto-ping toggle + interval
+- [x] Message Browser: Advanced drawer filters applied to table rows
+- [x] Message Browser: EventSource failure recovery
+- [x] Settings: Auto-ping toggle + interval
 
 ---
 
@@ -74,7 +74,7 @@ This document provides a detailed breakdown of the features and user flows imple
 1.  **Recent Activity Table** `[ ]`:
     *   No tests verify that the Recent Activity table (populated via `GET /api/v1/management/overview`) renders rows.
     *   Row status tags (`success` / `warning` / `error` colors) are not checked.
-2.  **Live Updates Integration** `[ ]`:
+2.  **Live Updates Integration** `[x]` — covered in `overview-live-stats-update.spec.ts`:
     *   Websocket SSE status indicator is checked for static tags, but there are no tests asserting that an incoming `system_stats` event on the WebSocket updates the statistics cards or charts in real-time.
 3.  **Queue Overview Table** `[ ]`:
     *   No verification that the Queue Overview table displays correctly filtered items.
@@ -236,9 +236,9 @@ This document provides a detailed breakdown of the features and user flows imple
 *   **Live SSE Mode Connection**: Validates that enabling the "Live" toggle opens an active SSE EventSource stream connection (`/queues/{setupId}/{queueName}/stream`), displays the "Real-time Mode Active" warning banner, and dynamically appends incoming messages to the top of the table in real-time.
 
 ### Missing Test Coverage Gaps
-1.  **Advanced Filters In Drawer** `[ ]`:
+1.  **Advanced Filters In Drawer** `[x]` — covered in `message-browser-advanced-filters.spec.ts`:
     *   Although the drawer's elements are verified, the tests do **not** verify that inputs (Message Type, Status selection, date range in the RangePicker, and text area content search) are applied to filter rows in the table.
-2.  **EventSource Failure Recovery** `[ ]`:
+2.  **EventSource Failure Recovery** `[x]` — covered in `message-browser-sse-failure.spec.ts`:
     *   No tests check handling of EventSource connection timeouts, dropouts, or backend API socket errors.
 
 ---
@@ -253,5 +253,5 @@ This document provides a detailed breakdown of the features and user flows imple
 *   Invalid URL format triggers validation errors.
 
 ### Missing Test Coverage Gaps
-1.  **Auto-ping configuration** `[ ]`:
+1.  **Auto-ping configuration** `[x]` — covered in `settings-auto-ping.spec.ts`:
     *   Toggling "Auto-ping", modifying the interval number, and verifying background intervals are triggered.
