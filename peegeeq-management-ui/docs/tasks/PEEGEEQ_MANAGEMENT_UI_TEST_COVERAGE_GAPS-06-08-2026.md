@@ -8,12 +8,12 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ## Progress Summary (validated 2026-06-09)
 
-**16 of 29 gaps closed. 13 still open.**
+**21 of 29 gaps closed. 8 still open.**
 
 | Page | Total Gaps | ✅ Closed | ❌ Open |
 |------|-----------|----------|--------|
-| System Overview | 4 | 0 | 4 |
-| Database Setups | 3 | 1 | 2 |
+| System Overview | 4 | 3 | 1 |
+| Database Setups | 3 | 3 | 0 |
 | Queues | 3 | 1 | 2 |
 | Queue Details | 4 | 4 | 0 |
 | Consumer Groups | 3 | 2 | 1 |
@@ -27,13 +27,13 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### All gaps at a glance
 
-- [ ] Overview: Recent Activity table rows + status tag colours
+- [x] Overview: Recent Activity table rows + status tag colours
 - [ ] Overview: Live WebSocket `system_stats` events update stats cards/charts
-- [ ] Overview: Queue Overview table filtered items + "View All" link
-- [ ] Overview: WS/SSE reconnecting banner (gold tags)
+- [x] Overview: Queue Overview table filtered items + "View All" link
+- [x] Overview: WS/SSE reconnecting banner (gold tags)
 - [x] Database Setups: Delete confirmation modal shows affected queues/event stores
-- [ ] Database Setups: Port range validation (values outside 1–65535)
-- [ ] Database Setups: Form field default values (Host=localhost, Port=5432, Username=peegeeq, Schema=public)
+- [x] Database Setups: Port range validation (values outside 1–65535)
+- [x] Database Setups: Form field default values (Host=localhost, Port=5432, Username=peegeeq, Schema=public)
 - [ ] Queues: Search box ("Search queues...")
 - [ ] Queues: Type / Status multi-select filters
 - [ ] Queues: Column sorting
