@@ -221,7 +221,9 @@ export class SSEService {
             }
 
             this.eventSource.onerror = (error) => {
-                console.error('SSE error:', error)
+                // Warn rather than error — SSE connection failures on page navigation /
+                // reload are expected transient events; the browser reconnects automatically.
+                console.warn('SSE error:', error)
                 this.onError?.(error)
                 // SSE errors usually mean disconnection
                 if (this.eventSource?.readyState === EventSource.CLOSED) {

@@ -29,7 +29,7 @@ test.describe('Queues - Setup Scope Selector', () => {
     test('should display setup scope selector on queues page', async ({ page }) => {
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         const scopeBar = page.getByTestId('scope-bar')
         await expect(scopeBar).toBeVisible()
@@ -41,7 +41,7 @@ test.describe('Queues - Setup Scope Selector', () => {
     test('should allow selecting a setup on queues page', async ({ page }) => {
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         const setupSelector = page.getByTestId('setup-scope-selector')
         await expect(setupSelector).toBeVisible()
@@ -54,7 +54,7 @@ test.describe('Queues - Setup Scope Selector', () => {
     test('should keep queues table visible when setup is selected', async ({ page }) => {
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         const setupSelector = page.getByTestId('setup-scope-selector')
         const queuesTable = page.getByTestId('queues-table')
@@ -69,7 +69,7 @@ test.describe('Queues - Setup Scope Selector', () => {
     test('should revert to all queues when selector is cleared', async ({ page }) => {
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         const setupSelector = page.getByTestId('setup-scope-selector')
 
@@ -98,7 +98,7 @@ test.describe('Queues - Setup Scope Selector', () => {
 
         await page.goto('/')
         await page.getByTestId('nav-queues').click()
-        await page.waitForLoadState('networkidle')
+        await page.waitForLoadState('load')
 
         // SetupScopeBar auto-selects the only available setup; if not auto-selected, select manually
         const setupSelector = page.getByTestId('setup-scope-selector')

@@ -72,7 +72,7 @@ test.describe('Event Stores – Scope Selector Row Count', () => {
 
     // ── 2. With SETUP_ID selected ─────────────────────────────────────────────
 
-    test('02 selecting SETUP_ID filters the table to that setup's stores', async ({ page }) => {
+    test("02 selecting SETUP_ID filters the table to that setup's stores", async ({ page }) => {
         await page.goto('/event-stores')
         await page.waitForLoadState('networkidle')
 
