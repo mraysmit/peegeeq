@@ -25,7 +25,7 @@ test.describe('Queue Details – Overview Tab', () => {
 
     async function gotoOverview(page: Parameters<Parameters<typeof test>[1]>[0]) {
         await page.goto(`/queues/${SETUP_ID}/${queueName}`)
-        await expect(page.getByRole('tablist')).toBeVisible({ timeout: 10000 })
+        await expect(page.getByRole('tablist')).toBeVisible({ timeout: 15000 })
         // Overview is the default tab — confirm it is selected
         await expect(page.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
     }

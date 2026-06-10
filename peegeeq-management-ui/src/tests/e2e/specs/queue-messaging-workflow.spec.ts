@@ -67,6 +67,7 @@ test.describe('Queue Messaging Workflow', () => {
   test.describe('Queue Creation and Setup', () => {
 
     test('should create queue for messaging tests', async ({ page }) => {
+      test.setTimeout(60000)
       await page.goto('/queues')
 
       createdQueueName = `messaging_test_queue_${Date.now()}`

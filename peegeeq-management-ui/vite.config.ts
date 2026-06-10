@@ -1,11 +1,21 @@
-import { defineConfig } from 'vite'
+import { defineConfig, createLogger } from 'vite'
 import react from '@vitejs/plugin-react'
 
+const logger = createLogger()
+const originalError = logger.error.bind(logger)
+logger.error = (msg, options) => {
+  const code = (options?.error as NodeJS.ErrnoException | undefined)?.code
+  if (code === 'ECONNABORTED' || code === 'ECONNRESET') return
+  originalError(msg, options)
+}
+
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  customLogger: logger,
   plugins: [react()],
   server: {
     port: 3000,
+    hmr: mode !== 'test',
     proxy: {
       '/api': {
         target: 'http://localhost:8088',
@@ -34,4 +44,4 @@ export default defineConfig({
       }
     }
   }
-})
+}))
