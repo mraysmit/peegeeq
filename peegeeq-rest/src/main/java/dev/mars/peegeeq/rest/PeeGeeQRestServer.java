@@ -403,26 +403,17 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/sse/queues/:setupId").handler(sseHandler::handleQueueUpdates);
 
         // Queue routes - Phase 4: Consumer Group Management
-        router.post("/api/v1/queues/:setupId/:queueName/consumer-groups")
-                .handler(consumerGroupHandler::createConsumerGroup);
-        router.get("/api/v1/queues/:setupId/:queueName/consumer-groups")
-                .handler(consumerGroupHandler::listConsumerGroups);
-        router.get("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName")
-                .handler(consumerGroupHandler::getConsumerGroup);
-        router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName")
-                .handler(consumerGroupHandler::deleteConsumerGroup);
-        router.post("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members")
-                .handler(consumerGroupHandler::joinConsumerGroup);
-        router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId")
-                .handler(consumerGroupHandler::leaveConsumerGroup);
+        router.post("/api/v1/queues/:setupId/:queueName/consumer-groups").handler(consumerGroupHandler::createConsumerGroup);
+        router.get("/api/v1/queues/:setupId/:queueName/consumer-groups").handler(consumerGroupHandler::listConsumerGroups);
+        router.get("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName").handler(consumerGroupHandler::getConsumerGroup);
+        router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName").handler(consumerGroupHandler::deleteConsumerGroup);
+        router.post("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members").handler(consumerGroupHandler::joinConsumerGroup);
+        router.delete("/api/v1/queues/:setupId/:queueName/consumer-groups/:groupName/members/:memberId").handler(consumerGroupHandler::leaveConsumerGroup);
 
         // Consumer Group Subscription Options - Phase 3.2: Subscription configuration
-        router.post("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription")
-                .handler(consumerGroupHandler::updateSubscriptionOptions);
-        router.get("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription")
-                .handler(consumerGroupHandler::getSubscriptionOptions);
-        router.delete("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription")
-                .handler(consumerGroupHandler::deleteSubscriptionOptions);
+        router.post("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::updateSubscriptionOptions);
+        router.get("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::getSubscriptionOptions);
+        router.delete("/api/v1/consumer-groups/:setupId/:queueName/:groupName/subscription").handler(consumerGroupHandler::deleteSubscriptionOptions);
 
         // Management API routes - Phase 5: Management UI Support
         router.get("/api/v1/management/overview").handler(managementHandler::getSystemOverview);
@@ -465,6 +456,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections").handler(eventStoreHandler::appendCorrection);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/aggregates").handler(eventStoreHandler::getUniqueAggregates);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
+
         // Standard REST DELETE for event stores (matches queue deletion pattern)
         router.delete("/api/v1/eventstores/:setupId/:eventStoreName").handler(managementHandler::deleteEventStoreByName);
 
@@ -481,8 +473,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.post("/api/v1/setups/:setupId/subscriptions/:topic").handler(subscriptionHandler::createSubscription);
         router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName").handler(subscriptionHandler::getSubscription);
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/pause").handler(subscriptionHandler::pauseSubscription);
-        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume")
-.handler(subscriptionHandler::resumeSubscription);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/resume").handler(subscriptionHandler::resumeSubscription);
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/heartbeat").handler(subscriptionHandler::updateHeartbeat);
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName").handler(subscriptionHandler::cancelSubscription);
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove").handler(subscriptionHandler::forceRemoveConsumerGroup);
