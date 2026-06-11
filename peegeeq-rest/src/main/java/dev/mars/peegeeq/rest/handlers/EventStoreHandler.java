@@ -205,6 +205,10 @@ public class EventStoreHandler {
         String limitParam = ctx.request().getParam("limit");
         String offsetParam = ctx.request().getParam("offset");
 
+        // Keyset pagination cursor
+        String afterTransactionTimeParam = ctx.request().getParam("afterTransactionTime");
+        String afterEventIdParam = ctx.request().getParam("afterEventId");
+
         logger.info("Querying events in event store {} for setup: {} with filters: eventType={}, aggregateId={}, validTime=[{},{}], transactionTime=[{},{}], sortOrder={}, includeCorrections={}",
                    eventStoreName, setupId, eventType, aggregateId,
                    validTimeFromParam != null ? validTimeFromParam : fromTimeParam,
@@ -216,7 +220,8 @@ public class EventStoreHandler {
                                                            fromTimeParam, toTimeParam, validTimeFromParam, validTimeToParam,
                                                            transactionTimeFromParam, transactionTimeToParam, asOfTransactionTimeParam,
                                                            sortOrderParam, includeCorrectionsParam, minVersionParam, maxVersionParam,
-                                                           limitParam, offsetParam);
+                                                           limitParam, offsetParam,
+                                                           afterTransactionTimeParam, afterEventIdParam);
         if (queryParams == null) {
             return; // Error already sent
         }
@@ -488,7 +493,8 @@ public class EventStoreHandler {
                                                  String transactionTimeFromParam, String transactionTimeToParam, String asOfTransactionTimeParam,
                                                  String sortOrderParam, String includeCorrectionsParam,
                                                  String minVersionParam, String maxVersionParam,
-                                                 String limitParam, String offsetParam) {
+                                                 String limitParam, String offsetParam,
+                                                 String afterTransactionTimeParam, String afterEventIdParam) {
         EventQueryParams params = new EventQueryParams();
 
         try {
@@ -571,12 +577,40 @@ public class EventStoreHandler {
                 params.setOffset(offset);
             }
 
+            // Parse keyset cursor — both parts required together
+            boolean hasAfterTime = afterTransactionTimeParam != null && !afterTransactionTimeParam.trim().isEmpty();
+            boolean hasAfterId = afterEventIdParam != null && !afterEventIdParam.trim().isEmpty();
+            if (hasAfterTime != hasAfterId) {
+                sendError(ctx, 400, "afterTransactionTime and afterEventId must be provided together");
+                return null;
+            }
+            if (hasAfterTime) {
+                params.setAfterTransactionTime(parseInstantOrEpochSeconds(afterTransactionTimeParam.trim()));
+                params.setAfterEventId(afterEventIdParam.trim());
+            }
+
             return params;
 
         } catch (Exception e) {
             logger.error("Error parsing query parameters: {}", e.getMessage(), e);
             sendError(ctx, 400, "Invalid query parameters: " + e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * Parses a timestamp parameter as either ISO-8601 or epoch-seconds decimal —
+     * the latter is this API's own serialization of event timestamps, so cursor
+     * values copied from a previous response round-trip without conversion.
+     */
+    private Instant parseInstantOrEpochSeconds(String value) {
+        try {
+            return Instant.parse(value);
+        } catch (java.time.format.DateTimeParseException e) {
+            java.math.BigDecimal seconds = new java.math.BigDecimal(value);
+            long secs = seconds.longValue();
+            long nanos = seconds.subtract(java.math.BigDecimal.valueOf(secs)).movePointRight(9).longValue();
+            return Instant.ofEpochSecond(secs, nanos);
         }
     }
 
@@ -631,6 +665,12 @@ public class EventStoreHandler {
 
         if (params.getMaxVersion() != null) {
             filters.put("maxVersion", params.getMaxVersion());
+        }
+
+        // Keyset cursor
+        if (params.getAfterTransactionTime() != null) {
+            filters.put("afterTransactionTime", params.getAfterTransactionTime().toString());
+            filters.put("afterEventId", params.getAfterEventId());
         }
 
         return filters;
@@ -697,6 +737,11 @@ public class EventStoreHandler {
         // Pagination
         builder.limit(params.getLimit());
         builder.offset(params.getOffset());
+
+        // Keyset cursor
+        if (params.getAfterTransactionTime() != null) {
+            builder.after(params.getAfterTransactionTime(), params.getAfterEventId());
+        }
 
         return builder.build();
     }

@@ -14,7 +14,8 @@ import { selectAntOption } from '../utils/ant-helpers'
  *   agg-B: OrderCancelled (v1, no correlationId)                                  — 1 event
  *
  * Tests 00–13: original coverage (page structure, loading, stream, drawer, filter)
- * Tests 14–16: I2/I5 enriched metadata columns + event stream Actions column
+ * Tests 14–15: I2/I5 enriched metadata columns + event stream Actions column
+ * Tests 16–17: I3 full fix — API-driven event stream pagination
  *
  * Standalone – creates its own event store; depends only on
  * setup-prerequisite (SETUP_ID must exist).
@@ -27,6 +28,7 @@ test.describe('Aggregate Stream Page', () => {
     let eventStoreName = ''
     let aggA = ''
     let aggB = ''
+    let aggC = ''
     let aggACorrelationId = ''
 
     // ── helpers ───────────────────────────────────────────────────────────────
@@ -386,4 +388,113 @@ test.describe('Aggregate Stream Page', () => {
     // Note: the Causation Tree button's disabled={!record.correlationId} guard cannot be
     // exercised in E2E because the backend always auto-assigns a correlationId on append.
     // The disabled branch is covered by component unit tests.
+
+    // ── 7. Event stream keyset pagination (I3 full fix + F5) ─────────────────
+
+    test('16 event stream page 1 shows 10 of 15 events with the full total in the pager', async ({ page }) => {
+        test.setTimeout(90000)
+
+        // Seed a third aggregate with 15 events — more than one page (page size 10)
+        aggC = `agg-C-${Date.now()}`
+        for (let i = 1; i <= 15; i++) {
+            await postEvent(page, {
+                eventType: 'StreamPaged',
+                eventData: { seq: i },
+                aggregateId: aggC,
+            })
+        }
+
+        await page.goto('/aggregate-stream')
+        await loadAggregates(page)
+
+        await page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggC }).click()
+
+        const streamCard = page.locator('.ant-card').filter({
+            has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggC}` }),
+        }).last()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+
+        // Page 1: exactly one page of rows; the pager reports the API's totalCount
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(10)
+        await expect(streamCard.getByTestId('stream-pagination-status')).toHaveText('Page 1 of 2 (15 events)')
+        await expect(streamCard.getByTestId('stream-prev-page')).toBeDisabled()
+        await expect(streamCard.getByTestId('stream-next-page')).toBeEnabled()
+    })
+
+    test('17 event stream page 2 is fetched from the API with a keyset cursor', async ({ page }) => {
+        await page.goto('/aggregate-stream')
+        await loadAggregates(page)
+
+        await page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggC }).click()
+
+        const streamCard = page.locator('.ant-card').filter({
+            has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggC}` }),
+        }).last()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(10, { timeout: 10000 })
+
+        // Page 2 must be fetched with the keyset cursor — not an offset
+        const cursorRequests: string[] = []
+        page.on('request', req => {
+            if (req.method() === 'GET' && req.url().includes('/events') && req.url().includes('afterEventId=')) {
+                cursorRequests.push(req.url())
+            }
+        })
+
+        await streamCard.getByTestId('stream-next-page').click()
+
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(5, { timeout: 10000 })
+        await expect(streamCard.getByTestId('stream-pagination-status')).toHaveText('Page 2 of 2 (15 events)')
+        expect(cursorRequests.length, 'page 2 must be fetched with afterEventId/afterTransactionTime').toBeGreaterThanOrEqual(1)
+        expect(cursorRequests[0]).toContain('afterTransactionTime=')
+
+        // Previous returns to page 1
+        await streamCard.getByTestId('stream-prev-page').click()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(10, { timeout: 10000 })
+        await expect(streamCard.getByTestId('stream-pagination-status')).toHaveText('Page 1 of 2 (15 events)')
+    })
+
+    test('18 keyset page 2 does not repeat page 1 events when events are appended mid-browse', async ({ page }) => {
+        test.setTimeout(90000)
+
+        // Capture the stream API responses so page contents can be compared by eventId
+        const streamResponses: any[] = []
+        page.on('response', async res => {
+            if (res.request().method() === 'GET'
+                && res.url().includes('/events?')
+                && res.url().includes(`aggregateId=${aggC}`)) {
+                streamResponses.push(await res.json())
+            }
+        })
+
+        await page.goto('/aggregate-stream')
+        await loadAggregates(page)
+
+        await page.locator('.ant-table-tbody tr.ant-table-row').filter({ hasText: aggC }).click()
+
+        const streamCard = page.locator('.ant-card').filter({
+            has: page.locator('.ant-card-head-title').filter({ hasText: `Stream: ${aggC}` }),
+        }).last()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row')).toHaveCount(10, { timeout: 10000 })
+
+        // Append 3 more events between the page fetches — the drift scenario
+        for (let i = 16; i <= 18; i++) {
+            await postEvent(page, {
+                eventType: 'StreamPaged',
+                eventData: { seq: i },
+                aggregateId: aggC,
+            })
+        }
+
+        await streamCard.getByTestId('stream-next-page').click()
+        await expect(streamCard.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 10000 })
+
+        expect(streamResponses.length, 'both page fetches must be captured').toBeGreaterThanOrEqual(2)
+        const page1Ids = streamResponses[0].events.map((e: any) => e.eventId)
+        const page2Ids = streamResponses[streamResponses.length - 1].events.map((e: any) => e.eventId)
+        for (const id of page2Ids) {
+            expect(page1Ids, `page 2 must not repeat page 1 event ${id}`).not.toContain(id)
+        }
+        // Page 2 holds the remaining 5 original events plus the 3 appended mid-browse
+        expect(page2Ids.length).toBe(8)
+    })
 })

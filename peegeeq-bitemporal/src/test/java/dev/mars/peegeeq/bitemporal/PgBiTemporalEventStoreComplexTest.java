@@ -1348,6 +1348,202 @@ class PgBiTemporalEventStoreComplexTest {
     }
 
     @Test
+    void testQueryKeysetPaginationStableUnderConcurrentAppends(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "KeysetEvent-" + System.nanoTime();
+        List<BiTemporalEvent<TestEvent>> appended = new ArrayList<>();
+
+        // 4 events appended sequentially (ascending transaction time): e1..e4.
+        // Newest-first page 1 (limit 2) = [e4, e3]. Then 2 MORE events are appended
+        // ("concurrent" writes) — offset-based page 2 would re-show e4/e3 because the
+        // newest-first positions shift; the keyset cursor must return exactly [e2, e1].
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("k1", "d", 1))
+            .validTime(validTime).aggregateId("keyset-agg").execute()
+            .map(e -> { appended.add(e); return e; })
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("k2", "d", 2))
+                .validTime(validTime).aggregateId("keyset-agg").execute())
+            .map(e -> { appended.add(e); return e; })
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("k3", "d", 3))
+                .validTime(validTime).aggregateId("keyset-agg").execute())
+            .map(e -> { appended.add(e); return e; })
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("k4", "d", 4))
+                .validTime(validTime).aggregateId("keyset-agg").execute())
+            .map(e -> { appended.add(e); return e; })
+            .compose(v -> eventStore.query(EventQuery.builder()
+                .eventType(eventType)
+                .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
+                .limit(2)
+                .build()))
+            .compose(page1 -> {
+                assertEquals(2, page1.size(), "Page 1 must contain 2 events");
+                BiTemporalEvent<TestEvent> anchor = page1.get(1);
+
+                // "Concurrent" appends between page fetches
+                return eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("n1", "d", 5))
+                        .validTime(validTime).aggregateId("keyset-agg").execute()
+                    .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("n2", "d", 6))
+                        .validTime(validTime).aggregateId("keyset-agg").execute())
+                    .compose(v -> eventStore.query(EventQuery.builder()
+                        .eventType(eventType)
+                        .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
+                        .limit(2)
+                        .after(anchor.getTransactionTime(), anchor.getEventId())
+                        .build()))
+                    .map(page2 -> Map.entry(page1, page2));
+            })
+            .onComplete(testContext.succeeding(pages -> testContext.verify(() -> {
+                var page1Ids = pages.getKey().stream().map(BiTemporalEvent::getEventId).toList();
+                var page2Ids = pages.getValue().stream().map(BiTemporalEvent::getEventId).toList();
+
+                // No overlap despite the appends between fetches
+                page2Ids.forEach(id ->
+                        assertFalse(page1Ids.contains(id), "Page 2 must not repeat a page 1 event: " + id));
+
+                // Page 2 must be exactly the two events older than the anchor (e2, e1) —
+                // not the newly appended ones an offset-based page would have surfaced
+                var expectedPage2 = Set.of(appended.get(1).getEventId(), appended.get(0).getEventId());
+                assertEquals(expectedPage2, Set.copyOf(page2Ids),
+                        "Keyset page 2 must contain exactly the events older than the anchor");
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testQueryHonorsIncludeCorrectionsAndVersionRange(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "CorrectionFilterEvent-" + System.nanoTime();
+
+        // Original (version 1) plus two corrections (versions 2 and 3)
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("v1", "original", 1))
+            .validTime(validTime).aggregateId("correction-filter-agg").execute()
+            .compose(original -> eventStore.appendCorrection(original.getEventId(), eventType,
+                    new TestEvent("v2", "corrected", 2), validTime, "first fix")
+                .compose(v2 -> eventStore.appendCorrection(original.getEventId(), eventType,
+                    new TestEvent("v3", "corrected again", 3), validTime, "second fix")))
+            .compose(v -> eventStore.query(EventQuery.builder()
+                .eventType(eventType).includeCorrections(false).build()))
+            .compose(originalsOnly -> {
+                assertEquals(1, originalsOnly.size(),
+                        "includeCorrections=false must return only the non-correction event");
+                assertFalse(originalsOnly.get(0).isCorrection(),
+                        "The returned event must not be a correction");
+                return eventStore.query(EventQuery.builder()
+                    .eventType(eventType).versionRange(2L, 3L).build());
+            })
+            .onComplete(testContext.succeeding(versionRange -> testContext.verify(() -> {
+                assertEquals(2, versionRange.size(),
+                        "versionRange(2,3) must return only versions 2 and 3");
+                versionRange.forEach(e -> assertTrue(e.getVersion() >= 2 && e.getVersion() <= 3,
+                        "Returned version must be within the requested range, got: " + e.getVersion()));
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testQueryFiltersByHeaders(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "HeaderFilterEvent-" + System.nanoTime();
+
+        // 2 events of the same type with different headers; filter must isolate by header value
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("h1", "d", 1))
+            .validTime(validTime).headers(Map.of("env", "prod", "region", "eu")).aggregateId("header-agg").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("h2", "d", 2))
+                .validTime(validTime).headers(Map.of("env", "dev", "region", "eu")).aggregateId("header-agg").execute())
+            .compose(v -> eventStore.query(EventQuery.builder()
+                .eventType(eventType).headerFilters(Map.of("env", "prod")).build()))
+            .onComplete(testContext.succeeding(filtered -> testContext.verify(() -> {
+                assertEquals(1, filtered.size(),
+                        "headerFilters env=prod must return only the matching event");
+                assertEquals("prod", filtered.get(0).getHeaders().get("env"));
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testQueryHonorsSortOrder(VertxTestContext testContext) throws Exception {
+        Instant base = Instant.now();
+        String eventType = "SortOrderEvent-" + System.nanoTime();
+
+        // Append order deliberately differs from valid-time order:
+        // s1 (base-30s), s2 (base-10s), s3 (base-20s)
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("s1", "d", 1))
+            .validTime(base.minusSeconds(30)).aggregateId("sort-agg").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("s2", "d", 2))
+                .validTime(base.minusSeconds(10)).aggregateId("sort-agg").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("s3", "d", 3))
+                .validTime(base.minusSeconds(20)).aggregateId("sort-agg").execute())
+            .compose(v -> eventStore.query(EventQuery.builder()
+                .eventType(eventType).sortOrder(EventQuery.SortOrder.VALID_TIME_ASC).build()))
+            .compose(ascending -> {
+                assertEquals(3, ascending.size());
+                for (int i = 1; i < ascending.size(); i++) {
+                    assertFalse(ascending.get(i - 1).getValidTime().isAfter(ascending.get(i).getValidTime()),
+                            "VALID_TIME_ASC must return events in ascending valid-time order");
+                }
+                return eventStore.query(EventQuery.builder()
+                    .eventType(eventType).sortOrder(EventQuery.SortOrder.VALID_TIME_DESC).build());
+            })
+            .onComplete(testContext.succeeding(descending -> testContext.verify(() -> {
+                assertEquals(3, descending.size());
+                for (int i = 1; i < descending.size(); i++) {
+                    assertFalse(descending.get(i - 1).getValidTime().isBefore(descending.get(i).getValidTime()),
+                            "VALID_TIME_DESC must return events in descending valid-time order");
+                }
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testQueryFiltersByCorrelationId(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "CorrFilterEvent-" + System.nanoTime();
+        String corrA = "corr-a-" + System.nanoTime();
+        String corrB = "corr-b-" + System.nanoTime();
+
+        // 3 events of the same type: 2 with corrA, 1 with corrB;
+        // querying eventType + correlationId=corrA must return exactly the 2 corrA events
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("cf1", "d", 1))
+            .validTime(validTime).correlationId(corrA).aggregateId("corr-filter-agg").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("cf2", "d", 2))
+                .validTime(validTime).correlationId(corrA).aggregateId("corr-filter-agg").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("cf3", "d", 3))
+                .validTime(validTime).correlationId(corrB).aggregateId("corr-filter-agg").execute())
+            .compose(v -> eventStore.query(
+                EventQuery.builder().eventType(eventType).correlationId(corrA).build()))
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
+                assertEquals(2, events.size(), "Query must return only the events with the requested correlationId");
+                events.forEach(e ->
+                    assertEquals(corrA, e.getCorrelationId(), "Every returned event must carry the requested correlationId"));
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
     void testAppendWithAllOverloads(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         

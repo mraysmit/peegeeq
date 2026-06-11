@@ -8,6 +8,9 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -323,6 +326,86 @@ class PgBiTemporalEventStoreIntegrationTest {
         if (testContext.failed()) {
             throw new RuntimeException(testContext.causeOfFailure());
         }
+    }
+
+    @Test
+    void testHandlerFailuresEscalateWarnToError(VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing consecutive handler failure escalation ===");
+
+        String eventType = "escalation.warn.error.test";
+
+        // Capture ReactiveNotificationHandler log output
+        ch.qos.logback.classic.Logger handlerLogger =
+                (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(ReactiveNotificationHandler.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        handlerLogger.addAppender(appender);
+
+        AtomicInteger handlerCalls = new AtomicInteger(0);
+        Promise<Void> threeFailures = Promise.promise();
+
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
+
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(vertx, peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribe(eventType, message -> {
+                    if (handlerCalls.incrementAndGet() >= 3) {
+                        threeFailures.tryComplete();
+                    }
+                    return Future.failedFuture(new IllegalStateException("intentional handler failure"));
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType(eventType)
+                .payload(Map.of("seq", 1)).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType)
+                .payload(Map.of("seq", 2)).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType)
+                .payload(Map.of("seq", 3)).validTime(Instant.now()).execute())
+            .compose(v -> threeFailures.future())
+            // The third failure log fires just after the handler returns — give the
+            // event loop one timer tick to emit it before asserting.
+            .compose(v -> vertx.timer(300).mapEmpty())
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                try {
+                    List<ILoggingEvent> failureLogs = appender.list.stream()
+                            .filter(e -> hasCauseOfType(e, "java.lang.IllegalStateException"))
+                            .toList();
+                    assertTrue(failureLogs.size() >= 3,
+                            "Expected at least 3 captured handler-failure logs, got: " + failureLogs.size());
+
+                    assertEquals(Level.WARN, failureLogs.get(0).getLevel(),
+                            "First handler failure must log at WARN");
+                    assertEquals(Level.WARN, failureLogs.get(1).getLevel(),
+                            "Second handler failure must log at WARN");
+                    assertEquals(Level.ERROR, failureLogs.get(2).getLevel(),
+                            "Third consecutive handler failure must escalate to ERROR");
+                    assertTrue(failureLogs.get(2).getFormattedMessage().contains("consecutive failures"),
+                            "Escalated log must state the consecutive failure count, got: "
+                                    + failureLogs.get(2).getFormattedMessage());
+                } finally {
+                    handlerLogger.detachAppender(appender);
+                }
+                eventStore.unsubscribe();
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    /** Walks the logged throwable's cause chain for the given exception class name. */
+    private boolean hasCauseOfType(ILoggingEvent event, String className) {
+        var proxy = event.getThrowableProxy();
+        while (proxy != null) {
+            if (className.equals(proxy.getClassName())) {
+                return true;
+            }
+            proxy = proxy.getCause();
+        }
+        return false;
     }
 
     @Test
