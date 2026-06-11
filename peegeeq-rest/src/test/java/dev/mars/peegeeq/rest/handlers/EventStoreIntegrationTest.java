@@ -307,6 +307,76 @@ public class EventStoreIntegrationTest {
     }
 
     @Test
+    void testQueryEventsKeysetCursorPagination(VertxTestContext testContext) {
+        logger.info("=== TEST METHOD STARTED: testQueryEventsKeysetCursorPagination ===");
+
+        String eventType = "KeysetCursorEvent" + System.currentTimeMillis();
+        String basePath = "/api/v1/eventstores/" + testSetupId + "/test_events/events";
+
+        JsonObject eventRequest = new JsonObject()
+                .put("eventType", eventType)
+                .put("validFrom", Instant.now().toString());
+
+        // Store 3 events, fetch newest-first page 1 of 2, then page 2 via the keyset cursor
+        webClient.post(TEST_PORT, "localhost", basePath)
+                .putHeader("content-type", "application/json")
+                .timeout(10000)
+                .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 1)))
+                .compose(r1 -> webClient.post(TEST_PORT, "localhost", basePath)
+                        .putHeader("content-type", "application/json")
+                        .timeout(10000)
+                        .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 2))))
+                .compose(r2 -> webClient.post(TEST_PORT, "localhost", basePath)
+                        .putHeader("content-type", "application/json")
+                        .timeout(10000)
+                        .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 3))))
+                .compose(r3 -> webClient.get(TEST_PORT, "localhost",
+                                basePath + "?eventType=" + eventType + "&limit=2&sortOrder=TRANSACTION_TIME_DESC")
+                        .timeout(10000)
+                        .send())
+                .compose(page1 -> {
+                    testContext.verify(() -> {
+                        logger.info("Cursor page 1 response: {} - {}", page1.statusCode(), page1.bodyAsString());
+                        assertEquals(200, page1.statusCode(), "Page 1 query should succeed");
+                        assertEquals(2, page1.bodyAsJsonObject().getInteger("eventCount"), "Page 1 must contain 2 events");
+                    });
+
+                    JsonObject anchor = page1.bodyAsJsonObject().getJsonArray("events").getJsonObject(1);
+                    // transactionTime is serialized as an epoch-seconds decimal — send it back verbatim
+                    String anchorTime = java.net.URLEncoder.encode(
+                            anchor.getValue("transactionTime").toString(), java.nio.charset.StandardCharsets.UTF_8);
+                    String anchorId = anchor.getString("eventId");
+                    JsonObject page1Body = page1.bodyAsJsonObject();
+
+                    return webClient.get(TEST_PORT, "localhost",
+                                    basePath + "?eventType=" + eventType + "&limit=2&sortOrder=TRANSACTION_TIME_DESC"
+                                            + "&afterTransactionTime=" + anchorTime + "&afterEventId=" + anchorId)
+                            .timeout(10000)
+                            .send()
+                            .map(page2 -> new JsonObject().put("page1", page1Body).put("page2", page2.bodyAsJsonObject())
+                                    .put("page2Status", page2.statusCode()));
+                })
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+                    logger.info("Cursor page 2 response: {}", result.getJsonObject("page2").encode());
+                    assertEquals(200, result.getInteger("page2Status"), "Page 2 query should succeed");
+
+                    JsonObject page2 = result.getJsonObject("page2");
+                    assertEquals(1, page2.getInteger("eventCount"),
+                            "Cursor page 2 must contain only the 1 event older than the anchor");
+
+                    String page2Id = page2.getJsonArray("events").getJsonObject(0).getString("eventId");
+                    var page1Events = result.getJsonObject("page1").getJsonArray("events");
+                    for (int i = 0; i < page1Events.size(); i++) {
+                        assertNotEquals(page1Events.getJsonObject(i).getString("eventId"), page2Id,
+                                "Cursor page 2 must not repeat a page 1 event");
+                    }
+
+                    logger.info("=== TEST METHOD COMPLETED: testQueryEventsKeysetCursorPagination ===");
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
     void testGetAllVersionsOfEvent(VertxTestContext testContext) {
         logger.info("=== TEST METHOD STARTED: testGetAllVersionsOfEvent ===");
         logger.info("=== TEST: GET ALL VERSIONS OF EVENT ===");
