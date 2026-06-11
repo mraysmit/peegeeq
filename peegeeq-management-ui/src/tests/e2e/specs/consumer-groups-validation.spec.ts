@@ -8,9 +8,9 @@ import { selectAntOption } from '../utils/ant-helpers'
  * Covers gap:
  *   3. Form validations in the create consumer group modal are untested.
  *
- * Tests client-side required-field validation (Form.Item rules) and a
- * successful creation flow.  Duplicate-name enforcement is backend-only and
- * the backend does not guarantee a rejection, so that path is not tested here.
+ * Tests client-side required-field validation (Form.Item rules), a
+ * successful creation flow, and duplicate-name rejection (the backend
+ * returns 409 Conflict when the group already exists for the queue).
  *
  * Depends on setup-prerequisite (SETUP_ID must exist) and a queue being available.
  */
@@ -110,5 +110,53 @@ test.describe('Consumer Groups – Create Modal Form Validation', () => {
         await expect(modal).not.toBeVisible({ timeout: 10000 })
 
         console.log(`Created consumer group "${groupName}"`)
+    })
+
+    // ── 4. Duplicate name rejected ────────────────────────────────────────────
+
+    test('04 duplicate group name shows backend conflict error and keeps one row', async ({ page }) => {
+        const groupName = `cg_dup_${Date.now()}`
+
+        // Create the group directly via the API so the modal attempt is a duplicate
+        const resp = await page.request.post(
+            '/api/v1/management/consumer-groups',
+            { data: { name: groupName, setup: SETUP_ID, queueName } }
+        )
+        if (!resp.ok()) {
+            throw new Error(`Create group failed: ${resp.status()} ${await resp.text()}`)
+        }
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('load')
+
+        // Attempt to create the same group via the modal
+        await page.getByTestId('create-group-btn').click()
+        const modal = page.locator('.ant-modal')
+        await expect(modal).toBeVisible()
+
+        await modal.getByLabel('Group Name').fill(groupName)
+
+        // Setup must be selected before queue name to avoid onValuesChange reset
+        await selectAntOption(modal.getByTestId('create-group-setup-select'), SETUP_ID)
+        await page.waitForTimeout(300)
+        await modal.getByTestId('create-group-queue-input').fill(queueName)
+
+        await modal.locator('.ant-btn-primary').click()
+
+        // The backend 409 error message must surface in the error toast
+        await expect(
+            page.locator('.ant-message-error')
+                .filter({ hasText: `Consumer group '${groupName}' already exists` })
+                .first()
+        ).toBeVisible({ timeout: 10000 })
+
+        // Failed creation must not close the modal
+        await expect(modal).toBeVisible()
+        await page.keyboard.press('Escape')
+        await expect(modal).not.toBeVisible({ timeout: 3000 })
+
+        // The table must contain exactly one row for the group name
+        const rows = page.locator('.ant-table-row').filter({ hasText: groupName })
+        await expect(rows).toHaveCount(1)
     })
 })

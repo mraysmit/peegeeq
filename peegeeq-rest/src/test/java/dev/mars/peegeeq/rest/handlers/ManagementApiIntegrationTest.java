@@ -915,6 +915,128 @@ public class ManagementApiIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
+    @Test
+    @Order(19)
+    @DisplayName("Management API - POST /management/consumer-groups returns 409 for duplicate group name")
+    void testCreateDuplicateConsumerGroupReturns409(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 19: POST /management/consumer-groups duplicate returns 409 ===");
+
+        String groupName = "mgmt_duplicate_group_" + System.currentTimeMillis();
+
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        // Step 1: create the group
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                testContext.verify(() ->
+                    assertEquals(201, createResponse.statusCode(),
+                        "Pre-condition: first group creation should return 201, got: "
+                            + createResponse.statusCode() + " " + createResponse.bodyAsString()));
+
+                logger.info("Consumer group created for duplicate test: {}", groupName);
+
+                // Step 2: attempt to create the same group again
+                return webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+                    .putHeader("content-type", "application/json")
+                    .sendJsonObject(groupRequest);
+            })
+            .onSuccess(duplicateResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Duplicate consumer group response: {} - {}",
+                        duplicateResponse.statusCode(), duplicateResponse.bodyAsString());
+
+                    assertEquals(409, duplicateResponse.statusCode(),
+                        "Duplicate group creation should return 409 Conflict");
+
+                    JsonObject body = duplicateResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    String error = body.getString("error");
+                    assertNotNull(error, "Response should contain error field");
+                    assertTrue(error.contains(groupName),
+                        "Error message should name the conflicting group, got: " + error);
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(20)
+    @DisplayName("Management API - GET /management/consumer-groups includes backfill status, progress, and timestamps after backfill")
+    void testConsumerGroupListingIncludesBackfillFields(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 20: GET /management/consumer-groups includes backfill fields ===");
+
+        String groupName = "mgmt_backfill_fields_group_" + System.currentTimeMillis();
+
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        // Step 1: create a group
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                testContext.verify(() ->
+                    assertEquals(201, createResponse.statusCode(),
+                        "Pre-condition: group creation should return 201"));
+
+                // Step 2: run a backfill to completion (the POST resolves when the backfill finishes)
+                String backfillPath = String.format("/api/v1/management/consumer-groups/%s/%s/%s/backfill",
+                    setupId, QUEUE_NAME, groupName);
+                return webClient.post(TEST_PORT, "localhost", backfillPath).send();
+            })
+            .compose(backfillResponse -> {
+                testContext.verify(() ->
+                    assertEquals(200, backfillResponse.statusCode(),
+                        "Pre-condition: backfill should return 200, got: "
+                            + backfillResponse.statusCode() + " " + backfillResponse.bodyAsString()));
+
+                // Step 3: fetch the consumer group listing
+                return webClient.get(TEST_PORT, "localhost", "/api/v1/management/consumer-groups").send();
+            })
+            .onSuccess(listResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, listResponse.statusCode(), "GET listing should return 200");
+
+                    JsonArray groups = listResponse.bodyAsJsonObject().getJsonArray("consumerGroups");
+                    assertNotNull(groups, "Response should contain consumerGroups array");
+
+                    JsonObject group = null;
+                    for (int i = 0; i < groups.size(); i++) {
+                        if (groupName.equals(groups.getJsonObject(i).getString("name"))) {
+                            group = groups.getJsonObject(i);
+                            break;
+                        }
+                    }
+                    assertNotNull(group, "Listing should contain group " + groupName);
+
+                    logger.info("Consumer group listing entry: {}", group.encodePrettily());
+
+                    assertEquals("COMPLETED", group.getString("backfillStatus"),
+                        "backfillStatus should be COMPLETED after the backfill finished");
+                    assertNotNull(group.getLong("backfillProcessedMessages"),
+                        "Listing should contain backfillProcessedMessages");
+                    assertNotNull(group.getLong("backfillTotalMessages"),
+                        "Listing should contain backfillTotalMessages");
+                    assertNotNull(group.getString("backfillStartedAt"),
+                        "Listing should contain backfillStartedAt after the backfill ran");
+                    assertNotNull(group.getString("backfillCompletedAt"),
+                        "Listing should contain backfillCompletedAt after the backfill completed");
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
     // ========================================
     // CRITICAL GAP TESTS - E2E with Real Database
     // ========================================
