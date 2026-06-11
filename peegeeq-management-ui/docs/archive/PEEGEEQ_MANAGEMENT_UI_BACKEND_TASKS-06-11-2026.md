@@ -83,7 +83,26 @@ for consistency unless the UI needs stricter semantics.
 
 ## Task 2: Backfill IN_PROGRESS progress bar — un-skip and extend tests (mostly test-side)
 
-**Status**: backend listing support EXISTS since 2026-06-07; the skipped test's premise is stale.
+**Status**: ✅ COMPLETED 2026-06-11 (TDD for the backend enhancement; route-interception e2e tests).
+
+- **Backend enhancement (TDD)**: `backfillStartedAt` and `backfillCompletedAt` added to the consumer
+  group listing JSON in `ManagementApiHandler.getConsumerGroupsForSetup()` (null-safe `.toString()`
+  pattern, matching the adjacent timestamp fields). RED: new test 20 in `ManagementApiIntegrationTest`
+  (`testConsumerGroupListingIncludesBackfillFields`) failed on `backfillStartedAt: expected not <null>`;
+  GREEN after the change. All 24 tests in the class pass. The UI modal's Started At / Completed At
+  fields now receive real values.
+- **E2E — skipped test rewritten**: the stale `test.skip` in `consumer-groups-scope-selectors.spec.ts`
+  is replaced with a real test asserting the row's `IN_PROGRESS` tag and that the action menu hides
+  "Start Backfill" (Pause Group still visible).
+- **E2E — progress bar test added**: "details modal shows backfill progress bar while IN_PROGRESS"
+  asserts the Backfill Details card, the `IN_PROGRESS` tag, and the `.ant-progress` bar at 40%
+  (400/1000 processed).
+- **Timing strategy resolved by stubbing**: a real backfill runs as a single 10k-message batch with no
+  inter-batch delay, so its `IN_PROGRESS` window cannot be observed reliably through the UI. Both tests
+  stub the GET listing via `page.route()` — the suite's established approach for transient states
+  (`overview-reconnecting-banner.spec.ts`, `api-error-paths.spec.ts`). The real listing fields are
+  covered backend-side by `ManagementApiIntegrationTest` test 20.
+- **Verification**: full `13-consumer-groups-scope-selectors` chain — 59/59 passed.
 
 ### Verified current state
 
@@ -114,14 +133,13 @@ for consistency unless the UI needs stricter semantics.
    (and/or configure a small batch size with a delay) so the window is reliably observable; poll with
    `expect(...).toPass()` as the existing backfill specs do.
 
-### Optional backend enhancement
+### Optional backend enhancement — ✅ done 2026-06-11
 
-The listing response omits `backfillStartedAt` and `backfillCompletedAt`, which `ConsumerGroups.tsx`
-(lines ~108-109) already tries to map (they come back `undefined` today). `SubscriptionInfo`
-(`peegeeq-api/src/main/java/dev/mars/peegeeq/api/subscription/SubscriptionInfo.java`) carries both fields,
-and the single-group response at `ManagementApiHandler.java` (lines ~2022-2024) shows the pattern.
-Add both to the listing JSON in `getConsumerGroupsForSetup()` so the details modal can display
-backfill timestamps without an extra fetch.
+The listing response omitted `backfillStartedAt` and `backfillCompletedAt`, which `ConsumerGroups.tsx`
+(lines ~108-109) already maps (they came back `undefined`). Both fields are now emitted by
+`getConsumerGroupsForSetup()` (null-safe `.toString()`, sourced from `SubscriptionInfo`), verified by
+`ManagementApiIntegrationTest` test 20. The details modal displays backfill timestamps without an
+extra fetch.
 
 ---
 
@@ -130,4 +148,4 @@ backfill timestamps without an extra fetch.
 | # | Task | Type | Blocker for coverage gap | Status |
 |---|------|------|--------------------------|--------|
 | 1 | Return `409 CONFLICT` for duplicate group names in `POST /api/v1/management/consumer-groups` | Backend change | Consumer Groups: duplicate name validation | ✅ Done 2026-06-11 |
-| 2 | Un-skip stale test + add progress bar rendering test (backend support already shipped) | Test work (+ optional backend enhancement) | Consumer Groups: backfill IN_PROGRESS progress bar | Open |
+| 2 | Un-skip stale test + add progress bar rendering test (backend support already shipped) | Test work (+ optional backend enhancement) | Consumer Groups: backfill IN_PROGRESS progress bar | ✅ Done 2026-06-11 |
