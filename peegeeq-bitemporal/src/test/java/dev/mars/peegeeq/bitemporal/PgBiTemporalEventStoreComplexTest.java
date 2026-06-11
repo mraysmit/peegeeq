@@ -1282,6 +1282,72 @@ class PgBiTemporalEventStoreComplexTest {
     }
 
     @Test
+    void testQueryWithOffsetPagination(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "QueryOffsetEvent-" + System.nanoTime();
+
+        // 4 events with distinct valid times for stable ordering;
+        // fetch page 1 (limit=2, offset=0) then page 2 (limit=2, offset=2)
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("q1", "d", 1))
+            .validTime(validTime.minusSeconds(1)).aggregateId("query-offset-agg").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("q2", "d", 2))
+                .validTime(validTime.minusSeconds(2)).aggregateId("query-offset-agg").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("q3", "d", 3))
+                .validTime(validTime.minusSeconds(3)).aggregateId("query-offset-agg").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("q4", "d", 4))
+                .validTime(validTime.minusSeconds(4)).aggregateId("query-offset-agg").execute())
+            .compose(v -> eventStore.query(EventQuery.builder().eventType(eventType).limit(2).offset(0).build()))
+            .compose(page1 -> {
+                assertEquals(2, page1.size(), "Page 1 must contain exactly 2 events");
+                return eventStore.query(EventQuery.builder().eventType(eventType).limit(2).offset(2).build())
+                        .map(page2 -> {
+                            assertEquals(2, page2.size(), "Page 2 must contain the remaining 2 events");
+                            // No overlap between pages
+                            var p1Ids = page1.stream().map(BiTemporalEvent::getEventId).toList();
+                            var p2Ids = page2.stream().map(BiTemporalEvent::getEventId).toList();
+                            p2Ids.forEach(id ->
+                                    assertFalse(p1Ids.contains(id), "Page 2 must not repeat page 1 event: " + id));
+                            return page2;
+                        });
+            })
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
+    void testCountEventsIgnoresLimitAndOffset(VertxTestContext testContext) throws Exception {
+        Instant validTime = Instant.now();
+        String eventType = "CountTestEvent-" + System.nanoTime();
+
+        // 3 events; the count must reflect all of them regardless of limit/offset on the query
+        eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("c1", "d", 1))
+            .validTime(validTime).aggregateId("count-agg-1").execute()
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("c2", "d", 2))
+                .validTime(validTime).aggregateId("count-agg-1").execute())
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("c3", "d", 3))
+                .validTime(validTime).aggregateId("count-agg-2").execute())
+            .compose(v -> eventStore.countEvents(EventQuery.builder().eventType(eventType).limit(1).offset(2).build()))
+            .compose(countByType -> {
+                assertEquals(3L, countByType, "Count by eventType must include all 3 events, ignoring limit/offset");
+                return eventStore.countEvents(
+                        EventQuery.builder().eventType(eventType).aggregateId("count-agg-1").build());
+            })
+            .onComplete(testContext.succeeding(countByAggregate -> testContext.verify(() -> {
+                assertEquals(2L, countByAggregate, "Count filtered by aggregateId must include only that aggregate's events");
+                testContext.completeNow();
+            })));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @Test
     void testAppendWithAllOverloads(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         

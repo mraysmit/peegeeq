@@ -2,6 +2,7 @@ package dev.mars.peegeeq.integration.resilience;
 
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
+import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.db.setup.PeeGeeQDatabaseSetupService;
 import dev.mars.peegeeq.integration.SmokeTestBase;
 import io.vertx.core.Vertx;
@@ -89,7 +90,7 @@ public class SetupFailureRecoverySmokeTest extends SmokeTestBase {
                     .onSuccess(v -> testContext.failNow(
                             new AssertionError("Expected status check to fail with SetupNotFoundException")))
                     .onFailure(statusErr -> testContext.verify(() -> {
-                        assertInstanceOf(PeeGeeQDatabaseSetupService.SetupNotFoundException.class, statusErr,
+                        assertInstanceOf(SetupNotFoundException.class, statusErr,
                                 "Failed setup should not remain registered as active");
                         checkpoint.flag();
                     }));

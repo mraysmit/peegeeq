@@ -25,6 +25,7 @@ import dev.mars.peegeeq.examples.springboot2.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot2.events.OrderValidatedEvent;
 import dev.mars.peegeeq.examples.springboot2.adapter.ReactiveOutboxAdapter;
 import dev.mars.peegeeq.examples.springboot2.model.Order;
+import dev.mars.peegeeq.examples.springboot2.model.OrderValidationException;
 import dev.mars.peegeeq.examples.springboot2.repository.OrderItemRepository;
 import dev.mars.peegeeq.examples.springboot2.repository.OrderRepository;
 import dev.mars.peegeeq.outbox.OutboxProducer;
@@ -196,15 +197,15 @@ public class OrderService {
 
                     // Business validation that might fail
                     if (request.getAmount().compareTo(new BigDecimal("10000")) > 0) {
-                        log.info(" INTENTIONAL TEST FAILURE: Order amount {} exceeds maximum limit of $10,000 (THIS IS EXPECTED)", request.getAmount());
+                        log.info("Order validation failed: amount {} exceeds maximum limit of $10,000", request.getAmount());
                         return Future.failedFuture(
-                            new RuntimeException(" INTENTIONAL TEST FAILURE: Order amount exceeds maximum limit of $10,000"));
+                            new OrderValidationException("Order amount exceeds maximum limit of $10,000"));
                     }
 
                     if (request.getCustomerId().equals("INVALID_CUSTOMER")) {
-                        log.info(" INTENTIONAL TEST FAILURE: Invalid customer ID: {} (THIS IS EXPECTED)", request.getCustomerId());
+                        log.info("Order validation failed: invalid customer ID: {}", request.getCustomerId());
                         return Future.failedFuture(
-                            new RuntimeException(" INTENTIONAL TEST FAILURE: Invalid customer ID: " + request.getCustomerId()));
+                            new OrderValidationException("Invalid customer ID: " + request.getCustomerId()));
                     }
 
                     // Step 2: Save order
@@ -222,11 +223,10 @@ public class OrderService {
                 })
                 .onSuccess(id -> log.info("Order {} created successfully with business validation", id))
                 .onFailure(error -> {
-                    String errorMessage = error.getMessage();
-                    if (errorMessage != null && errorMessage.contains(" INTENTIONAL TEST FAILURE:")) {
-                        log.info(" TRANSACTION ROLLBACK: {}", errorMessage);
+                    if (error instanceof OrderValidationException) {
+                        log.info(" TRANSACTION ROLLBACK: {}", error.getMessage());
                     } else {
-                        log.error(" TRANSACTION ROLLBACK: Order creation failed: {}", errorMessage);
+                        log.error(" TRANSACTION ROLLBACK: Order creation failed: {}", error.getMessage());
                     }
                 });
 
@@ -274,7 +274,7 @@ public class OrderService {
                 .onSuccess(id -> log.info("Order {} created successfully with database constraints", id))
                 .onFailure(error -> {
                     String errorMessage = error.getMessage();
-                    if (errorMessage != null && errorMessage.contains(" INTENTIONAL TEST FAILURE:")) {
+                    if (error instanceof OrderValidationException) {
                         log.info(" TRANSACTION ROLLBACK: {}", errorMessage);
                     } else if (errorMessage != null && errorMessage.contains("Database constraint violation")) {
                         log.info(" TRANSACTION ROLLBACK: {}", errorMessage);
