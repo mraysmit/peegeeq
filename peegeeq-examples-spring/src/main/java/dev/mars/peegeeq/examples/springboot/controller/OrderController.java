@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.springboot.controller;
 
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderRequest;
 import dev.mars.peegeeq.examples.springboot.model.CreateOrderResponse;
+import dev.mars.peegeeq.examples.springboot.model.OrderValidationException;
 import dev.mars.peegeeq.examples.springboot.service.OrderService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -148,8 +149,9 @@ public class OrderController {
             .transform(ar -> {
                 if (ar.succeeded()) return Future.succeededFuture(ar.result());
                 Throwable error = ar.cause();
-                String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
-                if (errorMessage != null && errorMessage.contains(" INTENTIONAL TEST FAILURE:")) {
+                Throwable cause = error.getCause() != null ? error.getCause() : error;
+                String errorMessage = cause.getMessage();
+                if (cause instanceof OrderValidationException) {
                     log.info(" TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
                         request.getCustomerId(), errorMessage);
                 } else {

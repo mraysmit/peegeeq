@@ -322,10 +322,19 @@ public interface EventStore<T> {
      * @return A Vert.x Future that completes with the aggregate list result
      */
     Future<AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset);
-    
+
+    /**
+     * Counts events matching the query criteria, ignoring the query's limit and offset.
+     * Used for pagination metadata alongside {@link #query}.
+     *
+     * @param query The query criteria (limit/offset are not applied to the count)
+     * @return A Vert.x Future that completes with the total number of matching events
+     */
+    Future<Long> countEvents(EventQuery query);
+
     /**
      * Gets statistics about the event store.
-     * 
+     *
     * @return A Vert.x Future that completes with store statistics
      */
     Future<EventStoreStats> getStats();

@@ -90,7 +90,7 @@ public class DatabaseTemplateManager {
                         .transform(ar -> {
                             if (ar.failed()) {
                                 if (isDatabaseConflictError(ar.cause())) {
-                                    logger.debug("\uD83D\uDEAB EXPECTED: Database creation conflict - {}", ar.cause().getMessage());
+                                    logger.debug("Database creation conflict - {}", ar.cause().getMessage());
                                     return Future.<Void>succeededFuture();
                                 } else {
                                     logger.error("Failed to execute SQL: {} - Error: {}", sql, ar.cause().getMessage());
