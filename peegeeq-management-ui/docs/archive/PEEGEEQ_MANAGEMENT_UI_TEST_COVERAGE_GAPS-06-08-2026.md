@@ -4,13 +4,13 @@ This document provides a detailed breakdown of the features and user flows imple
 
 > **Validation note (2026-06-06)**: All gaps were cross-checked against the source components and existing test specs. Inaccurate entries have been removed or corrected.
 >
-> **Re-validation note (2026-06-11)**: Every gap was re-verified against assertion-level evidence in the actual spec files. The detail sections below have been synced with the covering specs. Duplicate-name validation was closed the same day (backend 409 + e2e test). One Consumer Groups item remains partial — the backfill progress bar rendering (see Section 5 and the backend tasks document).
+> **Re-validation note (2026-06-11)**: Every gap was re-verified against assertion-level evidence in the actual spec files. The detail sections below have been synced with the covering specs. Both remaining Consumer Groups items were closed the same day — duplicate-name validation (backend 409 + e2e test) and the backfill IN_PROGRESS progress bar (route-interception e2e tests + backend timestamp fields). See `PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md`.
 
 ---
 
 ## Progress Summary (validated 2026-06-11)
 
-**28 of 29 gaps closed. 1 partially closed, 0 still open.**
+**29 of 29 gaps closed. 0 still open.**
 
 | Page | Total Gaps | ✅ Closed | 🟡 Partial | ❌ Open |
 |------|-----------|----------|-----------|--------|
@@ -18,14 +18,14 @@ This document provides a detailed breakdown of the features and user flows imple
 | Database Setups | 3 | 3 | 0 | 0 |
 | Queues | 3 | 3 | 0 | 0 |
 | Queue Details | 4 | 4 | 0 | 0 |
-| Consumer Groups | 3 | 2 | 1 | 0 |
+| Consumer Groups | 3 | 3 | 0 | 0 |
 | Event Stores | 2 | 2 | 0 | 0 |
 | Events | 3 | 3 | 0 | 0 |
 | Causation Tree | 2 | 2 | 0 | 0 |
 | Aggregate Stream | 2 | 2 | 0 | 0 |
 | Message Browser | 2 | 2 | 0 | 0 |
 | Settings | 1 | 1 | 0 | 0 |
-| **Total** | **29** | **28** | **1** | **0** |
+| **Total** | **29** | **29** | **0** | **0** |
 
 ### All gaps at a glance
 
@@ -46,7 +46,7 @@ This document provides a detailed breakdown of the features and user flows imple
 - [x] Queue Details: Purge Messages confirm + POST + toast
 - [x] Queue Details: Delete Queue via UI + navigate away
 - [x] Consumer Groups: View Details modal
-- [~] Consumer Groups: Backfill IN_PROGRESS progress bar (menu item click covered; bar rendering NOT verified — backend listing support shipped 2026-06-07; the skipped test's premise is stale. See `PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md` Task 2)
+- [x] Consumer Groups: Backfill IN_PROGRESS progress bar (closed 2026-06-11 — skipped test rewritten + progress bar test added in `consumer-groups-scope-selectors.spec.ts` via route interception; listing timestamps covered by `ManagementApiIntegrationTest` test 20. See `PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md` Task 2)
 - [x] Consumer Groups: Duplicate group name validation (closed 2026-06-11 — backend now returns 409; covered by `consumer-groups-validation.spec.ts` test 04 and `ManagementApiIntegrationTest` test 19. See `PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md` Task 1)
 - [x] Event Stores: View Details / Query Events drawer
 - [x] Event Stores: List row counts update after scoping (`event-stores-scope-filter.spec.ts` tests 02–03)
@@ -77,7 +77,7 @@ This document provides a detailed breakdown of the features and user flows imple
     *   Test 02 asserts the Recent Activity table renders rows after backend operations.
     *   Test 03 asserts each row status tag carries a valid colour class (`ant-tag-green` / `ant-tag-orange` / `ant-tag-red`).
 2.  **Live Updates Integration** `[x]` — covered in `overview-live-stats-update.spec.ts`:
-    *   Websocket SSE status indicator is checked for static tags, but there are no tests asserting that an incoming `system_stats` event on the WebSocket updates the statistics cards or charts in real-time.
+    *   Asserts that an incoming `system_stats` event on the WebSocket updates the statistics cards and charts in real-time.
 3.  **Queue Overview Table** `[x]` — covered in `overview-recent-activity.spec.ts` (tests 05, 07):
     *   Test 05 asserts the Queue Overview table shows rows for the selected setup.
     *   Test 07 asserts clicking "View All" navigates to `/queues`.
@@ -98,7 +98,7 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Delete Setup Confirmation Stats** `[x]` — covered in `database-setup.spec.ts`:
-    *   The confirmation modal for deleting a setup displays the affected queues and event stores that will be wiped. This counts rendering logic is never tested.
+    *   Asserts the delete confirmation modal displays the affected queues and event stores that will be wiped.
 2.  **Port Range Validation** `[x]` — covered in `database-setup-form-defaults.spec.ts`:
     *   Asserts the Ant Design InputNumber clamps out-of-range values on blur: above 65535 → `65535`, `0` → `1`.
 3.  **Form Field Default States** `[x]` — covered in `database-setup-form-defaults.spec.ts`:
@@ -123,7 +123,7 @@ This document provides a detailed breakdown of the features and user flows imple
     *   Asserts clicking Queue Name / Message Rate headers sends `sortBy`, and a second click sends `sortOrder=desc`.
     *   Note: Message Count column sorting is not explicitly tested.
 3.  **Purge Action** `[x]` — covered in `queue-details-operations.spec.ts` (test 06):
-    *   Clicking the "Purge Messages" dropdown action, which fires a placeholder notice, is untested.
+    *   Asserts clicking the "Purge Messages" dropdown action triggers the purge and shows the success alert.
 
 ---
 
@@ -137,14 +137,13 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Get Messages Interaction** `[x]` — covered in `queue-details-operations.spec.ts` (tests 01–02):
-    *   The "Get Messages" modal (limit count query) and its messages table display are not covered.
-    *   Viewing message payloads in the JSON popup dialog is untested.
+    *   Covers the "Get Messages" modal (limit count query), the messages table display, and viewing message payloads in the JSON popup dialog.
 2.  **Queue State Operations (Pause / Resume)** `[x]` — covered in `queue-details-operations.spec.ts` (tests 04–05):
-    *   Clicking "Pause Queue" or "Resume Queue" in the actions menu, confirming the prompt, and checking that the POST endpoints are called is untested.
+    *   Asserts clicking "Pause Queue" / "Resume Queue" in the actions menu, confirming the prompt, and that the POST endpoints are called.
 3.  **Purging Queue via Details** `[x]` — covered in `queue-details-operations.spec.ts` (test 06):
-    *   Toggling "Purge Messages" from the details page dropdown and verifying the purge count success alert is untested.
+    *   Asserts toggling "Purge Messages" from the details page dropdown and verifies the purge count success alert.
 4.  **Queue Deletion via UI** `[x]` — covered in `queue-details-operations.spec.ts` (test 07):
-    *   Deleting the queue using the Details dropdown action button is untested (current E2E scripts use direct Playwright API HTTP requests to clean up queues rather than using the UI workflow).
+    *   Asserts deleting the queue via the Details dropdown action button and navigating away (other E2E scripts still use direct API requests for cleanup, which is fine).
 
 ---
 
@@ -155,12 +154,13 @@ This document provides a detailed breakdown of the features and user flows imple
 *   Filtering lists via scope selector bar.
 *   Mocked endpoint hits for Pause Group, Resume Group, and Start Backfill actions.
 
-### Missing Test Coverage Gaps — 2 CLOSED, 1 PARTIAL
+### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Details Modal** `[x]` — covered in `consumer-groups-scope-selectors.spec.ts`:
-    *   Opening "View Details" to display descriptions, processed/total messages, active lag statistics, and execution timestamps is untested.
-2.  **Backfill Progress Bar** `[~]` — partially covered (menu item click only; bar rendering NOT verified):
-    *   `consumer-groups-scope-selectors.spec.ts` asserts "Start Backfill" calls the POST `.../backfill` endpoint, but no test asserts the `.ant-progress` bar renders during `IN_PROGRESS`.
-    *   **Update 2026-06-11**: the skipped test's premise is stale — the management API HAS returned `backfillStatus` in the listing since 2026-06-07 (commit `d75d48d9`). Remaining work is test-side: un-skip the stale test and add a progress bar rendering test. See [PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md](./PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md) Task 2.
+    *   Asserts "View Details" opens the modal displaying descriptions, processed/total messages, lag statistics, and execution timestamps.
+2.  **Backfill Progress Bar** `[x]` — closed 2026-06-11:
+    *   The stale `test.skip` (whose premise — "listing lacks `backfillStatus`" — had been false since 2026-06-07, commit `d75d48d9`) is rewritten as a real test: the row shows the `IN_PROGRESS` tag and the action menu hides "Start Backfill".
+    *   A new test asserts the details modal renders the `.ant-progress` bar at the correct percentage during `IN_PROGRESS`.
+    *   Both stub the GET listing via `page.route()` because a real backfill's `IN_PROGRESS` window (single 10k batch, no delay) is too short to observe through the UI; the real listing fields — including the newly added `backfillStartedAt`/`backfillCompletedAt` — are covered backend-side by `ManagementApiIntegrationTest` test 20. See [PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md](./PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md) Task 2.
 3.  **Group Validation Checks** `[x]` — closed 2026-06-11:
     *   Required-field validation and successful creation are covered in `consumer-groups-validation.spec.ts` (tests 01–03).
     *   Duplicate group name validation is now covered: the backend returns `409 CONFLICT` (`ManagementApiHandler.createConsumerGroup`, verified by `ManagementApiIntegrationTest` test 19), the UI surfaces the backend error message in the toast, and `consumer-groups-validation.spec.ts` test 04 asserts the toast, the open modal, and the single table row. See [PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md](./PEEGEEQ_MANAGEMENT_UI_BACKEND_TASKS-06-11-2026.md) Task 1.
@@ -176,7 +176,7 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Details Modal** `[x]` — covered in `event-store-management.spec.ts`:
-    *   Asserting that clicking "View Details" (or "Query Events") opens the drawer displaying statistics for Events, Streams, Corrections, Event Types, and Aggregate Types is untested.
+    *   Asserts clicking "View Details" (or "Query Events") opens the drawer displaying statistics for Events, Streams, Corrections, Event Types, and Aggregate Types.
 2.  **List Row Counts after Scoping** `[x]` — covered in `event-stores-scope-filter.spec.ts` (tests 02–03):
     *   Test 02 asserts every listed row carries the selected setup's tag and both seeded stores appear.
     *   Test 03 asserts clearing the selection restores the full list.
@@ -192,11 +192,11 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Aggregate Type & Date Range filters** `[x]` — covered in `events-filter.spec.ts` (tests 09–12):
-    *   Filtering loaded events using the "Aggregate Type" input and `RangePicker` (Valid From / Valid To) is untested.
+    *   Asserts filtering loaded events using the "Aggregate Type" input and the `RangePicker` (Valid From / Valid To).
 2.  **Bi-temporal date selection** `[x]` — covered in `events-filter.spec.ts`:
-    *   Selecting a custom Business/Valid Time via the `DatePicker` in the Advanced options during Posting is untested.
+    *   Asserts selecting a custom Business/Valid Time via the `DatePicker` in the Advanced options during posting.
 3.  **JSON Validation Errors** `[x]` — covered in `events-filter.spec.ts` (tests 13–14):
-    *   Validation errors when inputting invalid JSON text in the Event Data or Metadata fields are untested.
+    *   Asserts validation errors when entering invalid JSON in the Event Data or Metadata fields.
 
 ---
 
@@ -208,9 +208,9 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Node Details Drawer** `[x]` — covered in `causation-tree.spec.ts` (tests 09–10):
-    *   Clicking the small query detail icon button (`SearchOutlined`) next to a node to open the Event Details Drawer is untested.
+    *   Asserts clicking the query detail icon button (`SearchOutlined`) next to a node opens the Event Details Drawer.
 2.  **Warning / Empty States** `[x]` — covered in `causation-tree.spec.ts` (test 08):
-    *   Handling of empty inputs or missing event store selections, and "No events found" alert states are not explicitly asserted.
+    *   Asserts handling of empty inputs / missing event store selections and the "No events found" alert state.
 
 ---
 
@@ -222,9 +222,9 @@ This document provides a detailed breakdown of the features and user flows imple
 
 ### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Details Drawer** `[x]` — covered in `aggregate-stream.spec.ts` (tests 10–11):
-    *   Clicking the "Details" action button next to an event stream row to display event details is untested.
+    *   Asserts clicking the "Details" action button next to an event stream row displays the event details.
 2.  **Filter by Event Type** `[x]` — covered in `aggregate-stream.spec.ts` (tests 12–13):
-    *   Entering text in "Filter by Event Type" and reloading the aggregates list is untested.
+    *   Asserts entering text in "Filter by Event Type" reloads the aggregates list with the filter applied.
 
 ---
 
@@ -242,11 +242,11 @@ This document provides a detailed breakdown of the features and user flows imple
 *   **Message Details Modal**: Verifies that clicking the eye icon button opens the message details modal, displays the raw message payload, and closes successfully.
 *   **Live SSE Mode Connection**: Validates that enabling the "Live" toggle opens an active SSE EventSource stream connection (`/queues/{setupId}/{queueName}/stream`), displays the "Real-time Mode Active" warning banner, and dynamically appends incoming messages to the top of the table in real-time.
 
-### Missing Test Coverage Gaps
+### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Advanced Filters In Drawer** `[x]` — covered in `message-browser-advanced-filters.spec.ts`:
-    *   Although the drawer's elements are verified, the tests do **not** verify that inputs (Message Type, Status selection, date range in the RangePicker, and text area content search) are applied to filter rows in the table.
+    *   Asserts the drawer inputs (Message Type, Status selection, RangePicker date range, content search text) are applied to filter the table rows.
 2.  **EventSource Failure Recovery** `[x]` — covered in `message-browser-sse-failure.spec.ts`:
-    *   No tests check handling of EventSource connection timeouts, dropouts, or backend API socket errors.
+    *   Asserts handling of EventSource connection timeouts, dropouts, and backend API socket errors.
 
 ---
 
@@ -259,6 +259,6 @@ This document provides a detailed breakdown of the features and user flows imple
 *   Reset to Defaults button resets input fields.
 *   Invalid URL format triggers validation errors.
 
-### Missing Test Coverage Gaps
+### Missing Test Coverage Gaps — ALL CLOSED
 1.  **Auto-ping configuration** `[x]` — covered in `settings-auto-ping.spec.ts`:
-    *   Toggling "Auto-ping", modifying the interval number, and verifying background intervals are triggered.
+    *   Asserts toggling "Auto-ping", modifying the interval number, and that background ping intervals fire.

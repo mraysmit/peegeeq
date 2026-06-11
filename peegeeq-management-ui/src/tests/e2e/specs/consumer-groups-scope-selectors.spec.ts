@@ -1,4 +1,5 @@
 import { test, expect } from '../page-objects'
+import type { Page, Route } from '@playwright/test'
 import { SETUP_ID } from '../test-constants'
 import { selectAntOption } from '../utils/ant-helpers'
 
@@ -279,11 +280,110 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
         await page.keyboard.press('Escape')
     })
 
+    /**
+     * Intercept GET /api/v1/management/consumer-groups and inject a single group
+     * with an IN_PROGRESS backfill (400 of 1000 messages processed).
+     *
+     * A real backfill runs as a single 10k-message batch with no inter-batch
+     * delay, so its IN_PROGRESS window is too short to observe reliably through
+     * the UI.  The listing response is stubbed instead — the same approach as
+     * overview-reconnecting-banner.spec.ts and api-error-paths.spec.ts.  The
+     * real listing fields (backfillStatus, progress counts, timestamps) are
+     * covered backend-side by ManagementApiIntegrationTest test 20.
+     */
+    async function routeBackfillInProgressListing(page: Page, groupName: string, queueName: string) {
+        const now = new Date().toISOString()
+        const listing = {
+            consumerGroups: [{
+                name: groupName,
+                setup: SETUP_ID,
+                queueName,
+                implementationType: 'NATIVE_QUEUE',
+                members: 1,
+                status: 'active',
+                partition: 0,
+                lag: 0,
+                subscribedAt: now,
+                lastActiveAt: now,
+                lastHeartbeatAt: now,
+                backfillStatus: 'IN_PROGRESS',
+                backfillProcessedMessages: 400,
+                backfillTotalMessages: 1000,
+                backfillStartedAt: now,
+                backfillCompletedAt: null,
+                createdAt: now,
+            }],
+        }
+        await page.route('**/api/v1/management/consumer-groups', (route: Route) => {
+            if (route.request().method() === 'GET') {
+                route.fulfill({
+                    status: 200,
+                    contentType: 'application/json',
+                    body: JSON.stringify(listing),
+                })
+            } else {
+                route.continue()
+            }
+        })
+    }
+
     test('action menu for group with backfill IN_PROGRESS hides Start Backfill', async ({ page }) => {
-        // NOTE: The management API does not currently return backfillStatus in the consumer
-        // group listing, so the IN_PROGRESS tag never appears in the table row. This test
-        // is skipped until the API exposes backfill status in the list response.
-        test.skip(true, 'Backend management API does not return backfillStatus in consumer group listing — IN_PROGRESS tag is never shown')
+        const stubGroup = `cg_backfill_stub_${Date.now()}`
+        await routeBackfillInProgressListing(page, stubGroup, cgQueue)
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const row = page.locator('.ant-table-row').filter({ hasText: stubGroup })
+        await expect(row).toBeVisible({ timeout: 10000 })
+
+        // The Backfill column renders the IN_PROGRESS tag
+        await expect(row.locator('.ant-tag').filter({ hasText: 'IN_PROGRESS' })).toBeVisible()
+
+        const actionBtn = row.getByRole('button').last()
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await expect(dropdown).toBeVisible({ timeout: 3000 })
+
+        // Active group keeps Pause, but Start Backfill is hidden while IN_PROGRESS
+        await expect(dropdown.getByText('Pause Group')).toBeVisible()
+        await expect(dropdown.getByText('Start Backfill')).not.toBeVisible()
+
+        await page.keyboard.press('Escape')
+    })
+
+    test('details modal shows backfill progress bar while IN_PROGRESS', async ({ page }) => {
+        const stubGroup = `cg_backfill_stub_${Date.now()}`
+        await routeBackfillInProgressListing(page, stubGroup, cgQueue)
+
+        await page.goto('/consumer-groups')
+        await page.waitForLoadState('networkidle')
+
+        const row = page.locator('.ant-table-row').filter({ hasText: stubGroup })
+        await expect(row).toBeVisible({ timeout: 10000 })
+
+        const actionBtn = row.getByRole('button').last()
+        await actionBtn.click()
+
+        const dropdown = page.locator('.ant-dropdown').filter({ hasNot: page.locator('.ant-dropdown-hidden') }).last()
+        await dropdown.getByText('View Details').click()
+
+        const modal = page.locator('.ant-modal')
+        await expect(modal).toBeVisible()
+        await expect(modal.locator('.ant-modal-title')).toContainText('Consumer Group Details')
+
+        // Backfill Details card shows the IN_PROGRESS tag and progress counts
+        await expect(modal.getByText('Backfill Details')).toBeVisible()
+        await expect(modal.locator('.ant-tag').filter({ hasText: 'IN_PROGRESS' }).first()).toBeVisible()
+
+        // Progress bar renders at processed/total = 400/1000 = 40%
+        const progress = modal.locator('.ant-progress')
+        await expect(progress).toBeVisible()
+        await expect(modal.locator('.ant-progress-text')).toHaveText('40%')
+
+        await modal.locator('.ant-btn').filter({ hasText: 'Close' }).click()
+        await expect(modal).not.toBeVisible({ timeout: 3000 })
     })
 
     test('clicking Pause Group calls POST .../pause endpoint', async ({ page }) => {
