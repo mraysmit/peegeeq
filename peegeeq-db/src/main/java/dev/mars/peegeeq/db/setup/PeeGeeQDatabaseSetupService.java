@@ -48,39 +48,6 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     // Factory registrations to apply during setup
     private final List<Consumer<QueueFactoryRegistrar>> factoryRegistrations = new ArrayList<>();
 
-    /**
-     * Custom exception for setup-related errors that doesn't generate stack traces
-     * for expected error conditions like "setup not found".
-     * This prevents confusing stack traces in logs for normal error scenarios.
-     */
-    public static class SetupNotFoundException extends RuntimeException {
-        public SetupNotFoundException(String message) {
-            super(message);
-        }
-
-        @Override
-        public synchronized Throwable fillInStackTrace() {
-            // Don't fill in stack trace for expected setup errors
-            return this;
-        }
-    }
-
-    /**
-     * Custom exception for database creation conflicts that doesn't generate stack
-     * traces for expected race conditions when concurrent setup requests collide.
-     */
-    public static class DatabaseCreationConflictException extends RuntimeException {
-        public DatabaseCreationConflictException(String message) {
-            super(message);
-        }
-
-        @Override
-        public synchronized Throwable fillInStackTrace() {
-            // Don't fill in stack trace for expected database conflicts
-            return this;
-        }
-    }
-
     private final Map<String, DatabaseSetupResult> activeSetups = new ConcurrentHashMap<>();
     private final Map<String, DatabaseConfig> setupDatabaseConfigs = new ConcurrentHashMap<>();
     private final Map<String, PeeGeeQManager> activeManagers = new ConcurrentHashMap<>();

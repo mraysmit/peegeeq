@@ -113,10 +113,7 @@ public class FilterCircuitBreaker {
             // Failure in HALF_OPEN state - reopen the circuit
             if (state.compareAndSet(State.HALF_OPEN, State.OPEN)) {
                 stateTransitionTime.set(System.currentTimeMillis());
-                // Check if this is likely a test scenario
-                boolean isLikelyTest = filterId.contains("test") || filterId.contains("Test");
-                String logSuffix = isLikelyTest ? " (THIS MAY BE EXPECTED IN TESTS)" : "";
-                logger.warn("Filter circuit breaker '{}' reopened after failed test{}", filterId, logSuffix);
+                logger.warn("Filter circuit breaker '{}' reopened after failed trial request", filterId);
             }
         } else if (currentState == State.CLOSED) {
             // Check if we should open the circuit
@@ -125,11 +122,8 @@ public class FilterCircuitBreaker {
 
                 if (state.compareAndSet(State.CLOSED, State.OPEN)) {
                     stateTransitionTime.set(System.currentTimeMillis());
-                    // Check if this is likely a test scenario
-                    boolean isLikelyTest = filterId.contains("test") || filterId.contains("Test");
-                    String logSuffix = isLikelyTest ? " (THIS MAY BE EXPECTED IN TESTS)" : "";
-                    logger.warn("Filter circuit breaker '{}' opened after {} failures out of {} requests{}",
-                        filterId, currentFailures, currentRequests, logSuffix);
+                    logger.warn("Filter circuit breaker '{}' opened after {} failures out of {} requests",
+                        filterId, currentFailures, currentRequests);
                 }
             }
         }

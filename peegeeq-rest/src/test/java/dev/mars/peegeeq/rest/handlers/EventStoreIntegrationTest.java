@@ -240,6 +240,73 @@ public class EventStoreIntegrationTest {
     }
 
     @Test
+    void testQueryEventsPaginationMetadata(VertxTestContext testContext) {
+        logger.info("=== TEST METHOD STARTED: testQueryEventsPaginationMetadata ===");
+
+        String eventType = "PaginationMetaEvent" + System.currentTimeMillis();
+        String basePath = "/api/v1/eventstores/" + testSetupId + "/test_events/events";
+
+        JsonObject eventRequest = new JsonObject()
+                .put("eventType", eventType)
+                .put("eventData", new JsonObject().put("seq", 1))
+                .put("validFrom", Instant.now().toString());
+
+        // Store 4 events of the same type, then query two pages of 2
+        webClient.post(TEST_PORT, "localhost", basePath)
+                .putHeader("content-type", "application/json")
+                .timeout(10000)
+                .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 1)))
+                .compose(r1 -> webClient.post(TEST_PORT, "localhost", basePath)
+                        .putHeader("content-type", "application/json")
+                        .timeout(10000)
+                        .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 2))))
+                .compose(r2 -> webClient.post(TEST_PORT, "localhost", basePath)
+                        .putHeader("content-type", "application/json")
+                        .timeout(10000)
+                        .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 3))))
+                .compose(r3 -> webClient.post(TEST_PORT, "localhost", basePath)
+                        .putHeader("content-type", "application/json")
+                        .timeout(10000)
+                        .sendJsonObject(eventRequest.copy().put("eventData", new JsonObject().put("seq", 4))))
+                .compose(r4 -> webClient.get(TEST_PORT, "localhost",
+                                basePath + "?eventType=" + eventType + "&limit=2&offset=0")
+                        .timeout(10000)
+                        .send())
+                .compose(page1 -> {
+                    testContext.verify(() -> {
+                        logger.info("Page 1 response: {} - {}", page1.statusCode(), page1.bodyAsString());
+                        assertEquals(200, page1.statusCode(), "Query should succeed");
+
+                        JsonObject body = page1.bodyAsJsonObject();
+                        assertEquals(2, body.getInteger("eventCount"), "Page 1 must contain 2 events");
+                        assertNotNull(body.getLong("totalCount"), "Response should contain totalCount");
+                        assertEquals(4L, body.getLong("totalCount"), "totalCount must reflect all 4 matching events");
+                        assertEquals(true, body.getBoolean("hasMore"), "Page 1 of 2 must report hasMore=true");
+                    });
+
+                    return webClient.get(TEST_PORT, "localhost",
+                                    basePath + "?eventType=" + eventType + "&limit=2&offset=2")
+                            .timeout(10000)
+                            .send();
+                })
+                .onComplete(testContext.succeeding(page2 -> testContext.verify(() -> {
+                    logger.info("Page 2 response: {} - {}", page2.statusCode(), page2.bodyAsString());
+                    assertEquals(200, page2.statusCode(), "Query should succeed");
+
+                    JsonObject body = page2.bodyAsJsonObject();
+                    assertEquals(2, body.getInteger("eventCount"), "Page 2 must contain the remaining 2 events");
+                    assertEquals(4L, body.getLong("totalCount"), "totalCount must be stable across pages");
+                    // Boundary case: total (4) is an exact multiple of limit (2). The last page is full,
+                    // but no more events exist — hasMore must be false.
+                    assertEquals(false, body.getBoolean("hasMore"),
+                            "Last page must report hasMore=false even when the page is full");
+
+                    logger.info("=== TEST METHOD COMPLETED: testQueryEventsPaginationMetadata ===");
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
     void testGetAllVersionsOfEvent(VertxTestContext testContext) {
         logger.info("=== TEST METHOD STARTED: testGetAllVersionsOfEvent ===");
         logger.info("=== TEST: GET ALL VERSIONS OF EVENT ===");

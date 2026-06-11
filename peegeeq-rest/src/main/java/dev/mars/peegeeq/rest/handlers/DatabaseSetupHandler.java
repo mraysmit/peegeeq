@@ -107,9 +107,7 @@ public class DatabaseSetupHandler {
                             try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
                                 Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                                 if (isDatabaseCreationConflictError(cause)) {
-                                    logger.debug(
-                                            " EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
-                                            request.getSetupId());
+                                    logger.debug("Database creation conflict for setup: {}", request.getSetupId());
                                 } else {
                                     logger.error("Error creating database setup: " + request.getSetupId(), throwable);
                                 }
@@ -135,14 +133,7 @@ public class DatabaseSetupHandler {
                 logger.warn("Invalid request for database setup: {}", e.getMessage());
                 sendError(ctx, 400, "Invalid request: " + e.getMessage());
             } catch (Exception e) {
-                // Check if this is an intentional test error (invalid JSON with "invalid"
-                // field)
-                if (e.getMessage() != null && e.getMessage().contains("Unrecognized field \"invalid\"")) {
-                    logger.info(" EXPECTED TEST ERROR - Error parsing create setup request (invalid field test) - {}",
-                            e.getMessage());
-                } else {
-                    logger.error("Error parsing create setup request", e);
-                }
+                logger.error("Error parsing create setup request", e);
                 sendError(ctx, 400, "Error processing request: " + e.getMessage());
             }
         }
@@ -242,7 +233,7 @@ public class DatabaseSetupHandler {
                 .onFailure(err -> {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug(" EXPECTED: Setup not found: {}", setupId);
+                        logger.debug("Setup not found: {}", setupId);
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
                         logger.error("Error getting setup details: " + setupId, err);
@@ -541,19 +532,17 @@ public class DatabaseSetupHandler {
     }
 
     /**
-     * Check if this is a setup not found error (expected, no stack trace needed).
+     * Check if this is a setup not found error (mapped to HTTP 404).
      */
     private boolean isSetupNotFoundError(Throwable throwable) {
-        return throwable != null &&
-                throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+        return throwable instanceof SetupNotFoundException;
     }
 
     /**
-     * Check if this is a database creation conflict error (expected in concurrent
-     * scenarios).
+     * Check if this is a database creation conflict error from concurrent
+     * setup requests racing to create the same database.
      */
     private boolean isDatabaseCreationConflictError(Throwable throwable) {
-        return throwable != null &&
-                throwable.getClass().getSimpleName().equals("DatabaseCreationConflictException");
+        return throwable instanceof DatabaseCreationConflictException;
     }
 }

@@ -1,10 +1,106 @@
 # Aggregate Stream — Improvement Plan
 
-## Status: COMPLETE — 10 Jun 2026
+## Status: NOT COMPLETE — re-validated against the code 11 Jun 2026
 
-I1 (truncation + pagination), I2 (enriched metadata), I3 (event stream truncation warning), and I5
-(Causation Tree cross-link) are fully implemented and covered by tests.
-I4 (materialised aggregate summary table) remains explicitly deferred until scale demands it.
+- I1 (aggregate list truncation + pagination), I2 (enriched metadata), and I5 (Causation Tree
+  cross-link) are implemented and covered by tests (verified at backend, REST, UI, and e2e levels).
+- **I3 is only partially done**: the short-term fix shipped (truncation warning driven by the API's
+  `hasMore` flag), but the full fix outlined below — `totalCount` on the event query response and
+  API-driven page-by-page table pagination — was NOT implemented. `fetchAggregateEvents` still
+  hardcodes `limit: 1000` (`AggregateStreamPage.tsx`), so events beyond the first 1,000 of an
+  aggregate remain unreachable in the UI. Users are warned, but the data is still inaccessible.
+- I4 (materialised aggregate summary table) remains explicitly deferred until scale demands it.
+
+**Remaining work: the I3 full fix.** The 10 Jun status incorrectly declared I3 "fully implemented".
+See "Remaining Work — I3 Full Fix: Task Breakdown" below.
+
+---
+
+## Remaining Work — I3 Full Fix: Task Breakdown (added 11 Jun 2026)
+
+Verified current state that shapes these tasks:
+
+- The UI client already sends `limit` and `offset` (`PeeGeeQClient.queryEvents`, `src/api/PeeGeeQClient.ts` ~line 352).
+- The REST handler already parses `limit`/`offset` and echoes them back, but computes `hasMore` with the
+  heuristic `eventResponses.size() == limit` (`EventStoreHandler.java` ~line 249) — false positive when the
+  total is an exact multiple of the limit — and returns no `totalCount`.
+- **Latent backend bug**: `EventQuery` carries `offset` (`peegeeq-api/.../EventQuery.java`), but
+  `PgBiTemporalEventStore`'s query SQL applies only `LIMIT` (~lines 943-946) and **silently ignores the
+  offset**. Paging via the existing API parameters returns the same first page every time.
+- Only `AggregateStreamPage.tsx` consumes `hasMore` from this response, so correcting its computation
+  breaks no other consumer.
+
+Tasks in TDD order (each backend task: failing test first, then implementation, then green run):
+
+### T1 — Apply `EventQuery.offset` in the event query SQL (bug fix)
+
+**Scope:** `peegeeq-bitemporal/.../PgBiTemporalEventStore.java` (query SQL builder, ~line 943)
+**Test first:** unit test in `PgBiTemporalEventStoreComplexTest` mirroring `testGetUniqueAggregatesPagination`:
+append N events for one aggregate, query page 1 (`limit=k, offset=0`) and page 2 (`limit=k, offset=k`),
+assert the pages do not overlap and ordering is stable. RED today because offset is ignored (page 2 == page 1).
+**Change:** append `OFFSET $n` when `query.getOffset() > 0`, parameterized, mirroring the
+`getUniqueAggregates` pattern (~lines 1185-1191).
+
+### T2 — Total count for an event query
+
+**Scope:** `peegeeq-api/.../EventStore.java`, `peegeeq-bitemporal/.../PgBiTemporalEventStore.java`
+**Test first:** unit test asserting the count for a filtered query (same WHERE semantics, independent of
+limit/offset).
+**Change:** add a count capability for an `EventQuery` (e.g. `countEvents(EventQuery)`), reusing the same
+WHERE-clause construction as the list query — the two-query approach already established by
+`getUniqueAggregates` (count + list). No limit/offset in the count.
+
+### T3 — REST response: `totalCount` + exact `hasMore`
+
+**Scope:** `peegeeq-rest/.../EventStoreHandler.java` (query events handler, ~lines 239-252)
+**Test first:** extend the REST integration coverage (pattern: `EventVisualizationIntegrationTest`) to assert
+the response contains `totalCount`, and that `hasMore` is exact — including the boundary case where the
+total is an exact multiple of the limit (`hasMore` must be `false`; the current heuristic returns `true`).
+**Change:** call the count alongside the list query; respond with `totalCount` and
+`hasMore = offset + eventCount < totalCount`. `limit`/`offset` are already echoed.
+
+### T4 — UI client types
+
+**Scope:** `peegeeq-management-ui/src/api/types.ts` (`EventQueryResult`)
+**Change:** add `totalCount: number` to the event query result type (additive; `hasMore` stays).
+
+### T5 — Drive the event stream table from the API page-by-page
+
+**Scope:** `peegeeq-management-ui/src/pages/AggregateStreamPage.tsx`
+**Change:**
+- Remove the hardcoded `limit: 1000` in `fetchAggregateEvents` (~line 133); fetch with
+  `limit = pageSize`, `offset = (page - 1) * pageSize`.
+- Wire the AntD `Table` pagination: `total: totalCount`, `current`, `onChange` → re-fetch.
+- Remove the "stream may be truncated" Alert and the `eventsTruncated` state — with real pagination every
+  event is reachable and the pager itself shows the total. (The warning was the short-term I3 mitigation
+  this work supersedes.)
+- Reset to page 1 when the selected aggregate changes.
+
+### T6 — E2E coverage
+
+**Scope:** `peegeeq-management-ui/src/tests/e2e/specs/aggregate-stream.spec.ts`
+**Add tests (existing spec patterns):**
+- Seed more events than one page for a single aggregate (e.g. 15 with `pageSize` 10), open the stream,
+  assert the pager shows the full total and page 1 row count.
+- Navigate to page 2, assert different rows are shown and the request carried `offset=10`
+  (request-param assertion, as in `queues-filter-sort.spec.ts`).
+
+### T7 — Close out
+
+- Re-run: backend unit (`PgBiTemporalEventStoreComplexTest`), REST integration, and the e2e projects
+  touching the Aggregate Stream page (`aggregate-stream`, `8-event-store-workflow`,
+  `9-event-visualization`).
+- Update this document's status to COMPLETE only when T1–T6 are verified green.
+
+| # | Task | Layer | Depends on |
+|---|------|-------|------------|
+| T1 | Apply offset in event query SQL | peegeeq-bitemporal | — |
+| T2 | `countEvents(EventQuery)` | peegeeq-api / peegeeq-bitemporal | — |
+| T3 | `totalCount` + exact `hasMore` in REST response | peegeeq-rest | T1, T2 |
+| T4 | `EventQueryResult.totalCount` type | UI client | T3 |
+| T5 | API-driven table pagination, remove 1000 cap | UI page | T3, T4 |
+| T6 | E2E pagination tests | e2e specs | T5 |
+| T7 | Re-run suites, flip status to COMPLETE | docs | T1–T6 |
 
 ### Test fixes applied alongside this work (10 Jun 2026)
 
@@ -17,7 +113,7 @@ pre-existing specs in other projects to break. All were fixed:
 | `event-visualization.spec.ts` | same |
 | `take-screenshots.spec.ts` | same |
 | `queues-setup-selector.spec.ts` | 5× `waitForLoadState('networkidle')` → `'load'` (SSE keeps page active) |
-| `consumer-groups-scope-selectors.spec.ts` | `IN_PROGRESS` backfill test marked `test.skip` — management API does not return `backfillStatus` in the listing |
+| `consumer-groups-scope-selectors.spec.ts` | `IN_PROGRESS` backfill test marked `test.skip` — recorded reason ("management API does not return `backfillStatus` in the listing") was already false at the time (field shipped 2026-06-07, commit `d75d48d9`). The skip was removed and the test rewritten on 2026-06-11. |
 
 Full re-run of all 5 affected projects: **151 passed, 1 skipped** (exit code 0).
 
