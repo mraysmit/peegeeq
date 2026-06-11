@@ -11,6 +11,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
@@ -811,6 +812,10 @@ public class ManagementApiHandler {
                                                                     sub.backfillProcessedMessages() != null ? sub.backfillProcessedMessages() : 0L)
                                                             .put("backfillTotalMessages",
                                                                     sub.backfillTotalMessages() != null ? sub.backfillTotalMessages() : 0L)
+                                                            .put("backfillStartedAt",
+                                                                    sub.backfillStartedAt() != null ? sub.backfillStartedAt().toString() : null)
+                                                            .put("backfillCompletedAt",
+                                                                    sub.backfillCompletedAt() != null ? sub.backfillCompletedAt().toString() : null)
                                                             .put("createdAt", setupResult.getCreatedAt());
                                                     groups.add(group);
                                                 }
@@ -1292,7 +1297,15 @@ public class ManagementApiHandler {
                         if (subscriptionService == null) {
                             return Future.failedFuture(new ResponseException(503, "Subscription service unavailable for setup: " + setupId));
                         }
-                        return subscriptionService.subscribe(queueName, groupName);
+                        // Check if subscription already exists return 409 if active
+                        return subscriptionService.getSubscription(queueName, groupName)
+                                .compose(existing -> {
+                                    if (existing != null && existing.state() == SubscriptionState.ACTIVE) {
+                                        return Future.failedFuture(new ResponseException(409,
+                                                "Consumer group '" + groupName + "' already exists for queue '" + queueName + "' in setup '" + setupId + "'"));
+                                    }
+                                    return subscriptionService.subscribe(queueName, groupName);
+                                });
                     })
                     .map(v -> {
                         logger.info("Consumer group {} created successfully for queue {} in setup {}",
