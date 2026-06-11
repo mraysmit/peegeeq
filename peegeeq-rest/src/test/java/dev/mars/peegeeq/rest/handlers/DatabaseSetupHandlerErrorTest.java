@@ -3,7 +3,7 @@ package dev.mars.peegeeq.rest.handlers;
 import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.support.ControllableSetupService;
-import dev.mars.peegeeq.rest.support.SetupNotFoundException;
+import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -96,8 +96,8 @@ class DatabaseSetupHandlerErrorTest {
 
     // =========================================================================
     // A3  getSetupStatus with SetupNotFoundException returns 404
-    // Per-test server: isSetupNotFoundError checks class simple name exactly.
-    // RED means: handler returns 503  SetupNotFoundException class name mismatch.
+    // Per-test server: isSetupNotFoundError checks instanceof SetupNotFoundException.
+    // RED means: handler returns 503  exception type not recognised.
     // =========================================================================
 
     @Test

@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.rest.dto.CorrectionRequest;
 import dev.mars.peegeeq.rest.dto.EventQueryParams;
 import dev.mars.peegeeq.rest.dto.EventRequest;
@@ -152,7 +153,7 @@ public class EventStoreHandler {
                     } else {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug(" EXPECTED: Setup not found for event store: {} (setup: {})", eventStoreName, setupId);
+                            logger.debug("Setup not found for event store: {} (setup: {})", eventStoreName, setupId);
                             sendError(ctx, 404, "Setup not found: " + setupId);
                         } else {
                             logger.error("Error storing event '{}' in event store '{}': {}", eventRequest.getEventType(), eventStoreName, throwable.getMessage(), throwable);
@@ -233,23 +234,25 @@ public class EventStoreHandler {
                 })
                 .compose(eventStore -> {
                     EventQuery eventQuery = buildEventQuery(queryParams);
-                    return eventStore.query(eventQuery);
-                })
-                .map(events -> {
-                    List<EventResponse> eventResponses = events.stream()
-                            .map(this::convertToEventResponse)
-                            .toList();
-                    return new JsonObject()
-                            .put("message", "Events retrieved successfully")
-                            .put("eventStoreName", eventStoreName)
-                            .put("setupId", setupId)
-                            .put("eventCount", eventResponses.size())
-                            .put("limit", queryParams.getLimit())
-                            .put("offset", queryParams.getOffset())
-                            .put("hasMore", eventResponses.size() == queryParams.getLimit())
-                            .put("filters", createFiltersObject(queryParams))
-                            .put("events", eventResponses)
-                            .put("timestamp", System.currentTimeMillis());
+                    return eventStore.query(eventQuery)
+                            .compose(events -> eventStore.countEvents(eventQuery)
+                                    .map(totalCount -> {
+                                        List<EventResponse> eventResponses = events.stream()
+                                                .map(this::convertToEventResponse)
+                                                .toList();
+                                        return new JsonObject()
+                                                .put("message", "Events retrieved successfully")
+                                                .put("eventStoreName", eventStoreName)
+                                                .put("setupId", setupId)
+                                                .put("eventCount", eventResponses.size())
+                                                .put("limit", queryParams.getLimit())
+                                                .put("offset", queryParams.getOffset())
+                                                .put("totalCount", totalCount)
+                                                .put("hasMore", queryParams.getOffset() + eventResponses.size() < totalCount)
+                                                .put("filters", createFiltersObject(queryParams))
+                                                .put("events", eventResponses)
+                                                .put("timestamp", System.currentTimeMillis());
+                                    }));
                 })
                 .onSuccess(response -> {
                     logger.info("Retrieved events from event store {}", eventStoreName);
@@ -261,7 +264,7 @@ public class EventStoreHandler {
                     } else {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug(" EXPECTED: Setup not found for event store query: {} (setup: {})", eventStoreName, setupId);
+                            logger.debug("Setup not found for event store query: {} (setup: {})", eventStoreName, setupId);
                             sendError(ctx, 404, "Setup not found: " + setupId);
                         } else if (cause instanceof IllegalArgumentException) {
                             logger.warn("Invalid query parameters for event store {}: {}", eventStoreName, cause.getMessage());
@@ -451,11 +454,10 @@ public class EventStoreHandler {
     }
 
     /**
-     * Check if this is a setup not found error (expected, no stack trace needed).
+     * Check if this is a setup not found error (mapped to HTTP 404).
      */
     private boolean isSetupNotFoundError(Throwable throwable) {
-        return throwable != null &&
-               throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+        return throwable instanceof SetupNotFoundException;
     }
 
     private void sendResponse(RoutingContext ctx, int statusCode, JsonObject body) {
@@ -767,7 +769,7 @@ public class EventStoreHandler {
                 .onFailure(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug(" EXPECTED: Setup not found for getting event versions: {} (setup: {})",
+                        logger.debug("Setup not found for getting event versions: {} (setup: {})",
                                    eventStoreName, setupId);
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
@@ -862,7 +864,7 @@ public class EventStoreHandler {
                 .onFailure(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug(" EXPECTED: Setup not found for temporal event query: {} (setup: {})",
+                        logger.debug("Setup not found for temporal event query: {} (setup: {})",
                                    eventStoreName, setupId);
                         sendError(ctx, 404, "Setup not found: " + setupId);
                     } else {
@@ -1001,7 +1003,7 @@ public class EventStoreHandler {
                                 String errorMessage = cause.getMessage();
 
                                 if (errorMessage != null && errorMessage.contains("not found")) {
-                                    logger.debug(" EXPECTED: Original event not found: {}", originalEventId);
+                                    logger.debug("Original event not found: {}", originalEventId);
                                     sendError(ctx, 404, "Original event not found: " + originalEventId);
                                 } else {
                                     logger.error("Error appending correction to event {} in event store {}: {}",
@@ -1013,7 +1015,7 @@ public class EventStoreHandler {
                     .onFailure(throwable -> {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug(" EXPECTED: Setup not found for correction: {} (setup: {})",
+                            logger.debug("Setup not found for correction: {} (setup: {})",
                                        eventStoreName, setupId);
                             sendError(ctx, 404, "Setup not found: " + setupId);
                         } else {

@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.rest.dto.BatchMessageRequest;
@@ -500,11 +501,10 @@ public class QueueHandler {
     }
 
     /**
-     * Check if this is a setup not found error (expected, no stack trace needed).
+     * Check if this is a setup not found error (mapped to HTTP 404).
      */
     private boolean isSetupNotFoundError(Throwable throwable) {
-        return throwable != null &&
-               throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+        return throwable instanceof SetupNotFoundException;
     }
 
 }

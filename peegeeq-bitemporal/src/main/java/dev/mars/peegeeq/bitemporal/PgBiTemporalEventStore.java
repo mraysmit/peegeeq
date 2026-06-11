@@ -894,55 +894,21 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                            is_correction, correction_reason, created_at
                     FROM %s WHERE 1=1""");
             List<Object> params = new ArrayList<>();
-            int paramIndex = 1;
-
-            // Build WHERE clause based on query criteria
-            if (query.getEventType().isPresent()) {
-                sql.append(" AND event_type = $").append(paramIndex++);
-                params.add(query.getEventType().get());
-            }
-
-            if (query.getAggregateId().isPresent()) {
-                sql.append(" AND aggregate_id = $").append(paramIndex++);
-                params.add(query.getAggregateId().get());
-            }
-
-            if (query.getCausationId().isPresent()) {
-                sql.append(" AND causation_id = $").append(paramIndex++);
-                params.add(query.getCausationId().get());
-            }
-
-            if (query.getValidTimeRange().isPresent()) {
-                var validRange = query.getValidTimeRange().get();
-                if (validRange.getStart() != null) {
-                    sql.append(" AND valid_time >= $").append(paramIndex++);
-                    params.add(validRange.getStart().atOffset(java.time.ZoneOffset.UTC));
-                }
-                if (validRange.getEnd() != null) {
-                    sql.append(" AND valid_time <= $").append(paramIndex++);
-                    params.add(validRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
-                }
-            }
-
-            if (query.getTransactionTimeRange().isPresent()) {
-                var transactionRange = query.getTransactionTimeRange().get();
-                if (transactionRange.getStart() != null) {
-                    sql.append(" AND transaction_time >= $").append(paramIndex++);
-                    params.add(transactionRange.getStart().atOffset(java.time.ZoneOffset.UTC));
-                }
-                if (transactionRange.getEnd() != null) {
-                    sql.append(" AND transaction_time <= $").append(paramIndex++);
-                    params.add(transactionRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
-                }
-            }
+            int paramIndex = appendQueryCriteria(sql, query, params);
 
             // Add ordering
             sql.append(" ORDER BY transaction_time DESC, valid_time DESC");
 
             // Add limit if specified
             if (query.getLimit() > 0) {
-                sql.append(" LIMIT $").append(paramIndex);
+                sql.append(" LIMIT $").append(paramIndex++);
                 params.add(query.getLimit());
+            }
+
+            // Add offset if specified
+            if (query.getOffset() > 0) {
+                sql.append(" OFFSET $").append(paramIndex++);
+                params.add(query.getOffset());
             }
 
             Tuple tuple = Tuple.tuple(params);
@@ -964,6 +930,78 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                             throw new RuntimeException("Failed to map row to event", e);
                         }
                     });
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
+    }
+
+    /**
+     * Appends the WHERE-clause criteria shared by {@link #query} and {@link #countEvents}
+     * to the given SQL builder, adding the corresponding parameters.
+     *
+     * @return the next parameter index after the appended criteria
+     */
+    private int appendQueryCriteria(StringBuilder sql, EventQuery query, List<Object> params) {
+        int paramIndex = 1;
+
+        if (query.getEventType().isPresent()) {
+            sql.append(" AND event_type = $").append(paramIndex++);
+            params.add(query.getEventType().get());
+        }
+
+        if (query.getAggregateId().isPresent()) {
+            sql.append(" AND aggregate_id = $").append(paramIndex++);
+            params.add(query.getAggregateId().get());
+        }
+
+        if (query.getCausationId().isPresent()) {
+            sql.append(" AND causation_id = $").append(paramIndex++);
+            params.add(query.getCausationId().get());
+        }
+
+        if (query.getValidTimeRange().isPresent()) {
+            var validRange = query.getValidTimeRange().get();
+            if (validRange.getStart() != null) {
+                sql.append(" AND valid_time >= $").append(paramIndex++);
+                params.add(validRange.getStart().atOffset(java.time.ZoneOffset.UTC));
+            }
+            if (validRange.getEnd() != null) {
+                sql.append(" AND valid_time <= $").append(paramIndex++);
+                params.add(validRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
+            }
+        }
+
+        if (query.getTransactionTimeRange().isPresent()) {
+            var transactionRange = query.getTransactionTimeRange().get();
+            if (transactionRange.getStart() != null) {
+                sql.append(" AND transaction_time >= $").append(paramIndex++);
+                params.add(transactionRange.getStart().atOffset(java.time.ZoneOffset.UTC));
+            }
+            if (transactionRange.getEnd() != null) {
+                sql.append(" AND transaction_time <= $").append(paramIndex++);
+                params.add(transactionRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
+            }
+        }
+
+        return paramIndex;
+    }
+
+    @Override
+    public Future<Long> countEvents(EventQuery query) {
+        if (closed.get()) {
+            return Future.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+
+        try {
+            StringBuilder sql = new StringBuilder("SELECT COUNT(*) AS total_count FROM %s WHERE 1=1");
+            List<Object> params = new ArrayList<>();
+            appendQueryCriteria(sql, query, params);
+
+            String finalSql = sql.toString().formatted(quotedTableName);
+
+            return getOptimalReadClient().preparedQuery(finalSql)
+                    .execute(Tuple.tuple(params))
+                    .map(rows -> rows.iterator().next().getLong("total_count"));
         } catch (Exception e) {
             return Future.failedFuture(e);
         }

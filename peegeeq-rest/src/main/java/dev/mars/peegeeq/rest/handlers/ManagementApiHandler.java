@@ -8,6 +8,7 @@ import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
+import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
@@ -1975,7 +1976,7 @@ public class ManagementApiHandler {
                     } else {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
-                            logger.debug(" EXPECTED: Setup not found for queue details: {} (setup: {})", queueName, setupId);
+                            logger.debug("Setup not found for queue details: {} (setup: {})", queueName, setupId);
                         } else {
                             logger.error("Error getting queue details for setup: {}, queue: {}", setupId, queueName, throwable);
                         }
@@ -2420,11 +2421,10 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Check if this is a setup not found error (expected, no stack trace needed).
+     * Check if this is a setup not found error (mapped to HTTP 404).
      */
     private boolean isSetupNotFoundError(Throwable throwable) {
-        return throwable != null &&
-                throwable.getClass().getSimpleName().equals("SetupNotFoundException");
+        return throwable instanceof SetupNotFoundException;
     }
 
     private void publishQueueChanged(String setupId, String queueName, String event) {
