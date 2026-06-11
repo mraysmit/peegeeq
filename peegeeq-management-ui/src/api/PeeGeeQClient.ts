@@ -361,6 +361,8 @@ export class PeeGeeQClient {
             includeCorrections: query.includeCorrections,
             minVersion: query.minVersion,
             maxVersion: query.maxVersion,
+            afterTransactionTime: query.afterTransactionTime,
+            afterEventId: query.afterEventId,
         };
 
         if (query.validTimeRange) {
