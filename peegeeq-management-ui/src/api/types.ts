@@ -187,6 +187,10 @@ export interface EventQuery {
   includeCorrections: boolean;
   minVersion?: number;
   maxVersion?: number;
+  /** Keyset cursor: the previous page's last event. Stable under concurrent appends.
+   *  transactionTime is sent back exactly as received (epoch-seconds decimal). */
+  afterTransactionTime?: string | number;
+  afterEventId?: string;
 }
 
 export interface BiTemporalEvent<T = unknown> {
@@ -207,7 +211,10 @@ export interface BiTemporalEvent<T = unknown> {
 
 export interface EventQueryResult<T = unknown> {
   events: BiTemporalEvent<T>[];
-  total: number;
+  eventCount: number;
+  totalCount: number;
+  limit: number;
+  offset: number;
   hasMore: boolean;
 }
 

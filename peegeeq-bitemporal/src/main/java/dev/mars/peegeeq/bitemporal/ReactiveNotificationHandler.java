@@ -86,6 +86,11 @@ public class ReactiveNotificationHandler<T> {
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long BASE_RECONNECT_DELAY = 1000; // 1 second
 
+    // Subscriber handler failure escalation (same pattern as PeeGeeQManager timer failures):
+    // isolated failures log at WARN; consecutive failures at the threshold escalate to ERROR.
+    private static final long HANDLER_FAILURE_ESCALATION_THRESHOLD = 3;
+    private final java.util.concurrent.atomic.AtomicLong handlerFailures = new java.util.concurrent.atomic.AtomicLong(0);
+
     // Subscription management
     private final Map<SubscriptionKey, CopyOnWriteArrayList<MessageHandler<BiTemporalEvent<T>>>> subscriptions = new ConcurrentHashMap<>();
     private final Set<String> listeningChannels = ConcurrentHashMap.newKeySet();
@@ -804,14 +809,23 @@ public class ReactiveNotificationHandler<T> {
             for (MessageHandler<BiTemporalEvent<T>> handler : handlers) {
                 try {
                     handler.handle(message)
-                            .onFailure(throwable -> logger.error(
-                                    "Error in reactive subscription handler for key '{}': {}",
-                                    subscriptionKey, throwable.getMessage(), throwable));
+                            .onSuccess(v -> handlerFailures.set(0))
+                            .onFailure(throwable -> logHandlerFailure(subscriptionKey, throwable));
                 } catch (Exception e) {
-                    logger.error("Error invoking reactive subscription handler for key '{}': {}",
-                            subscriptionKey, e.getMessage(), e);
+                    logHandlerFailure(subscriptionKey, e);
                 }
             }
+        }
+    }
+
+    private void logHandlerFailure(SubscriptionKey subscriptionKey, Throwable throwable) {
+        long failures = handlerFailures.incrementAndGet();
+        if (failures >= HANDLER_FAILURE_ESCALATION_THRESHOLD) {
+            logger.error("Error in reactive subscription handler for key '{}' ({} consecutive failures): {}",
+                    subscriptionKey, failures, throwable.getMessage(), throwable);
+        } else {
+            logger.warn("Error in reactive subscription handler for key '{}': {}",
+                    subscriptionKey, throwable.getMessage(), throwable);
         }
     }
 

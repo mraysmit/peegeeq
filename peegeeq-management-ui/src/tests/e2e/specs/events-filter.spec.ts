@@ -364,4 +364,29 @@ test.describe('Events Page – Filter Functionality', () => {
         ).toBeVisible({ timeout: 5000 })
         await expect(page.locator('.ant-message-success')).not.toBeVisible()
     })
+
+    // ── 7. Truncation surfacing ───────────────────────────────────────────────
+
+    test('15 truncation alert appears when the API reports more events than loaded', async ({ page }) => {
+        // The events fetch is capped at limit=1000. Seeding >1000 real events is too
+        // slow for e2e, so patch the real API response to report hasMore=true with a
+        // larger totalCount — the suite's established interception approach for
+        // hard-to-produce states (overview-reconnecting-banner.spec.ts).
+        await page.route(/\/eventstores\/[^/]+\/[^/]+\/events\?/, async route => {
+            if (route.request().method() !== 'GET') {
+                return route.continue()
+            }
+            const response = await route.fetch()
+            const body = await response.json()
+            body.hasMore = true
+            body.totalCount = 5000
+            await route.fulfill({ response, json: body })
+        })
+
+        await loadEvents(page, 5)
+
+        const alert = page.getByTestId('events-truncated-alert')
+        await expect(alert).toBeVisible()
+        await expect(alert).toContainText('Showing first 5 of 5,000 events')
+    })
 })

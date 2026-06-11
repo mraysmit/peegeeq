@@ -50,6 +50,11 @@ public class EventQueryParams {
     private int limit = 100;
     private int offset = 0;
 
+    // Keyset pagination cursor (stable under concurrent appends; requires
+    // TRANSACTION_TIME_ASC or TRANSACTION_TIME_DESC sort order)
+    private Instant afterTransactionTime;
+    private String afterEventId;
+
     // Getters and setters
     public String getEventType() { return eventType; }
     public void setEventType(String eventType) { this.eventType = eventType; }
@@ -95,6 +100,12 @@ public class EventQueryParams {
 
     public int getOffset() { return offset; }
     public void setOffset(int offset) { this.offset = Math.max(0, offset); }
+
+    public Instant getAfterTransactionTime() { return afterTransactionTime; }
+    public void setAfterTransactionTime(Instant afterTransactionTime) { this.afterTransactionTime = afterTransactionTime; }
+
+    public String getAfterEventId() { return afterEventId; }
+    public void setAfterEventId(String afterEventId) { this.afterEventId = afterEventId; }
 
     // Legacy support - backward compatibility
     @Deprecated

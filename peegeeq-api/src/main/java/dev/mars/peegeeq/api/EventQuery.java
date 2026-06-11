@@ -47,6 +47,8 @@ public class EventQuery {
     private final boolean includeCorrections;
     private final Long minVersion;
     private final Long maxVersion;
+    private final Instant afterTransactionTime;
+    private final String afterEventId;
     
     /**
      * Sort order for query results.
@@ -74,6 +76,8 @@ public class EventQuery {
         this.includeCorrections = builder.includeCorrections;
         this.minVersion = builder.minVersion;
         this.maxVersion = builder.maxVersion;
+        this.afterTransactionTime = builder.afterTransactionTime;
+        this.afterEventId = builder.afterEventId;
     }
     
     /**
@@ -169,6 +173,8 @@ public class EventQuery {
     public boolean isIncludeCorrections() { return includeCorrections; }
     public Optional<Long> getMinVersion() { return Optional.ofNullable(minVersion); }
     public Optional<Long> getMaxVersion() { return Optional.ofNullable(maxVersion); }
+    public Optional<Instant> getAfterTransactionTime() { return Optional.ofNullable(afterTransactionTime); }
+    public Optional<String> getAfterEventId() { return Optional.ofNullable(afterEventId); }
     
     /**
      * Builder for EventQuery.
@@ -187,6 +193,8 @@ public class EventQuery {
         private boolean includeCorrections = true;
         private Long minVersion;
         private Long maxVersion;
+        private Instant afterTransactionTime;
+        private String afterEventId;
         
         public Builder eventType(String eventType) {
             this.eventType = eventType;
@@ -254,6 +262,22 @@ public class EventQuery {
             this.maxVersion = maxVersion;
             return this;
         }
+
+        /**
+         * Keyset pagination cursor: return only events strictly after (or before, for
+         * descending transaction-time sort) the given anchor event. Unlike offset
+         * pagination, the anchor does not shift when new events are appended, so pages
+         * never overlap or skip. Requires TRANSACTION_TIME_ASC or TRANSACTION_TIME_DESC
+         * sort order.
+         *
+         * @param afterTransactionTime The anchor event's transaction time
+         * @param afterEventId The anchor event's ID (tie-breaker for equal transaction times)
+         */
+        public Builder after(Instant afterTransactionTime, String afterEventId) {
+            this.afterTransactionTime = Objects.requireNonNull(afterTransactionTime, "afterTransactionTime cannot be null");
+            this.afterEventId = Objects.requireNonNull(afterEventId, "afterEventId cannot be null");
+            return this;
+        }
         
         public EventQuery build() {
             return new EventQuery(this);
@@ -277,14 +301,17 @@ public class EventQuery {
                Objects.equals(headerFilters, that.headerFilters) &&
                sortOrder == that.sortOrder &&
                Objects.equals(minVersion, that.minVersion) &&
-               Objects.equals(maxVersion, that.maxVersion);
+               Objects.equals(maxVersion, that.maxVersion) &&
+               Objects.equals(afterTransactionTime, that.afterTransactionTime) &&
+               Objects.equals(afterEventId, that.afterEventId);
     }
-    
+
     @Override
     public int hashCode() {
-        return Objects.hash(eventType, aggregateId, correlationId, causationId, validTimeRange, 
-                          transactionTimeRange, headerFilters, limit, offset, 
-                          sortOrder, includeCorrections, minVersion, maxVersion);
+        return Objects.hash(eventType, aggregateId, correlationId, causationId, validTimeRange,
+                          transactionTimeRange, headerFilters, limit, offset,
+                          sortOrder, includeCorrections, minVersion, maxVersion,
+                          afterTransactionTime, afterEventId);
     }
     
     @Override
@@ -303,6 +330,8 @@ public class EventQuery {
                 ", includeCorrections=" + includeCorrections +
                 ", minVersion=" + minVersion +
                 ", maxVersion=" + maxVersion +
+                ", afterTransactionTime=" + afterTransactionTime +
+                ", afterEventId='" + afterEventId + '\'' +
                 '}';
     }
 }

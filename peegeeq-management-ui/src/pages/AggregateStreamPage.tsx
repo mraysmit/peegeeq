@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { useNavigate } from 'react-router-dom'
 import { getVersionedApiUrl } from '../services/configService'
@@ -28,6 +28,7 @@ import { AggregateInfo, BiTemporalEvent } from '../api/types'
 const { Text, Title } = Typography
 
 const AGGREGATE_PAGE_SIZE = 1000
+const EVENT_PAGE_SIZE = 10
 
 interface EventStore {
     key: string
@@ -50,7 +51,11 @@ const AggregateStreamPage = () => {
     const [aggregatesOffset, setAggregatesOffset] = useState(0)
     const [selectedAggregate, setSelectedAggregate] = useState<string | null>(null)
     const [aggregateEvents, setAggregateEvents] = useState<BiTemporalEvent[]>([])
-    const [eventsTruncated, setEventsTruncated] = useState(false)
+    const [eventsTotalCount, setEventsTotalCount] = useState(0)
+    const [eventsPage, setEventsPage] = useState(1)
+    // Keyset cursors per visited page: cursors[page] = last event of that page
+    // (the anchor for fetching page+1). Page 1 has no cursor.
+    const eventsCursors = useRef<Array<{ transactionTime: string | number, eventId: string } | null>>([null])
     const [aggregatesLoading, setAggregatesLoading] = useState(false)
     const [aggregateEventsLoading, setAggregateEventsLoading] = useState(false)
     const [eventTypeFilter, setEventTypeFilter] = useState<string>('')
@@ -110,7 +115,8 @@ const AggregateStreamPage = () => {
                 setAggregates(response.aggregates || [])
                 setSelectedAggregate(null)
                 setAggregateEvents([])
-                setEventsTruncated(false)
+                setEventsTotalCount(0)
+                setEventsPage(1)
             }
             setAggregatesOffset(nextOffset)
             setAggregatesTotalCount(response.totalCount)
@@ -122,21 +128,41 @@ const AggregateStreamPage = () => {
         }
     }
 
-    const fetchAggregateEvents = async (aggregateId: string) => {
+    /**
+     * Fetch one page of an aggregate's event stream using keyset pagination:
+     * each page is anchored to the last event of the previous page, so pages
+     * never overlap or skip when events are appended mid-browse. Navigation is
+     * sequential (previous/next) — cursors are recorded as pages are visited.
+     */
+    const fetchAggregateEvents = async (aggregateId: string, page = 1) => {
         if (!selectedSetupId || !selectedEventStore) return
+        if (page === 1) {
+            eventsCursors.current = [null]
+        }
+        const cursor = page > 1 ? eventsCursors.current[page - 1] : null
+        if (page > 1 && !cursor) return
         setAggregateEventsLoading(true)
         setSelectedAggregate(aggregateId)
-        setEventsTruncated(false)
         try {
             const response = await peeGeeQClient.queryEvents(selectedSetupId, selectedEventStore, {
                 aggregateId,
-                limit: 1000,
+                limit: EVENT_PAGE_SIZE,
                 offset: 0,
-                sortOrder: 'VERSION_ASC',
-                includeCorrections: true
+                sortOrder: 'TRANSACTION_TIME_ASC',
+                includeCorrections: true,
+                ...(cursor ? { afterTransactionTime: cursor.transactionTime, afterEventId: cursor.eventId } : {}),
             })
-            setAggregateEvents(response.events || [])
-            setEventsTruncated(response.hasMore)
+            const events = response.events || []
+            setAggregateEvents(events)
+            setEventsTotalCount(response.totalCount)
+            setEventsPage(page)
+            const last = events[events.length - 1]
+            if (last) {
+                eventsCursors.current[page] = {
+                    transactionTime: last.transactionTime,
+                    eventId: last.eventId,
+                }
+            }
         } catch (error: any) {
             message.error(`Failed to fetch events for aggregate ${aggregateId}: ${error.message}`)
         } finally {
@@ -155,7 +181,8 @@ const AggregateStreamPage = () => {
         setSelectedAggregate(null)
         setAggregateEvents([])
         setAggregatesTruncated(false)
-        setEventsTruncated(false)
+        setEventsTotalCount(0)
+        setEventsPage(1)
     }, [selectedSetupId])
 
     useEffect(() => {
@@ -163,7 +190,8 @@ const AggregateStreamPage = () => {
         setSelectedAggregate(null)
         setAggregateEvents([])
         setAggregatesTruncated(false)
-        setEventsTruncated(false)
+        setEventsTotalCount(0)
+        setEventsPage(1)
     }, [selectedEventStore])
 
     const storesForSetup = eventStores.filter(s => s.setupId === selectedSetupId)
@@ -390,22 +418,40 @@ const AggregateStreamPage = () => {
                         title={selectedAggregate ? `Stream: ${selectedAggregate}` : 'Select an Aggregate'}
                         style={{ flex: 1 }}
                     >
-                        {eventsTruncated && (
-                            <Alert
-                                style={{ marginBottom: 12 }}
-                                type="warning"
-                                showIcon
-                                message="Showing first 1,000 events — stream may be truncated"
-                            />
-                        )}
                         {selectedAggregate ? (
-                            <Table
-                                dataSource={aggregateEvents}
-                                columns={eventStreamColumns}
-                                rowKey="eventId"
-                                loading={aggregateEventsLoading}
-                                pagination={{ pageSize: 10 }}
-                            />
+                            <>
+                                <Table
+                                    dataSource={aggregateEvents}
+                                    columns={eventStreamColumns}
+                                    rowKey="eventId"
+                                    loading={aggregateEventsLoading}
+                                    pagination={false}
+                                />
+                                {/* Keyset pagination is sequential by design — previous/next only */}
+                                <Space style={{ marginTop: 12 }} data-testid="stream-pagination">
+                                    <Button
+                                        size="small"
+                                        data-testid="stream-prev-page"
+                                        disabled={eventsPage <= 1 || aggregateEventsLoading}
+                                        onClick={() => fetchAggregateEvents(selectedAggregate, eventsPage - 1)}
+                                    >
+                                        Previous
+                                    </Button>
+                                    <Text data-testid="stream-pagination-status">
+                                        Page {eventsPage} of {Math.max(1, Math.ceil(eventsTotalCount / EVENT_PAGE_SIZE))}
+                                        {' '}({eventsTotalCount.toLocaleString()} events)
+                                    </Text>
+                                    <Button
+                                        size="small"
+                                        data-testid="stream-next-page"
+                                        disabled={aggregateEventsLoading
+                                            || eventsPage >= Math.ceil(eventsTotalCount / EVENT_PAGE_SIZE)}
+                                        onClick={() => fetchAggregateEvents(selectedAggregate, eventsPage + 1)}
+                                    >
+                                        Next
+                                    </Button>
+                                </Space>
+                            </>
                         ) : (
                             <Empty description="Select an aggregate from the list to view its event stream" />
                         )}

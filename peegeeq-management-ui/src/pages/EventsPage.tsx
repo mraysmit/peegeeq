@@ -3,6 +3,7 @@ import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
 import { useManagementStore } from '../stores/managementStore'
 import {
+    Alert,
     Card,
     Table,
     Button,
@@ -72,6 +73,8 @@ interface DatabaseSetup {
 
 const EventsPage = () => {
     const [events, setEvents] = useState<EventStoreEvent[]>([])
+    const [eventsTotalCount, setEventsTotalCount] = useState(0)
+    const [eventsTruncated, setEventsTruncated] = useState(false)
     const [filteredEvents, setFilteredEvents] = useState<EventStoreEvent[]>([])
     const [eventStores, setEventStores] = useState<EventStore[]>([])
     const [setups, setSetups] = useState<DatabaseSetup[]>([])
@@ -156,15 +159,26 @@ const EventsPage = () => {
                     eventNumber: index + 1
                 }))
                 setEvents(fetched)
-                message.success(`Loaded ${fetched.length} events from ${eventStoreName}`)
+                const totalCount = response.data.totalCount ?? fetched.length
+                setEventsTotalCount(totalCount)
+                setEventsTruncated(response.data.hasMore === true)
+                if (response.data.hasMore === true) {
+                    message.success(`Loaded ${fetched.length} of ${totalCount} events from ${eventStoreName}`)
+                } else {
+                    message.success(`Loaded ${fetched.length} events from ${eventStoreName}`)
+                }
             } else {
                 setEvents([])
+                setEventsTotalCount(0)
+                setEventsTruncated(false)
                 message.info('No events found')
             }
         } catch (error: any) {
             console.error('Failed to fetch events:', error)
             message.error(`Failed to load events: ${error.response?.data?.error || error.message}`)
             setEvents([])
+            setEventsTotalCount(0)
+            setEventsTruncated(false)
         } finally {
             setEventsLoading(false)
         }
@@ -548,6 +562,15 @@ const EventsPage = () => {
 
                 {/* Events Table */}
                 <Card title={`Events (${filteredEvents.length})`}>
+                    {eventsTruncated && (
+                        <Alert
+                            style={{ marginBottom: 12 }}
+                            type="warning"
+                            showIcon
+                            data-testid="events-truncated-alert"
+                            message={`Showing first ${events.length.toLocaleString()} of ${eventsTotalCount.toLocaleString()} events — filters below apply to the loaded events only`}
+                        />
+                    )}
                     <Table
                         columns={eventColumns}
                         dataSource={filteredEvents}

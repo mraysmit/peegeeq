@@ -896,8 +896,41 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             List<Object> params = new ArrayList<>();
             int paramIndex = appendQueryCriteria(sql, query, params);
 
-            // Add ordering
-            sql.append(" ORDER BY transaction_time DESC, valid_time DESC");
+            // Keyset cursor: pagination, not filtering — applied here rather than in
+            // appendQueryCriteria so countEvents still reports the full filtered total.
+            boolean hasCursor = query.getAfterTransactionTime().isPresent();
+            if (hasCursor) {
+                EventQuery.SortOrder sortOrder = query.getSortOrder();
+                if (sortOrder != EventQuery.SortOrder.TRANSACTION_TIME_ASC
+                        && sortOrder != EventQuery.SortOrder.TRANSACTION_TIME_DESC) {
+                    return Future.failedFuture(new IllegalArgumentException(
+                            "Keyset cursor (after) requires TRANSACTION_TIME_ASC or TRANSACTION_TIME_DESC sort order, got: "
+                                    + sortOrder));
+                }
+                String comparison = sortOrder == EventQuery.SortOrder.TRANSACTION_TIME_ASC ? ">" : "<";
+                sql.append(" AND (transaction_time, event_id) ").append(comparison)
+                   .append(" ($").append(paramIndex++).append(", $").append(paramIndex++).append(")");
+                params.add(query.getAfterTransactionTime().get().atOffset(java.time.ZoneOffset.UTC));
+                params.add(query.getAfterEventId().get());
+            }
+
+            // Ordering: cursor pages order by (transaction_time, event_id) to match the
+            // cursor comparison exactly; otherwise per the query's sort order
+            // (secondary column for deterministic paging).
+            if (hasCursor) {
+                sql.append(query.getSortOrder() == EventQuery.SortOrder.TRANSACTION_TIME_ASC
+                        ? " ORDER BY transaction_time ASC, event_id ASC"
+                        : " ORDER BY transaction_time DESC, event_id DESC");
+            } else {
+                sql.append(switch (query.getSortOrder()) {
+                    case VALID_TIME_ASC -> " ORDER BY valid_time ASC, transaction_time ASC";
+                    case VALID_TIME_DESC -> " ORDER BY valid_time DESC, transaction_time DESC";
+                    case TRANSACTION_TIME_ASC -> " ORDER BY transaction_time ASC, valid_time ASC";
+                    case TRANSACTION_TIME_DESC -> " ORDER BY transaction_time DESC, valid_time DESC";
+                    case VERSION_ASC -> " ORDER BY version ASC, transaction_time ASC";
+                    case VERSION_DESC -> " ORDER BY version DESC, transaction_time DESC";
+                });
+            }
 
             // Add limit if specified
             if (query.getLimit() > 0) {
@@ -954,6 +987,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             params.add(query.getAggregateId().get());
         }
 
+        if (query.getCorrelationId().isPresent()) {
+            sql.append(" AND correlation_id = $").append(paramIndex++);
+            params.add(query.getCorrelationId().get());
+        }
+
         if (query.getCausationId().isPresent()) {
             sql.append(" AND causation_id = $").append(paramIndex++);
             params.add(query.getCausationId().get());
@@ -981,6 +1019,27 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 sql.append(" AND transaction_time <= $").append(paramIndex++);
                 params.add(transactionRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
             }
+        }
+
+        if (!query.isIncludeCorrections()) {
+            sql.append(" AND is_correction = FALSE");
+        }
+
+        if (query.getMinVersion().isPresent()) {
+            sql.append(" AND version >= $").append(paramIndex++);
+            params.add(query.getMinVersion().get());
+        }
+
+        if (query.getMaxVersion().isPresent()) {
+            sql.append(" AND version <= $").append(paramIndex++);
+            params.add(query.getMaxVersion().get());
+        }
+
+        for (var headerFilter : query.getHeaderFilters().entrySet()) {
+            sql.append(" AND headers->>$").append(paramIndex++)
+               .append(" = $").append(paramIndex++);
+            params.add(headerFilter.getKey());
+            params.add(headerFilter.getValue());
         }
 
         return paramIndex;
