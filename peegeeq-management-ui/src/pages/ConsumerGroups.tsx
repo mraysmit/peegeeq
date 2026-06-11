@@ -198,9 +198,10 @@ const ConsumerGroups: React.FC = () => {
                 setIsCreateModalVisible(false)
                 form.resetFields()
                 fetchConsumerGroups()
-            } catch (error) {
+            } catch (error: any) {
                 console.error('Failed to create consumer group:', error)
-                message.error('Failed to create consumer group. Please check if the backend service is running.')
+                const errorMsg = error.response?.data?.error || error.message || 'Failed to create consumer group'
+                message.error(errorMsg)
             }
         })
     }
