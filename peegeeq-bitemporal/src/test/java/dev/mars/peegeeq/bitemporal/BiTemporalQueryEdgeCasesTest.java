@@ -90,13 +90,14 @@ class BiTemporalQueryEdgeCasesTest {
         // Set configuration properties for PeeGeeQ - following exact pattern
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.max-size", "10")
                 .property("peegeeq.database.pool.min-size", "2")
                 .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         logger.info("bitemporal_event_log table created successfully");
 
         // Configure PeeGeeQ - following exact pattern

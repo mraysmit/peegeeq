@@ -120,7 +120,7 @@ public class ConsumerModeMetricsTest {
     void testMessageCountMetricsAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info(" Testing message count metrics across consumer modes");
 
-        final String topicName = "test-message-count-metrics";
+        final String topicName = "msg-count-metrics";
         final int messageCount = 5;
         ConsumerMode[] modes = {ConsumerMode.LISTEN_NOTIFY_ONLY, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
 
@@ -145,7 +145,7 @@ public class ConsumerModeMetricsTest {
     void testProcessingTimeMetricsAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info(" Testing processing time metrics across consumer modes");
 
-        final String topicName = "test-processing-time-metrics";
+        final String topicName = "proc-time-metrics";
         final int messageCount = 3;
         ConsumerMode[] modes = {ConsumerMode.LISTEN_NOTIFY_ONLY, ConsumerMode.POLLING_ONLY, ConsumerMode.HYBRID};
 

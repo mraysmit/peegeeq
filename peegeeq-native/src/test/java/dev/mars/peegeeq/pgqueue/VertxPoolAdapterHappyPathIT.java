@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
@@ -44,6 +45,7 @@ class VertxPoolAdapterHappyPathIT {
         // Configure system properties for TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Initialize PeeGeeQ Manager
