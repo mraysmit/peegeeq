@@ -137,13 +137,14 @@ class EnhancedErrorHandlingExampleTest {
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up Enhanced Error Handling Example Test ===");
 
         // Configure PeeGeeQ to use container database
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "3")
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .property("peegeeq.consumer.threads", "2")

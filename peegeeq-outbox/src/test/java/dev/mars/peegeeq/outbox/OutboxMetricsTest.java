@@ -73,9 +73,10 @@ public class OutboxMetricsTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         testTopic = "metrics-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()

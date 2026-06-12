@@ -324,6 +324,67 @@ public interface EventStore<T> {
     Future<AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset);
 
     /**
+     * Gets aggregate metadata from an explicit source. {@link AggregateSource#AUTO} uses the
+     * summary table when the store was created with one (aggregateSummaryEnabled) and the live
+     * event-log query otherwise; the other values force a specific source.
+     *
+     * @param eventType The event type to filter by (optional, can be null)
+     * @param limit     Maximum number of aggregates to return (capped at 1000)
+     * @param offset    Number of aggregates to skip for pagination
+     * @param source    The source to query
+     * @return A Vert.x Future that completes with the aggregate list result
+     */
+    Future<AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset, AggregateSource source);
+
+    /**
+     * Source for aggregate metadata queries.
+     */
+    enum AggregateSource {
+        /** Summary table when the store was created with one, live event-log query otherwise. */
+        AUTO,
+        /** Force the live GROUP BY over the event log. */
+        EVENT_LOG,
+        /** Force the summary table; fails if the store has none. */
+        SUMMARY
+    }
+
+    /**
+     * Reconciles the aggregate summary table against the event log (the source of truth).
+     *
+     * <p>{@link ReconcileMode#VERIFY} diffs the live per-(aggregateId, eventType) aggregation
+     * against the summary rows inside one REPEATABLE READ transaction and reports differences
+     * without changing anything. {@link ReconcileMode#REBUILD} rewrites the summary from the
+     * event log (upsert plus orphan deletion) inside one transaction that locks the summary
+     * table; it is also the backfill step when enabling the summary on a store that already
+     * has events (install the table and trigger first, then rebuild).</p>
+     *
+     * @param mode verify or rebuild
+     * @return A Vert.x Future with the reconciliation report; fails when the store has no
+     *         summary table (aggregateSummaryEnabled=false)
+     */
+    Future<AggregateSummaryReconcileResult> reconcileAggregateSummary(ReconcileMode mode);
+
+    /** Mode for {@link #reconcileAggregateSummary(ReconcileMode)}. */
+    enum ReconcileMode { VERIFY, REBUILD }
+
+    /** Report of an aggregate summary reconciliation. */
+    interface AggregateSummaryReconcileResult {
+        ReconcileMode getMode();
+        /** Distinct (aggregateId, eventType) pairs present in the event log. */
+        long getAggregatesChecked();
+        /** Event-log pairs with no summary row (VERIFY; 0 after a REBUILD). */
+        long getMissingInSummary();
+        /** Summary rows whose count or timestamps disagree with the event log (VERIFY). */
+        long getStaleInSummary();
+        /** Summary rows with no corresponding event-log pair. */
+        long getOrphanedInSummary();
+        /** Rows upserted plus orphans deleted (REBUILD; 0 for VERIFY). */
+        long getRepaired();
+        /** Bounded sample of mismatched pairs ("aggregateId/eventType: status") for diagnosis. */
+        List<String> getSampleMismatches();
+    }
+
+    /**
      * Counts events matching the query criteria, ignoring the query's limit and offset.
      * Used for pagination metadata alongside {@link #query}.
      *

@@ -86,7 +86,7 @@ class VersionLineageIntegrationTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         testContext.completeNow();
     }
 

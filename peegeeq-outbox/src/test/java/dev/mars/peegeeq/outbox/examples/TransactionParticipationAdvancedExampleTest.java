@@ -130,12 +130,13 @@ class TransactionParticipationAdvancedExampleTest {
     void setUp(VertxTestContext ctx) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Setting up Transaction Participation Advanced Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         // Initialize PeeGeeQ Manager - following established pattern
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
