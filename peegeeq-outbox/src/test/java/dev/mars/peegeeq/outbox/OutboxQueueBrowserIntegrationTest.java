@@ -83,7 +83,7 @@ public class OutboxQueueBrowserIntegrationTest {
 
         // Initialize schema using centralized schema initializer
         logger.info("Initializing database schema for OutboxQueueBrowser integration tests");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.OUTBOX, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.OUTBOX, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
         // Ensure clean state for each test execution
         PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, SchemaComponent.OUTBOX, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
 
@@ -91,6 +91,7 @@ public class OutboxQueueBrowserIntegrationTest {
 
         // Configure system properties for TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .build();
 

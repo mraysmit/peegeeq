@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db;
  */
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
@@ -76,7 +77,7 @@ public class PeeGeeQManagerIntegrationTest {
         testProps.setProperty("peegeeq.database.username", postgres.getUsername());
         testProps.setProperty("peegeeq.database.password", postgres.getPassword());
         testProps.setProperty("peegeeq.database.ssl.enabled", "false");
-        testProps.setProperty("peegeeq.database.schema", "public"); // Use public schema for test container
+        testProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Set valid pool configuration
         testProps.setProperty("peegeeq.database.pool.min-size", "2");

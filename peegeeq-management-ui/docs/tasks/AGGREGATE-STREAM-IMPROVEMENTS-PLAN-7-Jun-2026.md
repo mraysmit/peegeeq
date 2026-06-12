@@ -1,6 +1,32 @@
 # Aggregate Stream — Improvement Plan
 
-## Status: PENDING — I4 open (owner decision 11 Jun 2026: no deferrals)
+## Status: COMPLETE — 12 Jun 2026 (all items: I1–I5, T1–T7, F1–F6)
+
+> I4 completed 12 Jun 2026 per the reviewed design: `aggregateSummaryEnabled` on
+> `EventStoreConfig` (flows from setup JSON through `ConfigParser`/Jackson to the factory and
+> store), the `eventstore-aggregate-summary` SQL template (per-(aggregate_id, event_type) table +
+> trigger with LEAST/GREATEST maintenance, corrections counted, NULL aggregates skipped),
+> `AggregateSource` AUTO/EVENT_LOG/SUMMARY query routing with exact parity, the
+> verify (REPEATABLE READ) / rebuild (EXCLUSIVE lock) reconciliation with the typed
+> `AggregateSummaryNotEnabledException`, REST `source=log|summary` + the
+> `aggregate-summary/reconcile` endpoint, and the documented two-transaction
+> enable-on-existing-store sequence — all verified by TDD at every step (one noted deviation:
+> the Step 4 query-routing implementation preceded its parity tests).
+>
+> I4 verification: `BiTemporalAggregateSummaryIntegrationTest` 7/7 (parity unfiltered +
+> eventType-filtered, source overrides, tamper→verify→rebuild→clean, enable-on-existing with
+> gap event), `PeeGeeQDatabaseSetupServiceEnhancedTest` 12/12 (template + trigger correctness),
+> `EventStoreConfigTest` 5/5, `EventStoreIntegrationTest` 48/48 (REST source + reconcile),
+> bitemporal module 129/129 CORE + 341/341 INTEGRATION, REST regression suites green.
+>
+> **Post-completion update (12 Jun 2026)**: `BiTemporalAggregateSummaryIntegrationTest` was
+> subsequently corrected to thread the schema fully (`resolveSchema()` +
+> `PeeGeeQTestConfig.builder().schema(...)`) and now passes 7/7 under both the default schema
+> and `-Dpeegeeq.database.schema=tenant_summary_test` — currently the only bitemporal test
+> that genuinely supports a custom schema. That fix exposed a suite-wide test-infrastructure
+> gap (manager configuration pinned to `public` regardless of the schema property), recorded
+> with remediation tasks in `docs-design/tasks/SCHEMA-PROCESSING-GAPS-CRITICAL-12-Jun-2026.md`.
+> Module suite re-verified 129/129 after the fix.
 
 > Complete: I1, I2, I3 (incl. full fix), I5, T1–T7, F1–F6 — all implemented with TDD and
 > verified. F5 (keyset pagination) completed 12 Jun 2026: cursor support in `EventQuery`
@@ -231,7 +257,7 @@ that order (F1 fixes a shipped feature's correctness; F2 is made user-visible by
 | F3 | Honor `includeCorrections` / `minVersion` / `maxVersion` / `headerFilters` | HIGH | peegeeq-bitemporal | ✅ Done 2026-06-11 (TDD; `testQueryHonorsIncludeCorrectionsAndVersionRange`, `testQueryFiltersByHeaders`; shared `appendQueryCriteria` covers `countEvents` too) |
 | F4 | EventsPage truncation surfaced via `totalCount` | HIGH | UI (+ e2e) | ✅ Done 2026-06-11 — **minimum variant by design**: the page's filters are client-side over the loaded set, so server-side page-by-page fetching would silently change filter semantics. Truncation Alert + "Loaded X of Y" message added; e2e test 15 (`events-filter.spec.ts`) covers it via response patching. Full server-side paging requires moving the filters server-side first (now possible since F1–F3) — record as future work if needed. |
 | F5 | Keyset pagination for the event stream (no overlap/skip under concurrent appends) | LOW | peegeeq-bitemporal + REST + UI | ✅ Done 2026-06-12 (TDD at all three layers; `testQueryKeysetPaginationStableUnderConcurrentAppends`, `testQueryEventsKeysetCursorPagination`, e2e tests 16–18). Reference: `docs/PEEGEEQ_KEYSET_PAGINATION_GUIDE.md` |
-| I4 | Materialised aggregate summary table (trigger-maintained; replaces query-time `GROUP BY`) | HIGH at scale | peegeeq-bitemporal + schema templates | **PENDING** (owner decision 11 Jun 2026: re-prioritised from deferred) |
+| I4 | Configurable aggregate summary table with verify/rebuild reconciliation | HIGH at scale | peegeeq-api + peegeeq-db + peegeeq-bitemporal + peegeeq-rest | ✅ Done 2026-06-12 (TDD steps 1–8 per the reviewed design; see the I4 section and the status header for evidence) |
 | F6 | Notification handler failures — consecutive-failure escalation | LOW | peegeeq-bitemporal | ✅ Done 2026-06-11 (TDD; `testHandlerFailuresEscalateWarnToError`; WARN below 3 consecutive failures, ERROR with count at 3+, counter resets on success — same idiom as `PeeGeeQManager` timer failures) |
 
 ### Test fixes applied alongside this work (10 Jun 2026)
@@ -495,6 +521,10 @@ path.
    implemented by `BiTemporalEventStoreFactory`, reaching a new `PgBiTemporalEventStore`
    constructor that records the flag. Direct constructions (tests, programmatic use) default to
    summary-disabled.
+   *As built (12 Jun 2026)*: the new flag-taking constructor is **package-private**, not public —
+   `PgBiTemporalEventStoreTest` guards a two-public-constructor surface contract, and the only
+   caller is `BiTemporalEventStoreFactory` in the same package, so the contract is preserved
+   rather than the test relaxed.
 
 5. **REST exposure** — optional `source=log|summary` query parameter on
    `GET /eventstores/:setupId/:name/aggregates` (absent = AUTO); invalid value → 400;
@@ -515,10 +545,12 @@ path.
      it, a concurrent trigger increment between the rebuild's snapshot and its upsert is
      overwritten with a stale count. Event appends block briefly on their trigger write while a
      rebuild runs — accepted and documented.
-   - **Result shape** (API object and REST JSON):
+   - **Result shape**: API object
      `{ mode, aggregatesChecked, missingInSummary, staleInSummary, orphanedInSummary,
-        repaired (rebuild only), timestamp }` — counts plus a bounded sample of affected
-     `(aggregateId, eventType)` pairs for diagnosis.
+        repaired (rebuild only), sampleMismatches }` — counts plus a bounded sample (10) of
+     affected `(aggregateId, eventType)` pairs for diagnosis. The REST JSON adds a
+     `timestamp` field; the API object deliberately has none (as-built clarification,
+     12 Jun 2026).
 
 7. **Enabling on a store that already has events — two transactions, in this order.**
    Txn A: create the summary table + install the trigger (commit). From this moment every new

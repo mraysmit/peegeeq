@@ -97,6 +97,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private final String clientId;
     private final String eventBusInstanceKey;
 
+    // Aggregate summary support: when true, the store was created with a
+    // trigger-maintained {tableName}_aggregate_summary table and AUTO aggregate
+    // queries read it instead of scanning the event log.
+    private final boolean aggregateSummaryEnabled;
+
     // Pure Vert.x reactive infrastructure with caching
     private volatile Pool reactivePool;
     private volatile SqlClient pipelinedClient; // Pipelined client for batched query dispatch
@@ -137,6 +142,27 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public PgBiTemporalEventStore(Vertx vertx, PeeGeeQManager peeGeeQManager, Class<T> payloadType,
             String tableName, ObjectMapper objectMapper, String clientId) {
+        this(vertx, peeGeeQManager, payloadType, tableName, objectMapper, clientId, false);
+    }
+
+    /**
+     * Creates a new PgBiTemporalEventStore, optionally backed by an aggregate summary table.
+     * Package-private: the aggregate summary option is wired through
+     * {@link BiTemporalEventStoreFactory#createEventStore(Class, dev.mars.peegeeq.api.database.EventStoreConfig)},
+     * keeping the public constructor surface unchanged.
+     *
+     * @param vertx                   The Vert.x instance (caller-owned, not closed by this class)
+     * @param peeGeeQManager          The PeeGeeQ manager for database access
+     * @param payloadType             The class type of the event payload
+     * @param tableName               The name of the database table to use for event storage
+     * @param objectMapper            The JSON object mapper
+     * @param clientId                The client ID for pool lookup, or null for default pool
+     * @param aggregateSummaryEnabled Whether the store was created with an aggregate summary
+     *                                table ({tableName}_aggregate_summary, trigger-maintained);
+     *                                routes AUTO aggregate queries to the summary
+     */
+    PgBiTemporalEventStore(Vertx vertx, PeeGeeQManager peeGeeQManager, Class<T> payloadType,
+            String tableName, ObjectMapper objectMapper, String clientId, boolean aggregateSummaryEnabled) {
         logger.debug("PgBiTemporalEventStore constructor starting for table: {}", tableName);
         this.vertx = Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
@@ -145,6 +171,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         this.quotedTableName = "\"" + this.tableName + "\"";
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
         this.clientId = clientId; // null means use default pool
+        this.aggregateSummaryEnabled = aggregateSummaryEnabled;
         this.eventBusInstanceKey = createEventBusInstanceKey(this.clientId, this.tableName);
 
         // Initialize performance monitoring
@@ -1246,10 +1273,205 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<EventStore.AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset) {
+        return getUniqueAggregates(eventType, limit, offset, EventStore.AggregateSource.AUTO);
+    }
+
+    @Override
+    public Future<EventStore.AggregateListResult> getUniqueAggregates(String eventType, int limit, int offset,
+            EventStore.AggregateSource source) {
         if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
+        return switch (source) {
+            case EVENT_LOG -> getUniqueAggregatesFromEventLog(eventType, limit, offset);
+            case SUMMARY -> aggregateSummaryEnabled
+                    ? getUniqueAggregatesFromSummary(eventType, limit, offset)
+                    : Future.failedFuture(new dev.mars.peegeeq.api.AggregateSummaryNotEnabledException(
+                            "Aggregate summary is not enabled for event store table '" + tableName
+                                    + "' — create the store with aggregateSummaryEnabled=true"));
+            case AUTO -> aggregateSummaryEnabled
+                    ? getUniqueAggregatesFromSummary(eventType, limit, offset)
+                    : getUniqueAggregatesFromEventLog(eventType, limit, offset);
+        };
+    }
+
+    @Override
+    public Future<EventStore.AggregateSummaryReconcileResult> reconcileAggregateSummary(EventStore.ReconcileMode mode) {
+        if (closed.get()) {
+            return Future.failedFuture(new IllegalStateException("Event store is closed"));
+        }
+        if (!aggregateSummaryEnabled) {
+            return Future.failedFuture(new dev.mars.peegeeq.api.AggregateSummaryNotEnabledException(
+                    "Aggregate summary is not enabled for event store table '" + tableName
+                            + "' — create the store with aggregateSummaryEnabled=true"));
+        }
+        return switch (mode) {
+            case VERIFY -> verifyAggregateSummary();
+            case REBUILD -> rebuildAggregateSummary();
+        };
+    }
+
+    /** Live per-(aggregate_id, event_type) aggregation — the reconciliation source of truth. */
+    private String liveAggregatePairsSql() {
+        return """
+                SELECT aggregate_id, event_type, COUNT(*) AS event_count,
+                       MIN(valid_time) AS first_event_at, MAX(transaction_time) AS last_event_at
+                FROM %s WHERE aggregate_id IS NOT NULL
+                GROUP BY aggregate_id, event_type
+                """.formatted(quotedTableName);
+    }
+
+    private String quotedSummaryTableName() {
+        return "\"" + tableName + "_aggregate_summary\"";
+    }
+
+    /**
+     * VERIFY: diff the live aggregation against the summary rows. Both reads execute in one
+     * REPEATABLE READ transaction — the trigger commits atomically with its event insert, so a
+     * snapshot is internally consistent; separate READ COMMITTED reads would report false drift
+     * under concurrent writes.
+     */
+    private Future<EventStore.AggregateSummaryReconcileResult> verifyAggregateSummary() {
+        String diffSql = """
+                WITH live AS (%s),
+                diff AS (
+                    SELECT COALESCE(l.aggregate_id, s.aggregate_id) AS aggregate_id,
+                           COALESCE(l.event_type, s.event_type) AS event_type,
+                           CASE WHEN s.aggregate_id IS NULL THEN 'missing'
+                                WHEN l.aggregate_id IS NULL THEN 'orphaned'
+                                WHEN l.event_count <> s.event_count
+                                     OR l.first_event_at IS DISTINCT FROM s.first_event_at
+                                     OR l.last_event_at IS DISTINCT FROM s.last_event_at THEN 'stale'
+                                ELSE 'ok' END AS status
+                    FROM live l
+                    FULL OUTER JOIN %s s
+                      ON l.aggregate_id = s.aggregate_id AND l.event_type = s.event_type
+                )
+                SELECT status, COUNT(*)::BIGINT AS cnt,
+                       (array_agg(aggregate_id || '/' || event_type))[1:10] AS sample
+                FROM diff GROUP BY status
+                """.formatted(liveAggregatePairsSql(), quotedSummaryTableName());
+
+        return getOrCreateReactivePool().withTransaction(conn ->
+                conn.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ").execute()
+                        .compose(v -> conn.query(diffSql).execute())
+                        .map(rows -> {
+                            long ok = 0, missing = 0, stale = 0, orphaned = 0;
+                            List<String> samples = new ArrayList<>();
+                            for (Row row : rows) {
+                                String status = row.getString("status");
+                                long cnt = row.getLong("cnt");
+                                switch (status) {
+                                    case "ok" -> ok = cnt;
+                                    case "missing" -> missing = cnt;
+                                    case "stale" -> stale = cnt;
+                                    case "orphaned" -> orphaned = cnt;
+                                    default -> throw new IllegalStateException("Unknown diff status: " + status);
+                                }
+                                if (!"ok".equals(status)) {
+                                    String[] sample = row.getArrayOfStrings("sample");
+                                    if (sample != null) {
+                                        for (String pair : sample) {
+                                            samples.add(pair + ": " + status);
+                                        }
+                                    }
+                                }
+                            }
+                            // checked = live pairs = ok + stale + missing (orphans have no live side)
+                            return (EventStore.AggregateSummaryReconcileResult) new AggregateSummaryReconcileResultImpl(
+                                    EventStore.ReconcileMode.VERIFY, ok + stale + missing,
+                                    missing, stale, orphaned, 0, List.copyOf(samples));
+                        }));
+    }
+
+    /**
+     * REBUILD: rewrite the summary from the event log (upsert all live pairs, delete orphans)
+     * in one transaction holding an EXCLUSIVE lock on the summary table. The lock is required
+     * for correctness: without it, a concurrent trigger increment between this transaction's
+     * snapshot and its upsert would be overwritten with a stale count. Event appends block
+     * briefly on their trigger write while a rebuild runs.
+     */
+    private Future<EventStore.AggregateSummaryReconcileResult> rebuildAggregateSummary() {
+        String summary = quotedSummaryTableName();
+        String upsertSql = """
+                INSERT INTO %s (aggregate_id, event_type, event_count, first_event_at, last_event_at)
+                %s
+                ON CONFLICT (aggregate_id, event_type) DO UPDATE SET
+                    event_count    = EXCLUDED.event_count,
+                    first_event_at = EXCLUDED.first_event_at,
+                    last_event_at  = EXCLUDED.last_event_at
+                """.formatted(summary, liveAggregatePairsSql());
+        String deleteOrphansSql = """
+                DELETE FROM %s s WHERE NOT EXISTS (
+                    SELECT 1 FROM %s e
+                    WHERE e.aggregate_id = s.aggregate_id AND e.event_type = s.event_type
+                )
+                """.formatted(summary, quotedTableName);
+
+        return getOrCreateReactivePool().withTransaction(conn ->
+                conn.query("LOCK TABLE " + summary + " IN EXCLUSIVE MODE").execute()
+                        .compose(v -> conn.query(upsertSql).execute())
+                        .compose(upserted -> conn.query(deleteOrphansSql).execute()
+                                .map(deleted -> (EventStore.AggregateSummaryReconcileResult)
+                                        new AggregateSummaryReconcileResultImpl(
+                                                EventStore.ReconcileMode.REBUILD,
+                                                upserted.rowCount(),
+                                                0, 0, deleted.rowCount(),
+                                                (long) upserted.rowCount() + deleted.rowCount(),
+                                                List.of()))));
+    }
+
+    /**
+     * Aggregate metadata from the trigger-maintained summary table: one summary row per
+     * (aggregate_id, event_type), re-aggregated per aggregate at query time. Replicates
+     * the live query's shape, ordering, and 1000 cap exactly.
+     */
+    private Future<EventStore.AggregateListResult> getUniqueAggregatesFromSummary(String eventType, int limit, int offset) {
+        int cappedLimit = Math.max(1, Math.min(limit, 1000));
+        String quotedSummaryTableName = "\"" + tableName + "_aggregate_summary\"";
+
+        StringBuilder countSqlBuilder = new StringBuilder(
+                "SELECT COUNT(DISTINCT aggregate_id) AS total_count FROM %s WHERE 1=1"
+                        .formatted(quotedSummaryTableName));
+
+        StringBuilder listSqlBuilder = new StringBuilder("""
+                SELECT
+                    aggregate_id,
+                    SUM(event_count)::BIGINT AS event_count,
+                    MIN(first_event_at) AS first_event_time,
+                    MAX(last_event_at) AS last_event_time,
+                    string_agg(DISTINCT event_type, ',') AS event_types
+                FROM %s
+                WHERE 1=1
+                """.formatted(quotedSummaryTableName));
+
+        List<Object> listParams = new ArrayList<>();
+        List<Object> countParams = new ArrayList<>();
+
+        if (eventType != null && !eventType.isBlank()) {
+            countSqlBuilder.append(" AND event_type = $1");
+            listSqlBuilder.append(" AND event_type = $1");
+            countParams.add(eventType);
+            listParams.add(eventType);
+        }
+
+        int limitParamIdx = listParams.size() + 1;
+        int offsetParamIdx = listParams.size() + 2;
+        listSqlBuilder.append(" GROUP BY aggregate_id ORDER BY last_event_time DESC NULLS LAST")
+                      .append(" LIMIT $").append(limitParamIdx)
+                      .append(" OFFSET $").append(offsetParamIdx);
+        listParams.add(cappedLimit);
+        listParams.add(offset);
+
+        return executeAggregateListQueries(countSqlBuilder.toString(), listSqlBuilder.toString(),
+                Tuple.tuple(countParams), Tuple.tuple(listParams), cappedLimit, offset);
+    }
+
+    /**
+     * Aggregate metadata from the live event log via GROUP BY.
+     */
+    private Future<EventStore.AggregateListResult> getUniqueAggregatesFromEventLog(String eventType, int limit, int offset) {
         int cappedLimit = Math.max(1, Math.min(limit, 1000));
 
         // Total count query — determines pagination metadata
@@ -1287,11 +1509,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         listParams.add(cappedLimit);
         listParams.add(offset);
 
-        String countSql = countSqlBuilder.toString();
-        String listSql = listSqlBuilder.toString();
-        Tuple countTuple = Tuple.tuple(countParams);
-        Tuple listTuple = Tuple.tuple(listParams);
+        return executeAggregateListQueries(countSqlBuilder.toString(), listSqlBuilder.toString(),
+                Tuple.tuple(countParams), Tuple.tuple(listParams), cappedLimit, offset);
+    }
 
+    /**
+     * Executes the count + list query pair shared by the event-log and summary aggregate
+     * sources and maps the rows to the common {@link EventStore.AggregateListResult} shape.
+     */
+    private Future<EventStore.AggregateListResult> executeAggregateListQueries(String countSql, String listSql,
+            Tuple countTuple, Tuple listTuple, int cappedLimit, int offset) {
         return getOptimalReadClient().preparedQuery(countSql)
                 .execute(countTuple)
                 .compose(countRows -> {
@@ -2379,6 +2606,24 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     /**
      * Implementation of EventStore.AggregateListResult.
      */
+    private record AggregateSummaryReconcileResultImpl(
+            EventStore.ReconcileMode mode,
+            long aggregatesChecked,
+            long missingInSummary,
+            long staleInSummary,
+            long orphanedInSummary,
+            long repaired,
+            List<String> sampleMismatches) implements EventStore.AggregateSummaryReconcileResult {
+
+        @Override public EventStore.ReconcileMode getMode() { return mode; }
+        @Override public long getAggregatesChecked() { return aggregatesChecked; }
+        @Override public long getMissingInSummary() { return missingInSummary; }
+        @Override public long getStaleInSummary() { return staleInSummary; }
+        @Override public long getOrphanedInSummary() { return orphanedInSummary; }
+        @Override public long getRepaired() { return repaired; }
+        @Override public List<String> getSampleMismatches() { return sampleMismatches; }
+    }
+
     private static class AggregateListResultImpl implements EventStore.AggregateListResult {
         private final List<EventStore.AggregateInfo> aggregates;
         private final long totalCount;

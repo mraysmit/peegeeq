@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
@@ -99,19 +100,20 @@ public class ReactiveNotificationHandler<T> {
      * Creates a new ReactiveNotificationHandler.
      * Following peegeeq-native patterns.
      *
+     * <p>The schema and table name are required: a defaulting overload used to pin
+     * {@code "public"}/{@code "bitemporal_event_log"}, which silently diverged from
+     * the configured schema in custom-schema deployments. Callers must pass the
+     * schema the store is actually configured with.</p>
+     *
      * @param vertx          The Vertx instance for reactive operations
      * @param connectOptions PostgreSQL connection options
      * @param objectMapper   JSON object mapper
      * @param payloadType    The payload type class
      * @param eventRetriever Function to retrieve full events by ID using pure
      *                       Vert.x Future
+     * @param schema         The PostgreSQL schema the event store is configured with
+     * @param tableName      The event log table name
      */
-    public ReactiveNotificationHandler(Vertx vertx, PgConnectOptions connectOptions,
-            ObjectMapper objectMapper, Class<T> payloadType,
-            Function<String, Future<BiTemporalEvent<T>>> eventRetriever) {
-        this(vertx, connectOptions, objectMapper, payloadType, eventRetriever, "public", "bitemporal_event_log");
-    }
-
     public ReactiveNotificationHandler(Vertx vertx, PgConnectOptions connectOptions,
             ObjectMapper objectMapper, Class<T> payloadType,
             Function<String, Future<BiTemporalEvent<T>>> eventRetriever,
@@ -121,8 +123,8 @@ public class ReactiveNotificationHandler<T> {
         this.connectOptions = connectOptions;
         this.objectMapper = objectMapper;
         this.eventRetriever = eventRetriever;
-        this.schema = schema != null ? schema : "public";
-        this.tableName = tableName != null ? tableName : "bitemporal_event_log";
+        this.schema = Objects.requireNonNull(schema, "schema cannot be null");
+        this.tableName = Objects.requireNonNull(tableName, "tableName cannot be null");
 
         logger.debug("Created ReactiveNotificationHandler for payload type: {} (schema: {}, table: {})",
                 payloadType.getSimpleName(), this.schema, this.tableName);
@@ -244,12 +246,15 @@ public class ReactiveNotificationHandler<T> {
      * - Long name: "public_bitemporal_events_workflow-event-store-1767344124935"
      *   becomes: "public_bitemporal_events_workflow_a1b2c3d4"
      *
+     * <p>Package-private and static so tests that publish notifications manually can
+     * build the exact channel name this handler LISTENs on (including truncation).</p>
+     *
      * @param prefix The channel prefix (e.g., "public_bitemporal_events_")
      * @param tableName The table name (may be long)
      * @param suffix Optional suffix for event type (can be null)
      * @return A safe channel name within the 63-character limit
      */
-    private String createSafeChannelName(String prefix, String tableName, String suffix) {
+    static String createSafeChannelName(String prefix, String tableName, String suffix) {
         // PostgreSQL identifier max length is 63 characters
         final int MAX_CHANNEL_LENGTH = 63;
 

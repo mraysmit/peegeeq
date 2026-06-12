@@ -16,6 +16,7 @@ package dev.mars.peegeeq.db;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.slf4j.Logger;
@@ -154,12 +155,19 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                 return;
             }
 
-            logger.info("Initializing shared database schema (ONE TIME ONLY)");
+            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+            logger.info("Initializing shared database schema (ONE TIME ONLY) in schema '{}'", schema);
 
             // Create all tables using JDBC (not Vert.x) to ensure synchronous execution
             String jdbcUrl = container.getJdbcUrl();
             try (Connection conn = DriverManager.getConnection(jdbcUrl, container.getUsername(), container.getPassword());
                  Statement stmt = conn.createStatement()) {
+
+                // Place all unqualified DDL below in the explicit shared-suite schema —
+                // the same constant every test passes to PeeGeeQTestConfig, so the DDL
+                // and the managers always name the same schema from one definition.
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
+                stmt.execute("SET search_path TO " + schema);
 
                 // Create peegeeq schema with LOG-level logging
                 stmt.execute("""

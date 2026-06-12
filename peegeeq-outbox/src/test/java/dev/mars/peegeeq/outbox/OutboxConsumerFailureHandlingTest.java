@@ -90,12 +90,13 @@ public class OutboxConsumerFailureHandlingTest {
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         testTopic = "failure-test-" + UUID.randomUUID().toString().substring(0, 8);
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .build();
 
@@ -333,6 +334,7 @@ public class OutboxConsumerFailureHandlingTest {
         logger.info("ERROR ===== INTENTIONAL ERROR TEST ===== The next ERROR logs (INTENTIONAL: Force DLQ) are EXPECTED");
         Properties dlqProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "1")
                 .property("peegeeq.queue.retry-delay-ms", "100")
                 .build();
@@ -390,6 +392,7 @@ public class OutboxConsumerFailureHandlingTest {
         logger.info("ERROR ===== INTENTIONAL ERROR TEST ===== The next ERROR logs (INTENTIONAL: Force retry) are EXPECTED");
         Properties retryProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "3")
                 .property("peegeeq.queue.retry-delay-ms", "500")
                 .build();
