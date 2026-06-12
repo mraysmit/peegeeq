@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.examples.shared;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -64,6 +65,8 @@ public class SharedTestContainers {
 
             // Start the container immediately to ensure it's available for all test classes
             container.start();
+            initializeSharedSchema(container);
+
             sharedPostgres = container;
 
             logger.info("Shared PostgreSQL container created and started successfully");
@@ -108,7 +111,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.database.name", () -> database);
         registry.add("peegeeq.database.username", () -> username);
         registry.add("peegeeq.database.password", () -> password);
-        registry.add("peegeeq.database.schema", () -> "public");
+        registry.add("peegeeq.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Reactive pool tuning for high-load tests
         // Use peegeeq.pool.* (not peegeeq.database.pool.*) so Spring binds into PeeGeeQProperties.Pool
@@ -123,6 +126,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.bitemporal.database.name", () -> database);
         registry.add("peegeeq.bitemporal.database.username", () -> username);
         registry.add("peegeeq.bitemporal.database.password", () -> password);
+        registry.add("peegeeq.bitemporal.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Dead Letter Queue properties (for DLQ tests)
         registry.add("peegeeq.dlq.database.host", () -> host);
@@ -130,6 +134,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.dlq.database.name", () -> database);
         registry.add("peegeeq.dlq.database.username", () -> username);
         registry.add("peegeeq.dlq.database.password", () -> password);
+        registry.add("peegeeq.dlq.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Retry properties (for retry tests)
         registry.add("peegeeq.retry.database.host", () -> host);
@@ -137,6 +142,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.retry.database.name", () -> database);
         registry.add("peegeeq.retry.database.username", () -> username);
         registry.add("peegeeq.retry.database.password", () -> password);
+        registry.add("peegeeq.retry.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Consumer properties (for consumer tests)
         registry.add("peegeeq.consumer.database.host", () -> host);
@@ -144,6 +150,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.consumer.database.name", () -> database);
         registry.add("peegeeq.consumer.database.username", () -> username);
         registry.add("peegeeq.consumer.database.password", () -> password);
+        registry.add("peegeeq.consumer.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Bitemporal properties (for bitemporal tests)
         registry.add("bitemporal.database.host", () -> host);
@@ -151,6 +158,7 @@ public class SharedTestContainers {
         registry.add("bitemporal.database.name", () -> database);
         registry.add("bitemporal.database.username", () -> username);
         registry.add("bitemporal.database.password", () -> password);
+        registry.add("bitemporal.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Reactive Bitemporal properties (for reactive bitemporal tests)
         registry.add("reactive-bitemporal.database.host", () -> host);
@@ -158,6 +166,7 @@ public class SharedTestContainers {
         registry.add("reactive-bitemporal.database.name", () -> database);
         registry.add("reactive-bitemporal.database.username", () -> username);
         registry.add("reactive-bitemporal.database.password", () -> password);
+        registry.add("reactive-bitemporal.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Integrated properties (for integrated tests)
         registry.add("integrated.database.host", () -> host);
@@ -165,6 +174,7 @@ public class SharedTestContainers {
         registry.add("integrated.database.name", () -> database);
         registry.add("integrated.database.username", () -> username);
         registry.add("integrated.database.password", () -> password);
+        registry.add("integrated.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // R2DBC properties (for reactive tests) - override application.yml settings
         String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s", host, port, database);
@@ -189,6 +199,18 @@ public class SharedTestContainers {
     }
 
     /**
+     * Initializes the full PeeGeeQ DDL in the explicit shared test schema. Called after
+     * every container (re)start so classes that do not initialize the schema themselves
+     * always see the tables, regardless of class execution order.
+     */
+    private static void initializeSharedSchema(PostgreSQLContainer container) {
+        PeeGeeQTestSchemaInitializer.initializeSchema(
+            container, PostgreSQLTestConstants.TEST_SCHEMA,
+            PeeGeeQTestSchemaInitializer.SchemaComponent.ALL);
+        logger.info("Shared schema initialized in '{}'", PostgreSQLTestConstants.TEST_SCHEMA);
+    }
+
+    /**
      * Ensures the container is fully started and ready for use.
      * This method blocks until the container is confirmed to be running and accessible.
      *
@@ -198,6 +220,10 @@ public class SharedTestContainers {
         if (!container.isRunning()) {
             logger.warn("Container is not running, starting it now...");
             container.start();
+            // A restart produces a fresh, empty database (the @Container annotation on
+            // sharing classes stops the container after each class): re-create the DDL
+            // in the explicit test schema so free-riding classes see the tables
+            initializeSharedSchema(container);
         }
 
         // Wait for container to be fully ready with timeout

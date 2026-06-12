@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.examples.nativequeue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -151,11 +152,12 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Setting up Consumer Group Load Balancing Demo Test");
 
         // Configure database connection properties
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         // Initialize database schema for consumer group load balancing test
         logger.info("Initializing database schema for consumer group load balancing test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with load balancing configuration
@@ -164,7 +166,9 @@ class ConsumerGroupLoadBalancingDemoTest {
         manager.start()
             .onSuccess(v -> {
                 var databaseService = new PgDatabaseService(manager);
-                QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                // Pass the configuration so factory-created consumers derive their
+                // LISTEN channels from the configured schema (no "public" fallback)
+                QueueFactoryProvider provider = new PgQueueFactoryProvider(config);
                 PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
                 queueFactory = provider.createFactory("native", databaseService);
                 logger.info("Setup complete - Ready for load balancing pattern testing");

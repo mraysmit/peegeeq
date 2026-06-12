@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -108,11 +109,12 @@ class DeadConsumerDetectionDemoTest {
     void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure database connection properties
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         // Initialize database schema
         logger.info("Initializing database schema for dead consumer detection demo");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully");
 
         // Initialize PeeGeeQ Manager
@@ -126,7 +128,7 @@ class DeadConsumerDetectionDemoTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
-                .schema(PeeGeeQTestConfig.resolveSchema())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
             PgPoolConfig poolConfig = new PgPoolConfig.Builder()

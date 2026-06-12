@@ -74,6 +74,7 @@ public class PeeGeeQDlqConfig {
         props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
         props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         
         // Configure retry settings
         props.setProperty("peegeeq.queue.max-retries", String.valueOf(properties.getMaxRetries()));

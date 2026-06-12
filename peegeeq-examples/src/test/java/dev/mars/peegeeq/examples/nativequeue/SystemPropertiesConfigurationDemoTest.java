@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.examples.nativequeue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -71,7 +72,8 @@ class SystemPropertiesConfigurationDemoTest {
     @DisplayName("REGRESSION GUARD: System property set by unrelated code does NOT contaminate other instances")
     void systemPropertyDoesNotContaminateUnrelatedInstances() {
         // DB params for our instance  correct builder pattern, no batch-size set
-        Properties baseProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties baseProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         // Simulate: unrelated code elsewhere in the JVM sets batch-size globally
         System.setProperty(BATCH_SIZE_KEY, "999");
@@ -105,8 +107,10 @@ class SystemPropertiesConfigurationDemoTest {
     @Test
     @DisplayName("REGRESSION GUARD: Sequential System.setProperty writes do NOT contaminate independent tenants")
     void sequentialSystemPropertyWritesDoNotContaminateTenants() {
-        Properties propsA = PeeGeeQTestConfig.builder().from(postgres).build();
-        Properties propsB = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties propsA = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+        Properties propsB = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         try {
             // Tenant A writes its desired batch size to System and constructs.
@@ -152,10 +156,12 @@ class SystemPropertiesConfigurationDemoTest {
         // Each tenant builds its own Properties explicitly  no shared global state
         Properties propsA = PeeGeeQTestConfig.builder()
             .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .property(BATCH_SIZE_KEY, "7")
             .build();
         Properties propsB = PeeGeeQTestConfig.builder()
             .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .property(BATCH_SIZE_KEY, "13")
             .build();
 

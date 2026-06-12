@@ -16,7 +16,6 @@ package dev.mars.peegeeq.test.schema;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.flywaydb.core.Flyway;
@@ -37,13 +36,14 @@ import java.util.EnumSet;
  * This avoids duplicated DDL definitions in Java and keeps test schema aligned with
  * production migration scripts.
  * 
- * Usage:
+ * Usage (the schema is REQUIRED — PeeGeeQ has no default schema):
  * ```java
- * // Initialize complete schema
- * PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
- * 
- * // Initialize only specific components
- * PeeGeeQTestSchemaInitializer.initializeSchema(postgres, 
+ * // Initialize complete schema in the explicit shared test schema
+ * PeeGeeQTestSchemaInitializer.initializeSchema(
+ *     postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
+ *
+ * // Initialize only specific components in a per-test schema
+ * PeeGeeQTestSchemaInitializer.initializeSchema(postgres, "tenant_a",
  *     SchemaComponent.OUTBOX, SchemaComponent.BITEMPORAL);
  * ```
  * 
@@ -82,33 +82,8 @@ public class PeeGeeQTestSchemaInitializer {
         ALL
     }
     
-    /**
-     * Initialize database schema with specified components in the schema resolved from
-     * the {@code peegeeq.database.schema} system property (defaulting to {@code public}),
-     * matching {@link PeeGeeQTestConfig#resolveSchema()} so the DDL lands in the same
-     * schema a property-driven manager targets.
-     *
-     * @param postgres the PostgreSQL container
-     * @param components the schema components to initialize
-     */
-    public static void initializeSchema(PostgreSQLContainer postgres, SchemaComponent... components) {
-        initializeSchema(postgres, PeeGeeQTestConfig.resolveSchema(), components);
-    }
-
-    /**
-     * Initialize database schema with specified components in the schema resolved from
-     * the {@code peegeeq.database.schema} system property (defaulting to {@code public}),
-     * matching {@link PeeGeeQTestConfig#resolveSchema()} so the DDL lands in the same
-     * schema a property-driven manager targets.
-     *
-     * @param jdbcUrl the JDBC URL
-     * @param username the database username
-     * @param password the database password
-     * @param components the schema components to initialize
-     */
-    public static void initializeSchema(String jdbcUrl, String username, String password, SchemaComponent... components) {
-        initializeSchema(jdbcUrl, username, password, PeeGeeQTestConfig.resolveSchema(), components);
-    }
+    // PeeGeeQ has no default schema: the overloads that defaulted the schema were
+    // removed deliberately — every caller passes its schema explicitly.
 
     /**
      * Initialize database schema with specified components in a custom schema.
@@ -167,27 +142,8 @@ public class PeeGeeQTestSchemaInitializer {
         }
     }
     
-    /**
-     * Clean up test data from specified schema components in the default "public" schema.
-     *
-     * @param postgres the PostgreSQL container
-     * @param components the schema components to clean
-     */
-    public static void cleanupTestData(PostgreSQLContainer postgres, SchemaComponent... components) {
-        cleanupTestData(postgres, "public", components);
-    }
-
-    /**
-     * Clean up test data from specified schema components in the default "public" schema.
-     *
-     * @param jdbcUrl the JDBC URL
-     * @param username the database username
-     * @param password the database password
-     * @param components the schema components to clean
-     */
-    public static void cleanupTestData(String jdbcUrl, String username, String password, SchemaComponent... components) {
-        cleanupTestData(jdbcUrl, username, password, "public", components);
-    }
+    // PeeGeeQ has no default schema: the cleanup overloads that defaulted to "public"
+    // were removed deliberately — every caller passes its schema explicitly.
 
     /**
      * Clean up test data from specified schema components in a custom schema.
