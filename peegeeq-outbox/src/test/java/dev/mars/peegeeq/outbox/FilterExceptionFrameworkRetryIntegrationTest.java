@@ -89,7 +89,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         testTopic = "filter-exc-retry-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
@@ -99,6 +99,7 @@ public class FilterExceptionFrameworkRetryIntegrationTest {
      */
     private Future<Void> startManager(String maxRetries) {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", maxRetries)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();

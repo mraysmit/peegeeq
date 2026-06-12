@@ -1,0 +1,4 @@
+# Aggregate summary table creation manifest (opt-in per event store via aggregateSummaryEnabled)
+01-table.sql
+02-function.sql
+03-trigger.sql

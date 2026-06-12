@@ -92,11 +92,12 @@ public class OutboxRetryResilienceTest {
     @BeforeEach
     void setUp(VertxTestContext ctx) throws Exception {
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         // Set up database connection properties
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "3")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .property("peegeeq.database.pool.min-size", "1")

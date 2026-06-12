@@ -17,7 +17,8 @@ class EventStoreConfigTest {
             false,
             String.class,
             true,
-            "daily"
+            "daily",
+            true
         );
 
         assertEquals("test-store", config.getEventStoreName());
@@ -40,11 +41,34 @@ class EventStoreConfigTest {
             true,
             null, // eventType
             false,
-            null // partitionStrategy
+            null, // partitionStrategy
+            false // aggregateSummaryEnabled
         );
 
         assertEquals("peegeeq_events_", config.getNotificationPrefix());
         assertEquals(1000, config.getQueryLimit());
+    }
+
+    @Test
+    void testAggregateSummaryEnabledDefaultsToFalse() {
+        EventStoreConfig config = new EventStoreConfig.Builder()
+            .eventStoreName("summary-store")
+            .tableName("summary_table")
+            .build();
+
+        assertFalse(config.isAggregateSummaryEnabled(),
+            "aggregateSummaryEnabled must default to false for backward compatibility");
+    }
+
+    @Test
+    void testAggregateSummaryEnabledViaBuilder() {
+        EventStoreConfig config = new EventStoreConfig.Builder()
+            .eventStoreName("summary-store")
+            .tableName("summary_table")
+            .aggregateSummaryEnabled(true)
+            .build();
+
+        assertTrue(config.isAggregateSummaryEnabled());
     }
 
     @Test

@@ -40,7 +40,23 @@ public interface EventStoreFactory {
      * @throws IllegalArgumentException if payloadType or tableName is null
      */
     <T> EventStore<T> createEventStore(Class<T> payloadType, String tableName);
-    
+
+    /**
+     * Creates a new event store from the full event store configuration.
+     *
+     * <p>The default implementation delegates to {@link #createEventStore(Class, String)} using
+     * the config's table name. Implementations that honor additional configuration (e.g. the
+     * aggregate summary option) should override this.</p>
+     *
+     * @param <T> The type of event payload
+     * @param payloadType The class type of the event payload
+     * @param config The event store configuration
+     * @return A new event store instance
+     */
+    default <T> EventStore<T> createEventStore(Class<T> payloadType, dev.mars.peegeeq.api.database.EventStoreConfig config) {
+        return createEventStore(payloadType, config.getTableName());
+    }
+
     /**
      * Returns the name of this factory implementation.
      * Used for logging and diagnostics.
