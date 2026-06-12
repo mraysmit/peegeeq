@@ -132,6 +132,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                 logger.info("Applying Consumer Group Fanout schema to new database: {}", newDbName);
                                 PeeGeeQTestSchemaInitializer.initializeSchema(jdbcUrl,
                                     postgres.getUsername(), postgres.getPassword(),
+                                    PostgreSQLTestConstants.TEST_SCHEMA,
                                     SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
                                 logger.info("Consumer Group Fanout schema applied successfully");
                                 return null;

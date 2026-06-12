@@ -93,13 +93,14 @@ public class DeadConsumerAlertingIntegrationTest {
         setupId = "alerting-test-setup";
 
         // Create PeeGeeQManager directly so we have access to subscription services
-        java.util.Properties props = PeeGeeQTestConfig.builder().from(postgres).build();
+        java.util.Properties props = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("alerting-test", props);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         // Schema init is blocking (Flyway/JDBC)  must run on a worker thread, not the event loop.
         vertx.executeBlocking(() -> {
-            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
             return null;
         })
         .compose(v -> peeGeeQManager.start())
