@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.examples;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -56,8 +57,7 @@ public class SecurityConfigurationExampleTest {
         containerProps.setProperty("peegeeq.database.username", postgres.getUsername());
         containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
         containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
-        containerProps.setProperty("peegeeq.database.schema", "public");
-        containerProps.setProperty("peegeeq.database.pool.min-size", "1");
+        containerProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);containerProps.setProperty("peegeeq.database.pool.min-size", "1");
         containerProps.setProperty("peegeeq.database.pool.max-size", "3");
         containerProps.setProperty("peegeeq.database.pool.shared", "false");
         containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");

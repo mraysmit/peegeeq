@@ -16,6 +16,7 @@ package dev.mars.peegeeq.db;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.vertx.core.Future;
@@ -83,10 +84,12 @@ public abstract class BaseIntegrationTest {
         logger.info("Setting up integration test with profile: {}", testProfile);
 
         // Build isolated per-test configuration  no System.setProperty writes.
+        // The schema is the explicit shared-suite constant: SharedPostgresTestExtension
+        // creates the DDL in the same schema from the same constant.
         PostgreSQLContainer postgres = getPostgres();
         Properties props = PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "3")
                 .property("peegeeq.database.pool.connection-timeout-ms", "30000")

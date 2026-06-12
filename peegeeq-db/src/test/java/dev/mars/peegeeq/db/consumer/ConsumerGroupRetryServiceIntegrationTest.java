@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.db.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -81,7 +82,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()

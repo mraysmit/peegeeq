@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.examples;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -60,7 +61,7 @@ public class MultiConfigurationExampleTest {
 
         testProps = PeeGeeQTestConfig.builder()
             .from(postgres)
-            .schema("public")
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         // Initialize multi-configuration manager
