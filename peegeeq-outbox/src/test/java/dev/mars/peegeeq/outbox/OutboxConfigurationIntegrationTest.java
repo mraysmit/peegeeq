@@ -73,7 +73,7 @@ class OutboxConfigurationIntegrationTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
     }
 
     @AfterEach
@@ -94,6 +94,7 @@ class OutboxConfigurationIntegrationTest {
     void testOutboxRespectsMaxRetriesConfiguration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: outbox respects max retries configuration");
         Properties configProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .property("peegeeq.queue.max-retries", "2")
                 .build();
@@ -131,6 +132,7 @@ class OutboxConfigurationIntegrationTest {
     void testOutboxUsesDefaultWhenNoConfigurationSet(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: outbox uses default when no configuration set");
         Properties defaultProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", defaultProps), new SimpleMeterRegistry());
@@ -167,6 +169,7 @@ class OutboxConfigurationIntegrationTest {
     void testBasicOutboxMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: basic outbox message processing");
         Properties basicProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", basicProps), new SimpleMeterRegistry());

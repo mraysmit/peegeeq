@@ -57,6 +57,18 @@ public final class PostgreSQLTestConstants {
     public static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
     
     /**
+     * The explicit schema for shared-container PeeGeeQ test suites.
+     *
+     * <p>PeeGeeQ has no default schema anywhere in the system: every configuration must
+     * state its schema explicitly, and a missing schema is an error. Tests that share a
+     * module-wide container reference this single constant so the DDL, the manager
+     * configuration, and any raw verification connections all name the same schema from
+     * one definition. Tests that exercise schema isolation (multi-tenant tests) use their
+     * own explicit literals instead.</p>
+     */
+    public static final String TEST_SCHEMA = "peegeeq_test";
+
+    /**
      * Standard database name for PeeGeeQ tests.
      */
     public static final String DEFAULT_DATABASE_NAME = "peegeeq_test";

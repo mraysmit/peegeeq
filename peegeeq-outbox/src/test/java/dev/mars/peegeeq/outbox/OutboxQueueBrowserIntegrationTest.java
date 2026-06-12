@@ -85,7 +85,7 @@ public class OutboxQueueBrowserIntegrationTest {
         logger.info("Initializing database schema for OutboxQueueBrowser integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.OUTBOX, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
         // Ensure clean state for each test execution
-        PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, SchemaComponent.OUTBOX, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.OUTBOX, SchemaComponent.NATIVE_QUEUE, SchemaComponent.DEAD_LETTER_QUEUE);
 
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
@@ -103,8 +103,9 @@ public class OutboxQueueBrowserIntegrationTest {
             clientFactory = manager.getClientFactory();
             objectMapper = new ObjectMapper();
 
-            // Create browser using manager's pool with "public" schema (matching the test schema setup)
-            browser = new OutboxQueueBrowser<>(TEST_TOPIC, String.class, manager.getPool(), objectMapper, "public");
+            // Create browser using manager's pool with the explicit test schema
+            browser = new OutboxQueueBrowser<>(TEST_TOPIC, String.class, manager.getPool(), objectMapper,
+                    PostgreSQLTestConstants.TEST_SCHEMA);
 
             // Create producer for test setup
             producer = new OutboxProducer<>(clientFactory, objectMapper, TEST_TOPIC, String.class, null);
@@ -331,7 +332,7 @@ public class OutboxQueueBrowserIntegrationTest {
         // Given - create browser and producer for Integer type
         String intTopic = "int-topic";
         OutboxQueueBrowser<Integer> intBrowser = new OutboxQueueBrowser<>(
-            intTopic, Integer.class, manager.getPool(), objectMapper, "public"
+            intTopic, Integer.class, manager.getPool(), objectMapper, PostgreSQLTestConstants.TEST_SCHEMA
         );
         OutboxProducer<Integer> intProducer = new OutboxProducer<>(
             clientFactory, objectMapper, intTopic, Integer.class, null
