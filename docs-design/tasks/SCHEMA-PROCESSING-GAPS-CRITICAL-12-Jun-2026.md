@@ -1,6 +1,66 @@
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: COMPLETE — found and fixed 12 Jun 2026 (S1–S5). All three CI legs proven locally under both default and `-Dpeegeeq.database.schema=tenant_ci`; the `custom-schema-tests` CI job locks the regression.
+## Status: SUPERSEDED IN PART — see "Architecture correction" below. The findings stand; the first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation (12 Jun 2026, evening). Production fail-fast enforcement (D2) is the remaining open work.
+
+---
+
+## Architecture correction (12 Jun 2026, evening) — the binding rules
+
+The owner ruled, correcting the first remediation:
+
+1. **PeeGeeQ has NO default schema.** Not `public`, not anything. The schema is mandatory,
+   explicit configuration; a missing schema is an ERROR (fail fast), never a fallback.
+2. **No configuration may come from JVM system properties or environment variables** — in
+   production or tests. The Phase 11 config-architecture refactoring removed ambient
+   configuration deliberately; the first S1–S3 remediation reintroduced it in error
+   (`-Dpeegeeq.database.schema` reads) and has been fully reverted/replaced.
+
+**As-built (replacing the S1–S3 as-built notes below, which are retained as history):**
+
+- `PostgreSQLTestConstants.TEST_SCHEMA = "peegeeq_test"` — the single explicit schema
+  constant for shared-container suites; schema-isolation tests use their own literals
+  (`tenant_a`, `tenant_b`, …). Every suite now permanently exercises a NON-public schema.
+- `PeeGeeQTestConfig.Builder`: `.schema(...)` is REQUIRED — `build()` throws
+  `IllegalStateException` if never called; blank/invalid values are rejected. The contract
+  test locks five behaviors, including the Phase-11-style inverted assertion that **setting
+  the `peegeeq.database.schema` system property has no effect**.
+- `PeeGeeQTestSchemaInitializer`: all schema-defaulting overloads of `initializeSchema` and
+  `cleanupTestData` DELETED — every caller passes the schema explicitly (~190 call sites
+  converted across 8 modules, in six distinct call shapes).
+- `resolveSchema()` (the system-property reader) DELETED. Repo-wide grep gates: zero
+  `System.getProperty("peegeeq.database.schema")` in any code; the single remaining
+  ambient read is `DatabaseSetupHandler`'s `PEEGEEQ_DATABASE_SCHEMA` env lookup — a
+  **production** defaulting path in the D2 inventory.
+- The `custom-schema-tests` CI job (built on `-D` flags) was deleted; non-public operation
+  is now proven by construction on every ordinary run.
+
+**Verification matrix (all in explicit `peegeeq_test`):** test-support 47/47; peegeeq-db
+integration 727/727; bitemporal CORE 120/120 + INTEGRATION 341/341; native CORE 148/148 +
+INTEGRATION 185 run/0 fail (6 pre-existing skips); outbox CORE 80/80 + INTEGRATION 540 run
+with the only 4 errors being `SystemPropertiesConfigurationExampleTest` (Phase-11 leftover,
+owner decision pending: delete or invert); rest CORE 146/146 + INTEGRATION 331/331;
+examples CORE 30/30 + INTEGRATION 143/143; examples-spring INTEGRATION 115/115.
+
+**Genuine defects exposed by moving off `public`** (each fixed, see module reports):
+funds-custody cleanup pool deleting from the wrong schema behind a silent first-run guard;
+`NAVService.getNAVAsReported` `findFirst()` depending on unspecified result ordering
+(F2 fallout); configuration-less queue factories putting LISTEN channels on a `public_`
+prefix while triggers notify the configured schema (masked by polling fallback); native
+LISTEN/NOTIFY channel names having NO 63-char truncation safety (bitemporal has it);
+spring example shared-container DDL depending on class execution order and `auto-migrate`
+silently recreating tables in `public`; three spring example apps unable to express a
+schema at all.
+
+**D2 — production fail-fast enforcement (OPEN, mandated last):** `PgConnectionConfig`
+nullable schema + `PgConnectionManager` "using default schema" fallback;
+`PeeGeeQConfiguration` null-tolerant schema resolution + 7-arg ctor null-schema tolerance;
+`DatabaseSetupHandler` env lookup + `"peegeeq"` literal default; profile `.properties`
+files (`schema=public` declarations; `${DB_SCHEMA:public}` env interpolation in
+production.properties; parallel-test.properties missing the key); native module defaulting
+nest (`PgNativeQueueBrowser` defaulting ctor + six `: "public"` fallbacks);
+`OutboxQueueBrowser` 4-arg defaulting path; nine spring example apps' `schema = "public"`
+field defaults; **migration/auto-migrate schema handling needs verification** (it recreated
+tables in `public`, not the configured schema, when masking the spring free-rider race).
 
 The PostgreSQL schema is the anchor of every PeeGeeQ instance: schema selection is
 connection-level (`search_path` set by `PgConnectionManager`), runtime SQL is unqualified, and

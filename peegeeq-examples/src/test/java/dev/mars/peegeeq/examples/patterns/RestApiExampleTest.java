@@ -91,7 +91,7 @@ public class RestApiExampleTest {
         logger.info("=== Setting up REST API Example Test ===");
 
         // Initialize schema
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
         // Use injected Vert.x (managed by VertxExtension)
         this.vertx = vertx;

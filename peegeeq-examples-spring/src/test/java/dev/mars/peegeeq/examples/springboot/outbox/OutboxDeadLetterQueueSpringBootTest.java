@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springboot.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.deadletter.DeadLetterMessageInfo;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -114,7 +115,7 @@ class OutboxDeadLetterQueueSpringBootTest {
     @BeforeAll
     static void initializeSchema() {
         logger.info("Initializing database schema for Spring Boot dead letter queue test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     

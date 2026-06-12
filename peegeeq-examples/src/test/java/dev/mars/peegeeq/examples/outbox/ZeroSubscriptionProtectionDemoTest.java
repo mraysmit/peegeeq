@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -103,10 +104,11 @@ class ZeroSubscriptionProtectionDemoTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         logger.info("Initializing database schema for zero-subscription protection demo");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully");
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
@@ -120,7 +122,7 @@ class ZeroSubscriptionProtectionDemoTest {
                     .database(postgres.getDatabaseName())
                     .username(postgres.getUsername())
                     .password(postgres.getPassword())
-                    .schema(PeeGeeQTestConfig.resolveSchema())
+                    .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .build();
 
                 PgPoolConfig poolConfig = new PgPoolConfig.Builder()

@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springbootbitemporaltx;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
@@ -117,7 +118,7 @@ class OrderProcessingServiceTest {
     @BeforeAll
     static void initializeSchema() {
         logger.info("Initializing database schema for Spring Boot bitemporal order processing test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 

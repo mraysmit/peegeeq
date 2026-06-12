@@ -60,26 +60,10 @@ public final class PeeGeeQTestConfig {
         return new Builder();
     }
 
-    /**
-     * @deprecated FOR REMOVAL — reads a JVM system property, which is not a PeeGeeQ
-     * configuration channel (the Phase 11 config-architecture refactoring removed ambient
-     * configuration deliberately; this method reintroduced it in error). Do not add new
-     * callers. Existing call sites are being re-pointed to explicit schemas
-     * ({@code PostgreSQLTestConstants.TEST_SCHEMA} or per-test literals); this method is
-     * deleted once they are gone.
-     */
-    @Deprecated(forRemoval = true)
-    public static String resolveSchema() {
-        String configured = System.getProperty("peegeeq.database.schema", "public").trim();
-        if (configured.isEmpty()) {
-            return "public";
-        }
-        if (!configured.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            throw new IllegalArgumentException(
-                "Invalid peegeeq.database.schema system property: " + configured);
-        }
-        return configured;
-    }
+    // PeeGeeQ has no default schema and no ambient configuration channels: a method
+    // that resolved the schema from a JVM system property was removed deliberately.
+    // Tests state their schema explicitly (PostgreSQLTestConstants.TEST_SCHEMA for
+    // shared-container suites, per-test literals for schema-isolation tests).
 
     public static final class Builder {
 

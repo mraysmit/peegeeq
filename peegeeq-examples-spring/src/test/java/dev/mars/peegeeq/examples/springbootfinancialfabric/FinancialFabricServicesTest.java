@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springbootfinancialfabric;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -81,7 +82,7 @@ public class FinancialFabricServicesTest {
     @BeforeAll
     static void initializeSchema() {
         log.info("Initializing database schema for Financial Fabric test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 
@@ -102,6 +103,7 @@ public class FinancialFabricServicesTest {
         registry.add("peegeeq.financial-fabric.database.name", () -> database);
         registry.add("peegeeq.financial-fabric.database.username", () -> username);
         registry.add("peegeeq.financial-fabric.database.password", () -> password);
+        registry.add("peegeeq.financial-fabric.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
         
         log.info("Financial Fabric database properties configured: host={}, port={}, database={}", host, port, database);
     }
