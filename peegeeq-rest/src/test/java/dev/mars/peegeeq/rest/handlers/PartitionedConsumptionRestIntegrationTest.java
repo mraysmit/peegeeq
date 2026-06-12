@@ -96,11 +96,12 @@ public class PartitionedConsumptionRestIntegrationTest {
         logger.info("=== Setting up Partitioned Consumption REST Integration Test ===");
 
         // Initialize schema directly on the container's default database (clean DB  Flyway runs all migrations)
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
         setupId = "partitioned-test-setup";
 
-        java.util.Properties props = PeeGeeQTestConfig.builder().from(postgres).build();
+        java.util.Properties props = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("partitioned-rest-test", props);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 

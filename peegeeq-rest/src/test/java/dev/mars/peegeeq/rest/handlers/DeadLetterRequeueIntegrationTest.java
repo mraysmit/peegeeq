@@ -84,6 +84,7 @@ public class DeadLetterRequeueIntegrationTest {
         // Schema init is blocking (Flyway/JDBC)  must run on a worker thread, not the event loop.
         vertx.executeBlocking(() -> {
             PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                PostgreSQLTestConstants.TEST_SCHEMA,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
             return null;
