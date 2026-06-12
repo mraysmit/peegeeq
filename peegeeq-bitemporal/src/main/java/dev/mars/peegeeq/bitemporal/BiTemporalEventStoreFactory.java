@@ -93,6 +93,28 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         return new PgBiTemporalEventStore<>(vertx, peeGeeQManager, payloadType, normalizedTableName, objectMapper);
     }
 
+    /**
+     * Creates a new bi-temporal event store from the full event store configuration,
+     * honoring the aggregate summary option.
+     *
+     * @param <T>         The type of event payload
+     * @param payloadType The class type of the event payload
+     * @param config      The event store configuration
+     * @return A new event store instance
+     */
+    @Override
+    public <T> EventStore<T> createEventStore(Class<T> payloadType, dev.mars.peegeeq.api.database.EventStoreConfig config) {
+        Objects.requireNonNull(payloadType, "Payload type cannot be null");
+        Objects.requireNonNull(config, "Event store config cannot be null");
+        String normalizedTableName = validateTableName(config.getTableName());
+
+        logger.info("Creating bi-temporal event store for payload type: {} using table: {} (aggregateSummaryEnabled={})",
+                payloadType.getSimpleName(), normalizedTableName, config.isAggregateSummaryEnabled());
+
+        return new PgBiTemporalEventStore<>(vertx, peeGeeQManager, payloadType, normalizedTableName, objectMapper,
+                null, config.isAggregateSummaryEnabled());
+    }
+
     private String validateTableName(String tableName) {
         String normalized = tableName.trim();
         if (normalized.isEmpty()) {

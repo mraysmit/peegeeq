@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -124,7 +125,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build();
@@ -176,7 +177,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(ownContainer)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build();
@@ -218,7 +219,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     void testCloseWithoutStartNoStopError(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build();
@@ -243,7 +244,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build();
@@ -280,6 +281,13 @@ public class PeeGeeQManagerCloseLogLevelTest {
         try (Connection conn = DriverManager.getConnection(
                 container.getJdbcUrl(), container.getUsername(), container.getPassword());
              Statement stmt = conn.createStatement()) {
+            // Place the unqualified DDL below in the resolved schema so custom-schema
+            // runs see the same tables the manager targets (suite-wide convention)
+            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+            if (!"public".equals(schema)) {
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
+            }
+            stmt.execute("SET search_path TO " + schema);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS outbox (
                     id BIGSERIAL PRIMARY KEY,

@@ -79,7 +79,7 @@ public class OutboxParallelProcessingTest {
     @BeforeEach
     void setUp() throws Exception {
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test to avoid interference
         testTopic = "parallel-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
@@ -87,6 +87,7 @@ public class OutboxParallelProcessingTest {
         // Set up database connection
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.consumer.threads", "4")
                 .property("peegeeq.queue.batch-size", "5")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
