@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.examples.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -498,11 +499,12 @@ class EventSourcingCQRSDemoTest {
         // batch.  The consumer then processes commands strictly in insertion order and
         // the FreezeAccount command can never reach the handler before Deposit/Withdraw.
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .build();
 
         logger.info("Initializing database schema for event sourcing CQRS test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

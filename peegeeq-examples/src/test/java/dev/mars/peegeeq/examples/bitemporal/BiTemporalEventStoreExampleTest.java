@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.bitemporal;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -175,7 +176,7 @@ class BiTemporalEventStoreExampleTest {
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         logger.info("bitemporal_event_log table created successfully");
 
         System.setOut(new PrintStream(outContent));
@@ -195,6 +196,7 @@ class BiTemporalEventStoreExampleTest {
 
         // Configure PeeGeeQ to use the TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .build();
 

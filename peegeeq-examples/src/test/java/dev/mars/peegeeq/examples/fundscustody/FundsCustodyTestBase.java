@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.examples.fundscustody;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
@@ -83,7 +84,10 @@ public abstract class FundsCustodyTestBase {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            // The unqualified DELETE below must hit the explicit test schema, not the
+            // connection default; a miss is silently tolerated by the first-run guard
+            .setProperties(java.util.Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool cleanupPool = PgBuilder.pool()
             .connectingTo(connectOptions)
@@ -126,13 +130,14 @@ public abstract class FundsCustodyTestBase {
 
         // Build config from the container  no System.setProperty side-effects.
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .property("peegeeq.health-check.queue-checks-enabled", "false")
             .build();
 
         // Initialise schema, clean DB, then start manager, then build event stores + services.
         Future.<Void>succeededFuture()
             .compose(v -> {
-                PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+                PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
                 return Future.<Void>succeededFuture();
             })
             .compose(v -> cleanupDatabase())

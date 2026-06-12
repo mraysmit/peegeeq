@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -86,7 +87,7 @@ class SpringBootReactiveOutboxApplicationTest {
     @BeforeAll
     static void initializeSchema() {
         logger.info("Initializing database schema for Spring Boot 2 Reactive application test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
 
