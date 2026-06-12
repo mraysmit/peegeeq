@@ -86,6 +86,7 @@ public class ReactiveOutboxProducerTest {
                         .database(postgres.getDatabaseName())
                         .username(postgres.getUsername())
                         .password(postgres.getPassword())
+                        .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                         .build();
                 PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
                 testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
