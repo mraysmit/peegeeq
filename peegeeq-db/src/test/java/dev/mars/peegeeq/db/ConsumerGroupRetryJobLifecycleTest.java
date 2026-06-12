@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryJob;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -57,8 +58,7 @@ public class ConsumerGroupRetryJobLifecycleTest {
         testProps.setProperty("peegeeq.database.username", postgres.getUsername());
         testProps.setProperty("peegeeq.database.password", postgres.getPassword());
         testProps.setProperty("peegeeq.database.ssl.enabled", "false");
-        testProps.setProperty("peegeeq.database.schema", "public");
-        testProps.setProperty("peegeeq.database.pool.min-size", "2");
+        testProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);testProps.setProperty("peegeeq.database.pool.min-size", "2");
         testProps.setProperty("peegeeq.database.pool.max-size", "3");
         testProps.setProperty("peegeeq.database.pool.shared", "false");
         testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

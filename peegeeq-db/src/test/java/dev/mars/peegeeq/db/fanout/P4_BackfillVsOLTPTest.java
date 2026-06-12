@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.fanout;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
@@ -104,7 +105,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
-            .schema("public")
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
