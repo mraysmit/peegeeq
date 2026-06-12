@@ -248,6 +248,7 @@ public class FinancialFabricConfig {
         props.setProperty("peegeeq.database.name", properties.getDatabase().getName());
         props.setProperty("peegeeq.database.username", properties.getDatabase().getUsername());
         props.setProperty("peegeeq.database.password", properties.getDatabase().getPassword());
+        props.setProperty("peegeeq.database.schema", properties.getDatabase().getSchema());
         return props;
     }
 }

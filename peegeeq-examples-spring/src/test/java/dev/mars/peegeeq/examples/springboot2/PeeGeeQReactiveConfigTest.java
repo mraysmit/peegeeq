@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springboot2.events.OrderEvent;
 import dev.mars.peegeeq.examples.springboot2.events.PaymentEvent;
@@ -151,6 +152,7 @@ class PeeGeeQReactiveConfigTest {
             postgres.getJdbcUrl(),
             postgres.getUsername(),
             postgres.getPassword(),
+            PostgreSQLTestConstants.TEST_SCHEMA,
             SchemaComponent.ALL
         );
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");

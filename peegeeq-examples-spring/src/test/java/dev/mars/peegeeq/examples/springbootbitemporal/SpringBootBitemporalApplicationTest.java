@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springbootbitemporal;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -112,7 +113,7 @@ class SpringBootBitemporalApplicationTest {
     @BeforeAll
     static void initializeSchema() throws Exception {
         logger.info("Initializing database schema for Spring Boot Bitemporal test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
     }
     

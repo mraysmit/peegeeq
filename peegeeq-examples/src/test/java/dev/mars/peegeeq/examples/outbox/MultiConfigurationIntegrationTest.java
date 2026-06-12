@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.examples.outbox;
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.config.MultiConfigurationManager;
@@ -74,9 +75,10 @@ class MultiConfigurationIntegrationTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.min-size", "2")
                 .property("peegeeq.database.pool.max-size", "10")
                 .property("peegeeq.metrics.enabled", "true")

@@ -16,6 +16,7 @@ package dev.mars.peegeeq.examples.springbootpriority;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootpriority.controller.TradeProducerController;
 import dev.mars.peegeeq.examples.springbootpriority.service.AllTradesConsumerService;
@@ -101,7 +102,7 @@ public class SpringBootPriorityApplicationTest {
     @BeforeAll
     static void initializeSchema() {
         log.info("Initializing database schema for Spring Boot priority test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         log.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Create application-specific tables that are needed during Spring Boot startup

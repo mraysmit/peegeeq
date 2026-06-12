@@ -16,6 +16,7 @@
 
 package dev.mars.peegeeq.examples.nativequeue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -78,10 +79,11 @@ public class SimpleNativeQueueTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up SimpleNativeQueueTest ===");
 
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         logger.info(" Initializing database schema for simple native queue test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);

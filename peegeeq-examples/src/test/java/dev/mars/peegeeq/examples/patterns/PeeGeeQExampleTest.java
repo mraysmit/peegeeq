@@ -114,12 +114,13 @@ class PeeGeeQExampleTest {
             logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
 
             // Configure database connection properties
-            Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+            Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
             logger.info("Starting PeeGeeQ Example functionality test");
 
             // Initialize database schema before starting manager
-            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
             runAllDemonstrations(testProps)
                 .onSuccess(v -> {
@@ -155,6 +156,7 @@ class PeeGeeQExampleTest {
 
             // Configure database connection properties
             Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .property("peegeeq.database.pool.min-size", "2")
                     .property("peegeeq.database.pool.max-size", "10")
                     .property("peegeeq.metrics.enabled", "true")
@@ -165,7 +167,7 @@ class PeeGeeQExampleTest {
                     .build();
 
             // Initialize database schema before starting manager
-            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
             // Run comprehensive demonstrations
             runAllDemonstrations(testProps)

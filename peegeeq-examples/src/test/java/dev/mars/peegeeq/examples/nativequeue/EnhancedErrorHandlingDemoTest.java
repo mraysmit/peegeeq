@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.examples.nativequeue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
@@ -101,6 +102,7 @@ class EnhancedErrorHandlingDemoTest {
 
         // Configure database connection properties with extra error handling config
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.retry.enabled", "true")
                 .property("peegeeq.retry.max.attempts", "3")
                 .property("peegeeq.retry.backoff.initial", "100")
@@ -113,7 +115,7 @@ class EnhancedErrorHandlingDemoTest {
 
         // Initialize database schema for enhanced error handling test
         logger.info(" Initializing database schema for enhanced error handling test");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ manager

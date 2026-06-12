@@ -138,10 +138,11 @@ public class NAVService {
                 .transactionTimeRange(TemporalRange.until(asOfTransactionTime))
                 .build()
         ).map(events -> {
-            // Find the NAV event for this specific date
+            // "As reported" means the latest recording within the transaction-time bound,
+            // so select by max transaction time rather than relying on result ordering
             BiTemporalEvent<NAVEvent> navEvent = events.stream()
                 .filter(e -> navDate.equals(e.getPayload().navDate()))
-                .findFirst()
+                .max(java.util.Comparator.comparing(BiTemporalEvent::getTransactionTime))
                 .orElse(null);
             
             if (navEvent == null) {
