@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -383,7 +384,7 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.username", postgres.getUsername());
         props.setProperty("peegeeq.database.password", postgres.getPassword());
         props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
         props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");
         props.setProperty("peegeeq.database.pool.shared", "false");
@@ -480,7 +481,7 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.username", container.getUsername());
         props.setProperty("peegeeq.database.password", container.getPassword());
         props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
         props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");
         props.setProperty("peegeeq.database.pool.shared", "false");
@@ -512,6 +513,13 @@ public class PeeGeeQManagerTimerGuardTest {
         try (Connection conn = DriverManager.getConnection(
                 container.getJdbcUrl(), container.getUsername(), container.getPassword());
              Statement stmt = conn.createStatement()) {
+            // Place the unqualified DDL below in the resolved schema so custom-schema
+            // runs see the same tables the manager targets (suite-wide convention)
+            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+            if (!"public".equals(schema)) {
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
+            }
+            stmt.execute("SET search_path TO " + schema);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS outbox (
                     id BIGSERIAL PRIMARY KEY,

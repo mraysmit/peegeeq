@@ -13,55 +13,12 @@ import org.slf4j.LoggerFactory;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Core tests for BiTemporal module classes.
+ * Core tests for BiTemporalEventStoreFactory validation behavior.
  */
 @Tag(TestCategories.CORE)
 class BiTemporalFactoryTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalFactoryTest.class);
-
-    @Test
-    void testFactoryClassExists() {
-        // Test that factory class exists and can be referenced
-        assertNotNull(BiTemporalEventStoreFactory.class, "BiTemporalEventStoreFactory class should exist");
-    }
-
-    @Test
-    void testEventStoreClassExists() {
-        // Test that event store class exists and can be referenced
-        assertNotNull(PgBiTemporalEventStore.class, "PgBiTemporalEventStore class should exist");
-    }
-
-    @Test
-    void testBiTemporalPoolFactoryClassExists() {
-        // Test that bi-temporal pool factory class exists and can be referenced
-        assertNotNull(BiTemporalPoolFactory.class, "BiTemporalPoolFactory class should exist");
-    }
-
-    @Test
-    void testReactiveNotificationHandlerClassExists() {
-        // Test that reactive notification handler class exists and can be referenced
-        assertNotNull(ReactiveNotificationHandler.class, "ReactiveNotificationHandler class should exist");
-    }
-
-    @Test
-    void testClassNamesAreCorrect() {
-        // Test that class names are as expected
-        assertEquals("BiTemporalEventStoreFactory", BiTemporalEventStoreFactory.class.getSimpleName());
-        assertEquals("PgBiTemporalEventStore", PgBiTemporalEventStore.class.getSimpleName());
-        assertEquals("BiTemporalPoolFactory", BiTemporalPoolFactory.class.getSimpleName());
-        assertEquals("ReactiveNotificationHandler", ReactiveNotificationHandler.class.getSimpleName());
-    }
-
-    @Test
-    void testPackageStructure() {
-        // Test that classes are in the correct package
-        String expectedPackage = "dev.mars.peegeeq.bitemporal";
-        assertEquals(expectedPackage, BiTemporalEventStoreFactory.class.getPackage().getName());
-        assertEquals(expectedPackage, PgBiTemporalEventStore.class.getPackage().getName());
-        assertEquals(expectedPackage, BiTemporalPoolFactory.class.getPackage().getName());
-        assertEquals(expectedPackage, ReactiveNotificationHandler.class.getPackage().getName());
-    }
 
     @Test
     void testFactoryRejectsQualifiedTableName() {

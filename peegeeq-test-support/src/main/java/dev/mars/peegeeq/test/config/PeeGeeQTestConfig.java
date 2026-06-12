@@ -36,13 +36,17 @@ import java.util.Properties;
  * <pre>{@code
  * Properties props = PeeGeeQTestConfig.builder()
  *     .from(postgres)
- *     .schema("public")
+ *     .schema(PostgreSQLTestConstants.TEST_SCHEMA)
  *     .property("peegeeq.health.check-interval", "PT5S")
  *     .build();
  *
  * PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
  * PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
  * }</pre>
+ *
+ * <p>The schema is REQUIRED: PeeGeeQ has no default schema anywhere in the system, and
+ * ambient channels (system properties, environment variables) are not configuration.
+ * {@link Builder#build()} throws if {@link Builder#schema(String)} was never called.</p>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2026-05-06
@@ -56,6 +60,27 @@ public final class PeeGeeQTestConfig {
         return new Builder();
     }
 
+    /**
+     * @deprecated FOR REMOVAL — reads a JVM system property, which is not a PeeGeeQ
+     * configuration channel (the Phase 11 config-architecture refactoring removed ambient
+     * configuration deliberately; this method reintroduced it in error). Do not add new
+     * callers. Existing call sites are being re-pointed to explicit schemas
+     * ({@code PostgreSQLTestConstants.TEST_SCHEMA} or per-test literals); this method is
+     * deleted once they are gone.
+     */
+    @Deprecated(forRemoval = true)
+    public static String resolveSchema() {
+        String configured = System.getProperty("peegeeq.database.schema", "public").trim();
+        if (configured.isEmpty()) {
+            return "public";
+        }
+        if (!configured.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+            throw new IllegalArgumentException(
+                "Invalid peegeeq.database.schema system property: " + configured);
+        }
+        return configured;
+    }
+
     public static final class Builder {
 
         private String host;
@@ -63,7 +88,7 @@ public final class PeeGeeQTestConfig {
         private String database;
         private String username;
         private String password;
-        private String schema = "public";
+        private String schema;
         private final Properties extras = new Properties();
 
         private Builder() {}
@@ -82,9 +107,12 @@ public final class PeeGeeQTestConfig {
         }
 
         /**
-         * Overrides the schema name (defaults to {@code "public"}).
-         * The schema must satisfy PeeGeeQ's schema validation rules: letters, digits,
-         * underscores, commas, and spaces only  no hyphens.
+         * Sets the schema name. REQUIRED: PeeGeeQ has no default schema anywhere in the
+         * system, so {@link #build()} throws if this was never called. The value must be
+         * a valid unquoted PostgreSQL identifier (letters, digits, underscores; no
+         * hyphens). Shared-container suites pass
+         * {@code PostgreSQLTestConstants.TEST_SCHEMA}; schema-isolation tests pass their
+         * own explicit literals.
          */
         public Builder schema(String schema) {
             this.schema = schema;
@@ -114,6 +142,21 @@ public final class PeeGeeQTestConfig {
                 throw new IllegalStateException(
                     "PeeGeeQTestConfig.Builder: call from(container) before build()");
             }
+            if (schema == null) {
+                throw new IllegalStateException(
+                    "PeeGeeQTestConfig.Builder: schema must be set explicitly via schema(...) — "
+                    + "PeeGeeQ has no default schema");
+            }
+            String validatedSchema = schema.trim();
+            if (validatedSchema.isEmpty()) {
+                throw new IllegalArgumentException(
+                    "PeeGeeQTestConfig.Builder: schema cannot be blank — "
+                    + "PeeGeeQ has no default schema");
+            }
+            if (!validatedSchema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
+                throw new IllegalArgumentException(
+                    "PeeGeeQTestConfig.Builder: invalid schema name: " + schema);
+            }
 
             Properties props = new Properties();
             props.setProperty("peegeeq.database.host",     host);
@@ -121,7 +164,7 @@ public final class PeeGeeQTestConfig {
             props.setProperty("peegeeq.database.name",     database);
             props.setProperty("peegeeq.database.username", username);
             props.setProperty("peegeeq.database.password", password);
-            props.setProperty("peegeeq.database.schema",   schema);
+            props.setProperty("peegeeq.database.schema",   validatedSchema);
             props.setProperty("peegeeq.database.ssl.enabled", "false");
 
             // Safe test defaults: disable background jobs that poll shared database state.

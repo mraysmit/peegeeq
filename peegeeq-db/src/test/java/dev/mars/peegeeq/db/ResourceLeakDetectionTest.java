@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -79,6 +80,7 @@ public class ResourceLeakDetectionTest {
         // concurrent tests sharing the same JVM fork cannot observe partial state.
         Properties testProps = PeeGeeQTestConfig.builder()
             .from(getPostgres())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .property("peegeeq.database.pool.min-size", "1")
             .property("peegeeq.database.pool.max-size", "3")
             .property("peegeeq.database.pool.shared", "false")
