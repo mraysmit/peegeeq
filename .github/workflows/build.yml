@@ -85,6 +85,56 @@ jobs:
           !**/target/*-javadoc.jar
         retention-days: 7
 
+  custom-schema-tests:
+    name: Custom Schema Tests (tenant_ci)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    # Regression lock for the schema-as-instance-anchor design: the same suites that
+    # run against the default 'public' schema must pass against a custom schema.
+    # Without this job the entire defect class found on 12 Jun 2026 (test infrastructure
+    # silently pinning 'public' while DDL lands in the configured schema) is latent —
+    # it was only ever discoverable by a manual -Dpeegeeq.database.schema run.
+    # See docs-design/tasks/SCHEMA-PROCESSING-GAPS-CRITICAL-12-Jun-2026.md (task S3).
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Java 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+
+    - name: Cache Maven dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+
+    - name: Build with Maven
+      run: mvn clean install -DskipTests -q
+
+    - name: Run peegeeq-db integration tests under custom schema
+      run: mvn test -pl peegeeq-db -Pintegration-tests -Dpeegeeq.database.schema=tenant_ci -q
+
+    - name: Run peegeeq-bitemporal core tests under custom schema
+      run: mvn test -pl peegeeq-bitemporal -Dpeegeeq.database.schema=tenant_ci -q
+
+    - name: Run peegeeq-bitemporal integration tests under custom schema
+      run: mvn test -pl peegeeq-bitemporal -Pintegration-tests -Dpeegeeq.database.schema=tenant_ci -q
+
+    - name: Publish custom-schema test results
+      uses: EnricoMi/publish-unit-test-result-action@v2
+      if: always()
+      with:
+        files: '**/target/surefire-reports/*.xml'
+        check_name: 'Custom Schema Test Results'
+        report_individual_runs: true
+        fail_on: 'nothing'
+
   ui-build:
     name: Build Management UI
     runs-on: ubuntu-latest
