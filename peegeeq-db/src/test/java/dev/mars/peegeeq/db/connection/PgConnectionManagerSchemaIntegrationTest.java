@@ -16,6 +16,7 @@ package dev.mars.peegeeq.db.connection;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -100,7 +101,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
-            .schema("public")
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()

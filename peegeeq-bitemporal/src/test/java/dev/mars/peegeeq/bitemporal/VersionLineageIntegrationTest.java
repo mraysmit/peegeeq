@@ -80,7 +80,7 @@ class VersionLineageIntegrationTest {
 
     @BeforeAll
     static void initSchema() {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
     }
 
     @BeforeEach
@@ -129,7 +129,7 @@ class VersionLineageIntegrationTest {
             postgres.getDatabaseName(),
             postgres.getUsername(),
             postgres.getPassword(),
-            "public");
+            PostgreSQLTestConstants.TEST_SCHEMA);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         return peeGeeQManager.start()
             .map(v -> {
@@ -683,7 +683,7 @@ class VersionLineageIntegrationTest {
             postgres.getDatabaseName(),
             postgres.getUsername(),
             postgres.getPassword(),
-            "public");
+            PostgreSQLTestConstants.TEST_SCHEMA);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         eventStore = new PgBiTemporalEventStore<>(
             vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
@@ -716,7 +716,7 @@ class VersionLineageIntegrationTest {
             postgres.getDatabaseName(),
             postgres.getUsername(),
             postgres.getPassword(),
-            "public");
+            PostgreSQLTestConstants.TEST_SCHEMA);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         eventStore = new PgBiTemporalEventStore<>(
             vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
@@ -749,7 +749,7 @@ class VersionLineageIntegrationTest {
             postgres.getDatabaseName(),
             postgres.getUsername(),
             postgres.getPassword(),
-            "public");
+            PostgreSQLTestConstants.TEST_SCHEMA);
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         eventStore = new PgBiTemporalEventStore<>(
             vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());

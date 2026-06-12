@@ -16,6 +16,7 @@ package dev.mars.peegeeq.db.examples;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -73,7 +74,7 @@ public class PeeGeeQSelfContainedDemoTest {
         props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         props.setProperty("peegeeq.database.username", postgres.getUsername());
         props.setProperty("peegeeq.database.password", postgres.getPassword());
-        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
         props.setProperty("peegeeq.database.ssl.enabled", "false");
         props.setProperty("peegeeq.database.pool.min-size", "1");
         props.setProperty("peegeeq.database.pool.max-size", "3");

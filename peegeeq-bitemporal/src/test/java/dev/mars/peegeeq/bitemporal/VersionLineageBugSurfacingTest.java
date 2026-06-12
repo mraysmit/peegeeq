@@ -72,8 +72,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 class VersionLineageBugSurfacingTest {
 
-    private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
-
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
 
@@ -92,12 +90,8 @@ class VersionLineageBugSurfacingTest {
     private Pool verificationPool;
 
     private String resolveSchema() {
-        String configured = System.getProperty(DATABASE_SCHEMA_PROPERTY, "public");
-        String schema = (configured == null || configured.trim().isEmpty()) ? "public" : configured.trim();
-        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            throw new IllegalArgumentException("Invalid schema name for test: " + schema);
-        }
-        return schema;
+        // Explicit schema - PeeGeeQ has no default schema and no ambient configuration
+        return PostgreSQLTestConstants.TEST_SCHEMA;
     }
 
     public static class TestEvent {
@@ -138,6 +132,7 @@ class VersionLineageBugSurfacingTest {
     void setUp(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.enabled", "false")
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
@@ -154,7 +149,8 @@ class VersionLineageBugSurfacingTest {
                 .setPort(postgres.getFirstMappedPort())
                 .setDatabase(postgres.getDatabaseName())
                 .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword());
+                .setPassword(postgres.getPassword())
+                .setProperties(java.util.Map.of("search_path", resolveSchema()));
 
         // Pool for verification queries kept open across the test
         verificationPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
