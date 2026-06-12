@@ -119,6 +119,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(2).build();
         verificationPool = verificationConnectionManager.getOrCreateReactivePool(
