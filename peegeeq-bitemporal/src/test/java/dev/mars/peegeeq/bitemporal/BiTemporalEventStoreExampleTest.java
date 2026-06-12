@@ -117,13 +117,13 @@ class BiTemporalEventStoreExampleTest {
         // Configure PeeGeeQ to use container database
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(sharedPostgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(sharedPostgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(sharedPostgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize PeeGeeQ Manager

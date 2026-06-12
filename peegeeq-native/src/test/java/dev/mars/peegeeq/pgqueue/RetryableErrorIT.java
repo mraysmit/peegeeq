@@ -52,6 +52,7 @@ public class RetryableErrorIT {
     void setUp(VertxTestContext ctx) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         initializeSchemaWithRetryTrigger();
 

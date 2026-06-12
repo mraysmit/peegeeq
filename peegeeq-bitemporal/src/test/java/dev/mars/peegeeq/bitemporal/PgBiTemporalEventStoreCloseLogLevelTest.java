@@ -86,10 +86,11 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         this.vertx = vertx;
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
                 .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "5")
@@ -173,10 +174,11 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = PostgreSQLTestConstants.createStandardContainer();
         ownContainer.start();
-        PeeGeeQTestSchemaInitializer.initializeSchema(ownContainer, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(ownContainer, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
 
         Properties ownProps = PeeGeeQTestConfig.builder()
                 .from(ownContainer)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
                 .property("peegeeq.database.pool.min-size", "1")
                 .property("peegeeq.database.pool.max-size", "5")

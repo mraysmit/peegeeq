@@ -83,8 +83,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class PgBiTemporalEventStoreComplexTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreComplexTest.class);
-
-    private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
     
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -103,15 +101,8 @@ class PgBiTemporalEventStoreComplexTest {
     private Vertx vertx;
 
     private String resolveSchema() {
-        String configured = System.getProperty(DATABASE_SCHEMA_PROPERTY, "public");
-        String schema = configured == null ? "public" : configured.trim();
-        if (schema.isEmpty()) {
-            return "public";
-        }
-        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            throw new IllegalArgumentException("Invalid schema name for test: " + schema);
-        }
-        return schema;
+        // Explicit schema - PeeGeeQ has no default schema and no ambient configuration
+        return PostgreSQLTestConstants.TEST_SCHEMA;
     }
     
     public static class TestEvent {
@@ -152,6 +143,7 @@ class PgBiTemporalEventStoreComplexTest {
     void setUp(VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.enabled", "false")
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
@@ -349,12 +341,15 @@ class PgBiTemporalEventStoreComplexTest {
     
     @Test
     void testAppendInTransactionCommit(VertxTestContext testContext) throws Exception {
+        // appendInTransaction runs the store's unqualified SQL on this connection, so the
+        // pool must carry search_path exactly like production pools (PgConnectionManager)
         PgConnectOptions options = new PgConnectOptions()
             .setHost(postgres.getHost())
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", resolveSchema()));
         
         Pool pool = PgBuilder.pool().connectingTo(options).using(vertx).build();
 
@@ -401,7 +396,8 @@ class PgBiTemporalEventStoreComplexTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", resolveSchema()));
         
         Pool pool = PgBuilder.pool().connectingTo(options).using(vertx).build();
 
@@ -789,7 +785,8 @@ class PgBiTemporalEventStoreComplexTest {
                 .setPort(postgres.getFirstMappedPort())
                 .setDatabase(postgres.getDatabaseName())
                 .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword()))
+                .setPassword(postgres.getPassword())
+                .setProperties(Map.of("search_path", resolveSchema())))
             .using(vertx)
             .build();
 
@@ -837,7 +834,8 @@ class PgBiTemporalEventStoreComplexTest {
                 .setPort(postgres.getFirstMappedPort())
                 .setDatabase(postgres.getDatabaseName())
                 .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword()))
+                .setPassword(postgres.getPassword())
+                .setProperties(Map.of("search_path", resolveSchema())))
             .using(vertx)
             .build();
 
@@ -1592,13 +1590,14 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testAppendInTransactionOverloads(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
-        
+
         PgConnectOptions options = new PgConnectOptions()
             .setHost(postgres.getHost())
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", resolveSchema()));
         
         Pool pool = PgBuilder.pool().connectingTo(options).using(vertx).build();
         

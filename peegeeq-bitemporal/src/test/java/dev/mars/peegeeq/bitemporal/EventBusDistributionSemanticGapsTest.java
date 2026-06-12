@@ -75,7 +75,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class EventBusDistributionSemanticGapsTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EventBusDistributionSemanticGapsTest.class);
-    private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -131,13 +130,8 @@ class EventBusDistributionSemanticGapsTest {
     }
 
     private String resolveSchema() {
-        String configured = System.getProperty(DATABASE_SCHEMA_PROPERTY, "public");
-        String schema = (configured == null) ? "public" : configured.trim();
-        if (schema.isEmpty()) return "public";
-        if (!schema.matches("^[a-zA-Z_][a-zA-Z0-9_]*$")) {
-            throw new IllegalArgumentException("Invalid schema name for test: " + schema);
-        }
-        return schema;
+        // Explicit schema - PeeGeeQ has no default schema and no ambient configuration
+        return PostgreSQLTestConstants.TEST_SCHEMA;
     }
 
     private PgConnectOptions connectOptions() {
@@ -156,6 +150,7 @@ class EventBusDistributionSemanticGapsTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.enabled", "false")
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.queue.dead-consumer-detection.enabled", "false")

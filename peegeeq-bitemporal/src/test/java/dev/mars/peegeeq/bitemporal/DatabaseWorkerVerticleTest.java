@@ -57,13 +57,14 @@ class DatabaseWorkerVerticleTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.database.use.event.bus.distribution", "true")
                 .build();
 
         // Initialize schema
         logger.info("Initializing bitemporal schema");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
 
         // Initialize manager and event store
         logger.info("Starting PeeGeeQManager and creating event store");
@@ -284,6 +285,9 @@ class DatabaseWorkerVerticleTest {
         String createSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (LIKE bitemporal_event_log INCLUDING ALL)";
         try (Connection connection = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement statement = connection.createStatement()) {
+            // The LIKE source and the new table must live in the resolved schema the
+            // manager targets (suite-wide convention)
+            statement.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
             statement.execute(createSql);
             statement.execute("TRUNCATE TABLE " + tableName);
         }

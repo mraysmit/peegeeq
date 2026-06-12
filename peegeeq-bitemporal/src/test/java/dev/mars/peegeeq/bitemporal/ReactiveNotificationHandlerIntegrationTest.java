@@ -83,7 +83,7 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         logger.info("bitemporal_event_log table created successfully");
 
         // Create connection options from TestContainers
@@ -92,7 +92,8 @@ class ReactiveNotificationHandlerIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(java.util.Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         this.objectMapper = new ObjectMapper();
         this.eventTypesById = new ConcurrentHashMap<>();
@@ -114,8 +115,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         logger.info("=== TEST: Constructor Success ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
         testContext.verify(() -> {
             assertNotNull(handler, "Handler should be created successfully");
         });
@@ -130,8 +130,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         logger.info("=== TEST: EventType Validation ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         // Test invalid eventType with SQL injection attempt
         String maliciousEventType = "valid_type'; DROP TABLE events; --";
@@ -158,8 +157,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         logger.info("=== TEST: Valid EventType ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         // Test valid eventType
         String validEventType = "user_created";
@@ -185,8 +183,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         logger.info("=== TEST: Null EventType (All Events) ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> Future.<Void>succeededFuture();
         
@@ -209,8 +206,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         logger.info("=== TEST: Handler Lifecycle with Real PostgreSQL ===");
 
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         // Test start -> stop lifecycle
         handler.start()
@@ -232,8 +228,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     @DisplayName("Exact event-type subscription should receive trigger notifications")
     void testExactSubscriptionReceivesNotification(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         String eventType = "order.created";
         String aggregateId = "agg-exact-1";
@@ -259,8 +254,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     @DisplayName("Wildcard subscription should receive notifications via general channel")
     void testWildcardSubscriptionReceivesNotification(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             String receivedType = message.getPayload().getEventType();
@@ -287,8 +281,7 @@ class ReactiveNotificationHandlerIntegrationTest {
     @DisplayName("Exact subscription should not receive different event types")
     void testExactSubscriptionDoesNotReceiveDifferentType(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         AtomicBoolean received = new AtomicBoolean(false);
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
