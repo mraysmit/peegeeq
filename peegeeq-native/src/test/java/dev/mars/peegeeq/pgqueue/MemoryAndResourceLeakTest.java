@@ -86,6 +86,7 @@ class MemoryAndResourceLeakTest {
         // Configure test properties using TestContainer pattern
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .property("peegeeq.queue.visibility-timeout", "PT5S")
                 .property("peegeeq.queue.max-retries", "2")
@@ -100,8 +101,7 @@ class MemoryAndResourceLeakTest {
         threadBean = ManagementFactory.getThreadMXBean();
 
         // Ensure required schema exists before starting PeeGeeQ
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
-                SchemaComponent.NATIVE_QUEUE,
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 

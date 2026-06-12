@@ -74,10 +74,10 @@ class JsonbConversionValidationTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
-                SchemaComponent.NATIVE_QUEUE,
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 

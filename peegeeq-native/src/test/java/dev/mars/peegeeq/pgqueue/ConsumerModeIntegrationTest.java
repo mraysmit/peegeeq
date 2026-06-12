@@ -60,12 +60,13 @@ public class ConsumerModeIntegrationTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for consumer mode integration tests");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties using TestContainer pattern
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT1S")
                 .property("peegeeq.queue.visibility-timeout", "PT30S")
                 .property("peegeeq.metrics.enabled", "true")

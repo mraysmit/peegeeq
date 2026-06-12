@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -94,6 +95,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // Configure test properties using container from base class
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(container)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Initialize PeeGeeQ with test configuration
@@ -231,12 +233,12 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             } catch (Exception ignore) {}
             manager = null;
         }
-        PeeGeeQTestSchemaInitializer.initializeSchema(container,
-                SchemaComponent.NATIVE_QUEUE,
+        PeeGeeQTestSchemaInitializer.initializeSchema(container, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(container)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

@@ -18,6 +18,7 @@ package dev.mars.peegeeq.pgqueue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -96,7 +97,7 @@ class ConsumerGroupFaultIntegrationTest {
 
     @BeforeAll
     static void beforeAll() {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, ALL);
     }
 
     @BeforeEach
@@ -104,6 +105,7 @@ class ConsumerGroupFaultIntegrationTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -125,7 +127,7 @@ class ConsumerGroupFaultIntegrationTest {
                     .database(postgres.getDatabaseName())
                     .username(postgres.getUsername())
                     .password(postgres.getPassword())
-                    .schema("public")
+                    .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .build();
             PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
             connectionManager.getOrCreateReactivePool(SERVICE_ID, connConfig, poolConfig);

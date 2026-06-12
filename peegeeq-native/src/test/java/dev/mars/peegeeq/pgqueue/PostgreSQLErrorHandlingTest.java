@@ -76,6 +76,7 @@ class PostgreSQLErrorHandlingTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .property("peegeeq.queue.visibility-timeout", "PT10S")
                 .property("peegeeq.queue.max-retries", "3")
@@ -84,7 +85,7 @@ class PostgreSQLErrorHandlingTest {
                 .property("peegeeq.queue.consumer-group-retry.enabled", "false")
                 .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
                 .build();
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()

@@ -137,6 +137,7 @@ class MessagePriorityExampleTest {
         // Configure PeeGeeQ to use container database
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.queue.priority.enabled", "true")
@@ -146,7 +147,7 @@ class MessagePriorityExampleTest {
                 .property("peegeeq.migration.auto-migrate", "true")
                 .build();
         // Ensure required schema exists for native queue tests
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(
