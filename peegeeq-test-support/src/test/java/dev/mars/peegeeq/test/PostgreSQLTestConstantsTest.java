@@ -30,6 +30,18 @@ class PostgreSQLTestConstantsTest {
     }
 
     @Test
+    void testTestSchemaConstant() {
+        // PeeGeeQ has no default schema: every test states its schema explicitly, and
+        // shared-container suites all reference this single constant
+        assertEquals("peegeeq_test", PostgreSQLTestConstants.TEST_SCHEMA);
+
+        // Must be a valid unquoted PostgreSQL identifier (the project-wide whitelist)
+        assertTrue(PostgreSQLTestConstants.TEST_SCHEMA.matches("^[a-zA-Z_][a-zA-Z0-9_]*$"),
+            "TEST_SCHEMA must satisfy the PostgreSQL identifier whitelist, got: "
+                + PostgreSQLTestConstants.TEST_SCHEMA);
+    }
+
+    @Test
     void testCreateStandardContainer() {
         // Test that the standard container factory method works
         PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
