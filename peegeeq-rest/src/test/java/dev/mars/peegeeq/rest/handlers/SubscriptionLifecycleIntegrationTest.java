@@ -118,6 +118,7 @@ public class SubscriptionLifecycleIntegrationTest {
                 postgres.getHost(), postgres.getMappedPort(5432), newDbName);
             PeeGeeQTestSchemaInitializer.initializeSchema(jdbcUrl,
                 postgres.getUsername(), postgres.getPassword(),
+                PostgreSQLTestConstants.TEST_SCHEMA,
                 SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
             logger.info("Consumer Group Fanout schema applied successfully");
             return null;
