@@ -75,7 +75,7 @@ public class SetupManagementIntegrationTest {
         logger.info("=== Setting up Setup Management Integration Test ===");
 
         // Initialize database schema
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.OUTBOX);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.OUTBOX);
 
         setupId = "setup-mgmt-test-" + System.currentTimeMillis();
 

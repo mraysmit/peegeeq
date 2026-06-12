@@ -52,7 +52,7 @@ class PgNativeQueueConsumerListenIT {
     @BeforeAll
     static void beforeAll() {
         // Initialize minimal schema for native queue tests
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SCHEMA_VERSION, NATIVE_QUEUE, DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SCHEMA_VERSION, NATIVE_QUEUE, DEAD_LETTER_QUEUE);
     }
 
     @BeforeEach
