@@ -17,6 +17,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.AggregateSummaryNotEnabledException;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.EventStore;
@@ -357,8 +358,22 @@ public class EventStoreHandler {
             catch (NumberFormatException ignored) { /* use default */ }
         }
 
-        logger.info("Getting unique aggregates for event store {} in setup: {} (limit={}, offset={})",
-                eventStoreName, setupId, limit, offset);
+        // source: absent = AUTO; log = force the live event-log query; summary = force the summary table
+        String sourceParam = ctx.request().getParam("source");
+        EventStore.AggregateSource source;
+        if (sourceParam == null || sourceParam.isBlank()) {
+            source = EventStore.AggregateSource.AUTO;
+        } else if ("log".equalsIgnoreCase(sourceParam.trim())) {
+            source = EventStore.AggregateSource.EVENT_LOG;
+        } else if ("summary".equalsIgnoreCase(sourceParam.trim())) {
+            source = EventStore.AggregateSource.SUMMARY;
+        } else {
+            sendError(ctx, 400, "Invalid source. Valid values: log, summary");
+            return;
+        }
+
+        logger.info("Getting unique aggregates for event store {} in setup: {} (limit={}, offset={}, source={})",
+                eventStoreName, setupId, limit, offset, source);
 
         final int finalLimit = limit;
         final int finalOffset = offset;
@@ -374,7 +389,7 @@ public class EventStoreHandler {
                     }
                     return Future.succeededFuture(eventStore);
                 })
-                .compose(eventStore -> eventStore.getUniqueAggregates(eventType, finalLimit, finalOffset))
+                .compose(eventStore -> eventStore.getUniqueAggregates(eventType, finalLimit, finalOffset, source))
                 .map(result -> {
                     JsonArray aggregatesJson = new JsonArray();
                     for (var info : result.getAggregates()) {
@@ -403,9 +418,74 @@ public class EventStoreHandler {
                 .onFailure(throwable -> {
                     if (throwable instanceof ResponseException re) {
                         sendError(ctx, re.statusCode, re.getMessage());
+                    } else if (throwable instanceof AggregateSummaryNotEnabledException) {
+                        sendError(ctx, 400, throwable.getMessage());
                     } else {
                         logger.error("Error getting aggregates for store {}: {}", eventStoreName, throwable.getMessage(), throwable);
                         sendError(ctx, 503, "Failed to get aggregates: " + throwable.getMessage());
+                    }
+                });
+    }
+
+    /**
+     * Reconciles an event store's aggregate summary table against the event log.
+     * POST /api/v1/eventstores/:setupId/:eventStoreName/aggregate-summary/reconcile?mode=verify|rebuild
+     */
+    public void reconcileAggregateSummary(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String eventStoreName = ctx.pathParam("eventStoreName");
+        String modeParam = ctx.request().getParam("mode");
+
+        EventStore.ReconcileMode mode;
+        if ("verify".equalsIgnoreCase(modeParam != null ? modeParam.trim() : "")) {
+            mode = EventStore.ReconcileMode.VERIFY;
+        } else if ("rebuild".equalsIgnoreCase(modeParam != null ? modeParam.trim() : "")) {
+            mode = EventStore.ReconcileMode.REBUILD;
+        } else {
+            sendError(ctx, 400, "Invalid or missing mode. Valid values: verify, rebuild");
+            return;
+        }
+
+        logger.info("Reconciling aggregate summary for event store {} in setup: {} (mode={})",
+                eventStoreName, setupId, mode);
+
+        setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
+                    }
+                    var eventStore = setupResult.getEventStores().get(eventStoreName);
+                    if (eventStore == null) {
+                        return Future.failedFuture(new ResponseException(404, "Event store not found: " + eventStoreName));
+                    }
+                    return Future.succeededFuture(eventStore);
+                })
+                .compose(eventStore -> eventStore.reconcileAggregateSummary(mode))
+                .map(result -> new JsonObject()
+                        .put("mode", result.getMode().name())
+                        .put("aggregatesChecked", result.getAggregatesChecked())
+                        .put("missingInSummary", result.getMissingInSummary())
+                        .put("staleInSummary", result.getStaleInSummary())
+                        .put("orphanedInSummary", result.getOrphanedInSummary())
+                        .put("repaired", result.getRepaired())
+                        .put("sampleMismatches", new JsonArray(result.getSampleMismatches()))
+                        .put("timestamp", System.currentTimeMillis()))
+                .onSuccess(response -> {
+                    logger.info("Aggregate summary reconcile ({}) for store {}: checked={}, missing={}, stale={}, orphaned={}, repaired={}",
+                            response.getString("mode"), eventStoreName,
+                            response.getLong("aggregatesChecked"), response.getLong("missingInSummary"),
+                            response.getLong("staleInSummary"), response.getLong("orphanedInSummary"),
+                            response.getLong("repaired"));
+                    sendResponse(ctx, 200, response);
+                })
+                .onFailure(throwable -> {
+                    if (throwable instanceof ResponseException re) {
+                        sendError(ctx, re.statusCode, re.getMessage());
+                    } else if (throwable instanceof AggregateSummaryNotEnabledException) {
+                        sendError(ctx, 400, throwable.getMessage());
+                    } else {
+                        logger.error("Error reconciling aggregate summary for store {}: {}", eventStoreName, throwable.getMessage(), throwable);
+                        sendError(ctx, 503, "Failed to reconcile aggregate summary: " + throwable.getMessage());
                     }
                 });
     }

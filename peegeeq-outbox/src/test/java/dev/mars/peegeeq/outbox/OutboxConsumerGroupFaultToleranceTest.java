@@ -16,6 +16,7 @@ package dev.mars.peegeeq.outbox;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -101,11 +102,12 @@ class OutboxConsumerGroupFaultToleranceTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         testTopic = "fault-test-" + UUID.randomUUID().toString().substring(0, 8);
 
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
@@ -431,6 +433,7 @@ class OutboxConsumerGroupFaultToleranceTest {
         @DisplayName("always-failing handler exhausts retries and message reaches FAILED/DLQ")
         void alwaysFailingHandlerExhaustsRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
             Properties retryProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .property("peegeeq.queue.max-retries", "2")
                     .build();
 

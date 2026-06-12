@@ -16,6 +16,7 @@ package dev.mars.peegeeq.db;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -74,7 +75,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default",
             PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build());
@@ -121,7 +122,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default",
             PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "false")
                 .property("peegeeq.migration.auto-migrate", "false")
                 .build());

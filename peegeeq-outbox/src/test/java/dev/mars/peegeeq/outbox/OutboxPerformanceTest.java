@@ -84,7 +84,7 @@ public class OutboxPerformanceTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) {
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         // Use unique topic for each test to avoid interference
         testTopic = "perf-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
@@ -94,6 +94,7 @@ public class OutboxPerformanceTest {
         // constructed directly (not via BaseIntegrationTest).
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.consumer.threads", "8")
                 .property("peegeeq.queue.batch-size", "50")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")

@@ -49,13 +49,14 @@ public class PerformanceBenchmarkTest {
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         logger.info("=== Performance Benchmark Test Setup ===");
 
         // Configure PeeGeeQ to use test database
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "10")
                 .property("peegeeq.database.pool.max-wait-queue-size", "5000")
