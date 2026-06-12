@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.health;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
@@ -52,7 +53,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
-            .schema("public")
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()

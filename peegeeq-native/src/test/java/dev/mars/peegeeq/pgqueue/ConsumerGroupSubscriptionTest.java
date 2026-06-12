@@ -90,11 +90,12 @@ class ConsumerGroupSubscriptionTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Ensure required schema exists for native queue tests - use QUEUE_ALL for PeeGeeQManager health checks
         // Also include CONSUMER_GROUP_FANOUT for subscription management tables (outbox_topic_subscriptions)
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
 
         // Initialize PeeGeeQ Manager
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db.health;
  */
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -39,10 +40,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxTestContext;
@@ -102,6 +101,7 @@ class HealthCheckManagerTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -410,6 +410,7 @@ class HealthCheckManagerTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         PgPoolConfig localPoolConfig = new PgPoolConfig.Builder()
                 .maxSize(3)
@@ -589,6 +590,7 @@ class HealthCheckManagerTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()

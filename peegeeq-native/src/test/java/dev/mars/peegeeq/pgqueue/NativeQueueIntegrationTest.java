@@ -90,10 +90,11 @@ class NativeQueueIntegrationTest {
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.min-size", "2")
                 .property("peegeeq.database.pool.max-size", "5")
                 .property("peegeeq.database.pool.connection-timeout-ms", "10000")

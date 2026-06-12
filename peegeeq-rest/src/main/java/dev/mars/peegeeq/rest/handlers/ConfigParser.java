@@ -115,6 +115,10 @@ public class ConfigParser {
             builder.biTemporalEnabled(json.getBoolean("biTemporalEnabled"));
         }
 
+        if (json.containsKey("aggregateSummaryEnabled")) {
+            builder.aggregateSummaryEnabled(json.getBoolean("aggregateSummaryEnabled"));
+        }
+
         if (json.containsKey("partitionStrategy")) {
             builder.partitionStrategy(json.getString("partitionStrategy"));
         }

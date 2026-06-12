@@ -64,8 +64,7 @@ public class ConsumerModeMetricsTest {
     void setUp(VertxTestContext testContext) throws InterruptedException {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info(" Setting up ConsumerModeMetricsTest");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
-                SchemaComponent.NATIVE_QUEUE,
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
         initializeManagerAndFactory()
@@ -96,6 +95,7 @@ public class ConsumerModeMetricsTest {
         try {
             testProps = PeeGeeQTestConfig.builder()
                     .from(postgres)
+                    .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .property("peegeeq.queue.polling-interval", "PT0.1S")
                     .property("peegeeq.queue.visibility-timeout", "PT30S")
                     .property("peegeeq.metrics.enabled", "true")

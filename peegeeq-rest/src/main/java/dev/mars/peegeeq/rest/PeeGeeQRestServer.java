@@ -454,6 +454,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/at").handler(eventStoreHandler::getAsOfTransactionTime);
         router.post("/api/v1/eventstores/:setupId/:eventStoreName/events/:eventId/corrections").handler(eventStoreHandler::appendCorrection);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/aggregates").handler(eventStoreHandler::getUniqueAggregates);
+        router.post("/api/v1/eventstores/:setupId/:eventStoreName/aggregate-summary/reconcile").handler(eventStoreHandler::reconcileAggregateSummary);
         router.get("/api/v1/eventstores/:setupId/:eventStoreName/stats").handler(eventStoreHandler::getStats);
 
         // Standard REST DELETE for event stores (matches queue deletion pattern)

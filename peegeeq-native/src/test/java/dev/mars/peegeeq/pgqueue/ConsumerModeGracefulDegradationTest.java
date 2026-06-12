@@ -72,12 +72,13 @@ class ConsumerModeGracefulDegradationTest {
 
         // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for native queue tests");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties using TestContainer (following established patterns)
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.circuit-breaker.failure-threshold", "3")
                 .property("peegeeq.circuit-breaker.timeout", "PT5S")
