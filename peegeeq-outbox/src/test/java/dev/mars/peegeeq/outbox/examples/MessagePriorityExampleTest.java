@@ -96,13 +96,14 @@ public class MessagePriorityExampleTest {
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Message Priority Example Test");
 
         // Configure database connection
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.priority.enabled", "true")
                 .property("peegeeq.queue.priority.index-optimization", "true")
                 .build();

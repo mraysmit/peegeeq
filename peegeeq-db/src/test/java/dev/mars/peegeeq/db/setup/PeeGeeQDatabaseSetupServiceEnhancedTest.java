@@ -759,4 +759,95 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
+
+    @Test
+    @Order(12)
+    void testAggregateSummaryTableCreatedAndMaintained(VertxTestContext ctx) {
+        logger.info("=== Testing Aggregate Summary Table Creation and Trigger Maintenance ===");
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("agg_summary_test_db_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema("public")
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        EventStoreConfig eventStore = new EventStoreConfig.Builder()
+                .eventStoreName("summary_events")
+                .tableName("summary_events")
+                .aggregateSummaryEnabled(true)
+                .build();
+
+        String setupId = "agg-summary-" + System.currentTimeMillis();
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(eventStore), Map.of());
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(manager.getVertx(), null);
+
+        setupService.createCompleteSetup(request)
+                .compose(result -> {
+                    assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Setup should be active");
+
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbConfig.getDatabaseName())
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(dbConfig.getSchema())
+                            .build();
+                    verifyMgr.getOrCreateReactivePool("verify-summary", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+
+                    // The summary table must exist when aggregateSummaryEnabled=true
+                    return verifyMgr.withConnection("verify-summary", conn ->
+                            conn.preparedQuery("SELECT 1 FROM information_schema.tables WHERE table_name = $1")
+                                    .execute(Tuple.of("summary_events_aggregate_summary"))
+                                    .compose(rows -> rows.iterator().hasNext()
+                                            ? Future.succeededFuture()
+                                            : Future.failedFuture(new AssertionError(
+                                                    "Aggregate summary table should exist: summary_events_aggregate_summary"))));
+                })
+                .compose(v -> verifyMgr.withConnection("verify-summary", conn ->
+                        // e1: agg-1/TypeA; e3: agg-1/TypeB (per-type row); e5: NULL aggregate (skipped)
+                        conn.query("INSERT INTO summary_events (event_id, event_type, valid_time, payload, aggregate_id) VALUES " +
+                                        "('e1', 'TypeA', TIMESTAMPTZ '2026-06-12T10:00:00Z', '{}', 'agg-1'), " +
+                                        "('e3', 'TypeB', TIMESTAMPTZ '2026-06-12T10:00:00Z', '{}', 'agg-1'), " +
+                                        "('e5', 'TypeA', TIMESTAMPTZ '2026-06-12T10:00:00Z', '{}', NULL)").execute()
+                                // e2: out-of-order EARLIER valid time — first_event_at must move backwards
+                                .compose(r -> conn.query("INSERT INTO summary_events (event_id, event_type, valid_time, payload, aggregate_id) VALUES " +
+                                        "('e2', 'TypeA', TIMESTAMPTZ '2026-06-12T09:00:00Z', '{}', 'agg-1')").execute())
+                                // e4: correction — corrections are inserts and must be counted
+                                .compose(r -> conn.query("INSERT INTO summary_events (event_id, event_type, valid_time, payload, aggregate_id, " +
+                                        "is_correction, correction_reason, version, previous_version_id) VALUES " +
+                                        "('e4', 'TypeA', TIMESTAMPTZ '2026-06-12T10:30:00Z', '{}', 'agg-1', TRUE, 'fix', 2, 'e1')").execute())
+                                .compose(r -> conn.query(
+                                        "SELECT aggregate_id, event_type, event_count, first_event_at " +
+                                        "FROM summary_events_aggregate_summary ORDER BY event_type").execute())))
+                .compose(rows -> {
+                    assertEquals(2, rows.size(), "Summary must hold one row per (aggregate_id, event_type)");
+                    var it = rows.iterator();
+                    var typeA = it.next();
+                    var typeB = it.next();
+
+                    assertEquals("TypeA", typeA.getString("event_type"));
+                    assertEquals(3L, typeA.getLong("event_count"),
+                            "TypeA count must include the out-of-order event and the correction");
+                    assertEquals(java.time.OffsetDateTime.parse("2026-06-12T09:00:00Z").toInstant(),
+                            typeA.getOffsetDateTime("first_event_at").toInstant(),
+                            "first_event_at must move backwards for an out-of-order valid time");
+
+                    assertEquals("TypeB", typeB.getString("event_type"));
+                    assertEquals(1L, typeB.getLong("event_count"));
+
+                    return setupService.destroySetup(setupId);
+                })
+                .eventually(() -> verifyMgr.close())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
 }

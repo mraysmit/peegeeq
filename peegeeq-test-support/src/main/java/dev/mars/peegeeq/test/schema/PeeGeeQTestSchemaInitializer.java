@@ -16,6 +16,7 @@ package dev.mars.peegeeq.test.schema;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.flywaydb.core.Flyway;
@@ -82,17 +83,23 @@ public class PeeGeeQTestSchemaInitializer {
     }
     
     /**
-     * Initialize database schema with specified components in the default "public" schema.
+     * Initialize database schema with specified components in the schema resolved from
+     * the {@code peegeeq.database.schema} system property (defaulting to {@code public}),
+     * matching {@link PeeGeeQTestConfig#resolveSchema()} so the DDL lands in the same
+     * schema a property-driven manager targets.
      *
      * @param postgres the PostgreSQL container
      * @param components the schema components to initialize
      */
     public static void initializeSchema(PostgreSQLContainer postgres, SchemaComponent... components) {
-        initializeSchema(postgres, "public", components);
+        initializeSchema(postgres, PeeGeeQTestConfig.resolveSchema(), components);
     }
 
     /**
-     * Initialize database schema with specified components in the default "public" schema.
+     * Initialize database schema with specified components in the schema resolved from
+     * the {@code peegeeq.database.schema} system property (defaulting to {@code public}),
+     * matching {@link PeeGeeQTestConfig#resolveSchema()} so the DDL lands in the same
+     * schema a property-driven manager targets.
      *
      * @param jdbcUrl the JDBC URL
      * @param username the database username
@@ -100,7 +107,7 @@ public class PeeGeeQTestSchemaInitializer {
      * @param components the schema components to initialize
      */
     public static void initializeSchema(String jdbcUrl, String username, String password, SchemaComponent... components) {
-        initializeSchema(jdbcUrl, username, password, "public", components);
+        initializeSchema(jdbcUrl, username, password, PeeGeeQTestConfig.resolveSchema(), components);
     }
 
     /**

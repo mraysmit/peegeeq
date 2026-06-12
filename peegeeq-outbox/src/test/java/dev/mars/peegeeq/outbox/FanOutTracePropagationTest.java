@@ -62,11 +62,12 @@ class FanOutTracePropagationTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         testTopic = "fanout-trace-" + UUID.randomUUID().toString().substring(0, 8);
 
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()

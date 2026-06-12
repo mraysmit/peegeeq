@@ -78,12 +78,13 @@ public class IntegrationPatternsExampleTest {
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         logger.info("Setting up Integration Patterns Example Test");
 
         // Configure system properties for TestContainer
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);

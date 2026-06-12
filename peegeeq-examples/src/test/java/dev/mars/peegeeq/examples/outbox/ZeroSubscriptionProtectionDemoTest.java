@@ -120,7 +120,7 @@ class ZeroSubscriptionProtectionDemoTest {
                     .database(postgres.getDatabaseName())
                     .username(postgres.getUsername())
                     .password(postgres.getPassword())
-                    .schema("public")
+                    .schema(PeeGeeQTestConfig.resolveSchema())
                     .build();
 
                 PgPoolConfig poolConfig = new PgPoolConfig.Builder()

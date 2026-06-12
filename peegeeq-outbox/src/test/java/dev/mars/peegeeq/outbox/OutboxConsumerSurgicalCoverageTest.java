@@ -70,7 +70,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @BeforeEach
     void setup() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         testTopic = "surgical-" + UUID.randomUUID().toString().substring(0, 8);
     }
 
@@ -113,6 +113,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testConsumerWithMultipleThreads(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.consumer-threads", "4")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
@@ -151,6 +152,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testConsumerWithCustomBatchSize(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.batch-size", "5")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
@@ -189,6 +191,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testRetryWithConfiguredMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.max-retries", "1")
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
@@ -223,6 +226,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testSetConsumerGroupName(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -259,6 +263,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -290,6 +295,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testMessageWithCorrelationId(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -328,6 +334,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testDoubleSubscribe() throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -351,6 +358,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testSubscribeAfterClose() throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -376,6 +384,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testUnsubscribeWithoutSubscribe() throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -397,6 +406,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testMessageWithNullHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -431,6 +441,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testMessageWithEmptyHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -467,6 +478,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testMessageMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -498,6 +510,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testMessageFailureMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
@@ -529,6 +542,7 @@ class OutboxConsumerSurgicalCoverageTest {
     @Test
     void testDoubleClose() throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 

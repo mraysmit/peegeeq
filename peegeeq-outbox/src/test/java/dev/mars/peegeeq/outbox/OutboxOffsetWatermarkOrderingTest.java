@@ -111,10 +111,12 @@ class OutboxOffsetWatermarkOrderingTest {
         // Schema: outbox tables + the consumer-group/fanout tables that hold
         // outbox_topics and outbox_topic_subscriptions used by OFFSET_WATERMARK.
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+                PostgreSQLTestConstants.TEST_SCHEMA,
                 SchemaComponent.QUEUE_ALL,
                 SchemaComponent.CONSUMER_GROUP_FANOUT);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);

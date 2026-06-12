@@ -20,6 +20,7 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -410,6 +411,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                         "notificationPrefix", config.getNotificationPrefix());
                                 Future<Void> future = templateProcessor
                                         .applyTemplate(connection, "eventstore", params)
+                                        .compose(v3 -> config.isAggregateSummaryEnabled()
+                                                ? templateProcessor.applyTemplate(connection, "eventstore-aggregate-summary", params)
+                                                : Future.succeededFuture())
                                         .onSuccess(v3 -> logger.info("[{}] Event store table created: {}",
                                                 PeeGeeQInfoCodes.EVENT_STORE_CREATED, config.getTableName()))
                                         .onFailure(err -> logger.error("Failed to create event store table {}: {}",
@@ -453,16 +457,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     private Future<Void> verifyTemplatesExist(SqlConnection connection, String schema) {
-        String checkTemplatesSQL = String.format(
-                """
-                        SELECT
-                            current_database() as db_name,
-                            EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = '%s' AND table_name = 'queue_template') as queue_exists,
-                            EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = '%s' AND table_name = 'event_store_template') as event_store_exists
-                        """,
-                schema, schema);
+        String checkTemplatesSQL = """
+                SELECT
+                    current_database() as db_name,
+                    EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'queue_template') as queue_exists,
+                    EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = $1 AND table_name = 'event_store_template') as event_store_exists
+                """;
 
-        return connection.query(checkTemplatesSQL).execute()
+        return connection.preparedQuery(checkTemplatesSQL).execute(Tuple.of(schema))
                 .compose(rowSet -> {
                     if (rowSet.size() == 0) {
                         return Future.failedFuture(
@@ -693,7 +695,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     "tableName", eventStoreConfig.getTableName(),
                     "schema", dbConfig.getSchema(),
                     "notificationPrefix", eventStoreConfig.getNotificationPrefix());
-            return templateProcessor.applyTemplate(connection, "eventstore", params);
+            return templateProcessor.applyTemplate(connection, "eventstore", params)
+                    .compose(v -> eventStoreConfig.isAggregateSummaryEnabled()
+                            ? templateProcessor.applyTemplate(connection, "eventstore-aggregate-summary", params)
+                            : Future.succeededFuture());
         })
                 .eventually(() -> tempPool.close())
                 .<Void>map(result -> {
@@ -875,9 +880,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 for (EventStoreConfig eventStoreConfig : eventStores) {
                     try {
                         // Use unqualified table names and rely on connection-level search_path for
-                        // multi-tenant schema isolation.
+                        // multi-tenant schema isolation. The full config is passed so factories can
+                        // honor per-store options (e.g. the aggregate summary).
                         String tableName = eventStoreConfig.getTableName();
-                        EventStore<?> eventStore = factory.createEventStore(Object.class, tableName);
+                        EventStore<?> eventStore = factory.createEventStore(Object.class, eventStoreConfig);
                         stores.put(eventStoreConfig.getEventStoreName(), eventStore);
 
                         logger.info("Created event store '{}' using table '{}' (schema resolved via search_path)",
@@ -1012,11 +1018,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             // Ensure trace context is propagated to the validation connection block
             try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
                 // Check what tables exist in the schema
-                String checkTablesSQL = String.format(
-                        "SELECT table_name FROM information_schema.tables WHERE table_schema = '%s' ORDER BY table_name",
-                        dbConfig.getSchema());
+                String checkTablesSQL =
+                        "SELECT table_name FROM information_schema.tables WHERE table_schema = $1 ORDER BY table_name";
 
-                return conn.query(checkTablesSQL).execute()
+                return conn.preparedQuery(checkTablesSQL).execute(Tuple.of(dbConfig.getSchema()))
                         .compose(rowSet -> {
                             // Restore trace context for result processing callbacks
                             try (var innerScope = TraceContextUtil.mdcScope(traceCtx)) {

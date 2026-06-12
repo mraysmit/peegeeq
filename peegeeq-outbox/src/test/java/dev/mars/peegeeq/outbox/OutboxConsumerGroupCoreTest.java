@@ -93,8 +93,9 @@ class OutboxConsumerGroupCoreTest {
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
         this.config = new PeeGeeQConfiguration("default", testProps);
         this.manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         

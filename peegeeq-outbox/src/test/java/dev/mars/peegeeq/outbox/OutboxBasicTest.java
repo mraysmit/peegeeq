@@ -77,11 +77,12 @@ class OutboxBasicTest {
     @BeforeEach
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
 
         testTopic = "test-topic-" + UUID.randomUUID().toString().substring(0, 8);
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);

@@ -104,7 +104,13 @@ public class EventStoreIntegrationTest {
                                 .put("eventStoreName", "test_events")
                                 .put("tableName", "test_events")
                                 .put("biTemporalEnabled", true)
-                                .put("notificationPrefix", "test_events_")))
+                                .put("notificationPrefix", "test_events_"))
+                        .add(new JsonObject()
+                                .put("eventStoreName", "summary_events")
+                                .put("tableName", "summary_events")
+                                .put("biTemporalEnabled", true)
+                                .put("notificationPrefix", "summary_events_")
+                                .put("aggregateSummaryEnabled", true)))
                 .put("additionalProperties", new JsonObject().put("test", "eventstore"));
 
         logger.info("Creating database setup via REST API: {}", testSetupId);
@@ -372,6 +378,111 @@ public class EventStoreIntegrationTest {
                     }
 
                     logger.info("=== TEST METHOD COMPLETED: testQueryEventsKeysetCursorPagination ===");
+                    testContext.completeNow();
+                })));
+    }
+
+    @Test
+    void testAggregatesSourceParameterAndReconcileEndpoint(VertxTestContext testContext) {
+        logger.info("=== TEST METHOD STARTED: testAggregatesSourceParameterAndReconcileEndpoint ===");
+
+        String aggregateId = "src-agg-" + System.currentTimeMillis();
+        String summaryBase = "/api/v1/eventstores/" + testSetupId + "/summary_events";
+        String plainBase = "/api/v1/eventstores/" + testSetupId + "/test_events";
+
+        JsonObject eventRequest = new JsonObject()
+                .put("eventType", "SourceParamEvent")
+                .put("eventData", new JsonObject().put("k", 1))
+                .put("aggregateId", aggregateId)
+                .put("validFrom", Instant.now().toString());
+
+        webClient.post(TEST_PORT, "localhost", summaryBase + "/events")
+                .putHeader("content-type", "application/json")
+                .timeout(10000)
+                .sendJsonObject(eventRequest)
+                .compose(stored -> {
+                    testContext.verify(() -> assertEquals(201, stored.statusCode(),
+                            "Pre-condition: event stored in summary-enabled store, got: " + stored.bodyAsString()));
+
+                    // source=summary on the summary-enabled store — proves end-to-end flag plumbing
+                    return webClient.get(TEST_PORT, "localhost", summaryBase + "/aggregates?source=summary")
+                            .timeout(10000).send();
+                })
+                .compose(summarySource -> {
+                    testContext.verify(() -> {
+                        logger.info("source=summary response: {} - {}", summarySource.statusCode(), summarySource.bodyAsString());
+                        assertEquals(200, summarySource.statusCode(), "source=summary must succeed on a summary-enabled store");
+                        assertTrue(summarySource.bodyAsString().contains(aggregateId),
+                                "Summary source must list the aggregate");
+                    });
+                    // source=log forces the live query on the same store
+                    return webClient.get(TEST_PORT, "localhost", summaryBase + "/aggregates?source=log")
+                            .timeout(10000).send();
+                })
+                .compose(logSource -> {
+                    testContext.verify(() -> {
+                        assertEquals(200, logSource.statusCode(), "source=log must succeed");
+                        assertTrue(logSource.bodyAsString().contains(aggregateId), "Live source must list the aggregate");
+                    });
+                    // invalid source value
+                    return webClient.get(TEST_PORT, "localhost", summaryBase + "/aggregates?source=bogus")
+                            .timeout(10000).send();
+                })
+                .compose(bogusSource -> {
+                    testContext.verify(() -> assertEquals(400, bogusSource.statusCode(),
+                            "Invalid source value must be rejected"));
+                    // source=summary on a store WITHOUT a summary
+                    return webClient.get(TEST_PORT, "localhost", plainBase + "/aggregates?source=summary")
+                            .timeout(10000).send();
+                })
+                .compose(noSummary -> {
+                    testContext.verify(() -> {
+                        assertEquals(400, noSummary.statusCode(), "source=summary on a non-summary store must be 400");
+                        assertTrue(noSummary.bodyAsJsonObject().getString("error").contains("aggregateSummaryEnabled"),
+                                "Error must name the option");
+                    });
+                    // reconcile verify
+                    return webClient.post(TEST_PORT, "localhost",
+                            summaryBase + "/aggregate-summary/reconcile?mode=verify").timeout(10000).send();
+                })
+                .compose(verify -> {
+                    testContext.verify(() -> {
+                        logger.info("reconcile verify response: {} - {}", verify.statusCode(), verify.bodyAsString());
+                        assertEquals(200, verify.statusCode(), "reconcile verify must succeed");
+                        JsonObject body = verify.bodyAsJsonObject();
+                        assertEquals("VERIFY", body.getString("mode"));
+                        assertTrue(body.getLong("aggregatesChecked") >= 1, "At least the stored pair must be checked");
+                        assertEquals(0L, body.getLong("missingInSummary"), "Trigger-maintained summary must be clean");
+                        assertEquals(0L, body.getLong("staleInSummary"));
+                        assertEquals(0L, body.getLong("orphanedInSummary"));
+                    });
+                    // reconcile rebuild
+                    return webClient.post(TEST_PORT, "localhost",
+                            summaryBase + "/aggregate-summary/reconcile?mode=rebuild").timeout(10000).send();
+                })
+                .compose(rebuild -> {
+                    testContext.verify(() -> {
+                        assertEquals(200, rebuild.statusCode(), "reconcile rebuild must succeed");
+                        assertEquals("REBUILD", rebuild.bodyAsJsonObject().getString("mode"));
+                        assertTrue(rebuild.bodyAsJsonObject().getLong("repaired") >= 1);
+                    });
+                    // invalid mode
+                    return webClient.post(TEST_PORT, "localhost",
+                            summaryBase + "/aggregate-summary/reconcile?mode=bogus").timeout(10000).send();
+                })
+                .compose(bogusMode -> {
+                    testContext.verify(() -> assertEquals(400, bogusMode.statusCode(),
+                            "Invalid reconcile mode must be rejected"));
+                    // reconcile on a store without a summary
+                    return webClient.post(TEST_PORT, "localhost",
+                            plainBase + "/aggregate-summary/reconcile?mode=verify").timeout(10000).send();
+                })
+                .onComplete(testContext.succeeding(noSummaryReconcile -> testContext.verify(() -> {
+                    assertEquals(400, noSummaryReconcile.statusCode(),
+                            "reconcile on a non-summary store must be 400");
+                    assertTrue(noSummaryReconcile.bodyAsJsonObject().getString("error").contains("aggregateSummaryEnabled"),
+                            "Error must name the option");
+                    logger.info("=== TEST METHOD COMPLETED: testAggregatesSourceParameterAndReconcileEndpoint ===");
                     testContext.completeNow();
                 })));
     }

@@ -320,7 +320,8 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
      */
     private Future<Map<String, Integer>> queryMessageStatusCountsAsync(Vertx vertx, String topic) {
         return manager.getPool()
-                .preparedQuery("SELECT status, COUNT(*) as cnt FROM public.outbox WHERE topic = $1 GROUP BY status")
+                .preparedQuery("SELECT status, COUNT(*) as cnt FROM " + PostgreSQLTestConstants.TEST_SCHEMA
+                        + ".outbox WHERE topic = $1 GROUP BY status")
                 .execute(Tuple.of(topic))
                 .map(rows -> {
                     Map<String, Integer> counts = new HashMap<>();
