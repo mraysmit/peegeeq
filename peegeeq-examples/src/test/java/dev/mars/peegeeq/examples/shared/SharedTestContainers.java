@@ -109,7 +109,7 @@ public class SharedTestContainers {
         registry.add("peegeeq.database.name", () -> database);
         registry.add("peegeeq.database.username", () -> username);
         registry.add("peegeeq.database.password", () -> password);
-        registry.add("peegeeq.database.schema", () -> "public");
+        registry.add("peegeeq.database.schema", () -> PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Reactive pool tuning for high-load tests
         registry.add("peegeeq.database.pool.max-size", () -> "32");

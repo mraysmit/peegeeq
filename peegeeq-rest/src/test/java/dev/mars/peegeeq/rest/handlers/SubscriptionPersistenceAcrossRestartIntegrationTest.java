@@ -104,6 +104,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
 
         // Initialize schema once - this database will be reused across server restarts
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+            PostgreSQLTestConstants.TEST_SCHEMA,
             SchemaComponent.OUTBOX,
             SchemaComponent.CONSUMER_GROUP_FANOUT);
 
