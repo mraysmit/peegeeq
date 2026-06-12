@@ -140,8 +140,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Handler should start successfully and become active")
     void testHandlerStartSuccess(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         assertFalse(handler.isActive(), "Handler should not be active before start");
 
@@ -160,8 +159,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Handler should stop successfully and become inactive")
     void testHandlerStopSuccess(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         handler.start()
             .compose(v -> {
@@ -180,8 +178,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Multiple start calls should be idempotent")
     void testMultipleStartsIdempotent(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         handler.start()
                 .compose(ignored -> handler.start()) // Second start
@@ -200,8 +197,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Multiple stop calls should be idempotent")
     void testMultipleStopsIdempotent(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         handler.start()
             .compose(v -> handler.stop())
@@ -219,8 +215,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Subscribe should fail when handler is not active")
     void testSubscribeWhenNotActive(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
             message -> Future.<Void>succeededFuture();
@@ -241,8 +236,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Subscribe should succeed with exact event type match")
     void testSubscribeExactEventType(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
             message -> Future.<Void>succeededFuture();
@@ -262,8 +256,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Subscribe should succeed with wildcard event type")
     void testSubscribeWildcardEventType(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
             message -> Future.<Void>succeededFuture();
@@ -283,8 +276,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Subscribe should succeed with null event type (all events)")
     void testSubscribeAllEvents(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
             message -> Future.<Void>succeededFuture();
@@ -304,8 +296,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should receive notification for matching exact event type")
     void testReceiveNotificationExactMatch(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         List<String> receivedEvents = Collections.synchronizedList(new ArrayList<>());
 
@@ -336,8 +327,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should notify all handlers subscribed to the same key")
     void testMultipleHandlersForSameSubscriptionKey(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         AtomicInteger firstHandlerCount = new AtomicInteger(0);
         AtomicInteger secondHandlerCount = new AtomicInteger(0);
@@ -373,8 +363,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should receive notification for wildcard pattern match")
     void testReceiveNotificationWildcardMatch(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         List<String> receivedEvents = Collections.synchronizedList(new ArrayList<>());
 
@@ -404,8 +393,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should not receive notification for non-matching event type")
     void testNoNotificationForNonMatch(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         List<String> receivedEvents = Collections.synchronizedList(new ArrayList<>());
 
@@ -437,8 +425,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should handle multiple simultaneous subscriptions")
     void testMultipleSubscriptions(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         AtomicInteger orderCount = new AtomicInteger(0);
         AtomicInteger paymentCount = new AtomicInteger(0);
@@ -482,8 +469,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should handle subscription with aggregate ID filter")
     void testSubscriptionWithAggregateFilter(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         List<String> receivedAggregates = Collections.synchronizedList(new ArrayList<>());
 
@@ -513,8 +499,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should handle handler errors gracefully")
     void testHandlerErrorHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = subscription handler throws and notification pipeline must continue safely");
 
@@ -544,8 +529,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Should clean up resources on stop")
     void testResourceCleanupOnStop(Vertx vertx, VertxTestContext testContext) {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
             message -> Future.<Void>succeededFuture();
@@ -574,8 +558,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Stop then restart should not retain stale subscriptions")
     void testStopAndRestartClearsSubscriptions(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         AtomicInteger receivedCount = new AtomicInteger(0);
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
@@ -607,8 +590,7 @@ class ReactiveNotificationHandlerLifecycleTest {
     @DisplayName("Wildcard subscription should match aggregate IDs with underscores")
     void testWildcardSubscriptionWithUnderscoreAggregateId(Vertx vertx, VertxTestContext testContext) throws Exception {
         ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-            vertx, connectOptions, objectMapper, String.class, eventRetriever
-        );
+            vertx, connectOptions, objectMapper, String.class, eventRetriever, PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         AtomicInteger receivedCount = new AtomicInteger(0);
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
@@ -643,8 +625,13 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
         eventStore.put(eventId, event);
 
-        String generalChannel = "public_bitemporal_events_bitemporal_event_log";
-        String typeChannel = generalChannel + "_" + eventType.replace('.', '_');
+        // Build channel names exactly as the handler does (incl. 63-char truncation) so
+        // the manual NOTIFY lands on the channel the handler LISTENs on
+        String prefix = PostgreSQLTestConstants.TEST_SCHEMA + "_bitemporal_events_";
+        String generalChannel = ReactiveNotificationHandler.createSafeChannelName(
+            prefix, "bitemporal_event_log", null);
+        String typeChannel = ReactiveNotificationHandler.createSafeChannelName(
+            prefix, "bitemporal_event_log", eventType.replace('.', '_'));
         String notificationPayload = new JsonObject()
             .put("event_id", eventId)
             .put("event_type", eventType)

@@ -149,10 +149,11 @@ class PgBiTemporalEventStoreTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .build();
 
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -300,7 +301,8 @@ class PgBiTemporalEventStoreTest {
                     .setPort(postgres.getFirstMappedPort())
                     .setDatabase(postgres.getDatabaseName())
                     .setUser(postgres.getUsername())
-                    .setPassword(postgres.getPassword());
+                    .setPassword(postgres.getPassword())
+                    .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
                 Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
                 return pool.withConnection(conn ->

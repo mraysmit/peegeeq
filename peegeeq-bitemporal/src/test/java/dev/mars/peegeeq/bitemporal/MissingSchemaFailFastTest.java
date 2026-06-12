@@ -81,6 +81,7 @@ class MissingSchemaFailFastTest {
         // Point PeeGeeQManager at the empty database NO initializeSchema() call
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
                 .property("peegeeq.database.pool.shared", "false")
                 .build();

@@ -76,11 +76,12 @@ class PgBiTemporalEventStorePerformanceTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
                 .property("peegeeq.database.pool.max-wait-queue-size", "256")
                 .build();
 
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         createTestEventsTable();
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
@@ -116,6 +117,13 @@ class PgBiTemporalEventStorePerformanceTest {
         logger.info("Creating perf_test_events table...");
         try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var stmt = conn.createStatement()) {
+            // Place the unqualified DDL below in the resolved schema so custom-schema
+            // runs see the same table the manager-driven store targets
+            String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+            if (!"public".equals(schema)) {
+                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
+            }
+            stmt.execute("SET search_path TO " + schema);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS perf_test_events (
                     event_id VARCHAR(255) PRIMARY KEY,

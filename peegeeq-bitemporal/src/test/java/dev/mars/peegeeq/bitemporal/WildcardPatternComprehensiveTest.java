@@ -68,10 +68,10 @@ class WildcardPatternComprehensiveTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .property("peegeeq.database.schema", "public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
                 .build();
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         createTestEventsTable();
         
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
@@ -111,6 +111,9 @@ class WildcardPatternComprehensiveTest {
     private static void createTestEventsTable() throws Exception {
         try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var stmt = conn.createStatement()) {
+            // Place the unqualified DDL below in the resolved schema so custom-schema
+            // runs see the same table the manager-driven store targets
+            stmt.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS wildcard_test_events (
                     event_id VARCHAR(255) PRIMARY KEY,

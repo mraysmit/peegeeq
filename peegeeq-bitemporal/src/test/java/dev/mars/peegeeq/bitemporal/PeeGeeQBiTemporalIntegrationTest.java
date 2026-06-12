@@ -100,6 +100,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         // Set configuration properties for PeeGeeQ
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.migration.enabled", "true")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.queue.batch-size", "50")
@@ -112,7 +113,7 @@ class PeeGeeQBiTemporalIntegrationTest {
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("ALL database tables created successfully");
 
         // Configure PeeGeeQ
