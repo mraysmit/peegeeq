@@ -12,6 +12,7 @@ public class EventStoreConfig {
     private final Class<?> eventType;
     private final boolean biTemporalEnabled;
     private final String partitionStrategy;
+    private final boolean aggregateSummaryEnabled;
 
     @JsonCreator
     public EventStoreConfig(@JsonProperty("eventStoreName") String eventStoreName,
@@ -21,7 +22,8 @@ public class EventStoreConfig {
                            @JsonProperty("metricsEnabled") boolean metricsEnabled,
                            @JsonProperty("eventType") Class<?> eventType,
                            @JsonProperty("biTemporalEnabled") boolean biTemporalEnabled,
-                           @JsonProperty("partitionStrategy") String partitionStrategy) {
+                           @JsonProperty("partitionStrategy") String partitionStrategy,
+                           @JsonProperty("aggregateSummaryEnabled") boolean aggregateSummaryEnabled) {
         this.eventStoreName = eventStoreName;
         this.tableName = tableName;
         this.notificationPrefix = notificationPrefix != null ? notificationPrefix : "peegeeq_events_";
@@ -30,8 +32,9 @@ public class EventStoreConfig {
         this.eventType = eventType;
         this.biTemporalEnabled = biTemporalEnabled;
         this.partitionStrategy = partitionStrategy;
+        this.aggregateSummaryEnabled = aggregateSummaryEnabled;
     }
-    
+
     public String getEventStoreName() { return eventStoreName; }
     public String getTableName() { return tableName; }
     public String getNotificationPrefix() { return notificationPrefix; }
@@ -40,6 +43,7 @@ public class EventStoreConfig {
     public Class<?> getEventType() { return eventType; }
     public boolean isBiTemporalEnabled() { return biTemporalEnabled; }
     public String getPartitionStrategy() { return partitionStrategy; }
+    public boolean isAggregateSummaryEnabled() { return aggregateSummaryEnabled; }
     
     public static class Builder {
         private String eventStoreName;
@@ -50,7 +54,8 @@ public class EventStoreConfig {
         private Class<?> eventType = Object.class;
         private boolean biTemporalEnabled = true;
         private String partitionStrategy = "monthly";
-        
+        private boolean aggregateSummaryEnabled = false;
+
         public Builder eventStoreName(String eventStoreName) { this.eventStoreName = eventStoreName; return this; }
         public Builder tableName(String tableName) { this.tableName = tableName; return this; }
         public Builder notificationPrefix(String notificationPrefix) { this.notificationPrefix = notificationPrefix; return this; }
@@ -59,9 +64,10 @@ public class EventStoreConfig {
         public Builder eventType(Class<?> eventType) { this.eventType = eventType; return this; }
         public Builder biTemporalEnabled(boolean biTemporalEnabled) { this.biTemporalEnabled = biTemporalEnabled; return this; }
         public Builder partitionStrategy(String partitionStrategy) { this.partitionStrategy = partitionStrategy; return this; }
+        public Builder aggregateSummaryEnabled(boolean aggregateSummaryEnabled) { this.aggregateSummaryEnabled = aggregateSummaryEnabled; return this; }
 
         public EventStoreConfig build() {
-            return new EventStoreConfig(eventStoreName, tableName, notificationPrefix, queryLimit, metricsEnabled, eventType, biTemporalEnabled, partitionStrategy);
+            return new EventStoreConfig(eventStoreName, tableName, notificationPrefix, queryLimit, metricsEnabled, eventType, biTemporalEnabled, partitionStrategy, aggregateSummaryEnabled);
         }
     }
 }

@@ -72,13 +72,13 @@ class PgNativeQueueFactoryIntegrationTest {
     @BeforeEach
     void setUp(VertxTestContext ctx) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
-                SchemaComponent.NATIVE_QUEUE,
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("native-factory-test", testProps);
@@ -86,7 +86,10 @@ class PgNativeQueueFactoryIntegrationTest {
         manager.start()
                 .onSuccess(v -> {
                     databaseService = new PgDatabaseService(manager);
-                    factory = new PgNativeQueueFactory(databaseService);
+                    // Pass the configuration explicitly: the configuration-less constructor
+                    // leaves the factory's schema-dependent paths (e.g. browser SQL) on a
+                    // "public" fallback instead of the configured schema
+                    factory = new PgNativeQueueFactory(databaseService, config);
                     ctx.completeNow();
                 })
                 .onFailure(ctx::failNow);

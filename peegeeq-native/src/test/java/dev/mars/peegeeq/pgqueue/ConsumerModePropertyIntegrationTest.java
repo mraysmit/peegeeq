@@ -68,7 +68,7 @@ class ConsumerModePropertyIntegrationTest {
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Ensure required schema exists for native queue tests
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
         logger.info("Test setup completed for consumer mode property integration testing");
     }
@@ -115,6 +115,7 @@ class ConsumerModePropertyIntegrationTest {
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.queue.polling-interval", "PT2S")
@@ -167,6 +168,7 @@ class ConsumerModePropertyIntegrationTest {
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.queue.polling-interval", "PT1S")
@@ -225,6 +227,7 @@ class ConsumerModePropertyIntegrationTest {
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.queue.polling-interval", "PT1S")
@@ -277,6 +280,7 @@ class ConsumerModePropertyIntegrationTest {
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
@@ -335,6 +339,7 @@ class ConsumerModePropertyIntegrationTest {
 
         initializeManagerAndFactory(PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .property("peegeeq.queue.polling-interval", "PT3S")

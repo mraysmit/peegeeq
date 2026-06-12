@@ -99,13 +99,14 @@ class MultiConsumerModeTest {
         try {
             Properties testProps = PeeGeeQTestConfig.builder()
                     .from(postgres)
+                    .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                     .property("peegeeq.queue.polling-interval", "PT1S")
                     .property("peegeeq.queue.visibility-timeout", "PT30S")
                     .property("peegeeq.metrics.enabled", "true")
                     .property("peegeeq.circuit-breaker.enabled", "true")
                     .build();
             // Ensure required schema exists for native queue tests
-            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
             // Initialize PeeGeeQ with test configuration
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
             manager = new PeeGeeQManager(config, new SimpleMeterRegistry());

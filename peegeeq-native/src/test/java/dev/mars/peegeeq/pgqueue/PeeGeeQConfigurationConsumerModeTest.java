@@ -70,11 +70,13 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Configure database connection from container
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
             postgres,
+            PostgreSQLTestConstants.TEST_SCHEMA,
             SchemaComponent.NATIVE_QUEUE,
             SchemaComponent.OUTBOX,
             SchemaComponent.DEAD_LETTER_QUEUE
@@ -120,6 +122,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Recreate configuration with custom batch size
         Properties testMethodProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.batch-size", "5")
                 .build();
 
@@ -173,6 +176,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Recreate configuration with custom polling interval
         Properties testMethodProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT3S")
                 .build();
 
@@ -225,6 +229,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Recreate configuration with custom visibility timeout
         Properties testMethodProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.visibility-timeout", "PT15S")
                 .build();
 
@@ -276,6 +281,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Recreate configuration with custom consumer threads
         Properties testMethodProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.consumer.threads", "2")
                 .build();
 
@@ -331,6 +337,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Recreate configuration with multiple custom properties
         Properties testMethodProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.batch-size", "8")
                 .property("peegeeq.queue.polling-interval", "PT2S")
                 .property("peegeeq.queue.visibility-timeout", "PT20S")
@@ -397,6 +404,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Create configuration with defaults
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build());
 
         // Verify default configuration values

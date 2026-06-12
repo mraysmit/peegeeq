@@ -106,6 +106,7 @@ class PeeGeeQExampleTest {
         // Configure PeeGeeQ to use the container
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.pool.min-size", "5")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.metrics.enabled", "true")
@@ -119,6 +120,7 @@ class PeeGeeQExampleTest {
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
                 postgres,
+                PostgreSQLTestConstants.TEST_SCHEMA,
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE

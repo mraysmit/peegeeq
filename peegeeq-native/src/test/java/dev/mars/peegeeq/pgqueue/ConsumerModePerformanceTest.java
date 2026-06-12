@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
@@ -66,6 +67,7 @@ class ConsumerModePerformanceTest {
         logger.info(SystemInfoCollector.formatAsSummary());
         PeeGeeQTestSchemaInitializer.initializeSchema(
                 postgres,
+                PostgreSQLTestConstants.TEST_SCHEMA,
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE
@@ -76,6 +78,7 @@ class ConsumerModePerformanceTest {
     void setUp(VertxTestContext testContext) throws InterruptedException {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .property("peegeeq.queue.visibility-timeout", "PT30S")
                 .property("peegeeq.metrics.enabled", "true")
