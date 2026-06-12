@@ -72,14 +72,14 @@ class ConsumerModeResourceManagementTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT1S")
                 .property("peegeeq.queue.visibility-timeout", "PT30S")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.circuit-breaker.enabled", "true")
                 .build();
 
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
-                SchemaComponent.NATIVE_QUEUE,
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 

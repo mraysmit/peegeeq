@@ -91,16 +91,16 @@ class TraceContextPropagationTest {
     private PgBiTemporalEventStore<TestEvent> eventStore;
 
     private String resolveSchema() {
-        // Schema is always "public" for this test  set via peegeeq-default.properties.
-        // Phase 11 removed the System property sweep from PeeGeeQConfiguration.loadProperties()
-        // so System.getProperty("peegeeq.database.schema") can no longer inject a value here.
-        return "public";
+        // The manager inherits peegeeq.database.schema via PeeGeeQTestConfig's builder
+        // default, so DDL placement must follow the same property (suite-wide convention).
+        return PostgreSQLTestConstants.TEST_SCHEMA;
     }
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.enabled", "false")
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.queue.dead-consumer-detection.enabled", "false")

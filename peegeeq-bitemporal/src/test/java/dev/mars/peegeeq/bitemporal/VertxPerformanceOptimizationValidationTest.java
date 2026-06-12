@@ -84,6 +84,7 @@ class VertxPerformanceOptimizationValidationTest {
         // Set configuration properties from TestContainers
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.health-check.queue-checks-enabled", "false")
                 .property("peegeeq.database.pool.max-size", "20")
                 .property("peegeeq.database.pool.min-size", "5")
@@ -94,7 +95,7 @@ class VertxPerformanceOptimizationValidationTest {
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize with test configuration

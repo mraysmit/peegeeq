@@ -76,7 +76,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         logger.info("Setting up ReactiveNotificationHandler integration test...");
         this.testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
-                .property("peegeeq.database.schema", "public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.database.ssl.enabled", "false")
                 .property("peegeeq.metrics.enabled", "true")
                 .property("peegeeq.health.enabled", "true")
@@ -95,7 +95,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
 
         // Use the centralized schema initializer - following established patterns
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
 
         logger.info("bitemporal_event_log table created successfully");
         
@@ -103,6 +103,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         logger.info("Creating test_events table for integration test...");
         try (var conn = java.sql.DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              var stmt = conn.createStatement()) {
+            // Place the unqualified DDL below in the resolved schema so custom-schema
+            // runs see the same table the manager-driven store targets
+            stmt.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS test_events (
                     event_id VARCHAR(255) PRIMARY KEY,

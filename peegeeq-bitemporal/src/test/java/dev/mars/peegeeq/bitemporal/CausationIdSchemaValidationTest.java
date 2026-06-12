@@ -93,12 +93,13 @@ public class CausationIdSchemaValidationTest {
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal schema using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
         logger.info("Bitemporal schema created successfully");
 
         // Set configuration properties for PeeGeeQ
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Configure PeeGeeQ

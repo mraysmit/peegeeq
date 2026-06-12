@@ -63,6 +63,17 @@ class ReactiveNotificationHandlerFailurePathTest {
         return container;
     }
 
+    /**
+     * Builds the exact channel name the handler LISTENs on for an event-type suffix,
+     * including the 63-character truncation (the schema-prefixed raw name exceeds the
+     * PostgreSQL identifier limit, so naive concatenation would not match).
+     */
+    private static String channelFor(String suffix) {
+        return ReactiveNotificationHandler.createSafeChannelName(
+                PostgreSQLTestConstants.TEST_SCHEMA + "_bitemporal_events_",
+                "bitemporal_event_log", suffix);
+    }
+
     private PgConnectOptions connectOptions;
 
     @BeforeEach
@@ -103,7 +114,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertEquals(1, connectCalls.get(), "Expected a single connect attempt");
-                    assertTrue(listenChannels.contains("public_bitemporal_events_bitemporal_event_log_order_created"),
+                    assertTrue(listenChannels.contains(channelFor("order_created")),
                             "Existing subscriptions should re-issue LISTEN commands after connect");
                     assertFalse(handler.listeningChannelsView().contains("stale_channel_state_should_be_cleared"),
                             "Reconnect replay should discard stale in-memory LISTEN state");
@@ -158,7 +169,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                 new AtomicInteger(0),
                 new CopyOnWriteArrayList<>(),
                 channel -> Future.succeededFuture(),
-                channel -> "public_bitemporal_events_bitemporal_event_log_test_event".equals(channel)
+                channel -> channelFor("test_event").equals(channel)
                         ? Future.failedFuture(new RuntimeException("forced unlisten failure"))
                         : Future.succeededFuture(),
                 closeCalled);
@@ -186,7 +197,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                 connectOptions,
                 new ObjectMapper(),
                 String.class,
-                eventId -> Future.succeededFuture(null));
+                eventId -> Future.succeededFuture(null), PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         handler.subscribe("order.created", null, (MessageHandler<BiTemporalEvent<String>>) null)
                 .onSuccess(v -> testContext.failNow(new AssertionError("subscribe should have failed")))
@@ -199,7 +210,7 @@ class ReactiveNotificationHandlerFailurePathTest {
 
     @Test
     void subscribeShouldRollbackStateWhenListenSetupFails(Vertx vertx, VertxTestContext testContext) {
-        String failingChannel = "public_bitemporal_events_bitemporal_event_log_test_event";
+        String failingChannel = channelFor("test_event");
         logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = subscribe() must fail and rollback state when LISTEN setup fails");
         TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
                 vertx,
@@ -239,7 +250,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                 connectOptions,
                 new ObjectMapper(),
                 String.class,
-                eventId -> Future.succeededFuture(null));
+                eventId -> Future.succeededFuture(null), PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
 
         handler.subscribe("order*created", null, message -> Future.<Void>succeededFuture())
                 .onSuccess(v -> testContext.failNow(new AssertionError("subscribe should have failed")))
@@ -271,7 +282,8 @@ class ReactiveNotificationHandlerFailurePathTest {
                 Function<String, Future<Void>> listenBehavior,
                 Function<String, Future<Void>> unlistenBehavior,
                 AtomicBoolean closeCalled) {
-            super(vertx, connectOptions, new ObjectMapper(), String.class, eventRetriever);
+            super(vertx, connectOptions, new ObjectMapper(), String.class, eventRetriever,
+                    PostgreSQLTestConstants.TEST_SCHEMA, "bitemporal_event_log");
             this.connectBehavior = connectBehavior;
             this.connectCalls = connectCalls;
             this.listenedChannels = listenedChannels;

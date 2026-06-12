@@ -77,12 +77,13 @@ public class TransactionParticipationIntegrationTest {
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating ALL database tables using PeeGeeQTestSchemaInitializer...");
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.ALL);
         logger.info("ALL database tables created successfully");
 
         // Set configuration properties for PeeGeeQ
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Configure PeeGeeQ
@@ -145,7 +146,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
         return pool.query(createTableSql).execute()
@@ -164,7 +166,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -260,7 +263,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -367,7 +371,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -482,7 +487,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -587,7 +593,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -664,7 +671,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -822,7 +830,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -960,7 +969,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
@@ -1123,7 +1133,8 @@ public class TransactionParticipationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(postgres.getDatabaseName())
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         Pool pool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 

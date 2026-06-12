@@ -127,10 +127,11 @@ class ReactiveNotificationTest {
 
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Initialize database schema using centralized schema initializer
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.BITEMPORAL);
 
         // Configure PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
@@ -246,7 +247,8 @@ class ReactiveNotificationTest {
                     appendedEvent.getEventId()
                 );
 
-                String channelName = "public_bitemporal_events_bitemporal_event_log_TestEvent";
+                String channelName = PostgreSQLTestConstants.TEST_SCHEMA
+                    + "_bitemporal_events_bitemporal_event_log_TestEvent";
                 String notifyCommand = String.format("NOTIFY %s, '%s'", channelName, notifyPayload);
 
                 return pool.withConnection(conn ->
