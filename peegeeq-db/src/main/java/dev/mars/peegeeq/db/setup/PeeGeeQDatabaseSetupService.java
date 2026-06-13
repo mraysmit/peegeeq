@@ -253,46 +253,18 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     private Future<Void> createDatabaseFromTemplate(DatabaseConfig dbConfig) {
-        // Use environment variables for admin connection if available, otherwise use request values
-        String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
-        int adminPort = getEnvOrDefault("PEEGEEQ_DATABASE_PORT", String.valueOf(dbConfig.getPort()), dbConfig.getPort());
-        String adminUsername = getEnvOrDefault("PEEGEEQ_DATABASE_USERNAME", dbConfig.getUsername());
-        String adminPassword = getEnvOrDefault("PEEGEEQ_DATABASE_PASSWORD", dbConfig.getPassword());
-
         logger.debug("Creating database with admin connection: host={}, port={}, username={}",
-                adminHost, adminPort, adminUsername);
+                dbConfig.getHost(), dbConfig.getPort(), dbConfig.getUsername());
 
         return templateManager.createDatabaseFromTemplate(
-                adminHost,
-                adminPort,
-                adminUsername,
-                adminPassword,
+                dbConfig.getHost(),
+                dbConfig.getPort(),
+                dbConfig.getUsername(),
+                dbConfig.getPassword(),
                 dbConfig.getDatabaseName(),
                 dbConfig.getTemplateDatabase() != null ? dbConfig.getTemplateDatabase() : "template0",
                 dbConfig.getEncoding(),
                 Map.of());
-    }
-
-    private String getEnvOrDefault(String envVar, String defaultValue) {
-        String value = System.getenv(envVar);
-        if (value != null && !value.isBlank()) {
-            return value;
-        }
-        // Also try system properties (for Maven exec:java)
-        value = System.getProperty(envVar);
-        if (value != null && !value.isBlank()) {
-            return value;
-        }
-        return defaultValue;
-    }
-
-    private int getEnvOrDefault(String envVar, String envDefault, int defaultValue) {
-        String value = getEnvOrDefault(envVar, envDefault);
-        try {
-            return Integer.parseInt(value);
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
     }
 
     /**
@@ -302,19 +274,14 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      * NOTE: Schema validation is performed in createCompleteSetup() before this method is called.
      */
     private Future<DatabaseSetupRequest> applySchemaTemplates(DatabaseSetupRequest request) {
-        // Use environment variables for admin connection if available, otherwise use request values
-        String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", request.getDatabaseConfig().getHost());
-        int adminPort = getEnvOrDefault("PEEGEEQ_DATABASE_PORT", String.valueOf(request.getDatabaseConfig().getPort()), request.getDatabaseConfig().getPort());
-        String adminUsername = getEnvOrDefault("PEEGEEQ_DATABASE_USERNAME", request.getDatabaseConfig().getUsername());
-        String adminPassword = getEnvOrDefault("PEEGEEQ_DATABASE_PASSWORD", request.getDatabaseConfig().getPassword());
 
         // Create a temporary reactive pool for schema template application
         PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(adminHost)
-                .setPort(adminPort)
+                .setHost(request.getDatabaseConfig().getHost())
+                .setPort(request.getDatabaseConfig().getPort())
                 .setDatabase(request.getDatabaseConfig().getDatabaseName())
-                .setUser(adminUsername)
-                .setPassword(adminPassword);
+                .setUser(request.getDatabaseConfig().getUsername())
+                .setPassword(request.getDatabaseConfig().getPassword());
 
         Pool tempPool = PgBuilder.pool()
                 .with(new PoolOptions().setMaxSize(1))
@@ -995,18 +962,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     dbConfig.getDatabaseName(), dbConfig.getSchema());
         }
 
-        // Use environment variables for admin connection if available, otherwise use request values
-        String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
-        int adminPort = getEnvOrDefault("PEEGEEQ_DATABASE_PORT", String.valueOf(dbConfig.getPort()), dbConfig.getPort());
-        String adminUsername = getEnvOrDefault("PEEGEEQ_DATABASE_USERNAME", dbConfig.getUsername());
-        String adminPassword = getEnvOrDefault("PEEGEEQ_DATABASE_PASSWORD", dbConfig.getPassword());
-
         PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(adminHost)
-                .setPort(adminPort)
+                .setHost(dbConfig.getHost())
+                .setPort(dbConfig.getPort())
                 .setDatabase(dbConfig.getDatabaseName())
-                .setUser(adminUsername)
-                .setPassword(adminPassword);
+                .setUser(dbConfig.getUsername())
+                .setPassword(dbConfig.getPassword());
 
         Pool validationPool = PgBuilder.pool()
                 .with(new PoolOptions().setMaxSize(1))

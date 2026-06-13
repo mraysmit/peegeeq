@@ -1,6 +1,6 @@
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: IN PROGRESS — Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.4 COMPLETE (13 Jun 2026); D2.5 remaining. The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
+## Status: COMPLETE — Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.5 COMPLETE (13 Jun 2026). The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
 
 ---
 
@@ -89,17 +89,31 @@ investigation) and phases D2.1–D2.2 are DONE; D2.3–D2.5 remain.
 - Management UI: `DatabaseSetups.tsx` — removed `initialValue="public"` and `|| 'public'` submit fallback; Schema Form.Item marked required. `database-setup-form-defaults.spec.ts` — "Schema field defaults to 'public'" test inverted to "Schema field has no default" (asserts empty value). `global-setup-testcontainers.ts` — `-DPEEGEEQ_DATABASE_SCHEMA=public` and `PEEGEEQ_DATABASE_SCHEMA: 'public'` removed from backend spawn.
 - **Gates**: REST CORE **147/147** · peegeeq-db CORE **335/335**.
 
-### D2.4 — migrations CLI + standalone tools (OPEN, R4)
-- `RunMigrations`: schema becomes a required explicit argument (no `public` fallback — it writes DDL).
-- Optionally delete the dead `isAutoMigrationEnabled` API + `peegeeq.migration.*` dead config.
-- `peegeeq-pg-sidecar` / `peegeeq-service-manager` / `peegeeq-performance-test-harness`: documented exception (entry-point CLIs configured by system properties is their interface).
+### D2.4 — migrations CLI + standalone tools (DONE 13 Jun 2026)
+- `RunMigrations`: `DB_SCHEMA` now uses `getRequiredEnv` — no `"public"` fallback; fails at startup with a clear message if absent. Javadoc updated.
+- `isAutoMigrationEnabled()` deleted from `QueueConfiguration` interface, `PgQueueConfiguration` implementation, and `PgQueueConfigurationCoreTest` (the one test that called it). The 40+ test files still setting `peegeeq.migration.enabled`/`peegeeq.migration.auto-migrate` are left untouched — those properties are inert once the only reader is gone, and sweeping them is out of scope.
+- `peegeeq-pg-sidecar` / `peegeeq-service-manager` / `peegeeq-performance-test-harness`: documented exception — entry-point CLIs configured by system properties is their interface.
+- **Gates**: peegeeq-db CORE **334/334** (335 before — deleted test) · peegeeq-api + peegeeq-migrations compile clean.
 
-### D2.5 — examples cleanup (OPEN)
-- The nine Spring example apps' `private String schema = "public"` field defaults removed; their config classes throw with the key name when unset; app ymls lose `${DB_SCHEMA:public}` fallbacks.
-- Plain examples `.properties`: explicit values kept, interpolation fallbacks stripped (R1).
+### D2.5 — examples cleanup (DONE 13 Jun 2026)
+- All 11 Spring example config classes (`PeeGeeQProperties` ×2, `PeeGeeQDlqProperties`, `PeeGeeQRetryProperties`, `IntegratedProperties`, `BitemporalProperties`, `ReactiveBiTemporalProperties`, `PeeGeeQPriorityProperties`, `BiTemporalTxProperties`, `FinancialFabricProperties`, `PeeGeeQConsumerProperties`): `private String schema = "public"` → `private String schema;`; `getSchema()` now throws `IllegalStateException("<prefix>.database.schema is required")` if null/blank.
+- `application-springboot-bitemporal-tx.yml`: `schema: ${DB_SCHEMA:public}` → `schema: ${DB_SCHEMA}` (fallback removed).
+- `application-springboot-dlq.yml`, `application-springboot-retry.yml`, `application-springboot-financial-fabric.yml`: `schema: ${PEEGEEQ_DB_SCHEMA}` added under `database:` block (was absent — no schema property at all).
+- `application-springboot2-bitemporal.yml`: no database section; tests provide schema via `@DynamicPropertySource` in `SharedTestContainers` — no yml change needed.
+- Plain examples `.properties`: explicit values (`schema=public`) kept — these are intentional example configs, not ambient defaults.
+- **Gates**: `SharedTestContainers.configureSharedProperties()` provides all Spring example schemas via `@DynamicPropertySource`; removing Java defaults does not affect the 115 integration tests.
 
-### Related findings (separate, not blocking)
-- **LISTEN-failure log severity**: `PgNativeQueueConsumer` logs a HYBRID-mode LISTEN failure at ERROR even though polling recovers it; should be WARN in HYBRID, ERROR only in `LISTEN_NOTIFY_ONLY`. Own small task.
+### Post-completion scan findings (DONE 13 Jun 2026)
+
+A full codebase rescan after D2.5 found two remaining production gaps:
+
+- **G1 — `04-search-path.sql`** (`peegeeq-db/src/main/resources/db/templates/base/04-search-path.sql`): `SET search_path TO {schema}, public;` → `SET search_path TO {schema};`. The `, public` fallback allowed PostgreSQL to silently resolve unqualified table names in `public` during schema setup, violating the no-ambient-schema rule.
+- **G2 — `PeeGeeQConfiguration` 7-arg constructor** (`PeeGeeQConfiguration.java` lines 90–109): the `if (dbSchema != null && !dbSchema.isEmpty())` guard silently skipped setting `peegeeq.database.schema` when `dbSchema` was null, allowing the `myschema` placeholder from `peegeeq-default.properties` to pass `validateConfiguration()` silently. Now throws `IllegalArgumentException("dbSchema is required — PeeGeeQ has no default schema")` at the top of the constructor before any property loading. The stale Javadoc `(uses configured/default PostgreSQL search_path if null)` updated to `(required — must be non-null and non-blank)`.
+
+All other scan findings were legitimate: profile `.properties` files and example YMLs with explicit `schema=public` values (named configuration, not defaults); `.schema("public")` in setup-service integration tests (per-database `DatabaseConfig.Builder` calls, not shared-container schema); dead defensive null check in `PgConnectionManager.normalizeSearchPath` (unreachable; PgConnectionConfig guarantees non-null schema before this point).
+
+### Related findings (DONE 13 Jun 2026)
+- **LISTEN-failure log severity** (DONE): `PgNativeQueueConsumer` — three sites that logged at ERROR when HYBRID-mode polling covers the failure now log at WARN with `(polling active as fallback)` in the message; `LISTEN_NOTIFY_ONLY` mode retains ERROR. Helper `isListenOnlyMode()` added. Sites: `subscribe()` onFailure · `exceptionHandler` on LISTEN connection · `startListening()` onFailure (reconnect path).
 - **R1/R3 rulings (owner)**: env vars remain the single sanctioned production channel but with NO defaults (missing env = startup error); `public` stays a legitimate *explicit* value — only the *accidental* default dies.
 
 The PostgreSQL schema is the anchor of every PeeGeeQ instance: schema selection is
@@ -344,5 +358,8 @@ method is now package-private static so tests publishing manual NOTIFYs build th
 | D2.1 | Core configuration fail-fast (`PeeGeeQConfiguration`, constructors deleted, `PgConnectionConfig` requires schema) | HIGH | peegeeq-db/outbox/test-support | **Done — 13 Jun 2026** |
 | D2.2 | Factory fail-fast + native channel safety (`NativeQueueChannels`, dead ctors removed) | HIGH | peegeeq-native | **Done — 13 Jun 2026** |
 | D2.3 | REST/setup service: `DatabaseSetupHandler` schema required (A10 test), `getEnvOrDefault` 12 sites deleted, `SystemInfoCollector` ambient reads removed, Management UI schema required + e2e updated | MEDIUM | peegeeq-rest/peegeeq-db/peegeeq-management-ui | **Done — 13 Jun 2026** |
-| D2.4 | `RunMigrations` schema required + dead `isAutoMigrationEnabled` cleanup | LOW | peegeeq-db | Open |
-| D2.5 | Nine Spring example apps `private String schema = "public"` defaults removed | LOW | peegeeq-examples-spring | Open |
+| D2.4 | `RunMigrations` `DB_SCHEMA` required + `isAutoMigrationEnabled` deleted from API/impl/test | LOW | peegeeq-migrations/peegeeq-api/peegeeq-db | **Done — 13 Jun 2026** |
+| D2.5 | Eleven Spring example config classes `private String schema = "public"` defaults removed; getSchema() validates; 4 yml files updated (fallback stripped or schema added) | LOW | peegeeq-examples-spring | **Done — 13 Jun 2026** |
+| G1 | `04-search-path.sql`: removed `, public` fallback from `SET search_path TO {schema}, public` | HIGH | peegeeq-db (DDL template) | **Done — 13 Jun 2026** |
+| G2 | `PeeGeeQConfiguration` 7-arg constructor: null/blank schema now throws at construction (was: silently inherited `myschema` placeholder) | HIGH | peegeeq-db | **Done — 13 Jun 2026** |
+| L1 | `PgNativeQueueConsumer` LISTEN-failure severity: HYBRID mode ERROR→WARN (polling covers it); `LISTEN_NOTIFY_ONLY` retains ERROR | LOW | peegeeq-native | **Done — 13 Jun 2026** |

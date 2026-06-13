@@ -6,8 +6,8 @@ import { test, expect } from '../page-objects'
  * Covers gaps:
  *   2. Port range validation: InputNumber has min=1 / max=65535; entering a value
  *      outside that range should be clamped to the boundary on blur.
- *   3. Form field default values (Host=localhost, Port=5432, Username=peegeeq,
- *      Schema=public) should be pre-filled when the modal opens.
+ *   3. Form field default values (Host=localhost, Port=5432, Username=peegeeq)
+ *      should be pre-filled when the modal opens; Schema has no default and is required.
  *
  * No backend calls needed — these are purely form-level assertions.
  */
@@ -55,9 +55,9 @@ test.describe('Database Setups – Form Defaults and Port Range', () => {
         await expect(usernameInput).toHaveValue('peegeeq')
     })
 
-    test('Schema field defaults to "public"', async ({ page }) => {
+    test('Schema field has no default', async ({ page }) => {
         const schemaInput = page.locator('.ant-modal').getByLabel('Schema')
-        await expect(schemaInput).toHaveValue('public')
+        await expect(schemaInput).toHaveValue('')
     })
 
     // ── Port range clamping ────────────────────────────────────────────────────

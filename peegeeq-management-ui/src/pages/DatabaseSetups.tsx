@@ -151,7 +151,7 @@ const DatabaseSetups = () => {
                     databaseName: values.databaseName,
                     username: values.username,
                     password: values.password,
-                    schema: values.schema || 'public',
+                    schema: values.schema,
                     sslEnabled: values.sslEnabled || false,
                     templateDatabase: 'template0',
                     encoding: 'UTF8'
@@ -378,7 +378,7 @@ const DatabaseSetups = () => {
                                 <Form.Item
                                     name="schema"
                                     label="Schema"
-                                    initialValue="public"
+                                    rules={[{ required: true, message: 'Please enter schema' }]}
                                 >
                                     <Input />
                                 </Form.Item>

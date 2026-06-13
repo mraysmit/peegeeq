@@ -82,7 +82,7 @@ public class PeeGeeQProperties {
         private String name = "peegeeq";
         private String username = "peegeeq";
         private String password = "";
-        private String schema = "public";
+        private String schema;
 
         // Getters and setters
         public String getHost() { return host; }
@@ -100,7 +100,12 @@ public class PeeGeeQProperties {
         public String getPassword() { return password; }
         public void setPassword(String password) { this.password = password; }
 
-        public String getSchema() { return schema; }
+        public String getSchema() {
+            if (schema == null || schema.isBlank()) {
+                throw new IllegalStateException("peegeeq.database.schema is required");
+            }
+            return schema;
+        }
         public void setSchema(String schema) { this.schema = schema; }
     }
 

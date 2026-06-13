@@ -297,4 +297,34 @@ class DatabaseSetupHandlerErrorTest {
                     testContext.completeNow();
                 })));
     }
+
+    // =========================================================================
+    // A10  createSetup with missing schema returns 400
+    // Uses class-level server (port 18110): schema is required; the env-driven
+    // "peegeeq" fallback no longer exists — schema must come from the request.
+    // =========================================================================
+
+    @Test
+    void createSetup_missingSchema_returns400(VertxTestContext testContext) {
+        logger.info("--- EXPECTED ERROR (A10: createSetup missing schema → 400) ---");
+        io.vertx.core.json.JsonObject body = io.vertx.core.json.JsonObject.of(
+                "setupId", "schema-test",
+                "databaseConfig", io.vertx.core.json.JsonObject.of(
+                        "host", "localhost",
+                        "port", 5432,
+                        "databaseName", "testdb",
+                        "username", "postgres",
+                        "password", "postgres"
+                        // schema intentionally omitted
+                ));
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/setups")
+                .putHeader("Content-Type", "application/json")
+                .sendJsonObject(body)
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
+                    assertEquals(400, response.statusCode());
+                    assertNotNull(response.bodyAsJsonObject().getString("error"));
+                    testContext.completeNow();
+                })));
+    }
 }
