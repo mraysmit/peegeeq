@@ -303,7 +303,6 @@ async function globalSetup() {
           `-DPEEGEEQ_DATABASE_NAME=${connectionInfo.database}`,
           `-DPEEGEEQ_DATABASE_USERNAME=${connectionInfo.username}`,
           `-DPEEGEEQ_DATABASE_PASSWORD=${connectionInfo.password}`,
-          `-DPEEGEEQ_DATABASE_SCHEMA=public`,
         ],
         {
           cwd: projectRoot,
@@ -314,7 +313,6 @@ async function globalSetup() {
             PEEGEEQ_DATABASE_NAME: connectionInfo.database,
             PEEGEEQ_DATABASE_USERNAME: connectionInfo.username,
             PEEGEEQ_DATABASE_PASSWORD: connectionInfo.password,
-            PEEGEEQ_DATABASE_SCHEMA: 'public',
           },
           // shell: true is required on Windows so that .cmd files (mvn.cmd) are
           // invoked via cmd.exe; without it, CreateProcess fails with EINVAL.

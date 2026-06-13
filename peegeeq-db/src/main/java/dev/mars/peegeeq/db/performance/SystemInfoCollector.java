@@ -267,14 +267,6 @@ public class SystemInfoCollector {
                         info.put(key, configProps.getProperty(key));
                     }
                 }
-            } else {
-                // Fallback: sweep System properties (acceptable outside a manager context)
-                Properties systemProps = System.getProperties();
-                for (String key : systemProps.stringPropertyNames()) {
-                    if (key.startsWith("peegeeq.")) {
-                        info.put(key, systemProps.getProperty(key));
-                    }
-                }
             }
 
             // If no PeeGeeQ properties found, add defaults
