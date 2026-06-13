@@ -123,11 +123,6 @@ public class PgQueueConfiguration implements QueueConfiguration {
     }
 
     @Override
-    public boolean isAutoMigrationEnabled() {
-        return configuration.getBoolean("peegeeq.migration.enabled", true);
-    }
-    
-    @Override
     public Map<String, Object> getAdditionalProperties() {
         return new HashMap<>(additionalProperties);
     }
