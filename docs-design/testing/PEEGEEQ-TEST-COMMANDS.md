@@ -85,7 +85,30 @@ Get-Content logs\<name>.txt -Tail 30
 
 > **RULE: After ANY code change, the only acceptable validation command is section 5 (`-Pall-tests`).**
 > The tiered workflow below (daily → commit → push) was the primary cause of months of missed tests and production bugs.
-> Partial profiles are only acceptable when re-running a **specific already-identified failure** from a prior `-Pall-tests` run.
+> Partial profiles are only acceptable when (a) establishing a **pre-change baseline** for specific modules before touching them, or (b) re-running a **specific already-identified failure** from a prior `-Pall-tests` run.
+
+---
+
+## 0 Pre-change baseline (before touching a module)
+
+Run both core and integration for every module you are about to change. This establishes the green baseline you will compare against after your changes.
+
+For each module, run the profile that carries its meaningful test mass. Most modules have both core and integration tests; some (e.g. `peegeeq-db`) carry almost no core-tagged tests — their mass is entirely in integration.
+
+```powershell
+# Example: D2.3 touches peegeeq-rest and peegeeq-db
+
+# peegeeq-rest core (146 tests)
+mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260613.txt
+
+# peegeeq-rest integration
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260613.txt
+
+# peegeeq-db integration (727 tests — peegeeq-db has no meaningful core count)
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260613.txt
+```
+
+> **Always include `-Pintegration-tests` for integration baselines.** `mvn test -pl :module` (no profile) runs `@Tag("core")` only — it will silently skip all integration tests.
 
 ---
 
