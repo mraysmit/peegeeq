@@ -398,13 +398,13 @@ public class OutboxSchemaIsolationCoverageTest {
     // -----------------------------------------------------------------------
 
     @Test
-    @DisplayName("TC-S6: null schema uses unqualified SQL  no NPE, backward-compatible")
-    void tcS6_nullSchemaUsesUnqualifiedSql(VertxTestContext testContext) throws Exception {
-        // Tables are created in the "public" schema  PostgreSQL's default search_path resolves them.
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, "public", SchemaComponent.QUEUE_ALL);
-
-        // Build Properties WITHOUT peegeeq.database.schema  intentional omission.
-        // PeeGeeQTestConfig.builder() always sets a schema, so we construct Properties manually.
+    @DisplayName("TC-S6: config without an explicit schema resolves to the 'myschema' placeholder and fails fast")
+    void tcS6_missingSchemaFailsFastOnPlaceholder(VertxTestContext testContext) throws Exception {
+        // Inverted contract: the previous test asserted that an omitted schema silently
+        // fell back to unqualified SQL on PostgreSQL's default search_path — the
+        // accidental-default defect class. PeeGeeQ has no default schema: an unconfigured
+        // instance picks up the deliberate 'myschema' placeholder from
+        // peegeeq-default.properties and manager startup fails loudly.
         Properties props = new Properties();
         props.setProperty("peegeeq.database.host",     postgres.getHost());
         props.setProperty("peegeeq.database.port",     String.valueOf(postgres.getFirstMappedPort()));
@@ -412,41 +412,26 @@ public class OutboxSchemaIsolationCoverageTest {
         props.setProperty("peegeeq.database.username", postgres.getUsername());
         props.setProperty("peegeeq.database.password", postgres.getPassword());
         props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
         props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
         props.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        // peegeeq.database.schema intentionally NOT set  getSchema() returns null
-        //  OutboxConsumer.schemaName = null  qualifyTable() returns unqualified name
+        // peegeeq.database.schema intentionally NOT set — the default profile's
+        // placeholder takes effect
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", props);
+        assertEquals("myschema", config.getDatabaseConfig().getSchema(),
+                "An unconfigured schema must resolve to the deliberate placeholder, never to 'public'");
+
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
-        String suffix = UUID.randomUUID().toString().substring(0, 8);
-        String topic  = "tc_s6_" + suffix;
-
-        List<String> receivedPayloads = new CopyOnWriteArrayList<>();
-        Checkpoint received = testContext.checkpoint();
-
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: the next manager-start failure "
+                + "('required tables missing in schema myschema') is the expected fail-fast behavior");
         manager.start()
-                .compose(v -> {
-                    factory = new OutboxFactory(new PgDatabaseService(manager), config);
-                    return factory.createProducer(topic, String.class).send("null-schema-payload");
-                })
-                .compose(v -> {
-                    factory.createConsumer(topic, String.class)
-                            .subscribe(msg -> {
-                                receivedPayloads.add(msg.getPayload());
-                                received.flag();
-                                return Future.succeededFuture();
-                            })
-                            .onFailure(testContext::failNow);
-                    return Future.succeededFuture();
-                })
-                .onFailure(testContext::failNow);
+                .onSuccess(v -> testContext.failNow(new AssertionError(
+                        "Manager start must fail for the unconfigured 'myschema' placeholder")))
+                .onFailure(err -> testContext.completeNow());
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
-                "TC-S6: null-schema consumer should receive message without NPE within 30 seconds");
-        assertEquals("null-schema-payload", receivedPayloads.get(0));
+                "TC-S6: unconfigured-schema startup should fail fast within 30 seconds");
     }
 
     // -----------------------------------------------------------------------

@@ -122,6 +122,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         assertThrows(NullPointerException.class, () ->
@@ -138,6 +139,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
@@ -241,6 +243,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
@@ -278,6 +281,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
@@ -308,6 +312,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
@@ -331,6 +336,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
@@ -362,6 +368,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
@@ -396,6 +403,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();

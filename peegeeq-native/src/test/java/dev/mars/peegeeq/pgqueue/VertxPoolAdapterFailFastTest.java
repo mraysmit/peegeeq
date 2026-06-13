@@ -1,15 +1,12 @@
 package dev.mars.peegeeq.pgqueue;
 
+import dev.mars.peegeeq.api.database.ConnectOptionsProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import io.vertx.junit5.VertxTestContext;
-import io.vertx.pgclient.PgConnection;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -18,29 +15,45 @@ import static org.junit.jupiter.api.Assertions.*;
 class VertxPoolAdapterFailFastTest {
 
     @Test
-    void getPoolOrThrow_withNullPool_failsFast(Vertx vertx) {
-        // Create adapter with null pool
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, null, null);
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class, adapter::getPoolOrThrow);
-        assertTrue(ex.getMessage().contains("Pool is not available"));
+    void constructor_withNullPool_failsFast(Vertx vertx) {
+        // Real fail-fast: a null dependency is rejected at the boundary, not swallowed
+        // and surfaced later as a confusing downstream error.
+        NullPointerException ex = assertThrows(NullPointerException.class,
+            () -> new VertxPoolAdapter(vertx, null, null));
+        assertTrue(ex.getMessage().contains("pool"),
+            "The error must name the missing dependency, got: " + ex.getMessage());
     }
 
     @Test
-    void connectDedicated_withoutConnectOptionsProvider_failsFast_withClearMessage(Vertx vertx, VertxTestContext testContext) throws Exception {
-        // Create adapter with null ConnectOptionsProvider
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, null, null);
+    void constructor_withNullConnectOptionsProvider_failsFast(Vertx vertx) {
+        // A pool but no ConnectOptionsProvider is rejected at construction — there is no
+        // legitimate production path that builds the adapter without one.
+        @SuppressWarnings("resource")
+        io.vertx.sqlclient.Pool pool = io.vertx.pgclient.PgBuilder.pool().using(vertx).build();
+        try {
+            NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> new VertxPoolAdapter(vertx, pool, null));
+            assertTrue(ex.getMessage().contains("connectOptionsProvider"),
+                "The error must name the missing dependency, got: " + ex.getMessage());
+        } finally {
+            pool.close();
+        }
+    }
 
-        adapter.connectDedicated()
-            .onSuccess(conn -> testContext.failNow(new AssertionError("Should have failed")))
-            .onFailure(err -> {
-                Throwable cause = err.getCause() != null ? err.getCause() : err;
-                testContext.verify(() ->
-                    assertTrue(cause.getMessage().contains("No ConnectOptionsProvider available")));
-                testContext.completeNow();
-            });
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+    @Test
+    void constructor_withNullVertx_failsFast() {
+        @SuppressWarnings("resource")
+        Vertx vertx = Vertx.vertx();
+        try {
+            io.vertx.sqlclient.Pool pool = io.vertx.pgclient.PgBuilder.pool().using(vertx).build();
+            NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> new VertxPoolAdapter(null, pool, (ConnectOptionsProvider) null));
+            assertTrue(ex.getMessage().contains("vertx"),
+                "The error must name the missing dependency, got: " + ex.getMessage());
+            pool.close();
+        } finally {
+            vertx.close();
+        }
     }
 }
 

@@ -172,7 +172,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, manager.getConfiguration(), databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
@@ -207,7 +207,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, databaseService,
+                            adapter, mapper, null, manager.getConfiguration(), databaseService,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
@@ -245,7 +245,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
         PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                 groupName, topic, String.class,
-                adapter, mapper, null, null, null,
+                adapter, mapper, null, manager.getConfiguration(), null,
                 connectionManager, SERVICE_ID
         );
         group.setMessageHandler(msg -> Future.succeededFuture());
@@ -280,7 +280,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
                 .compose(v -> {
                     PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
-                            adapter, mapper, null, null, null,
+                            adapter, mapper, null, manager.getConfiguration(), null,
                             connectionManager, SERVICE_ID
                     );
                     group.setMessageHandler(msg -> Future.succeededFuture());
@@ -314,7 +314,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
         PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
                 groupName, topic, String.class,
-                adapter, mapper, null, null, databaseService,
+                adapter, mapper, null, manager.getConfiguration(), databaseService,
                 connectionManager, SERVICE_ID
         );
         group.setMessageHandler(msg -> Future.succeededFuture());

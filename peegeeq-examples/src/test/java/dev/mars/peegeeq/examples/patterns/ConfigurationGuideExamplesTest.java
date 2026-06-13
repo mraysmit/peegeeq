@@ -78,31 +78,33 @@ public class ConfigurationGuideExamplesTest {
     // =========================================================================
 
     /**
-     * Constructor 1  no-arg.
+     * The profile is mandatory, explicit configuration.
      *
-     * <p>Resolves the profile from {@code System.getProperty("peegeeq.profile")},
-     * then {@code PEEGEEQ_PROFILE} env, then falls back to {@code "default"}.
-     * {@code peegeeq-default.properties} supplies valid baseline values for all
-     * required properties, so no overrides are needed in a clean environment.</p>
+     * <p>There is no no-arg constructor and no ambient profile resolution: the
+     * {@code peegeeq.profile} system property and {@code PEEGEEQ_PROFILE} env var are
+     * not configuration channels. Callers always name the profile explicitly.</p>
      *
-     * <p>Guide reference: "new PeeGeeQConfiguration()"</p>
+     * <p>Guide reference: "new PeeGeeQConfiguration(String profile, Properties overrides)"</p>
      */
     @Test
-    void constructor_noArg_loadsDefaultProfileInCleanEnvironment() {
-        // Skip if peegeeq.profile has been overridden via env var or JVM arg,
-        // because the no-arg constructor delegates to PeeGeeQConfiguration.getActiveProfile().
-        Assumptions.assumeTrue(
-            PeeGeeQConfiguration.getActiveProfile().equals("default"),
-            "Skipping: active profile is not 'default'  overridden by environment or JVM arg"
-        );
+    void constructor_profileIsExplicit_ambientProfilePropertyHasNoEffect() {
+        String saved = System.getProperty("peegeeq.profile");
+        try {
+            // Even with an ambient profile set, the explicitly passed profile is used —
+            // the ambient value is never read.
+            System.setProperty("peegeeq.profile", "demo");
 
-        // peegeeq-default.properties provides: host=localhost, port=5432, name=peegeeq,
-        // username=peegeeq, password=peegeeq, pool.min-size=8, pool.max-size=32, etc.
-        // All pass validation without any extra overrides.
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
-            PeeGeeQConfiguration.getActiveProfile(), new Properties());
+            PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", new Properties());
 
-        assertEquals("default", config.getProfile());
+            assertEquals("default", config.getProfile(),
+                "The explicitly passed profile must be used; peegeeq.profile must have no effect");
+        } finally {
+            if (saved == null) {
+                System.clearProperty("peegeeq.profile");
+            } else {
+                System.setProperty("peegeeq.profile", saved);
+            }
+        }
     }
 
     /**

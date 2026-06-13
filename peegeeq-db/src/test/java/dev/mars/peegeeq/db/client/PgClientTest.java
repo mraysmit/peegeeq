@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.client;
  */
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -73,6 +74,7 @@ public class PgClientTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Create pool config

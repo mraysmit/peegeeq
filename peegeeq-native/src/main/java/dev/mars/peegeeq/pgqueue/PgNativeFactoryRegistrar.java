@@ -91,14 +91,11 @@ public class PgNativeFactoryRegistrar {
 
             logger.info("Creating PgNativeQueueFactory with config: {}", peeGeeQConfig != null ? "present" : "absent");
 
-            // Create the factory with proper constructor
+            // Create the factory. The configuration may still be null here when neither
+            // the map nor the DatabaseService provided one — the factory itself resolves
+            // and fails fast (PeeGeeQ has no default schema), so there is no fallback path.
             try {
-                PgNativeQueueFactory factory;
-                if (peeGeeQConfig != null) {
-                    factory = new PgNativeQueueFactory(databaseService, peeGeeQConfig);
-                } else {
-                    factory = new PgNativeQueueFactory(databaseService);
-                }
+                PgNativeQueueFactory factory = new PgNativeQueueFactory(databaseService, peeGeeQConfig);
                 logger.info("Successfully created PgNativeQueueFactory instance");
                 return factory;
             } catch (Exception e) {

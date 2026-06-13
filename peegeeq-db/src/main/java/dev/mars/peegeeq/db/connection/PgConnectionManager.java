@@ -138,18 +138,13 @@ public class PgConnectionManager {
         return reactivePools.computeIfAbsent(serviceId, id -> {
             try {
                 Pool pool = createReactivePool(connectionConfig, poolConfig);
-                // Configure per-service search_path from configured schema
-                String configuredSchema = connectionConfig.getSchema();
-                if (configuredSchema != null && !configuredSchema.isBlank()) {
-                    String normalized = normalizeSearchPath(configuredSchema);
-                    serviceSchemas.put(id, normalized);
-                    logger.info("PgConnectionManager@{}: Service '{}' configured with search_path={}, host={}, db={}",
-                               instanceId, id, normalized, connectionConfig.getHost(), connectionConfig.getDatabase());
-                } else {
-                    serviceSchemas.remove(id);
-                    logger.info("PgConnectionManager@{}: Service '{}' using default schema, host={}, db={}",
-                               instanceId, id, connectionConfig.getHost(), connectionConfig.getDatabase());
-                }
+                // Configure per-service search_path from the configured schema.
+                // The schema is always present: PgConnectionConfig requires it at build
+                // (PeeGeeQ has no default schema), so there is no fallback branch.
+                String normalized = normalizeSearchPath(connectionConfig.getSchema());
+                serviceSchemas.put(id, normalized);
+                logger.info("PgConnectionManager@{}: Service '{}' configured with search_path={}, host={}, db={}",
+                           instanceId, id, normalized, connectionConfig.getHost(), connectionConfig.getDatabase());
                 logger.info("PgConnectionManager@{}: Service '{}' created reactive pool (maxSize={}, shared={})",
                            instanceId, id, poolConfig.getMaxSize(), poolConfig.isShared());
                 if (meter != null) {
@@ -284,16 +279,14 @@ public class PgConnectionManager {
         }
 
         // Set search_path at connection level so all connections from the pool
-        // automatically use the configured schema.
+        // automatically use the configured schema. The schema is always present:
+        // PgConnectionConfig requires it at build (PeeGeeQ has no default schema).
         // See https://vertx.io/docs/vertx-pg-client/java/ "Configuration / data object"
-        String configuredSchema = connectionConfig.getSchema();
-        if (configuredSchema != null && !configuredSchema.isBlank()) {
-            String normalized = normalizeSearchPath(configuredSchema);
-            java.util.Map<String, String> properties = new java.util.HashMap<>();
-            properties.put("search_path", normalized);
-            connectOptions.setProperties(properties);
-            logger.debug("Setting search_path={} in PgConnectOptions for schema isolation", normalized);
-        }
+        String normalized = normalizeSearchPath(connectionConfig.getSchema());
+        java.util.Map<String, String> properties = new java.util.HashMap<>();
+        properties.put("search_path", normalized);
+        connectOptions.setProperties(properties);
+        logger.debug("Setting search_path={} in PgConnectOptions for schema isolation", normalized);
 
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(poolConfig.getMaxSize())

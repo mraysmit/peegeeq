@@ -51,9 +51,10 @@ public class VertxPoolAdapter {
      * @param connectOptionsProvider Provider for connection options (for dedicated connections)
      */
     public VertxPoolAdapter(Vertx vertx, Pool pool, ConnectOptionsProvider connectOptionsProvider) {
-        this.vertx = vertx;
-        this.pool = pool;
-        this.connectOptionsProvider = connectOptionsProvider;
+        this.vertx = java.util.Objects.requireNonNull(vertx, "vertx cannot be null");
+        this.pool = java.util.Objects.requireNonNull(pool, "pool cannot be null");
+        this.connectOptionsProvider = java.util.Objects.requireNonNull(
+            connectOptionsProvider, "connectOptionsProvider cannot be null");
         logger.debug("Initialized VertxPoolAdapter with Vertx, Pool, and ConnectOptionsProvider");
     }
 
