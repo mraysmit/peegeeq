@@ -45,7 +45,7 @@ public class PeeGeeQRetryProperties {
         private String name = "peegeeq";
         private String username = "postgres";
         private String password = "postgres";
-        private String schema = "public";
+        private String schema;
         
         // Getters and setters
         public String getHost() { return host; }
@@ -63,7 +63,12 @@ public class PeeGeeQRetryProperties {
         public String getPassword() { return password; }
         public void setPassword(String password) { this.password = password; }
 
-        public String getSchema() { return schema; }
+        public String getSchema() {
+            if (schema == null || schema.isBlank()) {
+                throw new IllegalStateException("peegeeq.retry.database.schema is required");
+            }
+            return schema;
+        }
         public void setSchema(String schema) { this.schema = schema; }
     }
     

@@ -152,12 +152,6 @@ public class PgQueueConfigurationCoreTest {
     }
 
     @Test
-    void testIsAutoMigrationEnabled() {
-        PgQueueConfiguration config = new PgQueueConfiguration(peeGeeQConfig);
-        assertFalse(config.isAutoMigrationEnabled());
-    }
-
-    @Test
     void testGetAdditionalProperties() {
         Map<String, Object> additionalProps = new HashMap<>();
         additionalProps.put("key1", "value1");

@@ -99,7 +99,6 @@ export PEEGEEQ_DATABASE_PORT=$DB_PORT
 export PEEGEEQ_DATABASE_NAME="postgres"
 export PEEGEEQ_DATABASE_USERNAME="peegeeq"
 export PEEGEEQ_DATABASE_PASSWORD="peegeeq"
-export PEEGEEQ_DATABASE_SCHEMA="public"
 
 echo ""
 echo "Starting PeeGeeQ REST API server..."
@@ -117,6 +116,5 @@ mvn exec:java \
     -DPEEGEEQ_DATABASE_PORT=$DB_PORT \
     -DPEEGEEQ_DATABASE_NAME=postgres \
     -DPEEGEEQ_DATABASE_USERNAME=peegeeq \
-    -DPEEGEEQ_DATABASE_PASSWORD=peegeeq \
-    -DPEEGEEQ_DATABASE_SCHEMA=public
+    -DPEEGEEQ_DATABASE_PASSWORD=peegeeq
 

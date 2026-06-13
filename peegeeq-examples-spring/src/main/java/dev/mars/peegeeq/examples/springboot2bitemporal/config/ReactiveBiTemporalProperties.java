@@ -82,7 +82,7 @@ public class ReactiveBiTemporalProperties {
         private String name = "peegeeq_reactive_bitemporal";
         private String username = "postgres";
         private String password = "password";
-        private String schema = "public";
+        private String schema;
 
         public String getHost() { return host; }
         public void setHost(String host) { this.host = host; }
@@ -99,7 +99,12 @@ public class ReactiveBiTemporalProperties {
         public String getPassword() { return password; }
         public void setPassword(String password) { this.password = password; }
 
-        public String getSchema() { return schema; }
+        public String getSchema() {
+            if (schema == null || schema.isBlank()) {
+                throw new IllegalStateException("reactive-bitemporal.database.schema is required");
+            }
+            return schema;
+        }
         public void setSchema(String schema) { this.schema = schema; }
     }
 }

@@ -12,6 +12,7 @@ peegeeq:
       name: ${PEEGEEQ_DB_NAME:peegeeq}
       username: ${PEEGEEQ_DB_USERNAME:peegeeq}
       password: ${PEEGEEQ_DB_PASSWORD:peegeeq}
+      schema: ${PEEGEEQ_DB_SCHEMA}
 
     event-stores:
       trading:
