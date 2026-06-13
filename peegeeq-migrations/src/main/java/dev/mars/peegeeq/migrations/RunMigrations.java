@@ -23,7 +23,7 @@ import java.util.Arrays;
  *   <li>{@code DB_JDBC_URL} - JDBC connection URL (required)</li>
  *   <li>{@code DB_USER} - Database username (required)</li>
  *   <li>{@code DB_PASSWORD} - Database password (required)</li>
- *   <li>{@code DB_SCHEMA} - Database schema name (default: public)</li>
+ *   <li>{@code DB_SCHEMA} - Database schema name (required — no default; omitting this is an error)</li>
  *   <li>{@code DB_CLEAN_ON_START} - Set to "true" to clean database before migration (dev only!)</li>
  *   <li>{@code FLYWAY_BASELINE_VERSION} - Baseline version (default: 1)</li>
  *   <li>{@code FLYWAY_BASELINE_DESCRIPTION} - Baseline description</li>
@@ -80,7 +80,7 @@ public class RunMigrations {
             String jdbcUrl = getRequiredEnv("DB_JDBC_URL");
             String user = getRequiredEnv("DB_USER");
             String password = getRequiredEnv("DB_PASSWORD");
-            String schema = System.getenv().getOrDefault("DB_SCHEMA", "public");
+            String schema = getRequiredEnv("DB_SCHEMA");
             boolean cleanOnStart = Boolean.parseBoolean(System.getenv().getOrDefault("DB_CLEAN_ON_START", "false"));
 
             System.out.println("");
@@ -184,7 +184,7 @@ public class RunMigrations {
         if (value == null || value.trim().isEmpty()) {
             throw new IllegalArgumentException(
                     "Required environment variable not set: " + name + "\n" +
-                    "Please set: DB_JDBC_URL, DB_USER, DB_PASSWORD");
+                    "Please set: DB_JDBC_URL, DB_USER, DB_PASSWORD, DB_SCHEMA");
         }
         return value;
     }

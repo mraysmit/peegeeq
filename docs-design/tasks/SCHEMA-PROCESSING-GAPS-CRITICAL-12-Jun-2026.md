@@ -1,6 +1,6 @@
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: IN PROGRESS — Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1 and D2.2 COMPLETE (13 Jun 2026); D2.3–D2.5 remaining. The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
+## Status: IN PROGRESS — Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.4 COMPLETE (13 Jun 2026); D2.5 remaining. The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
 
 ---
 
@@ -82,11 +82,12 @@ investigation) and phases D2.1–D2.2 are DONE; D2.3–D2.5 remain.
 - The 57 `PgNativeConsumerGroupLifecycleTest` tests, formerly built on the now-rejected all-null adapter, given a **valid** non-null adapter (real Vertx + real Pool + provider lambda; no live DB needed — they exercise the in-memory state machine and `distributeMessage` routing). **Lesson recorded:** the fix was a valid adapter all along; the detour into delete/seam/extract/integration proposals was over-engineering a one-helper change.
 - **Gates**: native CORE **153/153** · native + outbox factory contract tests green.
 
-### D2.3 — REST and setup service (OPEN)
-- `DatabaseSetupHandler`: delete the `getEnvOrDefault` env block and the `"peegeeq"` literal schema default; reject schema-less (and other required-coordinate-less) setup requests with 400 — TDD via the REST tests.
-- `getEnvOrDefault`'s inverted env-over-explicit precedence (12 sites): delete the env layer; trust the explicit request's `DatabaseConfig`.
-- `SystemInfoCollector`'s ambient `peegeeq.*` reads (diagnostics): remove.
-- Management UI: delete `initialValue="public"` + the submit `|| 'public'` fallback; mark the Schema field required; invert `database-setup-form-defaults.spec.ts`; drop `PEEGEEQ_DATABASE_SCHEMA=public` from the e2e global-setup.
+### D2.3 — REST and setup service (DONE 13 Jun 2026)
+- `DatabaseSetupHandler.parseDatabaseConfig()`: removed the entire env-reading block (`System.getenv` for host/port/username/password/schema); schema is now explicitly required — `IllegalArgumentException("schema is required")` thrown if absent/blank → caught → 400. Host/port/username/password revert to hardcoded defaults (localhost/5432/postgres/postgres) matching the form pre-fills. Contract test A10 (`createSetup_missingSchema_returns400`) added to `DatabaseSetupHandlerErrorTest`.
+- `PeeGeeQDatabaseSetupService.getEnvOrDefault` deleted (both overloads); 12 call sites in `createDatabaseFromTemplate`, `applySchemaTemplates`, and `validateDatabaseInfrastructure` replaced with direct `dbConfig.getX()` / `request.getDatabaseConfig().getX()` reads.
+- `SystemInfoCollector.collectPeeGeeQConfiguration`: removed the `else` branch that swept `System.getProperties()` for `peegeeq.*` keys; only reads from the injected config instance now.
+- Management UI: `DatabaseSetups.tsx` — removed `initialValue="public"` and `|| 'public'` submit fallback; Schema Form.Item marked required. `database-setup-form-defaults.spec.ts` — "Schema field defaults to 'public'" test inverted to "Schema field has no default" (asserts empty value). `global-setup-testcontainers.ts` — `-DPEEGEEQ_DATABASE_SCHEMA=public` and `PEEGEEQ_DATABASE_SCHEMA: 'public'` removed from backend spawn.
+- **Gates**: REST CORE **147/147** · peegeeq-db CORE **335/335**.
 
 ### D2.4 — migrations CLI + standalone tools (OPEN, R4)
 - `RunMigrations`: schema becomes a required explicit argument (no `public` fallback — it writes DDL).
@@ -340,3 +341,8 @@ method is now package-private static so tests publishing manual NOTIFYs build th
 | S3 | CI custom-schema job (`custom-schema-tests` in build.yml) | HIGH | CI | **Done — 12 Jun 2026** |
 | S4 | Delete `BiTemporalPoolFactory` (+ placeholder tests) and the `ReactiveNotificationHandler` defaulting constructor | MEDIUM | peegeeq-bitemporal | **Done — 12 Jun 2026** |
 | S5 | Parameterize `information_schema` queries | LOW | peegeeq-db | **Done — 12 Jun 2026** |
+| D2.1 | Core configuration fail-fast (`PeeGeeQConfiguration`, constructors deleted, `PgConnectionConfig` requires schema) | HIGH | peegeeq-db/outbox/test-support | **Done — 13 Jun 2026** |
+| D2.2 | Factory fail-fast + native channel safety (`NativeQueueChannels`, dead ctors removed) | HIGH | peegeeq-native | **Done — 13 Jun 2026** |
+| D2.3 | REST/setup service: `DatabaseSetupHandler` schema required (A10 test), `getEnvOrDefault` 12 sites deleted, `SystemInfoCollector` ambient reads removed, Management UI schema required + e2e updated | MEDIUM | peegeeq-rest/peegeeq-db/peegeeq-management-ui | **Done — 13 Jun 2026** |
+| D2.4 | `RunMigrations` schema required + dead `isAutoMigrationEnabled` cleanup | LOW | peegeeq-db | Open |
+| D2.5 | Nine Spring example apps `private String schema = "public"` defaults removed | LOW | peegeeq-examples-spring | Open |
