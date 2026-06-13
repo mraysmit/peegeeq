@@ -52,9 +52,8 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
     private final String schema;
     private volatile boolean closed = false;
 
-    public PgNativeQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper) {
-        this(topic, payloadType, pool, objectMapper, "public");
-    }
+    // The schema-defaulting constructor was removed deliberately: the browser's SQL is
+    // schema-qualified, and PeeGeeQ has no default schema — callers pass it explicitly.
 
     public PgNativeQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper,
             String schema) {
@@ -62,7 +61,8 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
         this.payloadType = payloadType;
         this.pool = pool;
         this.objectMapper = objectMapper;
-        this.schema = schema != null ? schema : "public";
+        this.schema = java.util.Objects.requireNonNull(schema,
+            "schema cannot be null — PeeGeeQ has no default schema");
     }
 
     @Override

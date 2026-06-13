@@ -46,7 +46,12 @@ public class PgConnectionConfig {
         this.database = Objects.requireNonNull(builder.database, "Database cannot be null");
         this.username = Objects.requireNonNull(builder.username, "Username cannot be null");
         this.password = builder.password;
-        this.schema = builder.schema;
+        this.schema = Objects.requireNonNull(builder.schema,
+            "Schema cannot be null — PeeGeeQ has no default schema");
+        if (this.schema.trim().isEmpty()) {
+            throw new IllegalArgumentException(
+                "Schema cannot be blank — PeeGeeQ has no default schema");
+        }
         this.sslEnabled = builder.sslEnabled;
     }
     

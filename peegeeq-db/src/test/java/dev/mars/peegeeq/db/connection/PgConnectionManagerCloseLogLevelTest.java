@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db.connection;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.PgTestImageConstant;
@@ -110,6 +111,7 @@ public class PgConnectionManagerCloseLogLevelTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -155,6 +157,7 @@ public class PgConnectionManagerCloseLogLevelTest {
                 .database(ownContainer.getDatabaseName())
                 .username(ownContainer.getUsername())
                 .password(ownContainer.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()

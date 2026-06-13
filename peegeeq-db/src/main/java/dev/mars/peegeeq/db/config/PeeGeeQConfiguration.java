@@ -45,36 +45,11 @@ public class PeeGeeQConfiguration {
     private final String profile;
     private final String instanceId;
     
-    /**
-     * @deprecated Replaced by {@link #PeeGeeQConfiguration(String, Properties)}.
-     *             Using this constructor reads the active profile from the JVM system
-     *             property {@code peegeeq.profile}, which is a process-global and causes
-     *             test pollution and multi-tenant races. Pass an explicit profile and a
-     *             {@code Properties} overrides object instead.
-     */
-    @Deprecated(since = "2.0", forRemoval = true)
-    public PeeGeeQConfiguration() {
-        this(getActiveProfile());
-    }
-    
-    /**
-     * @deprecated Replaced by {@link #PeeGeeQConfiguration(String, Properties)}.
-     *             This single-arg form relies on the System property sweep (now removed)
-     *             for runtime overrides, giving callers no way to supply configuration
-     *             without writing to the JVM-global property table. Pass a
-     *             {@code Properties} overrides object as the second argument instead.
-     */
-    @Deprecated(since = "2.0", forRemoval = true)
-    public PeeGeeQConfiguration(String profile) {
-        this.profile = profile;
-        this.properties = loadProperties(profile);
-        resolvePlaceholders(this.properties);
-        this.instanceId = getString("peegeeq.metrics.instance-id", 
-            "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
-        validateConfiguration();
-        logger.info("Loaded PeeGeeQ configuration for profile: {}", profile);
-    }
-    
+    // The no-arg and single-arg constructors were removed deliberately: the profile is
+    // mandatory explicit configuration (no ambient resolution from peegeeq.profile /
+    // PEEGEEQ_PROFILE), and configuration is supplied via the Properties overrides
+    // argument, never via JVM-global state.
+
     /**
      * Constructor for programmatic configuration with arbitrary property overrides.
      *
@@ -133,11 +108,10 @@ public class PeeGeeQConfiguration {
         logger.info("Loaded PeeGeeQ configuration for profile: {} with explicit database config", profile);
     }
     
-    public static String getActiveProfile() {
-        return System.getProperty("peegeeq.profile", 
-               System.getenv("PEEGEEQ_PROFILE") != null ? System.getenv("PEEGEEQ_PROFILE") : "default");
-    }
-    
+    // getActiveProfile() was removed deliberately: it resolved the profile from the
+    // peegeeq.profile system property / PEEGEEQ_PROFILE env var — ambient channels are
+    // not PeeGeeQ configuration. Callers pass the profile explicitly.
+
     private Properties loadProperties(String profile) {
         Properties props = new Properties();
         
@@ -180,7 +154,8 @@ public class PeeGeeQConfiguration {
      *
      * <ul>
      *   <li>{@code ${VAR}}  replaced by the value of env var {@code VAR};
-     *       left unchanged if the variable is not set.</li>
+     *       startup FAILS (IllegalStateException) if the variable is not set —
+     *       a required variable must never flow downstream as a literal.</li>
      *   <li>{@code ${VAR:default}}  replaced by {@code VAR} when set,
      *       otherwise replaced by {@code default} (which may be empty).</li>
      * </ul>
@@ -208,8 +183,11 @@ public class PeeGeeQConfiguration {
                 } else if (defaultVal != null) {
                     replacement = defaultVal;
                 } else {
-                    replacement = matcher.group(0); // leave ${VAR} unchanged
-                    logger.warn("Placeholder ${{{}}}: environment variable '{}' is not set and no default was provided", varName, varName);
+                    // Fail fast: passing the literal "${VAR}" downstream is silent
+                    // corruption — a missing required variable must stop startup
+                    throw new IllegalStateException(
+                        "Configuration property '" + key + "' references environment variable '"
+                        + varName + "' which is not set and has no default");
                 }
                 matcher.appendReplacement(resolved, Matcher.quoteReplacement(replacement));
             }
@@ -275,6 +253,10 @@ public class PeeGeeQConfiguration {
         
         if (getString("peegeeq.database.username", "").isEmpty()) {
             errors.add("Database username is required");
+        }
+
+        if (getString("peegeeq.database.schema", "").trim().isEmpty()) {
+            errors.add("Database schema is required (peegeeq.database.schema) — PeeGeeQ has no default schema");
         }
         
         if (getString("peegeeq.database.password", "").isEmpty()) {

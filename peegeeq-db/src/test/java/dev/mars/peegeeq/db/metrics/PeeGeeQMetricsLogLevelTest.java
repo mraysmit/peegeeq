@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db.metrics;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
@@ -220,6 +221,7 @@ public class PeeGeeQMetricsLogLevelTest {
                 .database(container.getDatabaseName())
                 .username(container.getUsername())
                 .password(container.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -236,6 +238,10 @@ public class PeeGeeQMetricsLogLevelTest {
         try (Connection conn = DriverManager.getConnection(
                 postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
              Statement stmt = conn.createStatement()) {
+            // The reactive pool's search_path points at the explicit test schema, so the
+            // table must be created there, not in the JDBC connection default
+            stmt.execute("CREATE SCHEMA IF NOT EXISTS " + PostgreSQLTestConstants.TEST_SCHEMA);
+            stmt.execute("SET search_path TO " + PostgreSQLTestConstants.TEST_SCHEMA);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS queue_metrics (
                     id BIGSERIAL PRIMARY KEY,

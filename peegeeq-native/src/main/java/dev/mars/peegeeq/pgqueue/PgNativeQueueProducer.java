@@ -55,10 +55,9 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
     private final PeeGeeQConfiguration configuration;
     private volatile boolean closed = false;
 
-    public PgNativeQueueProducer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-            String topic, Class<T> payloadType, MetricsProvider metrics) {
-        this(poolAdapter, objectMapper, topic, payloadType, metrics, null);
-    }
+    // The configuration-less constructor was removed deliberately: the producer's
+    // NOTIFY channel derives from the configured schema, and PeeGeeQ has no default
+    // schema — a producer without configuration would silently notify "public_" channels.
 
     public PgNativeQueueProducer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics,
@@ -68,9 +67,9 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = configuration;
-        logger.info("Created native queue producer for topic: {} with configuration: {}", topic,
-                configuration != null ? "enabled" : "disabled");
+        this.configuration = java.util.Objects.requireNonNull(configuration,
+            "configuration cannot be null — PeeGeeQ has no default schema");
+        logger.info("Created native queue producer for topic: {}", topic);
     }
 
     /**
@@ -158,9 +157,10 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
             final Pool pool = poolAdapter.getPoolOrThrow();
 
-            // Get schema for NOTIFY channel (still needed for LISTEN/NOTIFY)
-            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
-            String notifyChannel = schema + "_queue_" + topic;
+            // Channel derived from the shared single source (63-byte-safe truncation);
+            // the configuration is required at construction — no fallback
+            String notifyChannel = NativeQueueChannels.channelFor(
+                configuration.getDatabaseConfig().getSchema(), topic);
 
             String sql = """
                     INSERT INTO queue_messages
@@ -231,9 +231,10 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
 
             final Pool pool = poolAdapter.getPoolOrThrow();
 
-            // Get schema for NOTIFY channel (still needed for LISTEN/NOTIFY)
-            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
-            String notifyChannel = schema + "_queue_" + topic;
+            // Channel derived from the shared single source (63-byte-safe truncation);
+            // the configuration is required at construction — no fallback
+            String notifyChannel = NativeQueueChannels.channelFor(
+                configuration.getDatabaseConfig().getSchema(), topic);
 
             // Extract priority from headers, default to 5
             int priority = 5;
