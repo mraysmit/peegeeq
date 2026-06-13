@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.config;
  */
 
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import io.vertx.core.Vertx;
@@ -86,6 +87,7 @@ public class PoolingUnderLoad {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         // Create client

@@ -40,6 +40,8 @@ class PgNativeConsumerGroupSafetyTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 null);
 
         assertThrows(IllegalArgumentException.class,

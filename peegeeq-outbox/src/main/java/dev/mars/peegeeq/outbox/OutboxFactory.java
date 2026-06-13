@@ -114,13 +114,26 @@ public class OutboxFactory implements QueueFactory {
     public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration,
             String clientId, PgConnectionManager connectionManager, String connectionServiceId) {
         this.databaseService = databaseService;
-        this.configuration = configuration;
+        // The configuration is required: PeeGeeQ has no default schema. When not passed
+        // explicitly, it is resolved from the DatabaseService (the manager's own
+        // explicit configuration) — never from ambient state.
+        PeeGeeQConfiguration resolved = configuration;
+        if (resolved == null
+                && databaseService instanceof dev.mars.peegeeq.db.provider.PgDatabaseService pgDbService) {
+            resolved = pgDbService.getPeeGeeQConfiguration();
+        }
+        if (resolved == null) {
+            throw new IllegalStateException(
+                "OutboxFactory requires a PeeGeeQConfiguration — none was passed and the "
+                + "DatabaseService provides none (PeeGeeQ has no default schema)");
+        }
+        this.configuration = resolved;
         this.clientId = clientId; // null means use default pool
         this.connectionManager = connectionManager;
         this.connectionServiceId = connectionServiceId;
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
-        logger.info("Initialized OutboxFactory with configuration: {} (clientId: {}, partitioned: {})",
-                configuration != null ? "enabled" : "disabled",
+        logger.info("Initialized OutboxFactory with configuration from {} (clientId: {}, partitioned: {})",
+                configuration != null ? "explicit argument" : "DatabaseService",
                 clientId != null ? clientId : "default",
                 connectionManager != null ? "enabled" : "disabled");
 
@@ -315,7 +328,7 @@ public class OutboxFactory implements QueueFactory {
             if (pool == null) {
                 return io.vertx.core.Future.failedFuture(new IllegalStateException("Pool not available for browser creation"));
             }
-            String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
+            String schema = configuration.getDatabaseConfig().getSchema();
             OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
             synchronized (this) {
                 createdResources.add(browser);
@@ -574,7 +587,7 @@ public class OutboxFactory implements QueueFactory {
      * or an unqualified table name when schema is null (relies on connection search_path).
      */
     private String qualifyTable(String tableName) {
-        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : null;
+        String schema = configuration.getDatabaseConfig().getSchema();
         return schema != null ? quoteIdentifier(schema) + "." + tableName : tableName;
     }
 }

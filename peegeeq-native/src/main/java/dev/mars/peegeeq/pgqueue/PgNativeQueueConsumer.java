@@ -83,10 +83,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private long pollingTimerId = -1;
     private long cleanupTimerId = -1;
 
-    public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-            String topic, Class<T> payloadType, MetricsProvider metrics) {
-        this(poolAdapter, objectMapper, topic, payloadType, metrics, null);
-    }
+    // The configuration-less constructor was removed deliberately: the consumer's
+    // LISTEN channel derives from the configured schema, and PeeGeeQ has no default
+    // schema — a consumer without configuration would silently listen on "public_" channels.
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics,
@@ -96,16 +95,15 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = configuration;
-        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
-        this.notifyChannel = schema + "_queue_" + topic;
+        this.configuration = java.util.Objects.requireNonNull(configuration,
+            "configuration cannot be null — PeeGeeQ has no default schema");
+        this.notifyChannel = NativeQueueChannels.channelFor(
+            configuration.getDatabaseConfig().getSchema(), topic);
         this.consumerConfig = null;
-        // Determine consumer threads for logging (no dedicated executor; async
-        // operations)
-        int consumerThreads = configuration != null ? configuration.getQueueConfig().getConsumerThreads() : 1;
+        int consumerThreads = configuration.getQueueConfig().getConsumerThreads();
 
-        logger.info("Created native queue consumer for topic: {} with configuration: {} (threads: {})",
-                topic, configuration != null ? "enabled" : "disabled", consumerThreads);
+        logger.info("Created native queue consumer for topic: {} (threads: {})",
+                topic, consumerThreads);
     }
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
@@ -116,10 +114,11 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = configuration;
+        this.configuration = java.util.Objects.requireNonNull(configuration,
+            "configuration cannot be null — PeeGeeQ has no default schema");
         this.consumerConfig = consumerConfig;
-        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
-        this.notifyChannel = schema + "_queue_" + topic;
+        this.notifyChannel = NativeQueueChannels.channelFor(
+            configuration.getDatabaseConfig().getSchema(), topic);
         // Determine consumer threads for logging (no dedicated executor; async
         // operations)
         int consumerThreads = consumerConfig != null ? consumerConfig.getConsumerThreads()

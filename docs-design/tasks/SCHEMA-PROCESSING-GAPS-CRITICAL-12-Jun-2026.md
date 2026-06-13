@@ -1,6 +1,6 @@
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: SUPERSEDED IN PART — see "Architecture correction" below. The findings stand; the first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation (12 Jun 2026, evening). Production fail-fast enforcement (D2) is the remaining open work.
+## Status: IN PROGRESS — Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1 and D2.2 COMPLETE (13 Jun 2026); D2.3–D2.5 remaining. The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
 
 ---
 
@@ -51,16 +51,55 @@ spring example shared-container DDL depending on class execution order and `auto
 silently recreating tables in `public`; three spring example apps unable to express a
 schema at all.
 
-**D2 — production fail-fast enforcement (OPEN, mandated last):** `PgConnectionConfig`
-nullable schema + `PgConnectionManager` "using default schema" fallback;
-`PeeGeeQConfiguration` null-tolerant schema resolution + 7-arg ctor null-schema tolerance;
-`DatabaseSetupHandler` env lookup + `"peegeeq"` literal default; profile `.properties`
-files (`schema=public` declarations; `${DB_SCHEMA:public}` env interpolation in
-production.properties; parallel-test.properties missing the key); native module defaulting
-nest (`PgNativeQueueBrowser` defaulting ctor + six `: "public"` fallbacks);
-`OutboxQueueBrowser` 4-arg defaulting path; nine spring example apps' `schema = "public"`
-field defaults; **migration/auto-migrate schema handling needs verification** (it recreated
-tables in `public`, not the configured schema, when masking the spring free-rider race).
+---
+
+## D2 — production fail-fast enforcement (phased, mandated last)
+
+The owner mandated phased TDD execution, one phase verified at a time. Phase 0 (read-only
+investigation) and phases D2.1–D2.2 are DONE; D2.3–D2.5 remain.
+
+### D2.0 — investigation (DONE) — findings that reshaped the plan
+- **The no-arg/1-arg `PeeGeeQConfiguration` constructors were already `@Deprecated(forRemoval)`** with zero production callers — deletion, not refactor.
+- **Native defaulting nest has one choke point**: the config-less `PgNativeQueueBrowser` ctor is dead (zero callers); the consumer/producer `: "public"` fallbacks all originate from factories built without a `PeeGeeQConfiguration`. Requiring config at the factory makes every fallback dead.
+- **`getEnvOrDefault` has INVERTED precedence**: 12 sites compute admin coords as env-var-first, the caller's explicit request as fallback — an env var silently overrides explicit config.
+- **`peegeeq.migration.auto-migrate` is dead** — read by nothing; `PeeGeeQManager` has no migration path; `isAutoMigrationEnabled()` is a never-called API method. The earlier "auto-migrate masked the spring free-rider race" hypothesis was WRONG; class-execution-order luck alone did. The "verify migration schema handling" task dissolves.
+- **Management UI has its own default**: `DatabaseSetups.tsx` sends `schema: values.schema || 'public'` at submit AND `initialValue="public"` on the form field; an e2e spec (`database-setup-form-defaults.spec.ts`) asserts the accidental default; the e2e harness passes `PEEGEEQ_DATABASE_SCHEMA=public`.
+
+### D2.1 — core configuration fail-fast (DONE 13 Jun 2026)
+- **C1**: `PeeGeeQConfiguration.validateDatabaseConfig` now rejects a missing/blank schema (`peegeeq.database.schema` required — no default). TDD RED→GREEN; contract test added.
+- **C2**: the no-arg/1-arg `PeeGeeQConfiguration` constructors, `getActiveProfile()` (the `peegeeq.profile`/`PEEGEEQ_PROFILE` reader), and `PeeGeeQManager`'s no-arg constructor DELETED. The configuration guide test inverted to assert the ambient profile property has no effect.
+- **C3**: `PgConnectionConfig` requires schema (`requireNonNull` + blank rejection); `PgConnectionManager`'s two "using default schema" fallback branches deleted — `search_path` is now unconditionally set. 49 test builder chains given explicit schema (42 db + 7 outbox surfaced by the repo-wide chain gate).
+- **C4**: `peegeeq-default.properties` ships `schema=myschema` (deliberate non-functional placeholder, so an unconfigured instance fails loudly); 21 `${VAR:default}` interpolation fallbacks stripped from production/staging files (`${DB_SCHEMA}` now hard-required); `resolvePlaceholders` THROWS on an unresolvable `${VAR}` (was: pass the literal downstream); the hyphenated `test-schema` test-resource value fixed to `peegeeq_test`.
+- Three more defaults-locking tests inverted (`testNoSchemaConfiguredUsesDefault`, the leave-literal placeholder test, outbox `tcS6_nullSchemaUsesUnqualifiedSql` → now verifies the full `myschema` fail-fast UX).
+- **R5 delivered early**: `SystemPropertiesConfigurationExampleTest` DELETED (it configured PeeGeeQ entirely via `System.setProperty` — the abolished channel).
+- **Gates**: config unit 28/28 · peegeeq-db integration **727/727** · test-support 47/47 · outbox integration **535/535**.
+
+### D2.2 — factory fail-fast + native channel safety (DONE 13 Jun 2026)
+- `VertxPoolAdapter` constructor `requireNonNull`s vertx/pool/connectOptionsProvider — the all-null adapter is rejected at the boundary (the `No ConnectOptionsProvider available` deep failure is now unreachable). `VertxPoolAdapterFailFastTest` rewritten to assert the real (constructor-level) fail-fast.
+- `PgNativeQueueFactory` and `OutboxFactory` require a resolvable `PeeGeeQConfiguration` (passed explicitly, or resolved from the `DatabaseService` — never ambient); their `: "public"` schema fallbacks collapsed; the dead config-less `PgNativeQueueBrowser` ctor and the config-less consumer/producer ctors removed.
+- **`NativeQueueChannels`** (new): single source for `{schema}_queue_{topic}` channel names with 63-byte-safe truncation + MD5 suffix (the native analogue of bitemporal's `createSafeChannelName`); producer and consumer both derive channels from it.
+- **`PgNativeConsumerGroup` telescoping constructors collapsed** to the single canonical 10-arg form (production only ever used that one); the 6/7/8-arg overloads and their two constructor-existence tests deleted.
+- The 57 `PgNativeConsumerGroupLifecycleTest` tests, formerly built on the now-rejected all-null adapter, given a **valid** non-null adapter (real Vertx + real Pool + provider lambda; no live DB needed — they exercise the in-memory state machine and `distributeMessage` routing). **Lesson recorded:** the fix was a valid adapter all along; the detour into delete/seam/extract/integration proposals was over-engineering a one-helper change.
+- **Gates**: native CORE **153/153** · native + outbox factory contract tests green.
+
+### D2.3 — REST and setup service (OPEN)
+- `DatabaseSetupHandler`: delete the `getEnvOrDefault` env block and the `"peegeeq"` literal schema default; reject schema-less (and other required-coordinate-less) setup requests with 400 — TDD via the REST tests.
+- `getEnvOrDefault`'s inverted env-over-explicit precedence (12 sites): delete the env layer; trust the explicit request's `DatabaseConfig`.
+- `SystemInfoCollector`'s ambient `peegeeq.*` reads (diagnostics): remove.
+- Management UI: delete `initialValue="public"` + the submit `|| 'public'` fallback; mark the Schema field required; invert `database-setup-form-defaults.spec.ts`; drop `PEEGEEQ_DATABASE_SCHEMA=public` from the e2e global-setup.
+
+### D2.4 — migrations CLI + standalone tools (OPEN, R4)
+- `RunMigrations`: schema becomes a required explicit argument (no `public` fallback — it writes DDL).
+- Optionally delete the dead `isAutoMigrationEnabled` API + `peegeeq.migration.*` dead config.
+- `peegeeq-pg-sidecar` / `peegeeq-service-manager` / `peegeeq-performance-test-harness`: documented exception (entry-point CLIs configured by system properties is their interface).
+
+### D2.5 — examples cleanup (OPEN)
+- The nine Spring example apps' `private String schema = "public"` field defaults removed; their config classes throw with the key name when unset; app ymls lose `${DB_SCHEMA:public}` fallbacks.
+- Plain examples `.properties`: explicit values kept, interpolation fallbacks stripped (R1).
+
+### Related findings (separate, not blocking)
+- **LISTEN-failure log severity**: `PgNativeQueueConsumer` logs a HYBRID-mode LISTEN failure at ERROR even though polling recovers it; should be WARN in HYBRID, ERROR only in `LISTEN_NOTIFY_ONLY`. Own small task.
+- **R1/R3 rulings (owner)**: env vars remain the single sanctioned production channel but with NO defaults (missing env = startup error); `public` stays a legitimate *explicit* value — only the *accidental* default dies.
 
 The PostgreSQL schema is the anchor of every PeeGeeQ instance: schema selection is
 connection-level (`search_path` set by `PgConnectionManager`), runtime SQL is unqualified, and

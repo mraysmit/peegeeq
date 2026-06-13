@@ -23,8 +23,12 @@ import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.api.database.ConnectOptionsProvider;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
@@ -587,35 +591,13 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("6-arg constructor delegates correctly")
-        void sixArgConstructor() {
-            VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
-            group = new PgNativeConsumerGroup<>(
-                    "six-group", "six-topic", String.class,
-                    adapter, null, null);
-            assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
-            assertEquals("six-group", group.getGroupName());
-        }
-
-        @Test
-        @DisplayName("7-arg constructor delegates correctly")
-        void sevenArgConstructor() {
-            VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
-            group = new PgNativeConsumerGroup<>(
-                    "seven-group", "seven-topic", String.class,
-                    adapter, null, null, null);
-            assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
-            assertEquals("seven-group", group.getGroupName());
-        }
-
-        @Test
         @DisplayName("start with non-null PeeGeeQConfiguration creates configuration-aware consumer")
         void startWithConfiguration() {
-            VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
+            VertxPoolAdapter adapter = validAdapter();
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             group = new PgNativeConsumerGroup<>(
                     "cfg-group", "cfg-topic", String.class,
-                    adapter, null, null, config, null);
+                    adapter, null, null, config, null, null, null);
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
@@ -625,11 +607,11 @@ class PgNativeConsumerGroupLifecycleTest {
         @Test
         @DisplayName("start/stop/restart with configuration works")
         void startStopRestartWithConfiguration() {
-            VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
+            VertxPoolAdapter adapter = validAdapter();
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", new Properties());
             group = new PgNativeConsumerGroup<>(
                     "cfg-group", "cfg-topic", String.class,
-                    adapter, null, null, config, null);
+                    adapter, null, null, config, null, null, null);
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
             group.start();
@@ -1075,11 +1057,40 @@ class PgNativeConsumerGroupLifecycleTest {
      * lifecycle and membership tests that don't touch the database.
      * Uses the 8-arg constructor (no connectionManager  reference-counting mode).
      */
+    /**
+     * Builds an explicit configuration for lifecycle tests: the consumer's LISTEN
+     * channel derives from the configured schema and PeeGeeQ has no default schema,
+     * so started groups require a real configuration.
+     */
+    private static PeeGeeQConfiguration testConfiguration() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+        return new PeeGeeQConfiguration("test", overrides);
+    }
+
+    /**
+     * Builds a valid (non-null) adapter for these state-machine unit tests: a real Vertx
+     * and a real Pool object plus an options provider. No database is contacted — the
+     * tests exercise the in-memory state machine and distributeMessage routing, not live
+     * I/O — but the adapter is a real, constructable object (PeeGeeQ has no null adapters).
+     */
+    private VertxPoolAdapter validAdapter() {
+        Vertx vtx = Vertx.vertx();
+        extraVertxInstances.add(vtx);
+        return validAdapterOn(vtx);
+    }
+
+    private VertxPoolAdapter validAdapterOn(Vertx vtx) {
+        Pool pool = PgBuilder.pool().using(vtx).build();
+        ConnectOptionsProvider provider = () -> new PgConnectOptions()
+                .setHost("localhost").setPort(5432).setDatabase("test").setUser("test");
+        return new VertxPoolAdapter(vtx, pool, provider);
+    }
+
     private PgNativeConsumerGroup<String> createGroup(String groupName, String topic) {
-        VertxPoolAdapter adapter = new VertxPoolAdapter(null, null, null);
         return new PgNativeConsumerGroup<>(
                 groupName, topic, String.class,
-                adapter, null, null, null, null);
+                validAdapter(), null, null, testConfiguration(), null, null, null);
     }
 
     /**
@@ -1092,10 +1103,10 @@ class PgNativeConsumerGroupLifecycleTest {
         extraVertxInstances.add(vtx);
         PgConnectionManager connMgr = new PgConnectionManager(vtx);
         extraConnectionManagers.add(connMgr);
-        VertxPoolAdapter adapter = new VertxPoolAdapter(vtx, null, null);
+        VertxPoolAdapter adapter = validAdapterOn(vtx);
         return new PgNativeConsumerGroup<>(
                 groupName, topic, String.class,
-                adapter, null, null, null, null,
+                adapter, null, null, testConfiguration(), null,
                 connMgr, "test-svc");
     }
 }

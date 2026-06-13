@@ -101,7 +101,21 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             PeeGeeQConfiguration configuration,
             PgConnectionManager connectionManager, String connectionServiceId) {
         this.databaseService = databaseService;
-        this.configuration = configuration;
+        // The configuration is required: PeeGeeQ has no default schema, so a factory
+        // without one would silently put channels and SQL on a "public" fallback. When
+        // not passed explicitly, it is resolved from the DatabaseService (the manager's
+        // own explicit configuration) — never from ambient state.
+        PeeGeeQConfiguration resolved = configuration;
+        if (resolved == null
+                && databaseService instanceof dev.mars.peegeeq.db.provider.PgDatabaseService pgDbService) {
+            resolved = pgDbService.getPeeGeeQConfiguration();
+        }
+        if (resolved == null) {
+            throw new IllegalStateException(
+                "PgNativeQueueFactory requires a PeeGeeQConfiguration — none was passed and the "
+                + "DatabaseService provides none (PeeGeeQ has no default schema)");
+        }
+        this.configuration = resolved;
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
         this.connectionManager = connectionManager;
         this.connectionServiceId = connectionServiceId;
@@ -112,8 +126,8 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
                 databaseService.getPool(),
                 databaseService // DatabaseService implements ConnectOptionsProvider
         );
-        logger.info("Initialized PgNativeQueueFactory with configuration: {}",
-                configuration != null ? "enabled" : "disabled");
+        logger.info("Initialized PgNativeQueueFactory with configuration from {}",
+                configuration != null ? "explicit argument" : "DatabaseService");
 
         // Register a no-op close hook with the manager if available (explicit
         // lifecycle, no reflection)
@@ -161,24 +175,12 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
         checkNotClosed();
         TopicNameValidator.validate(topic);
-        logger.info("Creating native queue consumer for topic: {} with configuration: {}", topic,
-                configuration != null ? "enabled" : "disabled");
+        logger.info("Creating native queue consumer for topic: {}", topic);
 
         MetricsProvider metrics = getMetrics();
-        logger.debug("Creating consumer with metrics: {}, configuration: {} for topic: {}", true,
-                (configuration != null), topic);
-        logger.info("Creating consumer with metrics: {}, configuration: {}", true, configuration != null);
+        PgNativeQueueConsumer<T> consumer = new PgNativeQueueConsumer<>(
+                poolAdapter, objectMapper, topic, payloadType, metrics, configuration);
 
-        PgNativeQueueConsumer<T> consumer;
-        if (configuration != null) {
-            consumer = new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics,
-                    configuration);
-        } else {
-            consumer = new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
-        }
-
-        logger.debug("Successfully created native queue consumer for topic: {}, consumer class: {}",
-                topic, consumer.getClass().getSimpleName());
         logger.info("Successfully created native queue consumer for topic: {}", topic);
         return registerResource(consumer);
     }
@@ -264,7 +266,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             return Future.failedFuture(new IllegalStateException("Pool not available for browser creation"));
         }
 
-        String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
+        String schema = configuration.getDatabaseConfig().getSchema();
         return Future.succeededFuture(registerResource(new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema)));
     }
 
