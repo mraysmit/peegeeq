@@ -144,7 +144,7 @@ public class BiTemporalTxProperties {
         private String name = "peegeeq_bitemporal";
         private String username = "peegeeq";
         private String password = "peegeeq";
-        private String schema = "public";
+        private String schema;
         private boolean sslEnabled = false;
         
         // Getters and setters
@@ -190,6 +190,9 @@ public class BiTemporalTxProperties {
         }
         
         public String getSchema() {
+            if (schema == null || schema.isBlank()) {
+                throw new IllegalStateException("peegeeq.bitemporal.database.schema is required");
+            }
             return schema;
         }
         
