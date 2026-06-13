@@ -29,7 +29,6 @@ $env:PEEGEEQ_DATABASE_PORT = $DbConfig.port
 $env:PEEGEEQ_DATABASE_NAME = $DbConfig.database
 $env:PEEGEEQ_DATABASE_USERNAME = $DbConfig.username
 $env:PEEGEEQ_DATABASE_PASSWORD = $DbConfig.password
-$env:PEEGEEQ_DATABASE_SCHEMA = "public"
 
 Write-Host ""
 Write-Host "Starting PeeGeeQ REST API server with TestContainers database..." -ForegroundColor Cyan
@@ -49,8 +48,7 @@ $MavenArgs = @(
     "-DPEEGEEQ_DATABASE_PORT=$($DbConfig.port)",
     "-DPEEGEEQ_DATABASE_NAME=$($DbConfig.database)",
     "-DPEEGEEQ_DATABASE_USERNAME=$($DbConfig.username)",
-    "-DPEEGEEQ_DATABASE_PASSWORD=$($DbConfig.password)",
-    "-DPEEGEEQ_DATABASE_SCHEMA=public"
+    "-DPEEGEEQ_DATABASE_PASSWORD=$($DbConfig.password)"
 )
 
 & mvn $MavenArgs

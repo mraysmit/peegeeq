@@ -161,8 +161,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         .onFailure(err -> {
                             if (closed.get()) {
                                 logger.debug("Subscription aborted for topic: {} - consumer closed", topic);
-                            } else {
+                            } else if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY) {
                                 logger.error("Error during subscription for topic: {}", topic, err);
+                            } else {
+                                logger.warn("LISTEN setup failed for topic: {} (polling active as fallback): {}", topic, err.getMessage());
                             }
                         });
             } else {
@@ -230,8 +232,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         if (!shouldMaintainListenSubscription()) {
                             logger.debug("LISTEN error during shutdown on channel {}: {}", notifyChannel,
                                     err.getMessage());
-                        } else {
+                        } else if (isListenOnlyMode()) {
                             logger.error("LISTEN error on channel {}: {}", notifyChannel, err.getMessage());
+                        } else {
+                            logger.warn("LISTEN error on channel {} (polling active as fallback): {}", notifyChannel, err.getMessage());
                         }
                         try {
                             conn.close();
@@ -249,8 +253,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     if (!shouldMaintainListenSubscription()) {
                         logger.debug("Failed to start LISTEN during shutdown on channel {}: {}", notifyChannel,
                                 err.getMessage());
-                    } else {
+                    } else if (isListenOnlyMode()) {
                         logger.error("Failed to start LISTEN on channel {}: {}", notifyChannel, err.getMessage());
+                    } else {
+                        logger.warn("Failed to start LISTEN on channel {} (polling active as fallback): {}", notifyChannel, err.getMessage());
                     }
                     scheduleListenReconnect();
                 });
@@ -307,6 +313,10 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
     private boolean shouldMaintainListenSubscription() {
         return subscribed.get() && !closed.get();
+    }
+
+    private boolean isListenOnlyMode() {
+        return consumerConfig != null && consumerConfig.getMode() == ConsumerMode.LISTEN_NOTIFY_ONLY;
     }
 
     void closeSubscriberConnectionForTest() {

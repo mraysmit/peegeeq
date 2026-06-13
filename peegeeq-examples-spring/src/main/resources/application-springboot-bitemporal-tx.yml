@@ -33,7 +33,7 @@ peegeeq:
       name: ${DB_NAME:peegeeq_bitemporal}
       username: ${DB_USERNAME:peegeeq}
       password: ${DB_PASSWORD:peegeeq}
-      schema: ${DB_SCHEMA:public}
+      schema: ${DB_SCHEMA}
       ssl-enabled: ${DB_SSL_ENABLED:false}
     
     # Connection Pool Configuration

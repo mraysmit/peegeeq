@@ -18,6 +18,7 @@ peegeeq:
       name: ${PEEGEEQ_DB_NAME:peegeeq}
       username: ${PEEGEEQ_DB_USERNAME:postgres}
       password: ${PEEGEEQ_DB_PASSWORD:postgres}
+      schema: ${PEEGEEQ_DB_SCHEMA}
 
 # Server configuration
 server:

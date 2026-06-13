@@ -123,13 +123,6 @@ public interface QueueConfiguration {
     Duration getHealthCheckInterval();
     
     /**
-     * Checks if schema migrations should be run automatically.
-     * 
-     * @return true if auto-migration is enabled, false otherwise
-     */
-    boolean isAutoMigrationEnabled();
-    
-    /**
      * Gets additional implementation-specific configuration properties.
      * 
      * @return A map of additional configuration properties

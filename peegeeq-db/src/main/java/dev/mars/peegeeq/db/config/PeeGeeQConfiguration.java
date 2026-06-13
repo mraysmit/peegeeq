@@ -85,22 +85,24 @@ public class PeeGeeQConfiguration {
      * @param dbName database name
      * @param dbUsername database username
      * @param dbPassword database password
-    * @param dbSchema database schema (uses configured/default PostgreSQL search_path if null)
+     * @param dbSchema database schema (required — must be non-null and non-blank)
      */
-    public PeeGeeQConfiguration(String profile, String dbHost, int dbPort, String dbName, 
+    public PeeGeeQConfiguration(String profile, String dbHost, int dbPort, String dbName,
                                 String dbUsername, String dbPassword, String dbSchema) {
+        if (dbSchema == null || dbSchema.isBlank()) {
+            throw new IllegalArgumentException(
+                "dbSchema is required — PeeGeeQ has no default schema");
+        }
         this.profile = profile;
         this.properties = loadProperties(profile);
-        
+
         // Override database properties programmatically without polluting System properties
         properties.setProperty("peegeeq.database.host", dbHost);
         properties.setProperty("peegeeq.database.port", String.valueOf(dbPort));
         properties.setProperty("peegeeq.database.name", dbName);
         properties.setProperty("peegeeq.database.username", dbUsername);
         properties.setProperty("peegeeq.database.password", dbPassword);
-        if (dbSchema != null && !dbSchema.isEmpty()) {
-            properties.setProperty("peegeeq.database.schema", dbSchema);
-        }
+        properties.setProperty("peegeeq.database.schema", dbSchema);
         resolvePlaceholders(this.properties);
         this.instanceId = getString("peegeeq.metrics.instance-id", 
             "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
