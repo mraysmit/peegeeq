@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.performance;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -70,6 +71,7 @@ class VertxPerformanceOptimizerTest {
             .database("test")
             .username("test")
             .password("test")
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
             
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()

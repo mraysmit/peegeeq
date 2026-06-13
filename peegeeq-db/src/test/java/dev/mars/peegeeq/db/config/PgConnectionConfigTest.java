@@ -17,6 +17,35 @@ class PgConnectionConfigTest {
     }
 
     @Test
+    void testSchemaRequired() {
+        // PeeGeeQ has no default schema: a connection config without an explicit
+        // schema must fail at build, like host/database/username
+        PgConnectionConfig.Builder builder = new PgConnectionConfig.Builder()
+            .host("localhost")
+            .port(5432)
+            .database("testdb")
+            .username("user")
+            .password("pass");
+
+        assertThrows(NullPointerException.class, builder::build,
+            "build() without an explicit schema must throw — PeeGeeQ has no default schema");
+    }
+
+    @Test
+    void testBlankSchemaRejected() {
+        PgConnectionConfig.Builder builder = new PgConnectionConfig.Builder()
+            .host("localhost")
+            .port(5432)
+            .database("testdb")
+            .username("user")
+            .password("pass")
+            .schema("   ");
+
+        assertThrows(IllegalArgumentException.class, builder::build,
+            "A blank schema must be rejected, not passed through");
+    }
+
+    @Test
     void testSchemaIsUrlEncodedInJdbcUrl() {
         PgConnectionConfig config = new PgConnectionConfig.Builder()
             .host("localhost")

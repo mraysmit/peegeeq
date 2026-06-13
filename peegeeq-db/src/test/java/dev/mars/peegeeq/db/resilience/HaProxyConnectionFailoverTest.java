@@ -16,6 +16,7 @@ package dev.mars.peegeeq.db.resilience;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -265,6 +266,7 @@ class HaProxyConnectionFailoverTest {
             .database(DB_NAME)
             .username(DB_USER)
             .password(DB_PASS)
+            .schema(PostgreSQLTestConstants.TEST_SCHEMA)
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()

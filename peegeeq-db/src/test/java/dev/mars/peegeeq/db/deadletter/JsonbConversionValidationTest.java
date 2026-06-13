@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db.deadletter;
  */
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -83,6 +84,7 @@ class JsonbConversionValidationTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -302,6 +304,7 @@ class JsonbConversionValidationTest {
                 .database(postgres.getDatabaseName())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
@@ -359,8 +362,11 @@ class JsonbConversionValidationTest {
             ")";
 
         try {
-            // Execute table creation sequentially
-            tempPool.query(createTableSql).execute()
+            // Execute table creation sequentially. The explicit test schema must be
+            // created first: this test owns its container, and the pool's search_path
+            // points at the schema, so DDL has nowhere to land until it exists.
+            tempPool.query("CREATE SCHEMA IF NOT EXISTS " + PostgreSQLTestConstants.TEST_SCHEMA).execute()
+                .compose(v -> tempPool.query(createTableSql).execute())
                 .compose(v -> tempPool.query(createQueueTableSql).execute())
                 .compose(v -> tempPool.query(createOutboxTableSql).execute())
                 .compose(v -> tempManager.close())

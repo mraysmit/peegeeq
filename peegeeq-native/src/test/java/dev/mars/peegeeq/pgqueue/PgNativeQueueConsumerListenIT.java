@@ -48,6 +48,7 @@ class PgNativeQueueConsumerListenIT {
     private PeeGeeQManager manager;
     private VertxPoolAdapter adapter;
     private ObjectMapper mapper;
+    private PeeGeeQConfiguration config;
 
     @BeforeAll
     static void beforeAll() {
@@ -65,7 +66,7 @@ class PgNativeQueueConsumerListenIT {
                 .build();
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
+        config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().onSuccess(v -> {
             // Create adapter using DatabaseService interfaces
@@ -107,7 +108,7 @@ class PgNativeQueueConsumerListenIT {
             .build();
 
         PgNativeQueueConsumer<String> consumer = new PgNativeQueueConsumer<>(
-            adapter, mapper, TOPIC, String.class, null, null, consumerConfig
+            adapter, mapper, TOPIC, String.class, null, config, consumerConfig
         );
 
         consumer.subscribe(msg -> {
@@ -118,7 +119,7 @@ class PgNativeQueueConsumerListenIT {
 
         // Act: send a message
         PgNativeQueueProducer<String> producer = new PgNativeQueueProducer<>(
-            adapter, mapper, TOPIC, String.class, null
+            adapter, mapper, TOPIC, String.class, null, config
         );
         producer.send("hello", Map.of());
 

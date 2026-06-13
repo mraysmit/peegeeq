@@ -80,6 +80,56 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
+    void testBlankSchemaRejected() {
+        // PeeGeeQ has no default schema: a blank schema must fail validation at
+        // construction, not flow silently into connection configuration
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "   ");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PeeGeeQConfiguration(TEST_PROFILE, overrides),
+                "A blank peegeeq.database.schema must fail configuration validation");
+        assertTrue(ex.getMessage().contains("schema"),
+                "The validation error must name the schema, got: " + ex.getMessage());
+    }
+
+    @Test
+    void testExplicitSchemaAccepted() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
+
+        assertEquals("peegeeq_test", config.getDatabaseConfig().getSchema());
+    }
+
+    @Test
+    void testUnresolvedPlaceholderWithoutDefaultThrows() {
+        // ${VAR} with no default and no env var must fail loudly at construction —
+        // passing the literal "${VAR}" string downstream is silent corruption
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+        overrides.setProperty("peegeeq.database.name", "${PEEGEEQ_TEST_UNSET_VAR_XYZ}");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new PeeGeeQConfiguration(TEST_PROFILE, overrides),
+                "An unresolvable ${VAR} placeholder must fail configuration, not flow as a literal");
+        assertTrue(ex.getMessage().contains("PEEGEEQ_TEST_UNSET_VAR_XYZ"),
+                "The error must name the missing variable, got: " + ex.getMessage());
+    }
+
+    @Test
+    void testPlaceholderDefaultStillApplies() {
+        Properties overrides = new Properties();
+        overrides.setProperty("peegeeq.database.schema", "peegeeq_test");
+        overrides.setProperty("peegeeq.database.name", "${PEEGEEQ_TEST_UNSET_VAR_XYZ:fallback_db}");
+
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
+
+        assertEquals("fallback_db", config.getString("peegeeq.database.name"));
+    }
+
+    @Test
     void testConstructorAppliesOverrides() {
         Properties overrides = new Properties();
         overrides.setProperty("peegeeq.database.host", "override-host");
@@ -196,7 +246,7 @@ public class PeeGeeQConfigurationTest {
         assertEquals("test-db", dbConfig.getDatabase());
         assertEquals("test-user", dbConfig.getUsername());
         assertEquals("test-password", dbConfig.getPassword());
-        assertEquals("test-schema", dbConfig.getSchema());
+        assertEquals("peegeeq_test", dbConfig.getSchema());
         assertTrue(dbConfig.isSslEnabled());
     }
 
@@ -348,18 +398,16 @@ public class PeeGeeQConfigurationTest {
     }
 
     @Test
-    void testPlaceholderResolutionLeavesUnknownVarUnchangedWhenNoDefault() {
-        // ${UNSET_VAR} with no default and env var not set  value kept as-is
-        // We override the host with a known placeholder that has no default, then verify
-        // the raw placeholder string is preserved (and the WARN is logged).
+    void testPlaceholderResolutionFailsForUnknownVarWithoutDefault() {
+        // Inverted contract: ${UNSET_VAR} with no default must FAIL construction —
+        // the previous behavior (keep the literal string and warn) was silent corruption
         Properties overrides = new Properties();
         overrides.setProperty("peegeeq.database.host",     "test-host"); // keep valid
         overrides.setProperty("peegeeq.test.placeholder",  "${PEEGEEQ_TEST_UNSET_NO_DEFAULT}");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE, overrides);
-
-        // Value should remain as the literal placeholder string since the env var is absent
-        assertEquals("${PEEGEEQ_TEST_UNSET_NO_DEFAULT}",
-            config.getString("peegeeq.test.placeholder", ""));
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+            () -> new PeeGeeQConfiguration(TEST_PROFILE, overrides));
+        assertTrue(ex.getMessage().contains("PEEGEEQ_TEST_UNSET_NO_DEFAULT"),
+            "The error must name the missing variable, got: " + ex.getMessage());
     }
 }

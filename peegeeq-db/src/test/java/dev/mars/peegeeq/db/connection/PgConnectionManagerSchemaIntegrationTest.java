@@ -412,39 +412,26 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     }
 
     @Test
-    @DisplayName("Test no schema configured uses default search_path")
-    void testNoSchemaConfiguredUsesDefault(VertxTestContext testContext) {
-        logger.info("TEST: No schema configured uses default search_path");
+    @DisplayName("No schema configured is an error — PeeGeeQ has no default schema")
+    void testNoSchemaConfiguredIsRejected(VertxTestContext testContext) {
+        // Inverted contract: the previous test asserted that a missing schema silently
+        // fell back to the connection-default search_path — the accidental-default
+        // defect class. A connection config without an explicit schema must throw.
+        logger.info("TEST: No schema configured is rejected at build");
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        PgConnectionConfig config = new PgConnectionConfig.Builder()
+        PgConnectionConfig.Builder builder = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
             .database(postgres.getDatabaseName())
             .username(postgres.getUsername())
             .password(postgres.getPassword())
-            .schema(null)
-            .build();
+            .schema(null);
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(3)
-            .shared(false)
-            .idleTimeout(Duration.ofSeconds(2))
-            .connectionTimeout(Duration.ofSeconds(5))
-            .build();
-
-        connectionManager.getOrCreateReactivePool("test-no-schema", config, poolConfig);
-
-        connectionManager.withConnection("test-no-schema", conn ->
-            conn.query("SELECT 1").execute()
-                .map(rows -> rows.iterator().hasNext())
-        )
-        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
-            assertTrue(result, "Should successfully query with default search_path");
-            logger.info("No schema configuration correctly uses default search_path");
-            testContext.completeNow();
-        })));
+        assertThrows(NullPointerException.class, builder::build,
+            "Building a connection config without a schema must throw — PeeGeeQ has no default schema");
+        testContext.completeNow();
     }
 
     @Test

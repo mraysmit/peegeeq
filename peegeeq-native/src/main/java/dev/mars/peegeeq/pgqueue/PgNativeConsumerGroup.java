@@ -91,25 +91,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     private final String connectionServiceId;
     private volatile PartitionedConsumerEngine<T> partitionedEngine;
 
-    public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
-                                VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                MetricsProvider metrics) {
-        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, null, null, null, null);
-    }
-
-    public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
-                                VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                MetricsProvider metrics, PeeGeeQConfiguration configuration) {
-        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, configuration, null, null, null);
-    }
-
-    public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
-                                VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
-                                MetricsProvider metrics, PeeGeeQConfiguration configuration,
-                                DatabaseService databaseService) {
-        this(groupName, topic, payloadType, poolAdapter, objectMapper, metrics, configuration, databaseService, null, null);
-    }
-
+    // Single canonical constructor. The earlier telescoping overloads (6-, 7-, 8-arg) were
+    // removed: production builds groups only through this full form (PgNativeQueueFactory),
+    // and the short overloads existed only to let tests pass null for configuration /
+    // databaseService / connectionManager — the optional-via-null pattern that PeeGeeQ
+    // has eliminated (a null configuration now fails fast when the group starts).
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
                                 MetricsProvider metrics, PeeGeeQConfiguration configuration,
@@ -327,15 +313,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
      */
     private void startReferenceCountingInternal() {
         // Create the underlying consumer that will receive all messages
-        if (configuration != null) {
-            underlyingConsumer = new PgNativeQueueConsumer<>(
-                poolAdapter, objectMapper, topic, payloadType, metrics, configuration
-            );
-        } else {
-            underlyingConsumer = new PgNativeQueueConsumer<>(
-                poolAdapter, objectMapper, topic, payloadType, metrics
-            );
-        }
+        // The configuration is required: the consumer's LISTEN channel derives from
+        // the configured schema — PeeGeeQ has no default schema.
+        underlyingConsumer = new PgNativeQueueConsumer<>(
+            poolAdapter, objectMapper, topic, payloadType, metrics, configuration
+        );
 
         // Subscribe to messages and distribute them to group members
         underlyingConsumer.subscribe(this::distributeMessage)
