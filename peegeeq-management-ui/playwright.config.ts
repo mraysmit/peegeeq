@@ -188,6 +188,13 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 7c2: Queue Details Consumers – Consumers tab renders real subscription data
+    {
+      name: '7c2-queue-details-consumers',
+      testMatch: '**/queue-details-consumers.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 7d: Queue Config Create and Display – create-form fields + config card on Overview tab
     {
       name: '7d-queue-config-create-and-display',

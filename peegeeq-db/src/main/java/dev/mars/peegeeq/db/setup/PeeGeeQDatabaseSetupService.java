@@ -52,6 +52,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final Map<String, DatabaseSetupResult> activeSetups = new ConcurrentHashMap<>();
     private final Map<String, DatabaseConfig> setupDatabaseConfigs = new ConcurrentHashMap<>();
     private final Map<String, PeeGeeQManager> activeManagers = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, EventStoreConfig>> eventStoreConfigs = new ConcurrentHashMap<>();
 
     // Reuse Vert.x instance when running inside Vert.x; otherwise create a new one
     // lazily
@@ -684,6 +685,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                             EventStore<?> newStore = newStores.get(eventStoreConfig.getEventStoreName());
                             if (newStore != null) {
                                 setup.getEventStores().put(eventStoreConfig.getEventStoreName(), newStore);
+                                eventStoreConfigs.computeIfAbsent(setupId, k -> new ConcurrentHashMap<>())
+                                        .put(eventStoreConfig.getEventStoreName(), eventStoreConfig);
                                 logger.info("Added event store '{}' to setup '{}'. Total stores: {}",
                                         eventStoreConfig.getEventStoreName(), setupId, setup.getEventStores().size());
                             }
@@ -702,6 +705,59 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     }
                     return Future.succeededFuture(ar.result());
                 });
+    }
+
+    @Override
+    public Future<Void> removeEventStore(String setupId, String storeName) {
+        DatabaseSetupResult setup = activeSetups.get(setupId);
+        DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
+
+        if (setup == null || dbConfig == null) {
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+        }
+
+        EventStore<?> store = setup.getEventStores().get(storeName);
+        if (store == null) {
+            return Future.failedFuture(new IllegalArgumentException("Event store not found: " + storeName));
+        }
+
+        Map<String, EventStoreConfig> configs = eventStoreConfigs.getOrDefault(setupId, Map.of());
+        EventStoreConfig config = configs.get(storeName);
+        String tableName = config != null ? config.getTableName()
+                : storeName.replaceAll("-", "_") + "_events";
+        String schema = dbConfig.getSchema();
+
+        logger.info("Removing event store '{}' (table: {}.{}) from setup '{}'",
+                storeName, schema, tableName, setupId);
+
+        PgConnectOptions connectOptions = new PgConnectOptions()
+                .setHost(dbConfig.getHost())
+                .setPort(dbConfig.getPort())
+                .setDatabase(dbConfig.getDatabaseName())
+                .setUser(dbConfig.getUsername())
+                .setPassword(dbConfig.getPassword());
+
+        Pool tempPool = PgBuilder.pool()
+                .with(new PoolOptions().setMaxSize(1))
+                .connectingTo(connectOptions)
+                .using(vertx)
+                .build();
+
+        return store.close()
+                .compose(v -> tempPool.withConnection(conn ->
+                        conn.query("DROP TABLE IF EXISTS " + schema + "." + tableName + "_aggregate_summary CASCADE").execute()
+                                .compose(r -> conn.query("DROP TABLE IF EXISTS " + schema + "." + tableName + " CASCADE").execute())
+                ))
+                .eventually(() -> tempPool.close())
+                .map(v -> {
+                    setup.getEventStores().remove(storeName);
+                    Map<String, EventStoreConfig> cfgMap = eventStoreConfigs.get(setupId);
+                    if (cfgMap != null) cfgMap.remove(storeName);
+                    logger.info("Event store '{}' removed from setup '{}'", storeName, setupId);
+                    return (Void) null;
+                })
+                .onFailure(e -> logger.error("Failed to remove event store '{}' from setup '{}': {}",
+                        storeName, setupId, e.getMessage(), e));
     }
 
     private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig, String setupId) {

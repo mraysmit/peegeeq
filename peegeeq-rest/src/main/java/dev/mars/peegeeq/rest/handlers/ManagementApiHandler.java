@@ -1796,22 +1796,12 @@ public class ManagementApiHandler {
     private void deleteEventStoreImpl(RoutingContext ctx, String setupId, String storeName) {
         logger.info("Event store deletion requested for setup: {}, store: {}", setupId, storeName);
 
-        // Verify the setup exists and has the event store
-        setupService.getSetupResult(setupId)
-                .compose(setupResult -> {
-                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        return Future.failedFuture(new ResponseException(404, "Setup not found or not active: " + setupId));
-                    }
-                    if (!setupResult.getEventStores().containsKey(storeName)) {
-                        return Future.failedFuture(new ResponseException(404, "Event store not found: " + storeName));
-                    }
-                    return Future.succeededFuture(setupId + "-" + storeName);
-                })
-                .map(storeId -> {
-                    logger.info("Event store {} deleted successfully from setup {}", storeName, setupId);
+        setupService.removeEventStore(setupId, storeName)
+                .map(v -> {
+                    logger.info("Event store '{}' deleted successfully from setup '{}'", storeName, setupId);
                     return new JsonObject()
                             .put("message", "Event store '" + storeName + "' deleted successfully from setup '" + setupId + "'")
-                            .put("storeId", storeId)
+                            .put("storeId", setupId + "-" + storeName)
                             .put("setupId", setupId)
                             .put("storeName", storeName)
                             .put("note", "Event store and associated data have been removed")
@@ -1824,10 +1814,12 @@ public class ManagementApiHandler {
                 .onFailure(throwable -> {
                     if (throwable instanceof ResponseException re) {
                         sendError(ctx, re.statusCode, re.getMessage());
+                    } else if (isSetupNotFoundError(throwable) || throwable instanceof IllegalArgumentException) {
+                        sendError(ctx, 404, throwable.getMessage());
                     } else {
-                        logger.error("Error deleting event store {} from setup {}: {}", storeName, setupId,
+                        logger.error("Error deleting event store '{}' from setup '{}': {}", storeName, setupId,
                                 throwable.getMessage());
-                        sendError(ctx, 404, "Setup or event store not found: " + throwable.getMessage());
+                        sendError(ctx, 500, "Failed to delete event store: " + throwable.getMessage());
                     }
                 });
     }

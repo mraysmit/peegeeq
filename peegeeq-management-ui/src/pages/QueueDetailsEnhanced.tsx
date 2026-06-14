@@ -68,6 +68,45 @@ const QueueDetailsPage = () => {
     const [publishForm] = Form.useForm();
     const [getMessagesForm] = Form.useForm();
 
+    // Consumers tab state
+    interface ConsumerInfo {
+        groupName: string;
+        topic: string;
+        status: string;
+        subscribedAt: string | null;
+        lastActiveAt: string | null;
+        lastHeartbeatAt: string | null;
+        heartbeatIntervalSeconds: number | null;
+        heartbeatTimeoutSeconds: number | null;
+        backfillStatus: string | null;
+        backfillProcessedMessages: number | null;
+        backfillTotalMessages: number | null;
+    }
+    const [consumers, setConsumers] = useState<ConsumerInfo[]>([]);
+    const [consumersLoading, setConsumersLoading] = useState(false);
+
+    const fetchConsumers = async () => {
+        if (!setupId || !queueName) return;
+        setConsumersLoading(true);
+        try {
+            const resp = await axios.get(
+                getVersionedApiUrl(`/queues/${setupId}/${queueName}/consumers`)
+            );
+            setConsumers(resp.data?.consumers ?? []);
+        } catch {
+            setConsumers([]);
+        } finally {
+            setConsumersLoading(false);
+        }
+    };
+
+    const handleTabChange = (key: string) => {
+        setActiveTab(key);
+        if (key === 'consumers') {
+            fetchConsumers();
+        }
+    };
+
     // Fetch queue details
     const { data: queue, isLoading, isFetching, refetch, error } = useGetQueueDetailsQuery(
         { setupId: setupId!, queueName: queueName! },
@@ -485,7 +524,7 @@ const QueueDetailsPage = () => {
                 <Tabs
                     data-testid="queue-details-tabs"
                     activeKey={activeTab}
-                    onChange={setActiveTab}
+                    onChange={handleTabChange}
                     items={[
                         {
                             key: 'overview',
@@ -584,11 +623,58 @@ const QueueDetailsPage = () => {
                             key: 'consumers',
                             label: `Consumers (${queue.consumers?.length || 0})`,
                             children: (
-                                <Alert
-                                    message="Consumers Tab - Coming in Week 5"
-                                    description="List of active consumers, their statistics, and health status will be displayed here."
-                                    type="info"
-                                    showIcon
+                                <Table
+                                    loading={consumersLoading}
+                                    dataSource={consumers}
+                                    rowKey="groupName"
+                                    pagination={{ pageSize: 20 }}
+                                    locale={{ emptyText: 'No consumer groups subscribed to this queue.' }}
+                                    columns={[
+                                        {
+                                            title: 'Group Name',
+                                            dataIndex: 'groupName',
+                                            key: 'groupName',
+                                            render: (name: string) => <Text code>{name}</Text>,
+                                        },
+                                        {
+                                            title: 'Topic',
+                                            dataIndex: 'topic',
+                                            key: 'topic',
+                                        },
+                                        {
+                                            title: 'Status',
+                                            dataIndex: 'status',
+                                            key: 'status',
+                                            render: (status: string) => {
+                                                const color = status === 'ACTIVE' ? 'green' : status === 'IDLE' ? 'orange' : 'default';
+                                                return <Tag color={color}>{status}</Tag>;
+                                            },
+                                        },
+                                        {
+                                            title: 'Subscribed At',
+                                            dataIndex: 'subscribedAt',
+                                            key: 'subscribedAt',
+                                            render: (v: string | null) => v ? new Date(v).toLocaleString() : '—',
+                                        },
+                                        {
+                                            title: 'Last Active',
+                                            dataIndex: 'lastActiveAt',
+                                            key: 'lastActiveAt',
+                                            render: (v: string | null) => v ? new Date(v).toLocaleString() : '—',
+                                        },
+                                        {
+                                            title: 'Last Heartbeat',
+                                            dataIndex: 'lastHeartbeatAt',
+                                            key: 'lastHeartbeatAt',
+                                            render: (v: string | null) => v ? new Date(v).toLocaleString() : '—',
+                                        },
+                                        {
+                                            title: 'Backfill Status',
+                                            dataIndex: 'backfillStatus',
+                                            key: 'backfillStatus',
+                                            render: (v: string | null) => v ?? '—',
+                                        },
+                                    ]}
                                 />
                             ),
                         },
