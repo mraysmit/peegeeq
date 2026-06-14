@@ -95,7 +95,7 @@ OutboxFactoryRegistrar.registerWith(registrar);    // registers key "outbox"
 5. Call queueFactoryProvider.createFactory(type, databaseService, factoryConfig)
 ```
 
-**File:** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/setup/PeeGeeQDatabaseSetupService.java` (method `createQueueFactories`, around line 828)
+**File:** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/setup/PeeGeeQDatabaseSetupService.java` (method `createQueueFactories`, around line 735)
 
 ### Database Tables
 
@@ -143,7 +143,7 @@ if (!normalized.equals("native") && !normalized.equals("outbox")) {
 
 **File:** `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ConfigParser.java` (lines 68–83)
 
-**Response body** — all config fields are returned regardless of whether they were supplied in the request. The backend fills in defaults from `QueueConfig` and echoes the full resolved config back to the caller (`ManagementApiHandler.java` line 1074):
+**Response body** — the handler calls `setupService.addQueue()` (which returns void), then reconstructs the response from the resolved `QueueConfig` object and the factory's reported `implementationType` (`ManagementApiHandler.java` line 1074). Fields not supplied in the request are populated from `QueueConfig` defaults:
 ```json
 {
   "message": "Queue 'my-queue' created successfully in setup 'default'",
@@ -321,12 +321,10 @@ handleTypeFilter(value: string | string[]) {
 </Tag>
 ```
 
-**Create queue modal** — currently hardcoded to `'native'`:
+**Create queue modal** — the form exposes a type selector with "native" and "outbox" options. `'native'` is used as the fallback only when no value is selected:
 ```typescript
-const requestBody = { setup: values.setup, name: values.name, type: 'native' };
+const requestBody = { setup: values.setup, name: values.name, type: values.type ?? 'native' };
 ```
-
-> **Gap:** The create-queue form does not yet expose a type selector. All queues are created as `native` from the UI. To create an `outbox` queue, the REST API must be called directly.
 
 ### Queue Details Page — `QueueDetailsEnhanced.tsx`
 
@@ -397,7 +395,6 @@ Queue Details Page
 
 | Gap | Detail |
 |---|---|
-| **UI type selection missing** | The create-queue modal hardcodes `type: 'native'`. There is no UI control to create an outbox queue. |
 | **Type-specific config not exposed** | Native consumer mode (`LISTEN_NOTIFY_ONLY` / `POLLING_ONLY` / `HYBRID`) and outbox fields (`visibilityTimeout`, `stuckMessageThreshold`, etc.) are defined in TypeScript types but are not rendered or editable in the UI. |
-| **`bitemporal` type** | Referenced in the TypeScript union type and shown in purple in the UI, but there is no corresponding factory or backend implementation visible in the codebase. |
+| **`bitemporal` type causes backend error** | `'bitemporal'` is present in the `QueueType` union and rendered as a selectable option in the create modal. However `ConfigParser` rejects it at the backend ("Supported values are: native, outbox"), so selecting it produces a user-visible `IllegalArgumentException`. No queue factory or registrar for `bitemporal` exists in the codebase — the type exists only in the event-store module, not as a queue implementation. |
 | **Field name mismatch** | Backend uses `implementationType`; frontend interface uses `type`. The `transformResponse` in `getQueueDetails` handles this, but the create mutation sends `type` and some list responses use `implementationType` — dual aliasing is required throughout. |
