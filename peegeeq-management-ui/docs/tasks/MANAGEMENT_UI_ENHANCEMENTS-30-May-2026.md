@@ -1,10 +1,7 @@
 # PeeGeeQ Management UI — Enhancement Plan
 
-**Date**: 2026-05-30  
-**Status**: Draft for review  
-**Scope**: Frontend (`peegeeq-management-ui`) only. Backend REST/WS/SSE contracts are treated as given.
-
-> **Update 2026-06-14.** This 2026-05-30 draft has been reconciled with the current `peegeeq-management-ui` source: **stale content was removed or rewritten in place** (not just annotated), and **§6** was added to trace every referenced flow through all layers (frontend → REST → handler → core/DB) with end-to-end statuses. Highlights: the **"Event Visualization" page (`/event-visualization`) no longer exists** — it is now two pages, `/causation-tree` and `/aggregate-stream`; the notification bell (§1.4), the real-time channel table (§1.2), and the test-coverage list (§1.5) were rewritten to current state; a new **§1.7** documents the setup-scope selector the draft omitted; and the broken screenshot links were repointed to the maintained set under `docs-design/peegeeq-management-ui/screenshots/`. Remaining known gaps are flagged in §6 (e.g. the event-store-delete no-op, §6.1).
+**Date**: 2026-06-14  
+**Scope**: `peegeeq-management-ui` frontend + `peegeeq-rest` backend where noted.
 
 ---
 
@@ -140,8 +137,6 @@ Every piece of functionality on every screen, as implemented.
 
 **Delete Event Store** — confirmation modal noting all events will be permanently deleted
 
-> ⚠️ **Corrected 2026-06-14 — no longer embedded here.** The Causation Tree and Aggregate Stream sections were extracted to two standalone pages (`/causation-tree`, `/aggregate-stream`); `EventStores.tsx` no longer renders them (no `EventVisualization` component remains). The Event Stores page now renders a `SetupScopeBar` at the top (`EventStores.tsx:329`) and keeps the per-row **View Details** modal (which still lists Aggregate Types / Event Types). Full detail for the two extracted pages is in the rewritten **"Causation Tree & Aggregate Stream"** section below (formerly "Event Visualization").
-
 ---
 
 ### Events (`/events`)
@@ -241,8 +236,6 @@ Every piece of functionality on every screen, as implemented.
 
 ### Causation Tree (`/causation-tree`) & Aggregate Stream (`/aggregate-stream`)
 
-> ⚠️ **Corrected 2026-06-14.** The original draft described a single **Event Visualization** page at `/event-visualization` backed by an `EventVisualization` component (also embedded in Event Stores). As of 2026-06-14 **none of that exists**: there is no `/event-visualization` route, no `EventVisualization` component, and no `viz-setup-select` / `viz-eventstore-select` testids. The functionality was split into the two standalone pages below (`CausationTreePage.tsx`, `AggregateStreamPage.tsx`), each with its own setup/event-store selectors and richer behavior. Both are reachable from the sidebar (nav items 7 and 8).
-
 #### Causation Tree (`/causation-tree`) — `CausationTreePage.tsx`
 - Title "Causation Tree" (BranchesOutlined)
 - **Select Event Store card**: Setup dropdown (`data-testid="causation-setup-select"`) + Event Store dropdown (`data-testid="causation-eventstore-select"`, disabled until a setup is chosen, filtered to that setup)
@@ -299,8 +292,6 @@ Every piece of functionality on every screen, as implemented.
 
 ### Sidebar (all pages)
 
-> ⚠️ **Corrected 2026-06-14.** The nav has **9** items (was 8): item 7 "Visualization" was replaced by two items (Causation Tree, Aggregate Stream), pushing Message Browser to position 9. Each link carries a `data-testid="nav-*"`. (Source: `App.tsx:42-88`.)
-
 Nav items (in order):
 1. Overview (`/`) — DashboardOutlined — `nav-overview`
 2. Database Setups (`/database-setups`) — SettingOutlined — `nav-database-setups`
@@ -328,7 +319,7 @@ Settings (`/settings`) is **not** in the sidebar — it is reached from the Head
 | Consumer Groups | `/consumer-groups` | Working |
 | Event Stores | `/event-stores` | Working — create, list event stores |
 | Events | `/events` | Working — post events, query and filter events |
-| Causation Tree | `/causation-tree` | Working — correlation-ID causation tree (replaced the removed `/event-visualization`) |
+| Causation Tree | `/causation-tree` | Working — correlation-ID causation tree |
 | Aggregate Stream | `/aggregate-stream` | Working — aggregate list + keyset-paginated event stream |
 | Message Browser | `/messages` | Working |
 | Settings | `/settings` | Working — configure backend URL, test connection, reset to defaults |
@@ -545,9 +536,7 @@ The actions dropdown on each setup row includes a **View Details** item that fir
 | Queue Designer | `QueueDesigner.tsx` | "Visual Queue Designer interface coming soon" |
 | Monitoring | `Monitoring.tsx` | "Real-time Monitoring dashboards coming soon" |
 
-Each of these pages renders only an Ant Design `<Empty>` component with no further content.
-
-> ⚠️ **Corrected 2026-06-14 — these are unreachable, not just stubs.** `App.tsx` does not import or route any of the four, and none appears in the sidebar nav — there is no way to navigate to them in the app. (Stale `pageTitle` entries for their paths still linger in `Header.tsx:27-30`.) Separately, there is one **undocumented hidden page**, `TestHarness.tsx` at `/test-harness`, special-cased outside the normal layout (`App.tsx:127`).
+Each of these pages renders only an Ant Design `<Empty>` component with no further content. `App.tsx` does not import or route any of the four and none appears in the sidebar nav — there is no way to navigate to them in the running app. Stale `pageTitle` entries for their paths linger in `Header.tsx:27-30`. There is also one undocumented hidden page, `TestHarness.tsx` at `/test-harness`, special-cased outside the normal layout (`App.tsx:127`).
 
 #### Header — user menu and authentication
 
@@ -558,9 +547,9 @@ Each of these pages renders only an Ant Design `<Empty>` component with no furth
 
 ---
 
-## 1.7 Setup scope selector (`SetupScopeBar`) — added since the draft
+## 1.7 Setup scope selector (`SetupScopeBar`)
 
-> ⚠️ **Added 2026-06-14 — missing from the original draft.** `components/common/SetupScopeBar.tsx` is a cross-cutting setup/scope selector rendered near the top of several pages (Overview `Overview.tsx:304`, Event Stores `EventStores.tsx:329`, and others). It scopes a page to a chosen setup, with the selection persisted across navigation. Extensive E2E coverage exists: `overview-setup-selector`, `queues-setup-selector`, `events-scope-selector`, `message-browser-scope-selectors`, `consumer-groups-scope-selectors`, `visualization-scope-selector`, `event-stores-scope-filter`, `event-stores-setup-selector`, and `scope-selector-persistence`. None of this was described in §0.
+`components/common/SetupScopeBar.tsx` is a cross-cutting setup/scope selector rendered near the top of several pages (Overview `Overview.tsx:304`, Event Stores `EventStores.tsx:329`, and others). It scopes a page to a chosen setup, with the selection persisted across navigation. E2E coverage: `overview-setup-selector`, `queues-setup-selector`, `events-scope-selector`, `message-browser-scope-selectors`, `consumer-groups-scope-selectors`, `visualization-scope-selector`, `event-stores-scope-filter`, `event-stores-setup-selector`, `scope-selector-persistence`.
 
 ---
 
@@ -568,37 +557,32 @@ Each of these pages renders only an Ant Design `<Empty>` component with no furth
 
 ### 2.1 Wire the notification bell to a backend event stream  *(Priority: Medium)*
 
-**Status (2026-06-14)**: ✅ Largely implemented client-side — the badge, store slice, and drawer all exist (§1.4 / §6.5), so steps 3–4 below are done. The outstanding work is the backend source: `/ws/monitoring` does not emit `management_event`, so steps 1–2 (a backend management-events message/endpoint) remain.
+The badge, store slice, and drawer are fully implemented client-side (§1.4 / §6.5). The outstanding work is the backend source: `/ws/monitoring` does not emit `management_event`, so the listener at `Overview.tsx:190` is dead.
 
 **Proposed**:
-1. Add a new backend management-events WebSocket endpoint or piggyback on `/ws/monitoring` by adding `type: "management_event"` messages.
+1. Add `type: "management_event"` messages to `/ws/monitoring` (or a new dedicated endpoint).
 2. In `websocketService.ts` add `createManagementEventsService` factory.
-3. In `Header.tsx` replace hardcoded `count={0}` with state from a Zustand slice that accumulates unread management events.
-4. Clicking the bell opens an Ant Design `Drawer` listing events with timestamp, resource, and action.
-5. Events could include: setup created/deleted, queue created/deleted, event store created/deleted, consumer group changed, backend health alerts.
 
-**Files affected** (frontend only):
-- `Header.tsx` — replace `count={0}` with reactive state
+Events should include: setup created/deleted, queue created/deleted, event store created/deleted, consumer group changed, backend health alerts. Steps 3–4 (badge wired to store, drawer on click) are already done.
+
+**Files affected**:
+- Backend: `SystemMonitoringHandler.java` or new handler
 - `websocketService.ts` — new factory function
-- `managementStore.ts` (or new `notificationStore.ts`) — new Zustand slice
-- New `NotificationsDrawer.tsx` component
 
 **Test coverage to add**:
-- Unit test: `notificationStore` slice accumulates and clears events correctly
-- E2E: bell badge increments after a resource creation; drawer opens and lists the event; badge resets to 0 when drawer is dismissed
+- E2E: bell badge increments from a backend-emitted event; drawer lists the event; badge resets to 0 when dismissed
 
 ---
 
 ### 2.2 Live queue message count in the Queues table  *(Priority: Medium)*
 
-> ⚠️ **Partially done / re-scope — see §6.4.** `createQueueUpdatesSSE` is already wired in `QueuesEnhanced.tsx:126` and triggers `refetch()`. **But** the backend bus event (`ManagementApiHandler.publishQueueChanged`) is published only on queue **create/update/delete**, not on message publish/purge — so this channel does *not* deliver a live message *count*. Achieving the stated goal needs a backend change (emit on message-count change) or a different source, not frontend wiring.
+`createQueueUpdatesSSE` is already wired in `QueuesEnhanced.tsx:126` and triggers `refetch()`. The remaining gap is on the backend: `ManagementApiHandler.publishQueueChanged` fires only on queue create/update/delete, not on message publish or purge, so the SSE channel never fires when a message is sent. The fix is a backend change — `QueueHandler.sendMessage` must call `publishQueueChanged` after a successful send (see §7.9).
 
-**Current state**: The queues table polls REST every 30 seconds. Message count is stale.
+**Current state**: the queues table polls REST every 30 seconds. Message count is stale between polls.
 
 **Proposed**:
-- `createQueueUpdatesSSE(setupId, ...)` already exists in `websocketService.ts` but is not wired to any page.
-- Wire it in `Queues.tsx` and `QueueDetailsEnhanced.tsx`: subscribe to `GET /api/v1/sse/queues/{setupId}`, update the Zustand queue list on each event.
-- Drop the 30-second polling interval for message count (keep it for initial load and fallback).
+- Backend: call `publishQueueChanged(setupId, queueName)` from `QueueHandler.sendMessage` and `sendMessages`.
+- Frontend: no change needed — `QueuesEnhanced.tsx:126` already calls `refetch()` on each SSE event.
 
 **Files affected**:
 - `Queues.tsx` / `QueuesEnhanced.tsx` — subscribe to SSE on mount, unsubscribe on unmount
@@ -819,20 +803,24 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 
 ### Phase order
 
+> **Codebase review 2026-06-14** refined Phases 6 and 7: both are largely already implemented. Phase 6 (reconnecting UI) only needs E2E coverage and SSE parity checks. Phase 7 (toasts) only needs Consumer Groups. A new Phase 4a was added for the missing header title mappings.
+
 | # | What it delivers | Layer(s) | Prerequisite |
 |---|---|---|---|
 | 1 | Fix event-store delete | `peegeeq-rest` | — |
 | 2 | Queue Details — Consumers tab wired | `peegeeq-management-ui` | — |
 | 3 | Queues list — Purge action wired | `peegeeq-management-ui` | — |
 | 4 | Database Setups — View Details modal | `peegeeq-management-ui` | — |
+| 4a | Header title mapping (quick fix) | `peegeeq-management-ui` | — |
 | 5 | WS queue stream in Queue Details | `peegeeq-management-ui` | — |
-| 6 | Reconnection UI feedback | `peegeeq-management-ui` | — |
-| 7 | Toast on resource create/delete | `peegeeq-management-ui` | — |
+| 6 | Reconnection UI — E2E coverage + SSE parity *(UI already implemented)* | `peegeeq-management-ui` | — |
+| 7 | Consumer Groups success toasts *(other resource flows already done)* | `peegeeq-management-ui` | — |
+| 7a | Notifications page (`/notifications`) | `peegeeq-management-ui` | — |
 | 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 |
 | 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — |
 | 10 | Authentication layer | TBD — architecture decision required | — |
 
-Phases 1–4 are the lowest-risk deliveries: Phase 1 is a confirmed defect, Phases 2–4 have a fully-real backend endpoint waiting for a UI stub to be removed. Phases 5–9 add new real-time behaviour. Phase 10 is gated on an architecture call (§7.10).
+Phases 1–4a are the lowest-risk deliveries: Phase 1 is a confirmed defect, Phases 2–4 have a fully-real backend endpoint waiting for a UI stub to be removed, Phase 4a is a two-line lookup-table fix. Phases 5–9 add new real-time behaviour. Phase 10 is gated on an architecture call (§7.10).
 
 ---
 
@@ -862,7 +850,7 @@ test('delete event store — store no longer appears in list after deletion')
 
 ### 7.2 Queue Details — Consumers tab wired
 
-**Source**: §6.3 ⚠️. `QueueDetailsEnhanced.tsx:588` shows a stub banner. `GET /api/v1/queues/:setupId/:queueName/consumers` → `getQueueConsumers` (line 1994) is fully real.
+**Source**: §6.3. `QueueDetailsEnhanced.tsx:588` shows a stub banner. `GET /api/v1/queues/:setupId/:queueName/consumers` → `getQueueConsumers` (line 1994) is fully real.
 
 **Response schema** (from source — the §0 column spec was aspirational; implement against what the endpoint actually returns):
 
@@ -953,6 +941,34 @@ test('view details modal shows setup configuration')
 
 ---
 
+### 7.4a Header title mapping (quick fix)
+
+**Source**: codebase review 2026-06-14. `Header.tsx:18` has a `pageTitle` lookup map that does not include `/causation-tree`, `/aggregate-stream`, or `/queues/:setupId/:queueName`. Navigating to any of these shows the fallback `"PeeGeeQ Management"` as the page title.
+
+**Failing test (write first)**
+
+Add to the relevant spec files (e.g. `causation-tree.spec.ts`, `aggregate-stream.spec.ts`, `queue-details-overview.spec.ts`):
+```
+test('header shows correct page title on navigation')
+  1. Navigate to /causation-tree
+  2. Assert page header title text equals "Causation Tree"
+  3. Navigate to /aggregate-stream
+  4. Assert page header title text equals "Aggregate Stream"
+  5. Navigate to /queues/default/{queueName}
+  6. Assert page header title text equals "Queue Details" (or equivalent)
+```
+
+**Implementation**
+
+`Header.tsx` — add three entries to the `pageTitle` map (line ~18):
+- `'/causation-tree'` → `'Causation Tree'`
+- `'/aggregate-stream'` → `'Aggregate Stream'`
+- Match `/queues/:setupId/:queueName` (a dynamic segment) — use `location.pathname.startsWith('/queues/')` with a guard that excludes the list page `/queues` exactly, or use the same pattern already used for any other parameterised route in the file.
+
+**Acceptance**: all three pages show their correct title in the header; fallback is not triggered; all tests pass.
+
+---
+
 ### 7.5 WS queue stream in Queue Details
 
 **Source**: §6.4 ❌. `createMessageStreamService` in `websocketService.ts` exists; `useMessageStream` hook is commented out; `QueueDetailsEnhanced.tsx` polls REST. Backend `WebSocketHandler.handleQueueStream` is real (`ws://host/ws/queues/{setupId}/{queueName}`).
@@ -976,9 +992,13 @@ test('new message appears in Messages tab in real time without page reload')
 
 ---
 
-### 7.6 Reconnection UI feedback
+### 7.6 Reconnection UI — E2E coverage + SSE parity
 
-**Source**: §2.4. WS/SSE status tags jump from Connected directly to Disconnected — no intermediate "Reconnecting…" state. `WebSocketService.scheduleReconnect()` already fires reconnect attempts but exposes no callback.
+**Source**: §2.4 and codebase review 2026-06-14. The codebase review confirmed that the yellow `"Reconnecting…"` tag is **already implemented**: `Overview.tsx:314` renders it using `wsReconnecting` / `sseReconnecting` from the Zustand store, and the WS service `onReconnecting` callback is already wired. No implementation work is needed for WS reconnection.
+
+This phase is therefore scoped to:
+1. E2E test coverage for the existing reconnecting state (currently no spec asserts this transition).
+2. Verify SSE reconnection parity — confirm that `sseReconnecting` in the store is driven by an equivalent `onReconnecting` callback from the SSE service, and add it if missing.
 
 **Failing test (write first)**
 
@@ -987,33 +1007,93 @@ New `src/tests/e2e/specs/connection-recovery.spec.ts`:
 test('WS status shows Reconnecting state after connection is lost')
   1. Navigate to /; assert websocket-status = "Connected"
   2. Configure an invalid WS URL in Settings; return to /
-  3. Assert websocket-status transitions through "Reconnecting" (yellow) before reaching "Disconnected"
+  3. Assert websocket-status tag transitions through "Reconnecting" (yellow) before reaching "Disconnected"
+
+test('SSE status shows Reconnecting state after connection is lost')
+  1. Same pattern for sse-status tag
 ```
 
 **Implementation**
 
-`websocketService.ts` — add `onReconnecting?: () => void` to `WebSocketConfig`; invoke from `scheduleReconnect()` before the first retry fires.  
-`managementStore.ts` — add `wsReconnecting: boolean` (default `false`) + `setWsReconnecting(v)` action.  
-`Overview.tsx` — wire `onReconnecting` → `setWsReconnecting(true)`; `onConnect` → `setWsReconnecting(false)`; render yellow "Reconnecting…" `Tag` on `websocket-status` when `wsReconnecting`.  
-`ConnectionStatus.tsx` — same yellow badge variant in the header.
+Check only: if the SSE service (`createSystemMetricsSSE`, `createSystemMonitoringService`) does not have an `onReconnecting` callback driving `sseReconnecting`, add one to match the WS pattern. No WS-side changes needed.
 
-**Acceptance**: Connected → Reconnecting (yellow) → Disconnected transition visible; clears on successful reconnect; all tests pass.
+**Acceptance**: both WS and SSE reconnecting states are asserted by E2E tests; states clear on successful reconnect; all tests pass.
 
 ---
 
-### 7.7 Toast on resource create/delete
+### 7.7 Consumer Groups success toasts
 
-**Source**: §2.3. Several CRUD flows close the modal silently. `message.success(...)` (Ant Design) is already the established pattern.
+**Source**: §2.3 and codebase review 2026-06-14. The codebase review confirmed that `DatabaseSetups.tsx`, `QueuesEnhanced.tsx`, and `EventStores.tsx` **already fire `message.success(...)`** on create and delete. The only resource type that does not is `ConsumerGroups.tsx`: both `handleCreateModalOk` and `handleDeleteGroup` close silently on success.
 
 **Failing tests (write first)**
 
-Add `await expect(page.locator('.ant-message-success')).toBeVisible()` assertions to the existing spec for each resource type where the toast is currently absent: setup create, setup delete, queue create, queue delete, event-store create, event-store delete (requires Phase 7.1 done first), consumer-group create, consumer-group delete.
+Add to `src/tests/e2e/specs/consumer-groups.spec.ts`:
+```
+test('shows success toast after consumer group creation')
+  1. Create a consumer group via the UI
+  2. Assert .ant-message-success is visible
+
+test('shows success toast after consumer group deletion')
+  1. Delete a consumer group via the UI
+  2. Assert .ant-message-success is visible
+```
 
 **Implementation**
 
-`DatabaseSetups.tsx`, `QueuesEnhanced.tsx`, `EventStores.tsx`, `ConsumerGroups.tsx` — add `message.success('...')` in each success callback where missing. One toast per user-initiated action. No toasts on intermediate steps.
+`ConsumerGroups.tsx` — add `message.success('Consumer group created')` at the end of `handleCreateModalOk`'s success branch, and `message.success('Consumer group deleted')` at the end of `handleDeleteGroup`'s success branch. No other files need changes.
 
-**Acceptance**: every resource create/delete shows a success toast; all tests pass.
+**Acceptance**: consumer group create and delete each show a success toast; all tests pass.
+
+---
+
+### 7.7a Notifications page (`/notifications`)
+
+**Design**: the existing bell drawer (§1.4) is unchanged — it remains the quick-glance surface. The notifications page is a full history view, reachable from a new sidebar nav item. Both read from the same `managementStore` slice.
+
+**What the page shows**: the full `notifications` array from `managementStore` (capped at 50, reset on page reload until Phase 8 adds a backend source). A table with columns derived from `ManagementNotification` — at minimum: Timestamp, Action (create / delete), Resource Type (setup / queue / event store / consumer group), Resource Name, Read (tag: New / Read). Page-level actions: **Mark All Read** (`markAllNotificationsRead()`) and **Clear All** (`clearNotifications()`). Empty state when the array is empty.
+
+**Nav item**: add to `App.tsx` sidebar between Message Browser and the bottom of the list. Icon: `BellOutlined`. Route: `/notifications`. Testid: `nav-notifications`.
+
+**Failing test (write first)**
+
+New `src/tests/e2e/specs/notification-page.spec.ts`:
+```
+test('notifications page shows events from resource actions')
+  1. Create a queue via the UI (generates a notification)
+  2. Navigate to /notifications via the sidebar nav item
+  3. Assert the page renders a table (not empty state)
+  4. Assert the table contains a row for the queue creation (resource name visible)
+  5. Assert the row has a "New" read status tag
+
+test('mark all read clears unread status')
+  1. Navigate to /notifications with at least one unread entry
+  2. Click Mark All Read
+  3. Assert no rows show the "New" tag
+  4. Assert the bell badge in the header resets to 0
+
+test('clear all empties the notifications list')
+  1. Navigate to /notifications with at least one entry
+  2. Click Clear All
+  3. Assert the empty state is shown
+  4. Assert the bell badge in the header shows 0
+```
+
+**Implementation**
+
+New file: `peegeeq-management-ui/src/pages/NotificationsPage.tsx`
+- Read `notifications` and `unreadCount` from `managementStore`.
+- Render an Ant Design `Table` with columns built from the `ManagementNotification` type fields. Check the actual type definition in `managementStore.ts` and map all available fields to columns; do not invent fields.
+- **Mark All Read** button calls `markAllNotificationsRead()`.
+- **Clear All** button calls `clearNotifications()` (with an `Ant Design Modal.confirm`).
+- Empty state: Ant Design `<Empty>` with text "No notifications yet".
+
+`App.tsx`:
+- Import and add route `<Route path="/notifications" element={<NotificationsPage />} />`.
+- Add nav item `{ key: '/notifications', icon: <BellOutlined />, label: <Link to="/notifications" data-testid="nav-notifications">Notifications</Link> }` after the Message Browser item.
+
+**After Phase 8**: backend `management_event` messages will also feed `addNotification`, so the page will populate from backend events without any further frontend change.
+
+**Acceptance**: nav item navigates to the page; table shows notification history; Mark All Read and Clear All work; bell badge reflects unread count correctly after both actions; all tests pass.
 
 ---
 
@@ -1052,7 +1132,7 @@ test('management_event is emitted from backend WS')
 
 ### 7.9 Live queue message count via SSE
 
-**Source**: §2.2 caveat / §6.4 ⚠️. `QueuesEnhanced.tsx:126` already calls `refetch()` on each SSE `queue-changed` event. The gap is on the backend: `QueueHandler.sendMessage` does not call `publishQueueChanged` after a successful send (confirmed by source — 0 calls in that method), so the SSE never fires on message publish.
+**Source**: §2.2 / §6.4. `QueuesEnhanced.tsx:126` already calls `refetch()` on each SSE `queue-changed` event. The gap is on the backend: `QueueHandler.sendMessage` does not call `publishQueueChanged` after a successful send (confirmed by source — 0 calls in that method), so the SSE never fires on message publish.
 
 **Failing test (write first)**
 

@@ -470,6 +470,7 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.getByLabel('Database Name').fill('demodb')
     await page.getByLabel('Username').fill('demo')
     await page.getByLabel('Password').fill('demo')
+    await page.getByLabel('Schema').fill('public')
     await page.locator('.ant-modal .ant-btn-primary').click()
     await expect(page.locator('.ant-message-error').filter({ hasText: 'Database connection failed' }).first()).toBeVisible({ timeout: 5000 })
     await page.waitForTimeout(400)

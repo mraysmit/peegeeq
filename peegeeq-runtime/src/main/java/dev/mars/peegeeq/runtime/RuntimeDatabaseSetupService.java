@@ -126,6 +126,11 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
+    public Future<Void> removeEventStore(String setupId, String storeName) {
+        return delegate.removeEventStore(setupId, storeName);
+    }
+
+    @Override
     public Future<Set<String>> getAllActiveSetupIds() {
         return delegate.getAllActiveSetupIds();
     }
