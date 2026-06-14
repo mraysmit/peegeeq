@@ -44,6 +44,7 @@ public interface DatabaseSetupService extends ServiceProvider {
     Future<DatabaseSetupResult> getSetupResult(String setupId);
     Future<Void> addQueue(String setupId, QueueConfig queueConfig);
     Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
+    Future<Void> removeEventStore(String setupId, String storeName);
 
     /**
      * Gets all active setup IDs.

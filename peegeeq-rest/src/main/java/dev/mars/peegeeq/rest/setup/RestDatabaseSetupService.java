@@ -145,6 +145,12 @@ public class RestDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
+    public Future<Void> removeEventStore(String setupId, String storeName) {
+        return delegate.removeEventStore(setupId, storeName);
+    }
+
+    @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public Future<Set<String>> getAllActiveSetupIds() {
         return delegate.getAllActiveSetupIds();
     }

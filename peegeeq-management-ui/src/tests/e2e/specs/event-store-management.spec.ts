@@ -231,6 +231,46 @@ test.describe('Event Store Management', () => {
     })
   })
 
+  test.describe('Event Store Deletion', () => {
+
+    test('delete event store — store no longer appears in list after deletion', async ({ page }) => {
+      await page.goto('/event-stores')
+
+      // Create a uniquely-named event store via the UI
+      const storeName = `delete_test_${Date.now()}`
+      await page.getByRole('button', { name: /create event store/i }).click()
+      await expect(page.locator('.ant-modal')).toBeVisible()
+      await page.getByLabel(/event store name/i).fill(storeName)
+      await page.getByTestId('refresh-setups-btn').click()
+      const setupSelect = page.locator('.ant-select').filter({ hasText: 'Select setup' })
+      await expect(setupSelect).toBeEnabled()
+      await selectAntOption(setupSelect, SETUP_ID)
+      await page.locator('.ant-modal .ant-btn-primary').click()
+      await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 10000 })
+
+      // Verify it appears in the table
+      await page.getByRole('button', { name: /refresh/i }).click()
+      await expect(page.locator('.ant-table-tbody').getByText(storeName, { exact: true })).toBeVisible({ timeout: 5000 })
+
+      // Three-dot → Delete Store
+      const storeRow = page.locator('.ant-table-tbody tr').filter({ hasText: storeName })
+      await storeRow.locator('[data-icon="more"]').click()
+      await page.getByText('Delete Store').click()
+
+      // Confirm the deletion
+      await expect(page.locator('.ant-modal-confirm')).toBeVisible()
+      await page.locator('.ant-modal-confirm .ant-btn-dangerous').click()
+      await expect(page.locator('.ant-modal-confirm')).not.toBeVisible({ timeout: 5000 })
+
+      // Assert the store is gone
+      await expect(page.locator('.ant-table-tbody').getByText(storeName, { exact: true })).not.toBeVisible({ timeout: 5000 })
+
+      // Reload and confirm it is still absent
+      await page.reload()
+      await expect(page.locator('.ant-table-tbody').getByText(storeName, { exact: true })).not.toBeVisible({ timeout: 5000 })
+    })
+  })
+
   test.describe('Event Store Operations', () => {
 
     test('should display event store details when clicking view', async ({ page }) => {
