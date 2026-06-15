@@ -801,6 +801,8 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 
 **Process**: write the failing spec first, implement to green, verify the full suite passes, then stop for sign-off before the next phase.
 
+**Backend test mandate**: for every phase that touches `peegeeq-rest` or `peegeeq-db`, "write the failing spec first" means writing **both** a Playwright E2E spec **and** a JUnit `@Tag("integration")` test in the relevant backend test class. The JUnit test must be written, confirmed failing against the current code, and listed in the phase plan before implementation begins. A phase with backend changes that only has a Playwright spec is not done — the JUnit test is required. Tests that touch the database must use a real `PostgreSQLContainer` via TestContainers; no Mockito, no H2, no in-memory substitutes.
+
 ### Phase order
 
 > **Codebase review 2026-06-14** refined Phases 6 and 7: both are largely already implemented. Phase 6 (reconnecting UI) only needs E2E coverage and SSE parity checks. Phase 7 (toasts) only needs Consumer Groups. A new Phase 4a was added for the missing header title mappings.
@@ -848,6 +850,21 @@ test('delete event store — store no longer appears in list after deletion')
 **Acceptance**: delete → list shows the store absent; E2E test green; all 47 existing specs pass.
 
 **Verification (2026-06-15)**: Both the backend fix and the E2E test are present and match the spec above. `PeeGeeQDatabaseSetupService.removeEventStore()` closes the store, drops both Postgres tables (`CASCADE`), deregisters from `setup.getEventStores()`, and clears `eventStoreConfigs`. `ManagementApiHandler.deleteEventStoreImpl` delegates to this via `RestDatabaseSetupService`. The E2E test at `event-store-management.spec.ts:236` creates a uniquely-named store, deletes via the UI, asserts absence, reloads and re-asserts — exactly matching the plan.
+
+**Backend JUnit test gap**: the backend fix is implemented but no JUnit `@Tag("integration")` test in `peegeeq-rest` asserts the deletion at the handler level. Add to `EventStoreIntegrationTest.java` (or a new `ManagementApiHandlerEventStoreTest.java`):
+
+```
+test 'deleteEventStore removes the store and its Postgres tables'
+  @Tag("integration")
+  1. Deploy the full REST verticle against a real TestContainers PostgreSQL
+  2. POST /api/v1/management/event-stores to create a uniquely-named store; assert 200/201
+  3. GET /api/v1/setups/:setupId — assert the store appears in the response
+  4. DELETE /api/v1/management/event-stores/:storeId — assert 200
+  5. GET /api/v1/setups/:setupId — assert the store is absent from the response
+  6. Query pg_tables WHERE tablename LIKE 'event_store_{storeId}%' — assert 0 rows
+```
+
+Without this test, a regression that re-introduces the no-op `deleteEventStoreImpl` would only be caught by the Playwright E2E suite, not by the faster backend integration suite.
 
 ---
 
@@ -1106,7 +1123,184 @@ New file: `peegeeq-management-ui/src/pages/NotificationsPage.tsx`
 
 Prerequisite: Phase 7.7 (toasts) done — confirms the frontend CRUD paths are clean before adding another side-effect.
 
-**Failing tests (write first)**
+**Backend failing tests (write first — JUnit)**
+
+New test class `ManagementEventPublishingIntegrationTest.java` in `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/`. Follows `ManagementApiIntegrationTest` for class structure and container creation, and `SystemMonitoringHandlerTest` for the WebSocket assertion idiom:
+
+```java
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+@ExtendWith(VertxExtension.class)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class ManagementEventPublishingIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(ManagementEventPublishingIntegrationTest.class);
+    private static final int TEST_PORT = 18114;
+
+    @Container
+    static PostgreSQLContainer postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_mgmt_event_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
+        container.withReuse(false);
+        return container;
+    }
+
+    private String deploymentId;
+    private WebClient webClient;
+    private WebSocketClient wsClient;
+    private String testSetupId;
+
+    @BeforeAll
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        testSetupId = "mgmt-event-" + System.currentTimeMillis();
+        webClient = WebClient.create(vertx);
+        wsClient = vertx.createWebSocketClient();
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
+            .compose(id -> {
+                deploymentId = id;
+                return webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+                    .putHeader("content-type", "application/json")
+                    .timeout(30000)
+                    .sendJsonObject(new JsonObject()
+                        .put("setupId", testSetupId)
+                        .put("databaseConfig", new JsonObject()
+                            .put("host", postgres.getHost())
+                            .put("port", postgres.getFirstMappedPort())
+                            .put("databaseName", "mgmt_event_db_" + System.currentTimeMillis())
+                            .put("username", postgres.getUsername())
+                            .put("password", postgres.getPassword())
+                            .put("schema", "public")
+                            .put("templateDatabase", "template0")
+                            .put("encoding", "UTF8"))
+                        .put("queues", new JsonArray())
+                        .put("eventStores", new JsonArray()))
+                    .compose(r -> r.statusCode() == 201 || r.statusCode() == 200
+                        ? Future.succeededFuture()
+                        : Future.failedFuture("Setup failed: " + r.statusCode() + " " + r.bodyAsString()));
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    @AfterAll
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
+        if (wsClient != null) wsClient.close();
+        if (webClient != null) webClient.close();
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
+    @Test @Order(1) @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testManagementEventEmittedAfterQueueCreation(Vertx vertx, VertxTestContext testContext) {
+        String newQueue = "mgmt_event_q_" + System.currentTimeMillis();
+        AtomicBoolean mutationTriggered = new AtomicBoolean(false);
+
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+            .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        wsClient.connect(opts)
+            .onSuccess(ws -> {
+                ws.exceptionHandler(testContext::failNow);
+                ws.textMessageHandler(message -> {
+                    testContext.verify(() -> {
+                        JsonObject msg = new JsonObject(message);
+
+                        if ("welcome".equals(msg.getString("type")) && !mutationTriggered.getAndSet(true)) {
+                            webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
+                                .putHeader("content-type", "application/json")
+                                .timeout(10000)
+                                .sendJsonObject(new JsonObject()
+                                    .put("setupId", testSetupId)
+                                    .put("name", newQueue)
+                                    .put("type", "native"))
+                                .onFailure(testContext::failNow);
+                        }
+
+                        if ("management_event".equals(msg.getString("type"))) {
+                            assertEquals("create", msg.getString("action"));
+                            assertEquals("queue", msg.getString("resource"));
+                            assertEquals(newQueue, msg.getString("name"));
+                            assertNotNull(msg.getLong("timestamp"));
+                            ws.close();
+                            testContext.completeNow();
+                        }
+                    });
+                });
+
+                vertx.setTimer(25000, id -> {
+                    if (!testContext.completed()) {
+                        ws.close();
+                        testContext.failNow(new AssertionError(
+                            "management_event frame not received within 25s after queue creation"));
+                    }
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test @Order(2) @Timeout(value = 15, unit = TimeUnit.SECONDS)
+    void testManagementEventNotEmittedForMessagePublish(Vertx vertx, VertxTestContext testContext) {
+        String queueName = "mgmt_event_msg_" + System.currentTimeMillis();
+        AtomicBoolean managementEventReceived = new AtomicBoolean(false);
+        AtomicBoolean welcomeReceived = new AtomicBoolean(false);
+
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+            .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
+            .putHeader("content-type", "application/json")
+            .timeout(10000)
+            .sendJsonObject(new JsonObject().put("setupId", testSetupId).put("name", queueName).put("type", "native"))
+            .compose(r -> wsClient.connect(opts))
+            .onSuccess(ws -> {
+                ws.exceptionHandler(testContext::failNow);
+                ws.textMessageHandler(message -> {
+                    testContext.verify(() -> {
+                        JsonObject msg = new JsonObject(message);
+                        if ("welcome".equals(msg.getString("type")) && !welcomeReceived.getAndSet(true)) {
+                            webClient.post(TEST_PORT, "localhost",
+                                    "/api/v1/queues/" + testSetupId + "/" + queueName + "/messages")
+                                .putHeader("content-type", "application/json")
+                                .timeout(10000)
+                                .sendJsonObject(new JsonObject()
+                                    .put("payload", new JsonObject().put("test", true))
+                                    .put("headers", new JsonObject()))
+                                .onFailure(testContext::failNow);
+                        }
+                        if ("management_event".equals(msg.getString("type"))) {
+                            managementEventReceived.set(true);
+                        }
+                    });
+                });
+
+                vertx.setTimer(3000, id -> testContext.verify(() -> {
+                    assertFalse(managementEventReceived.get(),
+                        "management_event must not be emitted for message-level publish operations");
+                    ws.close();
+                    testContext.completeNow();
+                }));
+            })
+            .onFailure(testContext::failNow);
+    }
+}
+```
+
+These tests fail today: `grep management_event` over `peegeeq-rest` returns 0 hits — the WS server never emits this frame type. They pass after `publishManagementEvent()` is wired in `ManagementApiHandler` and `SystemMonitoringHandler` forwards events from the `peegeeq.management.events` event-bus address.
+
+**Frontend failing tests (write first — Playwright)**
 
 New `src/tests/e2e/specs/notification-bell.spec.ts`:
 ```
@@ -1129,7 +1323,7 @@ test('management_event is emitted from backend WS')
 
 **Frontend**: `Overview.tsx:190` listener is already in place; verify the payload field names match what the backend emits and adjust if needed.
 
-**Acceptance**: bell increments from a backend-emitted event; drawer shows the event; client-side notifications from resource events coexist; all tests pass.
+**Acceptance**: JUnit tests green; bell increments from a backend-emitted event; drawer shows the event; client-side notifications from resource events coexist; all Playwright tests pass.
 
 ---
 
@@ -1137,7 +1331,152 @@ test('management_event is emitted from backend WS')
 
 **Source**: §2.2 / §6.4. `QueuesEnhanced.tsx:126` already calls `refetch()` on each SSE `queue-changed` event. The gap is on the backend: `QueueHandler.sendMessage` does not call `publishQueueChanged` after a successful send (confirmed by source — 0 calls in that method), so the SSE never fires on message publish.
 
-**Failing test (write first)**
+**Backend failing test (write first — JUnit)**
+
+New test class `QueueHandlerIntegrationTest.java` in `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/`. Follows `SSEQueueUpdatesIntegrationTest` exactly — same container factory, same `httpClient` + `response.handler(buffer ->...)` idiom, same `AtomicBoolean mutationTriggered` pattern:
+
+```java
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+@ExtendWith(VertxExtension.class)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class QueueHandlerIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(QueueHandlerIntegrationTest.class);
+    private static final int TEST_PORT = 18115;
+
+    @Container
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
+
+    private String deploymentId;
+    private WebClient webClient;
+    private HttpClient httpClient;
+    private String testSetupId;
+    private static final String TEST_QUEUE = "qh_integ_test_queue";
+
+    @BeforeAll
+    void setUpAll(Vertx vertx, VertxTestContext testContext) {
+        testSetupId = "qh-integ-" + System.currentTimeMillis();
+        webClient = WebClient.create(vertx);
+        httpClient = vertx.createHttpClient();
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
+            .compose(id -> {
+                deploymentId = id;
+                return webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+                    .putHeader("content-type", "application/json")
+                    .timeout(30000)
+                    .sendJsonObject(new JsonObject()
+                        .put("setupId", testSetupId)
+                        .put("databaseConfig", new JsonObject()
+                            .put("host", postgres.getHost())
+                            .put("port", postgres.getFirstMappedPort())
+                            .put("databaseName", "qh_integ_db_" + System.currentTimeMillis())
+                            .put("username", postgres.getUsername())
+                            .put("password", postgres.getPassword())
+                            .put("schema", "public")
+                            .put("templateDatabase", "template0")
+                            .put("encoding", "UTF8"))
+                        .put("queues", new JsonArray()
+                            .add(new JsonObject()
+                                .put("queueName", TEST_QUEUE)
+                                .put("maxRetries", 3)
+                                .put("visibilityTimeoutSeconds", 30)))
+                        .put("eventStores", new JsonArray()))
+                    .compose(r -> r.statusCode() == 201 || r.statusCode() == 200
+                        ? Future.succeededFuture()
+                        : Future.failedFuture("Setup failed: " + r.statusCode() + " " + r.bodyAsString()));
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    @AfterAll
+    void tearDownAll(Vertx vertx, VertxTestContext testContext) {
+        if (httpClient != null) httpClient.close();
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
+    // ── helper ────────────────────────────────────────────────────────────────
+
+    private String sseUrl() {
+        return "/api/v1/sse/queues/" + testSetupId;
+    }
+
+    // ── tests ─────────────────────────────────────────────────────────────────
+
+    @Test @Order(1) @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testSSEQueueChangedFiredAfterMessageSend(Vertx vertx, VertxTestContext testContext) {
+        AtomicBoolean mutationTriggered = new AtomicBoolean(false);
+
+        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl())
+            .compose(HttpClientRequest::send)
+            .onSuccess(response -> response.handler(buffer -> {
+                String data = buffer.toString();
+
+                if (data.contains("event: connected") && !mutationTriggered.getAndSet(true)) {
+                    webClient.post(TEST_PORT, "localhost",
+                            "/api/v1/queues/" + testSetupId + "/" + TEST_QUEUE + "/messages")
+                        .putHeader("content-type", "application/json")
+                        .timeout(10000)
+                        .sendJsonObject(new JsonObject()
+                            .put("payload", new JsonObject().put("test", true))
+                            .put("headers", new JsonObject()))
+                        .onFailure(testContext::failNow);
+                }
+
+                if (data.contains("event: queue-changed") && data.contains(testSetupId)) {
+                    testContext.verify(() -> {
+                        assertTrue(data.contains("\"setupId\":\"" + testSetupId + "\""));
+                        assertTrue(data.contains("\"queueName\":\"" + TEST_QUEUE + "\""));
+                    });
+                    response.request().connection().close();
+                    testContext.completeNow();
+                }
+            }))
+            .onFailure(testContext::failNow);
+    }
+
+    @Test @Order(2) @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testSSEQueueChangedFiredAfterPurge(Vertx vertx, VertxTestContext testContext) {
+        AtomicBoolean mutationTriggered = new AtomicBoolean(false);
+
+        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl())
+            .compose(HttpClientRequest::send)
+            .onSuccess(response -> response.handler(buffer -> {
+                String data = buffer.toString();
+
+                if (data.contains("event: connected") && !mutationTriggered.getAndSet(true)) {
+                    webClient.post(TEST_PORT, "localhost",
+                            "/api/v1/queues/" + testSetupId + "/" + TEST_QUEUE + "/purge")
+                        .timeout(10000)
+                        .send()
+                        .onFailure(testContext::failNow);
+                }
+
+                if (data.contains("event: queue-changed") && data.contains(testSetupId)) {
+                    testContext.verify(() ->
+                        assertTrue(data.contains("\"setupId\":\"" + testSetupId + "\"")));
+                    response.request().connection().close();
+                    testContext.completeNow();
+                }
+            }))
+            .onFailure(testContext::failNow);
+    }
+}
+```
+
+These tests fail today: `QueueHandler.sendMessage()` (line ~482) never calls `publishQueueChanged`; only `ManagementApiHandler` does (line 2430). The SSE client receives nothing after a send. They pass after `publishQueueChanged(setupId, queueName)` is added to `QueueHandler.sendMessage()` and the purge and batch paths.
+
+**Frontend failing test (write first — Playwright)**
 
 Add to `src/tests/e2e/specs/queue-updates-sse.spec.ts`:
 ```
@@ -1276,7 +1615,234 @@ Add a dashed `ReferenceLine` at `y={stats.dbPool.max}` labelled "Pool max". This
 - `peegeeq-management-ui/src/stores/managementStore.ts` — type + action updates
 - `peegeeq-management-ui/src/pages/Overview.tsx` — stats cards + chart series
 
-#### Failing tests (write first)
+#### Backend failing tests (write first — JUnit)
+
+New test class `SystemMonitoringHandlerConnectionMetricsTest.java` in `peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/`. Follows `SystemMonitoringHandlerTest` for class structure, container creation, WebSocket client, and `textMessageHandler` + `testContext.verify` idiom:
+
+```java
+@Tag(TestCategories.INTEGRATION)
+@Testcontainers
+@ExtendWith(VertxExtension.class)
+@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class SystemMonitoringHandlerConnectionMetricsTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(SystemMonitoringHandlerConnectionMetricsTest.class);
+    private static final int TEST_PORT = 18116;
+
+    @Container
+    static PostgreSQLContainer postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_conn_metrics_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
+        container.withReuse(false);
+        return container;
+    }
+
+    private String deploymentId;
+    private WebClient client;
+    private WebSocketClient wsClient;
+    private String testSetupId;
+
+    @BeforeAll
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        testSetupId = "conn-metrics-" + System.currentTimeMillis();
+        client = WebClient.create(vertx);
+        wsClient = vertx.createWebSocketClient();
+        DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
+        RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
+        vertx.deployVerticle(new PeeGeeQRestServer(testConfig, setupService))
+            .compose(id -> {
+                deploymentId = id;
+                return client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+                    .putHeader("content-type", "application/json")
+                    .timeout(30000)
+                    .sendJsonObject(new JsonObject()
+                        .put("setupId", testSetupId)
+                        .put("databaseConfig", new JsonObject()
+                            .put("host", postgres.getHost())
+                            .put("port", postgres.getFirstMappedPort())
+                            .put("databaseName", "conn_metrics_db_" + System.currentTimeMillis())
+                            .put("username", postgres.getUsername())
+                            .put("password", postgres.getPassword())
+                            .put("schema", "public")
+                            .put("templateDatabase", "template0")
+                            .put("encoding", "UTF8"))
+                        .put("queues", new JsonArray())
+                        .put("eventStores", new JsonArray()))
+                    .compose(r -> r.statusCode() == 201 || r.statusCode() == 200
+                        ? Future.succeededFuture()
+                        : Future.failedFuture("Setup failed: " + r.statusCode()));
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    @AfterAll
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
+        if (client != null) client.close();
+        if (wsClient != null) wsClient.close();
+        if (deploymentId != null) {
+            vertx.undeploy(deploymentId)
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
+    }
+
+    @Test @Order(1) @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testSystemStatsPayloadContainsSplitConnectionFields(Vertx vertx, VertxTestContext testContext) {
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+            .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        wsClient.connect(opts)
+            .onSuccess(ws -> {
+                ws.exceptionHandler(testContext::failNow);
+                ws.textMessageHandler(message -> {
+                    testContext.verify(() -> {
+                        JsonObject msg = new JsonObject(message);
+                        if ("system_stats".equals(msg.getString("type"))) {
+                            JsonObject data = msg.getJsonObject("data");
+                            assertNull(data.getInteger("activeConnections"),
+                                "activeConnections field must be absent after payload restructure");
+                            assertNotNull(data.getInteger("monitoringSessions"),
+                                "monitoringSessions must be present");
+                            assertTrue(data.getInteger("monitoringSessions") >= 1,
+                                "monitoringSessions must be >= 1 while the observer WS is open");
+                            assertNotNull(data.getInteger("activeSubscriptions"),
+                                "activeSubscriptions must be present");
+                            assertTrue(data.getInteger("activeSubscriptions") >= 0);
+                            JsonObject dbPool = data.getJsonObject("dbPool");
+                            assertNotNull(dbPool, "dbPool object must be present");
+                            assertNotNull(dbPool.getInteger("active"), "dbPool.active must be present");
+                            assertNotNull(dbPool.getInteger("idle"),   "dbPool.idle must be present");
+                            assertNotNull(dbPool.getInteger("pending"), "dbPool.pending must be present");
+                            assertNotNull(dbPool.getInteger("max"),    "dbPool.max must be present");
+                            assertNotNull(dbPool.getJsonArray("perSetup"), "dbPool.perSetup must be present");
+                            ws.close();
+                            testContext.completeNow();
+                        }
+                    });
+                });
+
+                vertx.setTimer(25000, id -> {
+                    if (!testContext.completed()) {
+                        ws.close();
+                        testContext.failNow(new AssertionError(
+                            "system_stats frame not received within 25s"));
+                    }
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test @Order(2) @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testDbPoolValuesAreNonNegativeAcrossMultipleFrames(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger frameCount = new AtomicInteger(0);
+        AtomicBoolean configured = new AtomicBoolean(false);
+
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+            .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        wsClient.connect(opts)
+            .onSuccess(ws -> {
+                ws.exceptionHandler(testContext::failNow);
+                ws.textMessageHandler(message -> {
+                    testContext.verify(() -> {
+                        JsonObject msg = new JsonObject(message);
+
+                        if ("welcome".equals(msg.getString("type")) && !configured.getAndSet(true)) {
+                            ws.writeTextMessage(new JsonObject()
+                                .put("type", "configure").put("interval", 2).encode());
+                        }
+
+                        if ("system_stats".equals(msg.getString("type")) && configured.get()) {
+                            JsonObject dbPool = msg.getJsonObject("data").getJsonObject("dbPool");
+                            assertNotNull(dbPool, "dbPool must be present");
+                            assertTrue(dbPool.getInteger("active") >= 0, "dbPool.active must be >= 0");
+                            assertTrue(dbPool.getInteger("idle") >= 0,   "dbPool.idle must be >= 0");
+                            assertTrue(dbPool.getInteger("pending") >= 0, "dbPool.pending must be >= 0");
+                            assertTrue(dbPool.getInteger("active") <= dbPool.getInteger("max"),
+                                "dbPool.active must not exceed dbPool.max");
+
+                            if (frameCount.incrementAndGet() >= 3) {
+                                ws.close();
+                                testContext.completeNow();
+                            }
+                        }
+                    });
+                });
+
+                vertx.setTimer(25000, id -> {
+                    if (!testContext.completed()) {
+                        ws.close();
+                        testContext.failNow(new AssertionError(
+                            "Did not collect 3 system_stats frames within 25s"));
+                    }
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test @Order(3) @Timeout(value = 30, unit = TimeUnit.SECONDS)
+    void testMonitoringSessionsCountReflectsOpenConnections(Vertx vertx, VertxTestContext testContext) {
+        // Open 3 WS connections; the observer (4th) must see monitoringSessions >= 3
+        int extraConnections = 3;
+        java.util.List<WebSocket> extras = new java.util.ArrayList<>();
+        AtomicInteger connectedCount = new AtomicInteger(0);
+
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+            .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        for (int i = 0; i < extraConnections; i++) {
+            wsClient.connect(opts)
+                .onSuccess(ws -> {
+                    extras.add(ws);
+                    connectedCount.incrementAndGet();
+                })
+                .onFailure(testContext::failNow);
+        }
+
+        vertx.setTimer(1000, tid -> wsClient.connect(opts)
+            .onSuccess(observerWs -> {
+                observerWs.exceptionHandler(testContext::failNow);
+                observerWs.textMessageHandler(message -> {
+                    testContext.verify(() -> {
+                        JsonObject msg = new JsonObject(message);
+                        if ("system_stats".equals(msg.getString("type"))) {
+                            int sessions = msg.getJsonObject("data").getInteger("monitoringSessions", 0);
+                            assertTrue(sessions >= extraConnections,
+                                "monitoringSessions must be >= " + extraConnections + " while " +
+                                extraConnections + " extra WS connections are open; got " + sessions);
+                            extras.forEach(WebSocket::close);
+                            observerWs.close();
+                            testContext.completeNow();
+                        }
+                    });
+                });
+
+                vertx.setTimer(20000, id -> {
+                    if (!testContext.completed()) {
+                        extras.forEach(WebSocket::close);
+                        observerWs.close();
+                        testContext.failNow(new AssertionError(
+                            "system_stats frame not received within 20s on observer WS"));
+                    }
+                });
+            })
+            .onFailure(testContext::failNow));
+    }
+}
+```
+
+These tests fail today: `system_stats` emits `activeConnections` (not the three split fields); `dbPool` key is absent; `application_name` is not set in `PgConnectOptions`. They pass after Step 1 (`collectDbPoolMetrics`), Step 2 (`updateConnectionPoolMetrics`), Step 3 (restructured payload), and the `application_name` property addition in `PgConnectionManager` are all complete.
+
+#### Frontend failing tests (write first — Playwright)
 
 New `src/tests/e2e/specs/overview-connection-metrics.spec.ts`:
 
@@ -1364,7 +1930,20 @@ Apply the same guard in `cleanupSSEConnection` (line 750).
 **Files affected**:
 - `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — lines 730–748 (`cleanupWebSocketConnection`) and 750–769 (`cleanupSSEConnection`)
 
-**Failing test (write first)**
+**Backend regression test (write first — JUnit)**
+
+This test **already exists** in `SystemMonitoringHandlerTest.java` as `testActiveConnectionCountNeverNegativeAcrossLifecycle` (`@Order(11)`, `@Tag("regression")`). It is currently **failing** because the double-decrement bug is not yet fixed.
+
+To confirm it fails before applying the fix:
+```
+mvn test -pl peegeeq-rest -Pintegration-tests -Dtest=SystemMonitoringHandlerTest#testActiveConnectionCountNeverNegativeAcrossLifecycle
+```
+
+The test opens N=5 raw TCP sockets that complete the WebSocket upgrade then send a TCP RST (via `sock.setSoLinger(true, 0)`). This triggers both `exceptionHandler` and `closeHandler` on the server for each socket — the double-decrement point. After all 5 abrupt closes settle (2s timer), an observer WS is opened and the next `system_stats` frame is asserted to have `activeConnections >= 1`. With the current bug the frame shows `-4`; after the guard fix it shows `1`.
+
+Apply the guard fix described above; then re-run the test to confirm it passes.
+
+**Frontend failing test (write first — Playwright)**
 
 Add to `src/tests/e2e/specs/overview-live-stats-update.spec.ts` (or a new `overview-chart-correctness.spec.ts`):
 ```
@@ -1374,7 +1953,7 @@ test('Active Connections value is never negative')
   3. Optionally force a reconnect cycle and re-assert
 ```
 
-**Acceptance**: `totalConnections` never goes below 0; Active Connections chart Y-axis min is 0; all tests pass.
+**Acceptance**: JUnit regression test green; `totalConnections` never goes below 0; Active Connections chart Y-axis min is 0; all Playwright tests pass.
 
 ---
 
@@ -1424,7 +2003,20 @@ This gives a true per-interval rate that reacts to real-time message traffic. Th
 - `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — lines 488–489 (calculation) and class-level field additions
 - Frontend: no changes needed once the backend emits a correct value
 
-**Failing test (write first)**
+**Backend regression test (write first — JUnit)**
+
+This test **already exists** in `SystemMonitoringHandlerTest.java` as `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` (`@Order(12)`, `@Tag("regression")`). It is currently **failing** because the lifetime-average formula is not yet replaced.
+
+To confirm it fails before applying the fix:
+```
+mvn test -pl peegeeq-rest -Pintegration-tests -Dtest=SystemMonitoringHandlerTest#testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks
+```
+
+The test pre-seeds 5 messages into the test queue (no consumer, so they stay pending), configures a 2-second WS interval, then collects two consecutive `system_stats` ticks. Between tick-1 and tick-2 no new messages are published. The delta formula gives `(5 - 5) / 2 = 0.0`; the lifetime-average formula gives `5 / uptimeSeconds > 0`. The assertion is `assertEquals(0.0, rate, 0.01)` on tick-2 — it fails with the current code and passes after the fix.
+
+Apply the delta-rate fix described above (add `lastTotalMessages`/`lastMeasurementTime` fields and update lines 488–489); then re-run the test to confirm it passes.
+
+**Frontend failing test (write first — Playwright)**
 
 Add to `src/tests/e2e/specs/overview-live-stats-update.spec.ts`:
 ```
@@ -1435,7 +2027,7 @@ test('Message Throughput chart value increases after publishing messages')
   4. Assert the messagesPerSecond value in the new frame is greater than the value from step 1
 ```
 
-**Acceptance**: the chart reacts to published messages within one polling interval; values return toward 0 when idle; all tests pass.
+**Acceptance**: JUnit regression test green; the chart reacts to published messages within one polling interval; values return toward 0 when idle; all Playwright tests pass.
 
 ---
 

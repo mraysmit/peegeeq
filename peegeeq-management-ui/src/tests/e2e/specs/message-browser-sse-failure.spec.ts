@@ -34,6 +34,14 @@ import { selectAntOption } from '../utils/ant-helpers'
  *   8. Verify Live mode can be turned off cleanly (toggle is still responsive).
  *   9. After disabling live mode, verify the banner is gone.
  *
+ * ── NO-MOCK POLICY EXCEPTION (fault injection) ─────────────────────────────
+ * The project rule is "no mocking": tests hit the real backend. The setup/queue
+ * and messages here ARE real (created via the API). The only stub is route.abort
+ * on the SSE stream — a sanctioned exception (decision 2026-06-15) because a
+ * healthy backend will not drop a valid SSE connection on demand. This is
+ * deliberate fault injection to exercise the Live-mode failure path, NOT data
+ * mocking.
+ *
  * Depends on setup-prerequisite (SETUP_ID must exist).
  */
 test.describe.configure({ mode: 'serial' })

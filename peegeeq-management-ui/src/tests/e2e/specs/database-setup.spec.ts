@@ -92,45 +92,9 @@ test.describe('Database Setup', () => {
     })
   })
 
-  // -------------------------------------------------------------------------
-  // Route helper — injects a controlled setup list so action/state tests do
-  // not depend on real DB state.
-  // Handles both:
-  //   GET /api/v1/setups           → { setupIds }
-  //   GET /api/v1/setups/{setupId} → { queueFactories, eventStores, status }
-  // -------------------------------------------------------------------------
-
-  async function mockSetupList(page: any, setupIds: string[]) {
-    await page.route('**/api/v1/setups**', route => {
-      if (route.request().method() !== 'GET') return route.continue()
-      const url: string = route.request().url()
-      const isListRequest = /\/api\/v1\/setups\/?$/.test(url)
-      if (isListRequest) {
-        return route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ setupIds }),
-        })
-      }
-      // Detail request: /api/v1/setups/{setupId}
-      return route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ queueFactories: [], eventStores: [], status: 'active' }),
-      })
-    })
-  }
-
-  test.describe('Empty State', () => {
-
-    test('should show empty state alert when no setups exist', async ({ page, databaseSetupsPage }) => {
-      await mockSetupList(page, [])
-      await page.goto('/database-setups')
-      await page.waitForLoadState('networkidle')
-
-      await expect(databaseSetupsPage.getEmptyStateAlert()).toBeVisible()
-    })
-  })
+  // Empty-state coverage moved to setup-empty-state.spec.ts (project 0-setup-empty-state),
+  // which asserts the genuine first-run empty state against the REAL backend before any
+  // setup is created — no mock. It cannot live here: this spec depends on a created setup.
 
   test.describe('Form Validation', () => {
 
@@ -168,8 +132,13 @@ test.describe('Database Setup', () => {
     })
 
     test('API error during create should show error toast and keep modal open', async ({ page, databaseSetupsPage }) => {
-      // This test deliberately injects a 500 — remove the beforeEach console error
-      // listener so that the expected browser errors do not pollute the test output.
+      // NO-MOCK POLICY EXCEPTION (fault injection, sanctioned 2026-06-15):
+      // A healthy backend will not return 500 to a valid create request on demand, so
+      // the only way to exercise the error-toast / modal-stays-open path is to inject
+      // the failure. This is deliberate fault injection, NOT data mocking.
+      //
+      // Injecting a 500 — remove the beforeEach console error listener so that the
+      // expected browser errors do not pollute the test output.
       await page.removeAllListeners('console')
 
       await page.route('**/api/v1/database-setup/create', route =>
@@ -202,26 +171,46 @@ test.describe('Database Setup', () => {
 
   test.describe('Setup Actions', () => {
 
-    test('delete setup should call DELETE endpoint after confirmation', async ({ page, databaseSetupsPage }) => {
-      await mockSetupList(page, [SETUP_ID])
+    test('delete setup removes it from the list', async ({ page, databaseSetupsPage }) => {
+      // Real backend, no stub. Create a dedicated throwaway setup, delete it through
+      // the UI, and verify it is actually gone — both from the table and from the real
+      // GET /api/v1/setups response. Uses a unique id so it never touches SETUP_ID
+      // (which the rest of the suite depends on).
+      test.setTimeout(120000) // setup creation provisions a real database + migrations
 
-      const deleteRequests: string[] = []
-      await page.route('**/api/v1/database-setup/**', route => {
-        if (route.request().method() === 'DELETE') {
-          deleteRequests.push(route.request().url())
-          return route.fulfill({
-            status: 200,
-            contentType: 'application/json',
-            body: JSON.stringify({ message: 'deleted' }),
-          })
-        }
-        return route.continue()
+      const dbConfig = JSON.parse(fs.readFileSync('testcontainers-db.json', 'utf8'))
+      const throwawayId = `del_test_${Date.now()}`
+
+      const createResp = await page.request.post('/api/v1/database-setup/create', {
+        data: {
+          setupId: throwawayId,
+          databaseConfig: {
+            host: dbConfig.host,
+            port: dbConfig.port,
+            databaseName: `del_test_db_${Date.now()}`,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            schema: 'public',
+            templateDatabase: 'template0',
+            encoding: 'UTF8',
+          },
+          queues: [],
+          eventStores: [],
+        },
+        timeout: 90000,
       })
+      if (!createResp.ok()) {
+        throw new Error(`Create throwaway setup failed: ${createResp.status()} ${await createResp.text()}`)
+      }
 
       await page.goto('/database-setups')
       await page.waitForLoadState('networkidle')
 
-      await databaseSetupsPage.getActionButton(SETUP_ID).click()
+      const row = page.locator('.ant-table-row').filter({ hasText: throwawayId })
+      await expect(row).toBeVisible({ timeout: 10000 })
+
+      // Delete through the UI: action menu → Delete Setup → confirm
+      await databaseSetupsPage.getActionButton(throwawayId).click()
 
       const dropdown = page.locator('.ant-dropdown')
         .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
@@ -233,14 +222,24 @@ test.describe('Database Setup', () => {
       await expect(confirmBtn).toBeVisible({ timeout: 3000 })
       await confirmBtn.click()
 
-      await page.waitForTimeout(500)
-      expect(deleteRequests.length, 'DELETE /api/v1/database-setup/... was not called').toBeGreaterThanOrEqual(1)
-      expect(deleteRequests[0]).toContain(`database-setup/${SETUP_ID}`)
+      // Success toast, and the row disappears from the table
+      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
+      await expect(row).not.toBeVisible({ timeout: 15000 })
+
+      // Verify against the real backend: the setup is actually deleted
+      await expect.poll(async () => {
+        const resp = await page.request.get('/api/v1/setups')
+        const body = await resp.json()
+        return (body.setupIds ?? []).includes(throwawayId)
+      }, { timeout: 15000 }).toBe(false)
     })
 
-    test('view details should show info toast', async ({ page, databaseSetupsPage }) => {
-      await mockSetupList(page, [SETUP_ID])
-      await page.goto('/database-setups')
+    test('view details modal shows setup configuration', async ({ page, databaseSetupsPage }) => {
+      // No route stubbing — this exercises the real GET /api/v1/setups/{setupId}.
+      // SETUP_ID exists for real (created by the Setup Creation tests above in this
+      // serial file, and by the 3c-setup-prerequisite project dependency).
+      await page.goto('/')
+      await databaseSetupsPage.goto()
       await page.waitForLoadState('networkidle')
 
       await databaseSetupsPage.getActionButton(SETUP_ID).click()
@@ -251,9 +250,28 @@ test.describe('Database Setup', () => {
       await expect(dropdown).toBeVisible()
       await dropdown.getByText('View Details').click()
 
-      await expect(
-        page.locator('.ant-message-notice').filter({ hasText: 'View details coming soon' })
-      ).toBeVisible({ timeout: 3000 })
+      // A modal opens (not a toast)
+      const detailsBody = page.getByTestId('setup-details-modal')
+      await expect(detailsBody).toBeVisible({ timeout: 5000 })
+
+      // Setup ID is the row we opened
+      await expect(detailsBody).toContainText(SETUP_ID)
+
+      // The configuration labels render
+      await expect(detailsBody).toContainText('Host')
+      await expect(detailsBody).toContainText('Port')
+      await expect(detailsBody).toContainText('Database Name')
+      await expect(detailsBody).toContainText('Schema')
+      await expect(detailsBody).toContainText('Status')
+
+      // Every field is populated from the real backend response — once the fetch
+      // resolves, no '—' placeholders remain. This proves the modal rendered live
+      // GET /api/v1/setups/{setupId} data, not stubbed values.
+      await expect(detailsBody).not.toContainText('—', { timeout: 10000 })
+
+      // Close button dismisses the modal
+      await page.locator('.ant-modal-footer button', { hasText: 'Close' }).click()
+      await expect(detailsBody).not.toBeVisible({ timeout: 5000 })
     })
   })
 })

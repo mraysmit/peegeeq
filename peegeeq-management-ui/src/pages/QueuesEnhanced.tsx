@@ -41,7 +41,7 @@ import { useGetQueuesQuery, usePerformQueueOperationMutation } from '../store/ap
 import type { Queue, QueueType, QueueStatus, QueueFilters } from '../types/queue';
 import StatCard from '../components/common/StatCard';
 import FilterBar from '../components/common/FilterBar';
-import { showDeleteQueueConfirm } from '../components/common/ConfirmDialog';
+import { showDeleteQueueConfirm, showPurgeConfirm } from '../components/common/ConfirmDialog';
 import SetupScopeBar from '../components/common/SetupScopeBar';
 import { useManagementStore } from '../stores/managementStore';
 import { createQueueUpdatesSSE } from '../services/websocketService';
@@ -231,6 +231,24 @@ const QueuesPage: React.FC = () => {
         });
     };
 
+    // Handle purge queue
+    const handlePurgeQueue = (queue: Queue) => {
+        showPurgeConfirm(queue.queueName, async () => {
+            try {
+                await performQueueOperation({
+                    setupId: queue.setupId,
+                    queueName: queue.queueName,
+                    request: { operation: 'PURGE' },
+                }).unwrap();
+                message.success(`Queue "${queue.queueName}" purged successfully`);
+                useManagementStore.getState().addNotification({ resource: queue.queueName, action: 'queue purged' });
+            } catch (error: any) {
+                const errorMessage = error?.data?.error || error?.data?.message || error?.message || 'Failed to purge queue';
+                message.error(`Failed to purge queue: ${errorMessage}`);
+            }
+        });
+    };
+
     // Action menu for each queue
     const getActionMenu = (queue: Queue) => ({
         items: [
@@ -246,9 +264,7 @@ const QueuesPage: React.FC = () => {
                 key: 'purge',
                 icon: <ClearOutlined />,
                 label: 'Purge Messages',
-                onClick: () => {
-                    message.info('Purge functionality coming in Week 4');
-                },
+                onClick: () => handlePurgeQueue(queue),
             },
             {
                 key: 'delete',
