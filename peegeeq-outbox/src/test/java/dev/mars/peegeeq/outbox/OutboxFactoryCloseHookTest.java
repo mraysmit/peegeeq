@@ -7,12 +7,15 @@ import dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -34,7 +37,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Close hook should be registered when DatabaseService is a LifecycleHookRegistrar")
     void closeHookIsRegistered() {
         var dbService = new HookCapturingDatabaseService();
-        new OutboxFactory(dbService);
+        new OutboxFactory(dbService, minimalTestConfig());
 
         assertNotNull(dbService.getCapturedHook(), "Close hook should have been registered");
         assertEquals("outbox", dbService.getCapturedHook().name());
@@ -46,7 +49,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Close hook closeReactive() should close tracked consumers")
     void closeHookClosesConsumers() {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         // Create a consumer adds to createdResources
         MessageConsumer<String> consumer = factory.createConsumer("test-topic", String.class);
@@ -70,7 +73,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Close hook closeReactive() should close tracked consumer groups")
     void closeHookClosesConsumerGroups() {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         ConsumerGroup<String> group = factory.createConsumerGroup("test-topic", "test-group", String.class);
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
@@ -90,7 +93,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Close hook closeReactive() should be idempotent")
     void closeHookIsIdempotent() {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         factory.createConsumer("test-topic", String.class);
 
@@ -108,7 +111,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Factory should reject createProducer after close hook fires")
     void factoryRejectsOperationsAfterCloseHook() {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         dbService.getCapturedHook().closeReactive().await();
 
@@ -123,7 +126,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Sync close() should close tracked resources (same as hook)")
     void syncCloseClosesResources() throws Exception {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         ConsumerGroup<String> group = factory.createConsumerGroup("test-topic", "test-group", String.class);
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
@@ -140,7 +143,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Calling close hook then close() should not error")
     void closeHookThenSyncClose() {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         factory.createConsumer("test-topic", String.class);
 
@@ -156,7 +159,7 @@ class OutboxFactoryCloseHookTest {
     @DisplayName("Calling close() then close hook should not error")
     void syncCloseThenCloseHook() throws Exception {
         var dbService = new HookCapturingDatabaseService();
-        OutboxFactory factory = new OutboxFactory(dbService);
+        OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         factory.createConsumer("test-topic", String.class);
 
@@ -169,6 +172,15 @@ class OutboxFactoryCloseHookTest {
     }
 
     // -- Test infrastructure --
+
+    private static PeeGeeQConfiguration minimalTestConfig() {
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", "localhost");
+        props.setProperty("peegeeq.database.name", "test");
+        props.setProperty("peegeeq.database.username", "test");
+        props.setProperty("peegeeq.database.schema", "public");
+        return new PeeGeeQConfiguration("default", props);
+    }
 
     /**
      * DatabaseService that also implements LifecycleHookRegistrar,

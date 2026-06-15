@@ -164,11 +164,19 @@ public class ConfigurationValidationTest {
     void testProfileBasedConfiguration() {
         logger.info("=== Testing Profile-Based Configuration ===");
         
-        // Test explicit profile setting (production deployment scenario)
-        PeeGeeQConfiguration prodConfig = new PeeGeeQConfiguration("production", new Properties());
+        // Test explicit profile setting (production deployment scenario).
+        // Override the env-var placeholders from peegeeq-production.properties so the
+        // constructor does not throw in the test environment (no PEEGEEQ_* vars set).
+        Properties prodOverrides = new Properties();
+        prodOverrides.setProperty("peegeeq.db.url", "jdbc:postgresql://localhost:5432/prod");
+        prodOverrides.setProperty("peegeeq.db.username", "prod_user");
+        prodOverrides.setProperty("peegeeq.db.password", "prod_pass");
+        prodOverrides.setProperty("peegeeq.connection.pool.size", "20");
+        prodOverrides.setProperty("peegeeq.consumer.threads", "4");
+        PeeGeeQConfiguration prodConfig = new PeeGeeQConfiguration("production", prodOverrides);
         assertEquals("production", prodConfig.getProfile(),
             "Profile must be settable for environment-specific configuration");
-        
+
         // Test default profile behavior (development scenario)
         PeeGeeQConfiguration devConfig = new PeeGeeQConfiguration("development", new Properties());
         String defaultProfile = devConfig.getProfile();

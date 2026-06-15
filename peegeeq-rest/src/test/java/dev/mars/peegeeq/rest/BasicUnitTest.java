@@ -243,6 +243,10 @@ public class BasicUnitTest {
             return io.vertx.core.Future.succeededFuture();
         }
         @Override
+        public io.vertx.core.Future<Void> removeEventStore(String setupId, String storeName) {
+            return io.vertx.core.Future.succeededFuture();
+        }
+        @Override
         public io.vertx.core.Future<java.util.Set<String>> getAllActiveSetupIds() {
             return io.vertx.core.Future.succeededFuture(java.util.Set.of());
         }
