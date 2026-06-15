@@ -466,6 +466,11 @@ public class DeadConsumerAlertingIntegrationTest {
         }
 
         @Override
+        public Future<Void> removeEventStore(String setupId, String storeName) {
+            return Future.failedFuture(new UnsupportedOperationException("Not needed for alerting tests"));
+        }
+
+        @Override
         public Future<Set<String>> getAllActiveSetupIds() {
             return Future.succeededFuture(Set.of(supportedSetupId));
         }

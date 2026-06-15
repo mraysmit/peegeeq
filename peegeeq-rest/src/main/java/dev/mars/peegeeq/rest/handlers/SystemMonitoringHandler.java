@@ -85,6 +85,10 @@ public class SystemMonitoringHandler {
     // Metrics caching
     private final AtomicReference<CachedMetrics> cachedMetrics = new AtomicReference<>();
 
+    // Rate tracking: previous sample point for delta-based messagesPerSecond
+    private final AtomicLong prevTotalMessages = new AtomicLong(0L);
+    private final AtomicLong prevMessagesTimestampMs = new AtomicLong(0L);
+
     /**
      * Cached metrics with TTL to reduce GC pressure
      */
@@ -485,8 +489,12 @@ public class SystemMonitoringHandler {
                     int totalMessages_i = agg.getInteger("totalMessages", 0);
                     long totalMessages = agg.getLong("totalMessages", (long) totalMessages_i);
                     int totalConsumerGroups = agg.getInteger("totalConsumerGroups", 0);
-                    double messagesPerSecond = totalMessages > 0 && uptime > 0
-                            ? totalMessages / (uptime / 1000.0) : 0.0;
+                    // Delta rate: messages added since last collection, not lifetime average
+                    long prevMessages = prevTotalMessages.getAndSet(totalMessages);
+                    long prevTimestamp = prevMessagesTimestampMs.getAndSet(now);
+                    long intervalMs = now - prevTimestamp;
+                    double messagesPerSecond = prevTimestamp > 0 && intervalMs > 0 && totalMessages >= prevMessages
+                            ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
                     int activeConnectionsTotal = totalConnections.get()
                             + agg.getInteger("activeConsumerConnections", 0);
                     JsonArray topicsArray = agg.getJsonArray("subscribedTopics", new JsonArray());
@@ -734,15 +742,15 @@ public class SystemMonitoringHandler {
                 vertx.cancelTimer(connection.timerId);
             if (connection.idleCheckerId > 0)
                 vertx.cancelTimer(connection.idleCheckerId);
-        }
-
-        totalConnections.decrementAndGet();
-
-        AtomicInteger ipCount = connectionsByIp.get(clientIp);
-        if (ipCount != null) {
-            ipCount.decrementAndGet();
-            if (ipCount.get() <= 0) {
-                connectionsByIp.remove(clientIp);
+            // Decrement only when the connection was actually present — guards against
+            // double-decrement when TCP RST fires both closeHandler and exceptionHandler.
+            totalConnections.decrementAndGet();
+            AtomicInteger ipCount = connectionsByIp.get(clientIp);
+            if (ipCount != null) {
+                ipCount.decrementAndGet();
+                if (ipCount.get() <= 0) {
+                    connectionsByIp.remove(clientIp);
+                }
             }
         }
     }

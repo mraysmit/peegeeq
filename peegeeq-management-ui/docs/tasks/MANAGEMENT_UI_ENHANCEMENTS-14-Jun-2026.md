@@ -807,7 +807,7 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 
 | # | What it delivers | Layer(s) | Prerequisite |
 |---|---|---|---|
-| 1 | Fix event-store delete | `peegeeq-rest` | — |
+| 1 | Fix event-store delete | `peegeeq-rest` | — | ✅ Complete |
 | 2 | Queue Details — Consumers tab wired | `peegeeq-management-ui` | — |
 | 3 | Queues list — Purge action wired | `peegeeq-management-ui` | — |
 | 4 | Database Setups — View Details modal | `peegeeq-management-ui` | — |
@@ -819,12 +819,13 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 |
 | 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — |
 | 10 | Authentication layer | TBD — architecture decision required | — |
+| 11 | Split `activeConnections` — meaningful connection metrics | `peegeeq-rest` + `peegeeq-management-ui` | — |
 
-Phases 1–4a are the lowest-risk deliveries: Phase 1 is a confirmed defect, Phases 2–4 have a fully-real backend endpoint waiting for a UI stub to be removed, Phase 4a is a two-line lookup-table fix. Phases 5–9 add new real-time behaviour. Phase 10 is gated on an architecture call (§7.10).
+Phases 1–4a are the lowest-risk deliveries: Phase 1 is a confirmed defect, Phases 2–4 have a fully-real backend endpoint waiting for a UI stub to be removed, Phase 4a is a two-line lookup-table fix. Phases 5–9 add new real-time behaviour. Phase 10 is gated on an architecture call (§7.10). Phase 11 replaces the meaningless `activeConnections` composite metric with three distinct, accurately named connection dimensions (see §8.3 and §7.11).
 
 ---
 
-### 7.1 Fix event-store delete
+### 7.1 Fix event-store delete ✅ Complete (verified 2026-06-15)
 
 **Source**: §6.1 ❗. `deleteEventStoreImpl` (`ManagementApiHandler.java:1796`) verifies the store exists and returns `"deleted successfully"` but performs no removal.
 
@@ -845,6 +846,8 @@ test('delete event store — store no longer appears in list after deletion')
 `ManagementApiHandler.java:deleteEventStoreImpl` — after confirming the store exists, add the removal steps that mirror `deleteQueueByName` (line 2367): retrieve the `EventStore` instance, call its shutdown/close method, drop the underlying Postgres table via the same teardown path that `addEventStore` uses in reverse, then call `setupResult.getEventStores().remove(storeName)`. Only then send the success response.
 
 **Acceptance**: delete → list shows the store absent; E2E test green; all 47 existing specs pass.
+
+**Verification (2026-06-15)**: Both the backend fix and the E2E test are present and match the spec above. `PeeGeeQDatabaseSetupService.removeEventStore()` closes the store, drops both Postgres tables (`CASCADE`), deregisters from `setup.getEventStores()`, and clears `eventStoreConfigs`. `ManagementApiHandler.deleteEventStoreImpl` delegates to this via `RestDatabaseSetupService`. The E2E test at `event-store-management.spec.ts:236` creates a uniquely-named store, deletes via the UI, asserts absence, reloads and re-asserts — exactly matching the plan.
 
 ---
 
@@ -1171,6 +1174,138 @@ Raise a separate plan for the auth layer once these are resolved.
 
 ---
 
+### 7.11 Split `activeConnections` — meaningful connection metrics
+
+**Source**: §8.3. The single `activeConnections` field in `system_stats` is a meaningless sum of management UI browser sessions and registered subscription count. PostgreSQL pool connections are entirely absent. All three must be tracked and surfaced separately.
+
+#### Backend changes (`peegeeq-rest` + `peegeeq-db`)
+
+**Step 1 — Query `pg_stat_activity` per setup**
+
+Add a helper method to `SystemMonitoringHandler` (or `collectSetupMetrics`) that, for each active setup, executes the following query through that setup's pool:
+
+```sql
+SELECT
+  COUNT(CASE WHEN state = 'active'  THEN 1 END) AS active,
+  COUNT(CASE WHEN state = 'idle'    THEN 1 END) AS idle,
+  COUNT(CASE WHEN state IS NULL     THEN 1 END) AS pending,
+  COUNT(*)                                       AS total
+FROM pg_stat_activity
+WHERE application_name = $1
+```
+
+`$1` should be a per-setup application name such as `peegeeq-{setupId}`. Confirm that `PgConnectionManager` sets `application_name` in `PgConnectOptions` when creating pools (and add it if not — it is a standard property on `PgConnectOptions.setProperties(Map.of("application_name", "peegeeq-" + setupId))`).
+
+**Step 2 — Call `updateConnectionPoolMetrics()` from `collectSetupMetrics`**
+
+Retrieve the `PeeGeeQMetrics` instance for each setup and call `updateConnectionPoolMetrics(active, idle, pending)` with the values from Step 1. This brings the existing-but-dead Micrometer gauges (`peegeeq.connection.pool.active/idle/pending`) to life.
+
+**Step 3 — Restructure `system_stats` payload**
+
+Replace the single `activeConnections` integer with three named fields:
+
+```json
+{
+  "type": "system_stats",
+  "monitoringSessions": 2,
+  "activeSubscriptions": 5,
+  "dbPool": {
+    "active": 12,
+    "idle": 20,
+    "pending": 0,
+    "max": 64,
+    "perSetup": [
+      { "setupId": "default", "active": 8, "idle": 15, "pending": 0, "max": 32 }
+    ]
+  }
+}
+```
+
+- `monitoringSessions` = `totalConnections.get()` (unchanged tracking logic)
+- `activeSubscriptions` = current `activeConsumerConnections` (same computation, renamed)
+- `dbPool.active/idle/pending/max` = aggregate across all setups; `perSetup` = per-setup breakdown
+- `max` = sum of configured `pool.max-size` across all active setups (from `PgPoolConfig`)
+
+Remove the `activeConnections` key. The `totalConnections` bug fix from §8.1 is a prerequisite for `monitoringSessions` to be accurate — complete Phase 8.1 first.
+
+**Files affected (backend)**:
+- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — new `collectDbPoolMetrics(setupId)` helper; restructure the `.map()` block at line 484; remove `activeConnectionsTotal`
+- `peegeeq-db/…/connection/PgConnectionManager.java` — add `application_name` property to `PgConnectOptions` if absent
+- `peegeeq-db/…/metrics/PeeGeeQMetrics.java` — `updateConnectionPoolMetrics()` now called; verify it is thread-safe for the Vert.x event-loop context
+
+#### Frontend changes (`peegeeq-management-ui`)
+
+**`managementStore.ts`**
+
+Update `SystemStats` type — remove `activeConnections`, add:
+```ts
+monitoringSessions: number
+activeSubscriptions: number
+dbPool: {
+  active: number
+  idle: number
+  pending: number
+  max: number
+  perSetup: Array<{ setupId: string; active: number; idle: number; pending: number; max: number }>
+}
+```
+
+Update `setSystemStats` action and `updateChartData` accordingly. The `connectionData` chart series changes to `{ time, active, idle, pending }` from `dbPool`.
+
+**`Overview.tsx` — stats cards**
+
+Replace the single "Active Connections" stats card with three separate cards:
+
+| Card | Value | Colour | Icon |
+|---|---|---|---|
+| Monitoring Sessions | `stats.monitoringSessions` | blue | `MonitorOutlined` |
+| Active Subscriptions | `stats.activeSubscriptions` | green | `TeamOutlined` |
+| DB Connections | `stats.dbPool.active` / `stats.dbPool.max` (fraction display) | orange | `DatabaseOutlined` |
+
+**`Overview.tsx` — Active Connections chart**
+
+Replace the single-series area chart with a stacked area chart showing three series against the same time axis:
+
+- `active` (orange / filled) — live DB connections doing work
+- `idle` (blue / lighter fill) — connections open but waiting
+- `pending` (red / thin line) — requests queued waiting for a pool slot
+
+Add a dashed `ReferenceLine` at `y={stats.dbPool.max}` labelled "Pool max". This gives instant visual warning when the pool is saturating.
+
+**Files affected (frontend)**:
+- `peegeeq-management-ui/src/stores/managementStore.ts` — type + action updates
+- `peegeeq-management-ui/src/pages/Overview.tsx` — stats cards + chart series
+
+#### Failing tests (write first)
+
+New `src/tests/e2e/specs/overview-connection-metrics.spec.ts`:
+
+```
+test('Monitoring Sessions card shows 1 when one browser session is connected')
+  1. Navigate to /
+  2. Wait for system_stats frame
+  3. Assert the "Monitoring Sessions" stats card value >= 1
+
+test('DB Connections chart renders active/idle/pending series')
+  1. Navigate to /
+  2. Assert the chart container has three distinct coloured series (use data-testid on each <Area>)
+  3. Assert a reference line for pool max is visible
+
+test('DB pool active value is non-negative and does not exceed max')
+  1. Intercept system_stats WS frames via page.evaluate
+  2. Collect 5 frames
+  3. Assert dbPool.active >= 0 and dbPool.active <= dbPool.max for all frames
+
+test('activeSubscriptions matches consumer group count')
+  1. Create N consumer groups via REST API
+  2. Wait for next system_stats frame
+  3. Assert stats.activeSubscriptions >= N
+```
+
+**Acceptance**: `activeConnections` field removed from payload; three separate metrics surfaced in stats cards and chart; DB pool chart never shows negative values; pool saturation line visible; all tests pass.
+
+---
+
 ### Running the suite
 
 ```powershell
@@ -1178,3 +1313,551 @@ npx playwright test --workers=1
 ```
 
 `workers: 1` is mandatory — the suite shares `SETUP_ID = 'default'` across spec files (§4).
+
+---
+
+## 8. Overview Page Chart Defects (2026-06-15)
+
+Two defects identified in the real-time charts on the System Overview page (`/`).
+
+---
+
+### 8.1 Active Connections graph shows negative values  ❗
+
+**Symptom**: The "Active Connections" area chart on the Overview page occasionally shows negative numbers on the Y-axis.
+
+**Root cause**: `SystemMonitoringHandler.java` — `cleanupWebSocketConnection` (line 730) and `cleanupSSEConnection` (line 750) both call `totalConnections.decrementAndGet()` **unconditionally**, outside the null-check on the removed connection:
+
+```java
+// cleanupWebSocketConnection (line 730)
+WebSocketConnection connection = wsConnections.remove(connectionId);
+if (connection != null) {
+    // cancel timers ...
+}
+// ← decrement is here, NOT inside the if-block
+totalConnections.decrementAndGet();   // line 739
+```
+
+If the same connection triggers cleanup twice (e.g., both an idle-timeout timer and the socket close event fire), `totalConnections` is decremented twice for a single increment — driving it below zero. The emitted `system_stats.activeConnections` field therefore sends a negative integer to the frontend, which the chart renders faithfully.
+
+**Frontend path**: `system_stats.activeConnections` → `managementStore.ts:215` (`connectionData` point `{ connections }`) → `Overview.tsx:467` `<Area dataKey="connections" />`.
+
+**Fix** (`peegeeq-rest`): guard both decrements inside the `if (connection != null)` block so they only execute when this call actually performed the removal:
+
+```java
+// cleanupWebSocketConnection
+WebSocketConnection connection = wsConnections.remove(connectionId);
+if (connection != null) {
+    if (connection.timerId > 0) vertx.cancelTimer(connection.timerId);
+    if (connection.idleCheckerId > 0) vertx.cancelTimer(connection.idleCheckerId);
+    totalConnections.decrementAndGet();   // ← moved inside
+    AtomicInteger ipCount = connectionsByIp.get(clientIp);
+    if (ipCount != null) {
+        ipCount.decrementAndGet();
+        if (ipCount.get() <= 0) connectionsByIp.remove(clientIp);
+    }
+}
+```
+
+Apply the same guard in `cleanupSSEConnection` (line 750).
+
+**Files affected**:
+- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — lines 730–748 (`cleanupWebSocketConnection`) and 750–769 (`cleanupSSEConnection`)
+
+**Failing test (write first)**
+
+Add to `src/tests/e2e/specs/overview-live-stats-update.spec.ts` (or a new `overview-chart-correctness.spec.ts`):
+```
+test('Active Connections value is never negative')
+  1. Navigate to /; wait for at least 3 system_stats WS frames (via page.evaluate intercepting messages)
+  2. Assert that the connectionData points stored in the chart are all >= 0
+  3. Optionally force a reconnect cycle and re-assert
+```
+
+**Acceptance**: `totalConnections` never goes below 0; Active Connections chart Y-axis min is 0; all tests pass.
+
+---
+
+### 8.2 Message Throughput graph does not reflect real-time rate  ❗
+
+**Symptom**: The "Message Throughput" chart title implies a live throughput view, and the "Messages/sec" stats card label implies a per-second rate. In practice the chart shows a flat or very slowly drifting line that does not respond to bursts of messages.
+
+**Root cause**: The backend computes `messagesPerSecond` as a **lifetime average**, not an interval rate:
+
+```java
+// SystemMonitoringHandler.java:488–489
+double messagesPerSecond = totalMessages > 0 && uptime > 0
+        ? totalMessages / (uptime / 1000.0) : 0.0;
+```
+
+`totalMessages` is the cumulative count of all messages ever processed since the JVM started; `uptime` is the JVM uptime in milliseconds. The result is "average messages per second across the entire lifetime of the process". This value:
+- barely changes between polling ticks even under heavy load
+- never reflects a burst of messages published right now
+- makes the chart appear flat long after startup
+
+Both the chart (`Overview.tsx:436` `<Area dataKey="messages" />`) and the stats card (`Overview.tsx:404` `value={Math.round(stats.messagesPerSecond)} suffix="msg/s"`) read the same `stats.messagesPerSecond` field, so the two surfaces are internally consistent — the mismatch is between what users expect ("current throughput") and what the backend actually computes ("historical average").
+
+**Frontend path**: `system_stats.messagesPerSecond` → `managementStore.ts:211` (`throughputData` point `{ messages: stats.messagesPerSecond }`) → `Overview.tsx:436` `<Area dataKey="messages" />`.
+
+**Fix** (`peegeeq-rest`): track the previous `totalMessages` snapshot and the previous timestamp between polling ticks, and compute a **delta rate** over the polling interval:
+
+```java
+// Add fields to SystemMonitoringHandler:
+private long lastTotalMessages = 0;
+private long lastMeasurementTime = System.currentTimeMillis();
+
+// In the .map() block replacing lines 488–489:
+long now_ms = System.currentTimeMillis();
+long intervalMs = now_ms - lastMeasurementTime;
+double messagesPerSecond = intervalMs > 0
+        ? (totalMessages - lastTotalMessages) / (intervalMs / 1000.0)
+        : 0.0;
+lastTotalMessages = totalMessages;
+lastMeasurementTime = now_ms;
+```
+
+This gives a true per-interval rate that reacts to real-time message traffic. The chart will now rise and fall with actual throughput. The stats card label "Messages/sec" will then be accurate.
+
+**Note on thread safety**: `SystemMonitoringHandler` is a Vert.x verticle; the `sendMetricsToWebSocket` / `sendMetricsToSSE` paths execute on the event loop, so `lastTotalMessages` and `lastMeasurementTime` are accessed from a single thread and do not need synchronization. Confirm this holds if `collectSetupMetrics` dispatches to worker threads.
+
+**Files affected**:
+- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — lines 488–489 (calculation) and class-level field additions
+- Frontend: no changes needed once the backend emits a correct value
+
+**Failing test (write first)**
+
+Add to `src/tests/e2e/specs/overview-live-stats-update.spec.ts`:
+```
+test('Message Throughput chart value increases after publishing messages')
+  1. Navigate to /; record the current messagesPerSecond value from the chart
+  2. Publish 20 messages to the test queue via REST API in rapid succession
+  3. Wait for the next system_stats frame (up to 10 s)
+  4. Assert the messagesPerSecond value in the new frame is greater than the value from step 1
+```
+
+**Acceptance**: the chart reacts to published messages within one polling interval; values return toward 0 when idle; all tests pass.
+
+---
+
+### 8.3 `activeConnections` is an arbitrary composite of three unrelated concepts  ❗
+
+**Symptom**: The "Active Connections" stats card and area chart on the Overview page are meaningless in practice. The value is a sum of things that have nothing to do with each other.
+
+**Root cause analysis**
+
+```java
+// SystemMonitoringHandler.java:490–491
+int activeConnectionsTotal = totalConnections.get()
+        + agg.getInteger("activeConsumerConnections", 0);
+```
+
+The two operands are:
+
+| Operand | What it actually counts |
+|---|---|
+| `totalConnections` | WS + SSE browser sessions currently watching the Overview page (`/ws/monitoring`, `/sse/metrics`) — incremented in `handleWebSocketMonitoring:224` and `handleSSEMetrics:328`, decremented on close |
+| `activeConsumerConnections` | `subs.size()` summed across every topic across every setup (`collectTopicSubscriptionMetrics:612–613`) — this is the count of **registered subscriptions**, and is identical to `totalConsumerGroups` |
+
+Neither operand measures actual TCP connections from consumer processes, and the sum of the two is not a useful number for any purpose.
+
+A third category — **PostgreSQL pool connections per setup** — is entirely absent from the metric despite being the most operationally valuable:
+
+- Each setup has its own isolated Vert.x reactive `Pool` (`PeeGeeQManager.java:98`), owned by a per-setup `PeeGeeQManager` instance managed by `PeeGeeQDatabaseSetupService.java:54`.
+- Pool defaults: `max-size=32`, `min-size=8`, `max-wait-queue-size=128` (`peegeeq-default.properties`).
+- `PeeGeeQMetrics.java` already declares `peegeeq.connection.pool.active`, `.idle`, and `.pending` Micrometer gauges (lines 154–167) and exposes `updateConnectionPoolMetrics(active, idle, pending)` (lines 357–367).
+- **`updateConnectionPoolMetrics()` is never called anywhere in the codebase.** The gauges always return 0.
+- Vert.x 5.x `Pool` does not expose synchronous state queries, so pool stats must be obtained by querying `pg_stat_activity` from within each setup's pool.
+
+**The three correct dimensions**
+
+| Dimension | Meaning | Source |
+|---|---|---|
+| **Monitoring sessions** | Browser tabs currently connected to the Overview live feed | `totalConnections` in `SystemMonitoringHandler` — already correct, just needs to be emitted separately |
+| **Active subscriptions** | Registered consumer group subscriptions per setup/queue | `subs.size()` already computed — needs renaming from `activeConsumerConnections` to `activeSubscriptions` and should not be conflated with connections |
+| **DB pool connections** (per setup) | Live PostgreSQL connections: active / idle / pending / max | Must be obtained by querying `pg_stat_activity` per setup; `PeeGeeQMetrics.updateConnectionPoolMetrics()` provides the storage but is currently never called |
+
+See §7.11 for the TDD implementation plan.
+
+---
+
+## 9. Test Coverage Audit (2026-06-15)
+
+Complete inventory of every test layer in `peegeeq-management-ui`.
+
+---
+
+### 9.0 Architectural principle — why there are no server-side unit tests
+
+The E2E suite uses **TestContainers** (via `global-setup-testcontainers.ts`) to start a real PostgreSQL container before every run. Every Playwright test therefore exercises the full stack with real infrastructure:
+
+```
+Playwright browser → React UI → axios → Vert.x REST API → peegeeq-db → real PostgreSQL
+```
+
+This makes a mocked-server unit test layer redundant and actively harmful:
+
+- A mock that returns `{ queues: [...] }` only proves your code processes the response you invented. It cannot catch a backend shape change, a missing migration, a wrong SQL query, or a handler routing error.
+- If the backend changes, mocked tests stay green while the real integration silently breaks — false confidence at a maintenance cost.
+
+The division of responsibility is therefore:
+
+| Layer | Tested by | Real dependencies used |
+|---|---|---|
+| Pure client-side state and logic | Vitest unit tests | None — Zustand state, Zod schemas, hook state |
+| Client → server contract + all server logic | Playwright E2E | Real Vert.x + TestContainers PostgreSQL |
+
+Async store actions (`fetchSystemData`, `fetchQueues`, `fetchConsumerGroups`) that call the backend are **not** unit-tested — they are covered by the E2E suite, which is the correct and only necessary test layer for anything that crosses the network boundary.
+
+---
+
+### 9.1 Test infrastructure summary
+
+| Layer | Tool | Version | Count |
+|---|---|---|---|
+| Playwright E2E | Playwright | 1.60.0 | 49 spec files / ~329 tests |
+| Documentation screenshots | Playwright (manual spec) | 1.60.0 | 70 serial tests / 69 PNGs on disk |
+| Vitest unit tests | Vitest | 3.2.4 | 2 files / 31 tests |
+| Storybook stories | — | not configured | 0 |
+| Visual regression snapshots | — | not configured | 0 |
+| Integration tests | Vitest (`src/tests/integration/`) | — | directory exists, 0 files |
+
+---
+
+### 9.2 Playwright E2E specs (49 files, ~329 tests)
+
+Workers: 1 (sequential — shared `SETUP_ID = 'default'` — see §4). TestContainers PostgreSQL via `global-setup-testcontainers.ts`. Playwright projects define explicit ordering with named dependencies so setup data exists before dependent specs run.
+
+**Config** (`playwright.config.ts`):
+- Timeout: 60 s per test, 10 s assertion
+- Retry: 0 local, 2 CI
+- Screenshots: on (every test)
+- Video: on-first-retry
+- Reporters: HTML (`playwright-report/`), JSON (`test-results/results.json`), JUnit (`test-results/junit.xml`)
+- baseURL: `http://localhost:3000`
+- Web server: `npm run dev -- --mode test` (Vite, auto-started, reused if running)
+
+#### Specs by area
+
+**Settings & configuration (8 specs, ~57 tests)**
+- `settings.spec.ts` — REST connection validation, form submit, defaults, URL format
+- `settings-health-checks.spec.ts` — ping button states, auto-ping toggle
+- `settings-ping-utilities.spec.ts` — individual REST / WS / SSE ping buttons, timeout
+- `settings-auto-ping.spec.ts` — interval input, background ping, toggle persistence
+- `connection-status.spec.ts` — WS/SSE state, reconnection, status badge
+- `system-integration.spec.ts` — header layout, sidebar nav, page routing, load states
+
+**Overview page (6 specs, ~32 tests)**
+- `overview-system-status.spec.ts` — stats cards, manual refresh
+- `overview-setup-selector.spec.ts` — setup scope selector interaction
+- `overview-setup-details-modal.spec.ts` — details panel content and layout
+- `overview-recent-activity.spec.ts` — activity table, status tags, queue overview table
+- `overview-live-stats-update.spec.ts` — SSE metrics delivery, chart data updates
+- `overview-reconnecting-banner.spec.ts` — reconnecting status tag on WS/SSE drop
+
+**Database setups (2 specs, ~18 tests)**
+- `database-setup.spec.ts` — CRUD, form validation, API integration
+- `database-setup-form-defaults.spec.ts` — port range (1–65535), field defaults (localhost:5432, schema, user)
+
+**Queue management (8 specs, ~68 tests)**
+- `queue-management.spec.ts` — CRUD operations
+- `queue-messaging-workflow.spec.ts` — publish, receive, workflow validation
+- `queue-details-overview.spec.ts` — detail page field mapping against backend response
+- `queue-details-operations.spec.ts` — Pause/Resume, Get Messages, Purge, Delete
+- `queue-details-consumers.spec.ts` — Consumers tab real subscription data (Phase 7.2 covered here)
+- `queue-config-create-and-display.spec.ts` — creation form, stats card display on Overview
+- `queues-filter-sort.spec.ts` — search, type/status multi-select, column sort
+- `queues-setup-selector.spec.ts` — setup scope selector
+
+**Event store management (8 specs, ~81 tests)**
+- `event-store-management.spec.ts` — CRUD including delete-removes-from-list (Phase 7.1)
+- `event-store-workflow.spec.ts` — end-to-end event posting workflow
+- `events-filter.spec.ts` — all filter controls, client-side filtering
+- `event-detail-modal.spec.ts` — event info, bi-temporal fields, correlation, metadata
+- `events-scope-selector.spec.ts`, `event-stores-setup-selector.spec.ts`, `event-stores-scope-filter.spec.ts` — setup/store selector variants
+- `consumer-groups-scope-selectors.spec.ts` — setup + queue selectors, comprehensive validation
+- `consumer-groups-validation.spec.ts` — duplicate name error, validation rules
+
+**Event visualization (5 specs, ~38 tests)**
+- `causation-tree.spec.ts` — full causation tree page, parent-child event flow
+- `aggregate-stream.spec.ts` — aggregate list, keyset-paginated stream
+- `visualization-scope-selector.spec.ts` — setup/store selectors on visualization pages
+- `visualization-tab-smoke.spec.ts` — quick smoke for tab loading
+- `event-visualization.spec.ts` — standalone causation tree + aggregate stream
+
+**Message browser (7 specs, ~54 tests)**
+- `message-browser.spec.ts` — retrieval, filtering, SSE Live mode
+- `message-browser-advanced-filters.spec.ts` — drawer filters applied to table
+- `message-browser-scope-selectors.spec.ts` — setup + queue selectors
+- `message-sse-stream.spec.ts` — direct API, REST + EventSource end-to-end
+- `message-browser-sse-failure.spec.ts` — EventSource abort, dropout, recovery (×2 entries in audit — same file)
+- `queue-updates-sse.spec.ts` — `GET /api/v1/sse/queues/:setupId` direct API tests
+
+**Infrastructure & utilities (5 specs, ~31 tests)**
+- `websocket-sse-connection.spec.ts` — WS/SSE connection validation
+- `system-metrics-sse.spec.ts` — `/api/v1/sse/metrics` versioned URL
+- `api-error-paths.spec.ts` — backend error responses surface as UI toasts
+- `setup-prerequisite.spec.ts` — creates default setup for dependent specs
+- `scope-selector-persistence.spec.ts` — setup/queue selection survives reload
+
+**Documentation screenshots (1 spec, 70 serial tests — manual run only)**
+- `take-screenshots.spec.ts` — see §9.3
+
+---
+
+### 9.3 Documentation screenshot spec (`take-screenshots.spec.ts`)
+
+This is a standalone serial spec run manually (`npx playwright test take-screenshots.spec.ts --headed --reporter=list`). It is **not part of the standard `npm run test:e2e` suite** — it has no project dependency entry and is excluded from the default run.
+
+**What it does**: creates a complete live data set (queue, event store, 5 correlated events with causation chain, consumer group, 5 queued messages), then navigates to every page and captures every meaningful functional state. Screenshots are written to `docs-design/peegeeq-management-ui/screenshots/` and are the source images embedded in the enhancement documents.
+
+**State persistence**: between tests via `screenshots-state.json` — allows individual tests to be re-run without recreating all data.
+
+**Coverage**: 70 tests capturing 69 PNG files currently on disk, including:
+
+| Range | Pages / states covered |
+|---|---|
+| 01–03 | Overview (empty, setup selected, setup details panel, SSE cards with data), header, WS/SSE status banner |
+| 04–04n | Queues (list, create modal, delete confirm, type filter active), Queue Details (all 4 tabs, actions menu, get-messages modal, pause/purge confirm dialogs, error toast) |
+| 05–06c | Database Setups (list, create modal, create error toast, delete error toast) |
+| 07–07o | Event Stores (list, details modal), Events page (post form, advanced open, events loaded, 9 filter states, event detail modal, JSON validation error) |
+| 08–08d | Settings (base, REST ping result, all pings done, auto-ping enabled) |
+| 09–09d | Consumer Groups (list, setup+queue selected, create modal filled, validation errors) |
+| 10–10q | Message Browser (empty, queue selected, filters drawer empty/filled/time-range, messages table, controls bar, live mode, message detail modal and payload card, status/search/combined/clear filter states) |
+| 11–12b | Causation Tree (empty, store selected, tree traced), Aggregate Stream (with data) |
+
+**Note**: `04g-queue-details-charts.png` captures the Charts tab stub banner ("Coming in Week 2"). This screenshot documents the current stub state and should be regenerated after Phase 7.5 (WS queue stream) is implemented, since the Charts tab would become meaningful at that point.
+
+---
+
+### 9.4 Vitest unit tests (2 files, 31 tests)
+
+**Config** (`vitest.config.ts`): environment jsdom, globals false (avoids Playwright conflicts), timeout 10 s, slow threshold 5 s. Coverage via v8, reporters: text / json / html. E2E specs excluded from unit runs.
+
+**Setup**: `src/tests/vitest.setup.ts` — initialises jsdom environment.
+
+| File | Tests | What is covered |
+|---|---|---|
+| `src/services/configService.test.ts` | 13 | `getBackendConfig()` defaults + stored config + invalid JSON recovery; `saveBackendConfig()` localStorage persistence; `getApiUrl()` / `getVersionedApiUrl()` URL construction; `resetBackendConfig()` |
+| `src/services/websocketService.test.ts` | 18 | Connection lifecycle (open, close, reconnect); message handling and event emission; error recovery and backoff; cleanup. Uses a `MockWebSocket` class with simulated async connection. |
+
+**Scripts**:
+```powershell
+npm run test          # vitest watch
+npm run test:run      # single run
+npm run test:coverage # v8 coverage report
+```
+
+---
+
+### 9.5 Coverage gaps
+
+The following source areas have no unit test coverage and are tested only via Playwright E2E (which requires a live backend and TestContainers database to run):
+
+| Area | Files | Gap |
+|---|---|---|
+| React components | `src/components/` (7 files) | No unit or component tests |
+| Page components | `src/pages/` (18 files) | E2E only |
+| Zustand store | `src/stores/managementStore.ts` | No unit tests — store actions, state transitions, notification capping untested in isolation |
+| API client / RTK Query | `src/api/` or equivalent | No unit tests |
+| React hooks | `src/hooks/` | No unit tests |
+| Remaining services | `src/services/` — all except `configService` and `websocketService` | No unit tests (SSE service, metrics service, etc.) |
+| Storybook | — | Not configured — no isolated component visual development or snapshot testing |
+| Visual regression | — | No `toHaveScreenshot()` assertions — the 25 PNGs in `playwright-report/data/` are failure screenshots from the last run, not baseline comparisons |
+
+**Integration test directory** (`src/tests/integration/`) is referenced by the `test:integration` npm script with `--passWithNoTests` but contains no files.
+
+**Coverage of these gaps** — the store, validation, and connection-status hook gaps are addressed by three new unit test files added 2026-06-15:
+- `src/stores/managementStore.test.ts` — 20 tests covering all pure-state actions: connection status flags, notification capping (50-entry), chart series capping (20-point), localStorage persistence. Async fetch actions (`fetchSystemData`, `fetchQueues`, `fetchConsumerGroups`) are excluded — server-side interactions are covered by E2E tests only, not mocked at the unit level.
+- `src/types/queue.validation.test.ts` — 18 tests covering all Zod schemas, the `createdAt` number→ISO transform, `queueCount`→`total` mapping, and safe-default fallback behaviour
+- `src/hooks/useRealTimeUpdates.test.ts` — 6 tests covering `useConnectionStatus` state logic
+
+Visual regression (`toHaveScreenshot()`), Storybook, and the integration directory remain open gaps.
+
+---
+
+### 9.6 Test scripts reference
+
+```powershell
+# Unit tests
+npm run test             # Vitest watch mode
+npm run test:run         # Single pass
+npm run test:coverage    # v8 coverage (text + JSON + HTML)
+npm run test:integration # integration dir (currently empty, passes with no tests)
+
+# E2E tests
+npm run test:e2e         # Standard run via scripts/run-e2e-tests.js (workers=1)
+npm run test:e2e:direct  # Direct: npx playwright test
+npm run test:e2e:ui      # Playwright UI mode (interactive)
+npm run test:e2e:debug   # Debug mode (step-through)
+npm run test:e2e:headed  # Headed browser (visible)
+npm run test:e2e:report  # Open last HTML report
+
+# Documentation screenshots (manual, not in standard run)
+npx playwright test src/tests/e2e/specs/take-screenshots.spec.ts --headed --reporter=list
+
+# All layers
+npm run test:all         # test:run + test:integration + test:e2e
+npm run test:ci          # test:run + test:integration + test:e2e --reporter=junit
+```
+
+---
+
+## 10. Backend Test Independence
+
+> **Status**: Existing — both backend modules already have comprehensive standalone JUnit/TestContainers test suites. No React UI or npm is involved.
+
+The Maven reactor in `peegeeq/` (the parent of this repo) contains all Java modules as siblings. Backend tests run directly against a real PostgreSQL container via TestContainers 2.0.2. The management UI (`peegeeq-management-ui`) is a separate Maven module and is never a dependency of the backend test modules — its presence or absence has no effect on backend test execution.
+
+---
+
+### 10.1 Test module inventory
+
+| Maven module | Test classes | Coverage focus |
+|---|---|---|
+| `peegeeq-db` | 135 | DB pool, connection management, consumer groups, subscriptions, dead letter queue, cleanup jobs, backfill, partitioning, circuit breakers, resilience, metrics, performance |
+| `peegeeq-rest` | 65 | All REST/WS/SSE handlers, queue lifecycle, message sending/consumption, setup management, health checks, CORS, dead letter, webhook delivery, monitoring |
+| `peegeeq-test-support` | — (infrastructure) | `SharedPostgresTestExtension`, `PeeGeeQTestContainerFactory`, `PeeGeeQTestSchemaInitializer`, performance harness |
+| `peegeeq-integration-tests` | 0 (empty, reserved) | Cross-module smoke tests — module exists in reactor but contains no tests yet |
+
+---
+
+### 10.2 JUnit 5 tag strategy
+
+All tests are tagged; the parent `pom.xml` is the single source of truth for tag filtering — no module overrides it.
+
+| Tag | Meaning | Typical run time |
+|---|---|---|
+| `@Tag("core")` | Pure unit tests — no I/O, no containers | < 1 s each |
+| `@Tag("integration")` | Real PostgreSQL via TestContainers | 5–30 s each |
+| `@Tag("performance")` | Throughput benchmarks, load tests | Minutes |
+| `@Tag("smoke")` | Critical-path subset | Seconds |
+| `@Tag("slow")` | Long-running stability tests | Minutes–hours |
+
+---
+
+### 10.3 Maven profiles and run commands
+
+Run from the repo root (`C:\Users\markr\dev\java\corejava\peegeeq`). All commands must pipe through `Tee-Object` — see `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md` for the canonical command reference and mandatory `-Pall-tests` rule.
+
+> **RULE**: After ANY code change, the only acceptable validation command is `-Pall-tests`. Partial profiles below are only for (a) pre-change baselines or (b) re-running a specific failure already identified by `-Pall-tests`.
+
+```powershell
+# ── REQUIRED after any code change ───────────────────────────────────────────
+
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260615.txt
+
+
+# ── Pre-change baseline (establish green before touching a module) ────────────
+
+mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.txt
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260615.txt
+
+
+# ── Targeted debug (only after -Pall-tests identifies a specific failure) ─────
+
+# DB module — core
+mvn test -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260615.txt
+
+# DB module — integration (PostgreSQL container)
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260615.txt
+
+# REST module — core
+mvn test -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260615.txt
+
+# REST module — integration
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.txt
+
+# Integration-tests module
+mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\peegeeq-integration-tests-integration-20260615.txt
+
+# Smoke tests — all modules
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260615.txt
+
+# Audit: find untagged tests (should report Tests run: 0 in every module)
+mvn test -Puntagged-tests 2>&1 | Tee-Object -FilePath logs\untagged-audit-20260615.txt
+
+
+# ── Coverage ─────────────────────────────────────────────────────────────────
+
+mvn test jacoco:report -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-coverage-20260615.txt
+# Report at: peegeeq-db/target/site/jacoco/index.html
+```
+
+---
+
+### 10.4 TestContainers wiring
+
+**Shared container pattern** (peegeeq-db): a single `SharedPostgresTestExtension` JUnit 5 extension starts one PostgreSQL container for the entire test class run. Schema is created once; tests share it with `@ResourceLock` guards for thread safety. Container is reused across classes within the same JVM (not across Maven forks).
+
+**Per-test container** (peegeeq-rest): each integration test class starts its own `PostgreSQLContainer` (`withReuse(false)`) for clean isolation. Slightly slower but avoids cross-test state leakage at the handler level.
+
+**Vert.x async context**: integration tests use `@ExtendWith(VertxExtension.class)` which injects a `Vertx` instance and `VertxTestContext` — async assertions complete via `testContext.completeNow()` / `testContext.failNow(t)`. Awaitility is available for polling-style waits.
+
+---
+
+### 10.5 Open gaps in backend test coverage
+
+The following backend scenarios have no dedicated test coverage (identified during audit):
+
+| Area | Gap |
+|---|---|
+| `SystemMonitoringHandler` — negative `totalConnections` | `decrementAndGet()` called outside null-check (§8.1); no test asserts non-negative value after duplicate disconnect |
+| `SystemMonitoringHandler` — lifetime-average `messagesPerSecond` | No test asserts delta-rate semantics vs. lifetime-average (§8.2) |
+| `PeeGeeQMetrics.updateConnectionPoolMetrics()` | Method exists (lines 357–367) but is never called — no test covers pool metric propagation to Micrometer |
+| `ConsumerAlertHandler` | No dedicated test class |
+| Auth / RBAC | No tests — not yet implemented |
+| `peegeeq-integration-tests` module | Reserved for cross-module smoke tests; currently empty |
+
+The §8.1 and §8.2 bugs (negative connections, flat throughput) are the highest priority backend fixes and should each get a `@Tag("integration")` regression test in `SystemMonitoringHandlerTest.java` before the fix is merged.
+
+---
+
+### 10.6 Backend tests added (2026-06-15)
+
+All three gaps from §10.5 that were actionable without first implementing a fix have been addressed:
+
+**`SystemMonitoringHandlerTest.java` — two new regression tests (Tests 11 & 12)**
+
+| Test | Order | Tag | What it verifies |
+|---|---|---|---|
+| `testActiveConnectionCountNeverNegativeAcrossLifecycle` | 11 | `integration, regression` | §8.1: After 5 abrupt WS disconnects (`ws.connection().close()` — triggers both `exceptionHandler` and `closeHandler` on the server), an observer WS must see `activeConnections >= 1` (itself). With the double-decrement bug each abrupt close leaves `totalConnections` one below its true value; after 5 closes the observer sees `1 - 5 = -4` → assertion fails. |
+| `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` | 12 | `integration, regression` | §8.2: Seeds 5 pending messages (no consumer), configures a 2-second WS interval, collects two consecutive `system_stats` ticks. Between tick-1 and tick-2 the pending count is unchanged. The delta formula gives `(5 - 5) / 2 = 0`; the lifetime-average formula gives `5 / uptime > 0`. Asserts `messagesPerSecond == 0.0 ± 0.01` on tick-2 — **fails with current code, passes after fix**. |
+
+The original Test 11 (SSE disconnect log-level) is renumbered to Test 13.
+
+**`peegeeq-integration-tests` — new `PeeGeeQCriticalPathSmokeTest.java`**
+
+Six-step critical-path smoke suite in `dev.mars.peegeeq.integration`, tagged `@Tag("integration")`, running with a fresh TestContainers PostgreSQL. Exercises the full cross-module REST path without touching the React UI:
+
+| Step | Test | What it checks |
+|---|---|---|
+| 1 | `testHealthEndpointResponds` | `GET /health` returns 200 |
+| 2 | `testCreateSetupWithQueue` | `POST /api/v1/database-setup/create` returns 200/201, status = ACTIVE |
+| 3 | `testSendMessagesToQueue` | Three `POST /api/v1/queues/:setupId/:queue/messages` all return 200 with messageId |
+| 4 | `testQueueDetailsShowPendingMessages` | `GET /api/v1/queues/:setupId/:queue` shows `messageCount >= 3` |
+| 5 | `testListSetupsContainsCreatedSetup` | `GET /api/v1/setups` response `{count, setupIds[]}` includes the setup |
+| 6 | `testDeleteSetupAndVerifyRemoval` | `DELETE /api/v1/setups/:setupId` returns 204; subsequent `GET /api/v1/setups` confirms it is absent |
+
+**Run the new backend tests (follow PEEGEEQ-TEST-COMMANDS.md):**
+
+After ANY code change, the mandatory validation command is `-Pall-tests`:
+
+```powershell
+# REQUIRED after any code change — runs every test in every module
+mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260615.txt
+```
+
+Only use targeted commands below when re-running a **specific already-identified failure** from a prior `-Pall-tests` run:
+
+```powershell
+# Targeted debug — peegeeq-rest integration (after -Pall-tests identifies a failure here)
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260615.txt
+
+# Targeted debug — peegeeq-integration-tests (after -Pall-tests identifies a failure here)
+mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\peegeeq-integration-tests-integration-20260615.txt
+```
+
+**Remaining open gaps** (§10.5):
+- `PeeGeeQMetrics.updateConnectionPoolMetrics()` is dead code — wire it and add a Micrometer gauge test (blocked on §8.3 / Phase 7.11 implementation)
+- No `ConsumerAlertHandler` test class

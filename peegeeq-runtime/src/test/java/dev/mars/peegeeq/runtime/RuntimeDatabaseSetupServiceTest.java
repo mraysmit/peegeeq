@@ -171,6 +171,7 @@ class RuntimeDatabaseSetupServiceTest {
             @Override public io.vertx.core.Future<dev.mars.peegeeq.api.setup.DatabaseSetupResult> getSetupResult(String id) { return io.vertx.core.Future.succeededFuture(null); }
             @Override public io.vertx.core.Future<Void> addQueue(String id, dev.mars.peegeeq.api.database.QueueConfig q) { return io.vertx.core.Future.succeededFuture(); }
             @Override public io.vertx.core.Future<Void> addEventStore(String id, dev.mars.peegeeq.api.database.EventStoreConfig e) { return io.vertx.core.Future.succeededFuture(); }
+            @Override public io.vertx.core.Future<Void> removeEventStore(String id, String storeName) { return io.vertx.core.Future.succeededFuture(); }
             @Override public io.vertx.core.Future<java.util.Set<String>> getAllActiveSetupIds() { return io.vertx.core.Future.succeededFuture(java.util.Collections.emptySet()); }
             @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String id) { return null; }
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String id) { return null; }

@@ -90,7 +90,8 @@ class ReactiveNotificationHandlerLifecycleTest {
         logger.info("Setting up ReactiveNotificationHandler lifecycle test");
         
         // Initialize database schema
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, 
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+            PostgreSQLTestConstants.TEST_SCHEMA,
             PeeGeeQTestSchemaInitializer.SchemaComponent.BITEMPORAL);
         ensureBitemporalCompatibilityColumns();
 
