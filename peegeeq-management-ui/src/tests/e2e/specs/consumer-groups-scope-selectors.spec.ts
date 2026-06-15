@@ -284,12 +284,15 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
      * Intercept GET /api/v1/management/consumer-groups and inject a single group
      * with an IN_PROGRESS backfill (400 of 1000 messages processed).
      *
-     * A real backfill runs as a single 10k-message batch with no inter-batch
-     * delay, so its IN_PROGRESS window is too short to observe reliably through
-     * the UI.  The listing response is stubbed instead — the same approach as
-     * overview-reconnecting-banner.spec.ts and api-error-paths.spec.ts.  The
-     * real listing fields (backfillStatus, progress counts, timestamps) are
-     * covered backend-side by ManagementApiIntegrationTest test 20.
+     * ── NO-MOCK POLICY EXCEPTION (hard-to-produce-state injection) ──────────
+     * Sanctioned exception to the no-mock rule (decision 2026-06-15). A real
+     * backfill runs as a single 10k-message batch with no inter-batch delay, so
+     * its IN_PROGRESS window is too short to observe reliably through the UI.
+     * There is no real-backend way to hold the UI on the IN_PROGRESS state, so
+     * the listing response is injected to exercise the IN_PROGRESS rendering
+     * path. This is deliberate state injection, NOT data mocking. The real
+     * listing fields (backfillStatus, progress counts, timestamps) are covered
+     * backend-side by ManagementApiIntegrationTest test 20.
      */
     async function routeBackfillInProgressListing(page: Page, groupName: string, queueName: string) {
         const now = new Date().toISOString()

@@ -73,6 +73,14 @@ export default defineConfig({
 
   /* Configure projects for major browsers */
   projects: [
+    // Step 0: Database Setups Empty State - asserts the genuine first-run empty state
+    // against the REAL backend (global setup deletes all setups at the start of every
+    // run). MUST be first, with no dependencies, so it runs before any setup is created.
+    {
+      name: '0-setup-empty-state',
+      testMatch: '**/setup-empty-state.spec.ts',
+      use: chromeMaximized,
+    },
     // Quick test: WebSocket and SSE connection validation (standalone, no dependencies)
     {
       name: 'websocket-sse-quick',
@@ -242,11 +250,13 @@ export default defineConfig({
       testMatch: '**/visualization-tab-smoke.spec.ts',
       use: chromeMaximized,
     },
-    // Isolated Visualization Test
+    // Event Visualization causation data contract (real backend — seeds an isolated
+    // event store + causation chain; requires SETUP_ID from setup-prerequisite)
     {
       name: 'visualization-isolated',
       testMatch: '**/visualization-isolated.spec.ts',
       use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
     },
     // Visualization Scope Selector – setup/event-store selectors on Causation Tree and Aggregate Stream
     {

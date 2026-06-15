@@ -19,7 +19,8 @@ import {
     Checkbox,
     Divider,
     Alert,
-    Typography
+    Typography,
+    Descriptions
 } from 'antd'
 import {
     PlusOutlined,
@@ -50,6 +51,8 @@ const DatabaseSetups = () => {
     const [loading, setLoading] = useState(false)
     const [isModalVisible, setIsModalVisible] = useState(false)
     const [form] = Form.useForm()
+    const [viewDetailsSetup, setViewDetailsSetup] = useState<DatabaseSetup | null>(null)
+    const [detailsData, setDetailsData] = useState<any | null>(null)
 
     const fetchSetups = async () => {
         setLoading(true)
@@ -139,6 +142,19 @@ const DatabaseSetups = () => {
         })
     }
 
+    const handleViewDetails = async (setup: DatabaseSetup) => {
+        setViewDetailsSetup(setup)
+        setDetailsData(null)
+        try {
+            const response = await axios.get(getVersionedApiUrl(`setups/${setup.setupId}`))
+            setDetailsData(response.data)
+        } catch (error: any) {
+            console.error('Failed to fetch setup details:', error)
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to load setup details'
+            message.error(errorMsg)
+        }
+    }
+
     const handleModalOk = async () => {
         try {
             const values = await form.validateFields()
@@ -182,7 +198,7 @@ const DatabaseSetups = () => {
                 key: 'view',
                 icon: <EyeOutlined />,
                 label: 'View Details',
-                onClick: () => message.info('View details coming soon'),
+                onClick: () => handleViewDetails(setup),
             },
             {
                 type: 'divider' as const,
@@ -394,6 +410,36 @@ const DatabaseSetups = () => {
                             </Col>
                         </Row>
                     </Form>
+                </Modal>
+
+                {/* Setup Details Modal */}
+                <Modal
+                    title="Setup Details"
+                    open={viewDetailsSetup !== null}
+                    onCancel={() => { setViewDetailsSetup(null); setDetailsData(null) }}
+                    footer={[
+                        <Button key="close" onClick={() => { setViewDetailsSetup(null); setDetailsData(null) }}>
+                            Close
+                        </Button>,
+                    ]}
+                    width={600}
+                >
+                    <div data-testid="setup-details-modal">
+                        <Descriptions bordered column={1} size="small">
+                            <Descriptions.Item label="Setup ID">{viewDetailsSetup?.setupId}</Descriptions.Item>
+                            <Descriptions.Item label="Status">
+                                {detailsData?.status
+                                    ? <Tag color="green">{String(detailsData.status).toUpperCase()}</Tag>
+                                    : '—'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Host">{detailsData?.host ?? '—'}</Descriptions.Item>
+                            <Descriptions.Item label="Port">{detailsData?.port ?? '—'}</Descriptions.Item>
+                            <Descriptions.Item label="Database Name">{detailsData?.databaseName ?? '—'}</Descriptions.Item>
+                            <Descriptions.Item label="Schema">{detailsData?.schema ?? '—'}</Descriptions.Item>
+                            <Descriptions.Item label="Queues">{detailsData?.queueFactories?.length ?? 0}</Descriptions.Item>
+                            <Descriptions.Item label="Event Stores">{detailsData?.eventStores?.length ?? 0}</Descriptions.Item>
+                        </Descriptions>
+                    </div>
                 </Modal>
             </Space>
         </div>

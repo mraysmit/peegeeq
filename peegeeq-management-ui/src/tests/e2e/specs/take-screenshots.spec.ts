@@ -9,6 +9,13 @@
  *
  * Screenshots are written to:
  *   docs-design/peegeeq-management-ui/screenshots/
+ *
+ * ── NO-MOCK POLICY EXCEPTION (fault injection) ─────────────────────────────
+ * Almost everything here uses real data against the real backend. The only
+ * exceptions are the error-state screenshots, which use page.route() to inject
+ * a 503 so the .ant-message-error toast is visible to capture. A healthy backend
+ * will not return 503 on demand — this is sanctioned fault injection (decision
+ * 2026-06-15), NOT data mocking.
  */
 import { test, expect, Page } from '@playwright/test'
 import * as path from 'path'
