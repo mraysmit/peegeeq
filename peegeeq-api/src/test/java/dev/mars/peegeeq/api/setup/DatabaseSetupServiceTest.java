@@ -23,6 +23,7 @@ class DatabaseSetupServiceTest {
             @Override public Future<DatabaseSetupResult> getSetupResult(String setupId) { return Future.succeededFuture(null); }
             @Override public Future<Void> addQueue(String setupId, QueueConfig queueConfig) { return Future.succeededFuture(); }
             @Override public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) { return Future.succeededFuture(); }
+            @Override public Future<Void> removeEventStore(String setupId, String storeName) { return Future.succeededFuture(); }
             @Override public Future<Set<String>> getAllActiveSetupIds() { return Future.succeededFuture(Collections.emptySet()); }
             @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
@@ -72,6 +73,7 @@ class DatabaseSetupServiceTest {
             @Override public Future<DatabaseSetupResult> getSetupResult(String setupId) { return Future.succeededFuture(null); }
             @Override public Future<Void> addQueue(String setupId, QueueConfig queueConfig) { return Future.succeededFuture(); }
             @Override public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) { return Future.succeededFuture(); }
+            @Override public Future<Void> removeEventStore(String setupId, String storeName) { return Future.succeededFuture(); }
             @Override public Future<Set<String>> getAllActiveSetupIds() { return Future.succeededFuture(Collections.emptySet()); }
             @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }

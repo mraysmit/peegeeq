@@ -68,6 +68,7 @@ class PeeGeeQRestServerStopTest {
             @Override public Future<DatabaseSetupResult> getSetupResult(String id) { return Future.succeededFuture(null); }
             @Override public Future<Void> addQueue(String id, QueueConfig q) { return Future.succeededFuture(); }
             @Override public Future<Void> addEventStore(String id, EventStoreConfig e) { return Future.succeededFuture(); }
+            @Override public Future<Void> removeEventStore(String id, String storeName) { return Future.succeededFuture(); }
             @Override public Future<Set<String>> getAllActiveSetupIds() { return Future.succeededFuture(Collections.emptySet()); }
             @Override public SubscriptionService getSubscriptionServiceForSetup(String id) { return null; }
             @Override public DeadLetterService getDeadLetterServiceForSetup(String id) { return null; }
