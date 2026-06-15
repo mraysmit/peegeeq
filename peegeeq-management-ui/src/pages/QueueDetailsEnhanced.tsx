@@ -93,7 +93,8 @@ const QueueDetailsPage = () => {
                 getVersionedApiUrl(`/queues/${setupId}/${queueName}/consumers`)
             );
             setConsumers(resp.data?.consumers ?? []);
-        } catch {
+        } catch (error) {
+            message.error(`Failed to load consumers: ${error instanceof Error ? error.message : 'Unknown error'}`);
             setConsumers([]);
         } finally {
             setConsumersLoading(false);
