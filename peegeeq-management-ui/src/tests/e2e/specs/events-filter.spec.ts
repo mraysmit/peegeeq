@@ -368,10 +368,12 @@ test.describe('Events Page – Filter Functionality', () => {
     // ── 7. Truncation surfacing ───────────────────────────────────────────────
 
     test('15 truncation alert appears when the API reports more events than loaded', async ({ page }) => {
+        // NO-MOCK POLICY EXCEPTION (edge injection, sanctioned 2026-06-15):
         // The events fetch is capped at limit=1000. Seeding >1000 real events is too
-        // slow for e2e, so patch the real API response to report hasMore=true with a
-        // larger totalCount — the suite's established interception approach for
-        // hard-to-produce states (overview-reconnecting-banner.spec.ts).
+        // slow for e2e, so we fetch the REAL API response and patch only hasMore/
+        // totalCount to simulate the >1000 state. This is edge injection on top of
+        // real data (route.fetch() first), NOT data mocking — the events list itself
+        // is genuine backend data.
         await page.route(/\/eventstores\/[^/]+\/[^/]+\/events\?/, async route => {
             if (route.request().method() !== 'GET') {
                 return route.continue()

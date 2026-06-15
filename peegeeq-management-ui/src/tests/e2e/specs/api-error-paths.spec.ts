@@ -8,6 +8,14 @@ import type { Page, Route } from '@playwright/test'
  * (400/404/503). Asserts that Ant Design .ant-message-error toasts appear correctly.
  *
  * Standalone: no TestContainers dependency — all backend traffic is intercepted.
+ *
+ * ── NO-MOCK POLICY EXCEPTION (fault injection) ─────────────────────────────
+ * The project rule is "no mocking": tests hit the real backend. This spec is a
+ * sanctioned exception (decision 2026-06-15). A healthy backend will not return
+ * 400/404/503 to a valid request on demand, so the only way to exercise the UI's
+ * error-toast handling is to INJECT the failure. This is deliberate fault
+ * injection, NOT data mocking — do not copy this pattern to stand in for real
+ * data that the backend can actually serve.
  */
 
 // ---------------------------------------------------------------------------

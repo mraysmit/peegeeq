@@ -158,4 +158,59 @@ test.describe('Queue Management', () => {
       }
     })
   })
+
+  test.describe('Queue Purge', () => {
+
+    test('purge from queue list page empties the queue', async ({ page, queuesPage }) => {
+      test.setTimeout(60000)
+
+      const queueName = `purge_list_test_${Date.now()}`
+      const MESSAGE_COUNT = 5
+
+      // 1. Create the queue and publish messages via REST API
+      const qResp = await page.request.post('/api/v1/management/queues', {
+        data: { setupId: SETUP_ID, name: queueName, type: 'native' },
+      })
+      if (!qResp.ok()) throw new Error(`Create queue failed: ${qResp.status()} ${await qResp.text()}`)
+
+      for (let i = 0; i < MESSAGE_COUNT; i++) {
+        const r = await page.request.post(`/api/v1/queues/${SETUP_ID}/${queueName}/publish`, {
+          data: { payload: { seq: i } },
+        })
+        if (!r.ok()) throw new Error(`Publish message ${i} failed: ${r.status()} ${await r.text()}`)
+      }
+
+      // 2. Navigate to the Queues page and locate the queue row
+      await page.goto('/')
+      await queuesPage.goto()
+      await queuesPage.clickRefresh()
+
+      const row = page.locator('.ant-table-row').filter({ hasText: queueName }).first()
+      await expect(row).toBeVisible({ timeout: 15000 })
+
+      // Message count column (2nd cell) must show at least the published count
+      const messagesCell = row.locator('td').nth(1)
+      await expect.poll(async () => {
+        const txt = (await messagesCell.innerText()).replace(/[^0-9]/g, '')
+        return parseInt(txt || '0', 10)
+      }, { timeout: 15000 }).toBeGreaterThanOrEqual(MESSAGE_COUNT)
+
+      // 3. Three-dot menu → Purge Messages → confirm
+      await row.getByRole('button').click()
+      await page.locator('.ant-dropdown-menu-item:has-text("Purge Messages")').click()
+
+      // showPurgeConfirm → Modal.confirm, okText "Purge"
+      await expect(page.locator('.ant-modal-confirm')).toBeVisible()
+      await page.getByRole('button', { name: 'Purge', exact: true }).click()
+
+      // Success toast confirms the purge completed
+      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 10000 })
+
+      // 4. Message count drops to 0 (RTK cache invalidation triggers a refetch)
+      await expect.poll(async () => {
+        const txt = (await messagesCell.innerText()).replace(/[^0-9]/g, '')
+        return parseInt(txt || '0', 10)
+      }, { timeout: 15000 }).toBe(0)
+    })
+  })
 })
