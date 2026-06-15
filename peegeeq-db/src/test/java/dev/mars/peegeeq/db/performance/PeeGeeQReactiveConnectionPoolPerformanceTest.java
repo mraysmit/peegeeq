@@ -19,6 +19,7 @@ package dev.mars.peegeeq.db.performance;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -92,6 +93,7 @@ class PeeGeeQReactiveConnectionPoolPerformanceTest {
         testProps.setProperty("peegeeq.database.username", postgres.getUsername());
         testProps.setProperty("peegeeq.database.password", postgres.getPassword());
         testProps.setProperty("peegeeq.database.ssl.enabled", "false");
+        testProps.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
 
         testProps.setProperty("peegeeq.database.pool.min-size", "10");
         testProps.setProperty("peegeeq.database.pool.max-size", "20");

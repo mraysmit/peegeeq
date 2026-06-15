@@ -2,6 +2,7 @@ package dev.mars.peegeeq.outbox;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -11,6 +12,8 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
+
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -27,9 +30,18 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 @ExtendWith(VertxExtension.class)
 class OutboxBlockingSafetyTest {
 
+    private static PeeGeeQConfiguration minimalTestConfig() {
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", "localhost");
+        props.setProperty("peegeeq.database.name", "test");
+        props.setProperty("peegeeq.database.username", "test");
+        props.setProperty("peegeeq.database.schema", "public");
+        return new PeeGeeQConfiguration("default", props);
+    }
+
     @Test
     void outboxFactoryBlockingApisFailFastOnEventLoopThread(Vertx vertx, VertxTestContext testContext) {
-        OutboxFactory factory = new OutboxFactory(null);
+        OutboxFactory factory = new OutboxFactory(null, minimalTestConfig());
 
         // isHealthy(), getStats(), createBrowser(), and close() are all reactive
         // (return Future) and are safe to call from the event loop.
@@ -48,7 +60,7 @@ class OutboxBlockingSafetyTest {
         // createBrowser() is now reactive (returns Future<QueueBrowser<T>>) and must NOT
         // throw synchronously on the event loop. Without a real DatabaseService the future
         // will fail asynchronously, but no synchronous exception is acceptable.
-        OutboxFactory factory = new OutboxFactory(null);
+        OutboxFactory factory = new OutboxFactory(null, minimalTestConfig());
 
         invokeOnEventLoop(vertx, () -> factory.createBrowser("topic-a", String.class))
                 .onComplete(testContext.succeeding(thrown -> testContext.verify(() -> {

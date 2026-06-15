@@ -196,6 +196,11 @@ public class ControllableSetupService implements DatabaseSetupService {
     }
 
     @Override
+    public Future<Void> removeEventStore(String setupId, String storeName) {
+        return Future.succeededFuture();
+    }
+
+    @Override
     public Future<Set<String>> getAllActiveSetupIds() {
         return this.getAllActiveSetupIds.get();
     }

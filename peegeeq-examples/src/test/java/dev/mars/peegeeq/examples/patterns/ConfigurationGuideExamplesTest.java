@@ -277,24 +277,22 @@ public class ConfigurationGuideExamplesTest {
     }
 
     /**
-     * {@code ${VAR}} with no default is left unchanged when the env var is absent.
+     * {@code ${VAR}} with no default throws when the env var is absent.
      *
-     * <p>PeeGeeQConfiguration logs a WARN in this case. The raw placeholder string
-     * is preserved as the property value so the operator can diagnose the missing
-     * environment variable.</p>
+     * <p>PeeGeeQConfiguration enforces fail-fast: referencing an absent env var with
+     * no default is a configuration error that must be caught at startup. An
+     * {@link IllegalStateException} is thrown with the property name and missing
+     * variable in the message.</p>
      */
     @Test
-    void placeholder_withNoDefault_isLeftUnchangedWhenEnvVarIsAbsent() {
+    void placeholder_withNoDefault_throwsWhenEnvVarIsAbsent() {
         Properties overrides = validBase();
-        // A non-critical property so the unresolved placeholder doesn't break validation.
         overrides.setProperty("peegeeq.metrics.instance-id",
             "${PEEGEEQ_GUIDE_EXAMPLE_INSTANCE_ID_ABSENT}");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", overrides);
-
-        assertEquals("${PEEGEEQ_GUIDE_EXAMPLE_INSTANCE_ID_ABSENT}",
-            config.getString("peegeeq.metrics.instance-id", ""),
-            "${VAR} with no default must be preserved as-is when the env var is absent");
+        assertThrows(IllegalStateException.class,
+            () -> new PeeGeeQConfiguration("default", overrides),
+            "${VAR} with no default must throw when the env var is absent — fail-fast at startup");
     }
 
     /**
