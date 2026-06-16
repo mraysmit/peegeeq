@@ -2488,8 +2488,14 @@ The following backend scenarios have no dedicated test coverage (identified duri
 | `ConsumerAlertHandler` | No dedicated test class |
 | Auth / RBAC | No tests — not yet implemented |
 | `peegeeq-integration-tests` module | Reserved for cross-module smoke tests; currently empty |
+| `ManagementApiHandler.getQueueConsumers` — `GET /api/v1/queues/:setupId/:queueName/consumers` | ✅ RESOLVED 2026-06-16 — covered by `ManagementApiIntegrationTest.testGetQueueConsumersEndpoint` (`@Order(21)`): subscribes a group, then asserts it appears in the consumers response with the documented fields. Backs the Phase 2 Consumers tab (§7.2). |
+| `ManagementApiHandler.getQueueBindings` — `GET /api/v1/queues/:setupId/:queueName/bindings` | **No JUnit integration test** (2026-06-16). Returns an empty array by design (PeeGeeQ has no binding concept), but the handler is untested. |
+| `ManagementApiHandler.getQueueDetails` — `GET /api/v1/queues/:setupId/:queueName` | ✅ RESOLVED 2026-06-16 — covered by `ManagementApiIntegrationTest.testGetQueueDetailsEndpoint` (`@Order(22)`): asserts the per-queue details contract (name/setup/implementationType/status + nested `statistics` and `config`) the Queue Details Overview tab uses. |
+| `ManagementApiHandler.updateQueue` — `PUT /api/v1/management/queues/:setupId/:queueName` | **Only the 404 error path is covered** (`ManagementApiHandlerErrorTest.updateQueue_queueNotFound_returns404`); no happy-path config-update integration test (2026-06-16). |
 
 The §8.1 and §8.2 bugs (negative connections, flat throughput) were the highest-priority backend fixes; both are **fixed (2026-06-16)** with `@Tag("regression")` tests in `SystemMonitoringHandlerTest.java` (see §8.1 / §8.2). The remaining gaps above (`updateConnectionPoolMetrics`, `ConsumerAlertHandler`, auth) are still open.
+
+**Management-endpoint coverage audit (2026-06-16):** the management API surface is otherwise well covered — `ManagementApiIntegrationTest` (~28 tests incl. purge via `testQueuePurge_E2E`, full consumer-group lifecycle, messages, metrics, browsing), `SetupManagementIntegrationTest` (setup CRUD + `getSetupDetails`), `SSEQueueUpdatesIntegrationTest`, `SystemMonitoringHandlerTest`. The four queue-endpoint rows above are the only UI-consumed management endpoints with no (or error-path-only) JUnit integration coverage. Method note: path-grep audit — `getQueueConsumers`/`getQueueBindings` are definitively uncovered; `getQueueDetails`/`updateQueue` happy-path are "no direct test found".
 
 ---
 

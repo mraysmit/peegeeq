@@ -113,7 +113,7 @@ public class ManagementApiIntegrationTest {
                 .put("databaseName", "mgmt_api_db_" + System.currentTimeMillis())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray()
@@ -1030,6 +1030,200 @@ public class ManagementApiIntegrationTest {
                         "Listing should contain backfillStartedAt after the backfill ran");
                     assertNotNull(group.getString("backfillCompletedAt"),
                         "Listing should contain backfillCompletedAt after the backfill completed");
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(21)
+    @DisplayName("Management API - GET /queues/:setupId/:queueName/consumers returns subscribed consumer groups")
+    void testGetQueueConsumersEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 21: GET /queues/:setupId/:queueName/consumers returns subscribed groups ===");
+
+        // Closes the §10.5 gap: getQueueConsumers (backs the Phase 2 Consumers tab) had no
+        // JUnit integration coverage. Subscribe a group to the queue, then assert the consumers
+        // endpoint returns it with the documented fields. Real backend — no mock.
+        String groupName = "mgmt_consumers_group_" + System.currentTimeMillis();
+
+        JsonObject groupRequest = new JsonObject()
+            .put("name", groupName)
+            .put("setup", setupId)
+            .put("queueName", QUEUE_NAME);
+
+        // Step 1: subscribe a consumer group to the queue
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/consumer-groups")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(groupRequest)
+            .compose(createResponse -> {
+                if (createResponse.statusCode() != 201) {
+                    return Future.failedFuture("Create consumer group failed: "
+                        + createResponse.statusCode() + " " + createResponse.bodyAsString());
+                }
+                // Step 2: query the consumers endpoint for that queue
+                return webClient.get(TEST_PORT, "localhost",
+                        "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/consumers")
+                    .send();
+            })
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Get queue consumers response: {} - {}",
+                        response.statusCode(), response.bodyAsString());
+
+                    assertEquals(200, response.statusCode(), "GET consumers should return 200");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+
+                    JsonArray consumers = body.getJsonArray("consumers");
+                    assertNotNull(consumers, "Response should contain a consumers array");
+                    assertEquals(consumers.size(), body.getInteger("consumerCount").intValue(),
+                        "consumerCount must equal the number of consumer entries");
+                    assertTrue(consumers.size() >= 1,
+                        "At least the subscribed group must be present, got: " + consumers.encode());
+
+                    // The group we just subscribed must appear with the documented fields
+                    JsonObject created = consumers.stream()
+                        .map(o -> (JsonObject) o)
+                        .filter(c -> groupName.equals(c.getString("groupName")))
+                        .findFirst()
+                        .orElse(null);
+                    assertNotNull(created, "The subscribed group '" + groupName
+                        + "' must appear in the consumers list: " + consumers.encode());
+                    assertNotNull(created.getString("topic"), "consumer must have a topic");
+                    assertNotNull(created.getString("status"), "consumer must have a status");
+                    assertTrue(created.containsKey("backfillStatus"), "consumer must expose backfillStatus");
+                    assertTrue(created.containsKey("heartbeatIntervalSeconds"),
+                        "consumer must expose heartbeatIntervalSeconds");
+
+                    logger.info("Queue consumers: count={}, group={} status={}",
+                        consumers.size(), groupName, created.getString("status"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(22)
+    @DisplayName("Management API - GET /queues/:setupId/:queueName returns queue details with statistics and config")
+    void testGetQueueDetailsEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 22: GET /queues/:setupId/:queueName returns queue details ===");
+
+        // Closes the §10.5 gap: the per-queue details endpoint (backs the Queue Details
+        // Overview tab) had no direct JUnit test — only the /management/queues list structure
+        // was validated. Real backend — no mock.
+        webClient.get(TEST_PORT, "localhost",
+                "/api/v1/queues/" + setupId + "/" + QUEUE_NAME)
+            .send()
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Get queue details response: {} - {}",
+                        response.statusCode(), response.bodyAsString());
+
+                    assertEquals(200, response.statusCode(), "GET queue details should return 200");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(QUEUE_NAME, body.getString("name"), "name should match the queue");
+                    assertEquals(setupId, body.getString("setup"), "setup should match");
+                    assertNotNull(body.getString("implementationType"), "implementationType should be present");
+                    assertNotNull(body.getString("status"), "status should be present");
+                    assertNotNull(body.getValue("messages"), "messages count should be present");
+                    assertNotNull(body.getValue("consumers"), "consumers count should be present");
+
+                    // Nested statistics object the Queue Details Overview tab reads
+                    JsonObject statistics = body.getJsonObject("statistics");
+                    assertNotNull(statistics, "statistics object should be present");
+                    assertNotNull(statistics.getValue("totalMessages"), "statistics.totalMessages should be present");
+                    assertNotNull(statistics.getValue("messagesPerSecond"), "statistics.messagesPerSecond should be present");
+                    assertNotNull(statistics.getValue("activeConsumers"), "statistics.activeConsumers should be present");
+                    assertNotNull(statistics.getValue("avgProcessingTimeMs"), "statistics.avgProcessingTimeMs should be present");
+
+                    // Nested config object the UI reads
+                    JsonObject config = body.getJsonObject("config");
+                    assertNotNull(config, "config object should be present");
+                    assertNotNull(config.getValue("visibilityTimeoutSeconds"), "config.visibilityTimeoutSeconds should be present");
+                    assertNotNull(config.getValue("maxRetries"), "config.maxRetries should be present");
+                    assertNotNull(config.getValue("batchSize"), "config.batchSize should be present");
+
+                    logger.info("Queue details: name={}, type={}, status={}, messages={}",
+                        body.getString("name"), body.getString("implementationType"),
+                        body.getString("status"), body.getValue("messages"));
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(23)
+    @DisplayName("Management API - PUT /management/queues/:setupId/:queueName updates an existing queue (200)")
+    void testUpdateQueueEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 23: PUT /management/queues/:setupId/:queueName happy path ===");
+
+        // Closes the §10.5 gap: only the 404 (queue-not-found) error path was covered. This
+        // asserts the happy path for an existing queue. Note: the handler applies updates to
+        // runtime settings only (per its own response note) — it does not persist a schema/config
+        // change — so this asserts the success contract, not a persisted value.
+        JsonObject updateRequest = new JsonObject()
+            .put("maxRetries", 7)
+            .put("visibilityTimeoutSeconds", 120);
+
+        webClient.put(TEST_PORT, "localhost",
+                "/api/v1/management/queues/" + setupId + "/" + QUEUE_NAME)
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(updateRequest)
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Update queue response: {} - {}", response.statusCode(), response.bodyAsString());
+
+                    assertEquals(200, response.statusCode(), "PUT on an existing queue should return 200");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+                    assertNotNull(body.getString("message"), "Response should contain a message");
+
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(24)
+    @DisplayName("Management API - GET /queues/:setupId/:queueName/bindings returns an empty bindings list")
+    void testGetQueueBindingsEndpoint(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 24: GET /queues/:setupId/:queueName/bindings ===");
+
+        // Closes the §10.5 gap: getQueueBindings was untested. PeeGeeQ has no binding concept,
+        // so the endpoint returns an empty array by design — this pins that contract.
+        webClient.get(TEST_PORT, "localhost",
+                "/api/v1/queues/" + setupId + "/" + QUEUE_NAME + "/bindings")
+            .send()
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Get queue bindings response: {} - {}", response.statusCode(), response.bodyAsString());
+
+                    assertEquals(200, response.statusCode(), "GET bindings should return 200");
+
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be a JSON object");
+                    assertEquals(setupId, body.getString("setupId"), "setupId should match");
+                    assertEquals(QUEUE_NAME, body.getString("queueName"), "queueName should match");
+
+                    JsonArray bindings = body.getJsonArray("bindings");
+                    assertNotNull(bindings, "Response should contain a bindings array");
+                    assertTrue(bindings.isEmpty(), "PeeGeeQ has no bindings — array must be empty");
+                    assertEquals(0, body.getInteger("bindingCount").intValue(), "bindingCount must be 0");
 
                     testContext.completeNow();
                 });
