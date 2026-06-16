@@ -16,6 +16,12 @@ import { test, expect } from '@playwright/test'
  *
  * Backend counterpart:
  *   SystemMonitoringHandlerTest.testWebSocketReconnectAfterDropResumesWithFreshSession.
+ *
+ * ── NO-MOCK POLICY EXCEPTION (fault injection) ─────────────────────────────
+ * Sanctioned exception to the no-mock rule (decision 2026-06-15). routeWebSocket drops the
+ * /ws/monitoring connection to force the reconnecting state — a healthy backend will not drop
+ * a valid WebSocket on demand. The recovery half is real: once `allowConnect` flips, the next
+ * attempt proxies through to the real backend. Deliberate fault injection, NOT data mocking.
  */
 test.describe('Overview – WebSocket reconnect recovery', () => {
 

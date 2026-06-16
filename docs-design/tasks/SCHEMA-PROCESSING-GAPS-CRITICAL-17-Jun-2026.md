@@ -1,6 +1,14 @@
 # CRITICAL: Schema Processing Gaps — Findings and Remediation Tasks
 
-## Status: COMPLETE — Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.5 COMPLETE (13 Jun 2026). The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
+## Status: REOPENED (2026-06-16) — moved back to active tasks.
+
+The original "COMPLETE" was premature: it knowingly left ~60 test files (REST/setup-service per-setup
+creation + frontend e2e) provisioning schema `public`, which the owner has ruled an error. The
+**"no `public` in any test"** sweep is now an ACTIVE task — Phase A verified GREEN (the setup-service
+create path works on a non-public schema); Phases B–E pending. See "Follow-up: no `public` in any
+test (2026-06-16)" at the end.
+
+**Prior remediation (still valid):** Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.5 COMPLETE (13 Jun 2026). The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
 
 ---
 
@@ -110,7 +118,7 @@ A full codebase rescan after D2.5 found two remaining production gaps:
 - **G1 — `04-search-path.sql`** (`peegeeq-db/src/main/resources/db/templates/base/04-search-path.sql`): `SET search_path TO {schema}, public;` → `SET search_path TO {schema};`. The `, public` fallback allowed PostgreSQL to silently resolve unqualified table names in `public` during schema setup, violating the no-ambient-schema rule.
 - **G2 — `PeeGeeQConfiguration` 7-arg constructor** (`PeeGeeQConfiguration.java` lines 90–109): the `if (dbSchema != null && !dbSchema.isEmpty())` guard silently skipped setting `peegeeq.database.schema` when `dbSchema` was null, allowing the `myschema` placeholder from `peegeeq-default.properties` to pass `validateConfiguration()` silently. Now throws `IllegalArgumentException("dbSchema is required — PeeGeeQ has no default schema")` at the top of the constructor before any property loading. The stale Javadoc `(uses configured/default PostgreSQL search_path if null)` updated to `(required — must be non-null and non-blank)`.
 
-All other scan findings were legitimate: profile `.properties` files and example YMLs with explicit `schema=public` values (named configuration, not defaults); `.schema("public")` in setup-service integration tests (per-database `DatabaseConfig.Builder` calls, not shared-container schema); dead defensive null check in `PgConnectionManager.normalizeSearchPath` (unreachable; PgConnectionConfig guarantees non-null schema before this point).
+All other scan findings were legitimate: profile `.properties` files and example YMLs with explicit `schema=public` values (named configuration, not defaults); dead defensive null check in `PgConnectionManager.normalizeSearchPath` (unreachable; PgConnectionConfig guarantees non-null schema before this point). **CORRECTION (2026-06-16): the originally-"legitimate" `.schema("public")` in setup-service integration tests was an error.** No test in any module may use `public`; these are being converted to an explicit non-public schema (see "Follow-up: no `public` in any test" below).
 
 ### Related findings (DONE 13 Jun 2026)
 - **LISTEN-failure log severity** (DONE): `PgNativeQueueConsumer` — three sites that logged at ERROR when HYBRID-mode polling covers the failure now log at WARN with `(polling active as fallback)` in the message; `LISTEN_NOTIFY_ONLY` mode retains ERROR. Helper `isListenOnlyMode()` added. Sites: `subscribe()` onFailure · `exceptionHandler` on LISTEN connection · `startListening()` onFailure (reconnect path).
@@ -251,9 +259,16 @@ The initial production audit labelled three findings CRITICAL; manual verificati
      applies. The two tests with their own containers + private `initializeSchemaFor` DDL
      helpers (`PeeGeeQManagerCloseLogLevelTest`, `PeeGeeQManagerTimerGuardTest`) had the
      helpers threaded with the same CREATE SCHEMA + SET search_path pattern.
-   - `DatabaseConfig.Builder` — **left as-is** (6 in `PeeGeeQDatabaseSetupServiceEnhancedTest`
-     + 6 elsewhere): these are per-setup parameters for *new databases the setup service
-     creates*, not the shared-container schema — proven green under tenant_ci unchanged.
+   - `DatabaseConfig.Builder` — **CORRECTION (2026-06-16): the original "left as-is" decision
+     here was an error and has been reverted.** The rationale ("per-setup parameters for new
+     databases the setup service creates, not the shared-container schema") explains only why
+     these were outside the shared-container *mechanism* — not why they may stay on `public`.
+     The per-setup creation path (CREATE SCHEMA → `search_path` → schema-parameterized DDL →
+     schema-prefixed NOTIFY) is the real production flow and the most important to verify on a
+     non-public schema; `public` is specifically the schema that *masks* `search_path` defects
+     (see G1). "Proven green under tenant_ci unchanged" only confirmed these tests are
+     schema-insensitive (always `public`) — the gap, not a clearance. These are being converted
+     to an explicit non-public schema. See "Follow-up: no `public` in any test" below.
 3. **Schema-less `PgConnectionConfig` chains and raw `Properties` hardcodes** — two more
    forms of the same defect surfaced by the first full custom-schema run (108 failures
    across ~19 classes): 9 shared-container classes with no `.schema()` call at all (pool
@@ -363,3 +378,37 @@ method is now package-private static so tests publishing manual NOTIFYs build th
 | G1 | `04-search-path.sql`: removed `, public` fallback from `SET search_path TO {schema}, public` | HIGH | peegeeq-db (DDL template) | **Done — 13 Jun 2026** |
 | G2 | `PeeGeeQConfiguration` 7-arg constructor: null/blank schema now throws at construction (was: silently inherited `myschema` placeholder) | HIGH | peegeeq-db | **Done — 13 Jun 2026** |
 | L1 | `PgNativeQueueConsumer` LISTEN-failure severity: HYBRID mode ERROR→WARN (polling covers it); `LISTEN_NOTIFY_ONLY` retains ERROR | LOW | peegeeq-native | **Done — 13 Jun 2026** |
+
+---
+
+## Follow-up: no `public` in any test (2026-06-16)
+
+**Directive (owner, 2026-06-16):** the per-setup-test exception recorded above was an error and is
+removed (see the CORRECTIONs in S2 and the post-completion scan). **No test in any module of the
+PeeGeeQ system may use the database schema `public`** — not the shared-container suites (already on
+`peegeeq_test`) and not the per-setup databases that REST/setup-service/e2e tests create.
+
+**Why:** the per-setup creation path (CREATE SCHEMA → `search_path` → schema-parameterized DDL →
+schema-prefixed NOTIFY) is the real production flow and the most important to verify on a non-public
+schema. `public` is precisely the schema that *masks* `search_path` defects (see G1), so a test that
+provisions `public` never exercises — and can hide bugs in — the non-public path.
+
+**Blast radius (inventory 2026-06-16):** ~66 occurrences across 49 Java test files (heaviest in
+`peegeeq-rest`; also `peegeeq-db`, `peegeeq-integration-tests`, `peegeeq-examples`, `peegeeq-native`,
+`peegeeq-outbox`, `peegeeq-runtime`, `peegeeq-rest-client`) and ~13 across 11 frontend e2e/TS files.
+
+**Convention:** shared-container suites → `PostgreSQLTestConstants.TEST_SCHEMA` ("peegeeq_test") or
+`PeeGeeQTestConfig.resolveSchema()`; per-setup databases the setup service creates → pass an explicit
+non-public schema (`peegeeq_test`) in the create request.
+
+**Execution:** phased, one verifiable unit at a time (each may surface a defect `public` was masking).
+Phase A validates the riskiest assumption — that the setup-service create path works on a non-public
+schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the remaining ~59 files.
+
+| Phase | Scope | Status |
+|---|---|---|
+| A | `ManagementApiIntegrationTest` create-setup → `peegeeq_test` (proves the non-public create path) | ✅ **Done 2026-06-16 — GREEN.** The full class passed against `peegeeq_test`, confirming the setup-service create path (CREATE SCHEMA → `search_path` → DDL → NOTIFY) works on a non-public schema. B–E are therefore a mechanical `"public"` → non-public swap (still run per module). |
+| B | Remaining `peegeeq-rest` test setup-creation + `.schema("public")` | Pending |
+| C | `peegeeq-db` / `peegeeq-integration-tests` / `peegeeq-runtime` / `peegeeq-rest-client` | Pending |
+| D | `peegeeq-examples` / `peegeeq-native` / `peegeeq-outbox` test usages | Pending |
+| E | Frontend e2e/TS (`peegeeq-management-ui`) create flows + fixtures | Pending |
