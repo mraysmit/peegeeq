@@ -18,8 +18,10 @@ export default defineConfig({
   fullyParallel: false,
   /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
-  retries: process.env.CI ? 2 : 0,
+  /* Retry on CI; allow one local retry so transient infra failures (e.g. a headed
+     single-worker browser dying mid-run → "browser.newContext: ...has been closed")
+     self-heal on a fresh browser/context instead of failing the whole run. */
+  retries: process.env.CI ? 2 : 1,
   /* Run with a single worker so spec files execute sequentially and do not race on shared state (e.g. setup ID creation). */
   workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
