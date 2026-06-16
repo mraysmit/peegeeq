@@ -951,4 +951,290 @@ class SystemMonitoringHandlerTest {
             });
     }
 
+    // ── §8.1 (SSE variant): abrupt SSE disconnect must not drive the shared
+    //     connection counter negative via double cleanup ────────────────────────
+
+    @Test
+    @Order(14)
+    @Tag("regression")
+    void testSseAbruptDisconnectKeepsConnectionCountNonNegative(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 14 (§8.1 SSE): activeConnections must stay >= 1 after abrupt SSE closes ===");
+
+        // cleanupSSEConnection() previously decremented totalConnections OUTSIDE the
+        // `if (connection != null)` guard. SSE registers BOTH response.closeHandler and
+        // response.exceptionHandler (plus an onError cleanup) — all calling
+        // cleanupSSEConnection for the same id. A TCP RST fires more than one of them, so
+        // the SHARED totalConnections counter was decremented multiple times per single
+        // SSE connection, driving it negative. Because WebSocket monitoring reads the same
+        // counter, a later WS observer then sees activeConnections <= 0.
+        //
+        // Fix: the decrement and per-IP bookkeeping moved inside the null-guard, with
+        // sseConnections.remove() as the idempotency gate (mirrors cleanupWebSocketConnection).
+        //
+        // Invariant: after N abrupt SSE RST closes, a fresh WS observer must see
+        // activeConnections >= 1 (itself). With the bug it sees 1 - k*N <= 0.
+
+        // Also capture the handler logger: an abrupt RST disconnect is ordinary client
+        // behaviour and must NOT be logged at ERROR (with a SocketException stack trace).
+        ch.qos.logback.classic.Logger handlerLogger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(SystemMonitoringHandler.class);
+        ListAppender<ILoggingEvent> capture = new ListAppender<>();
+        capture.start();
+        handlerLogger.addAppender(capture);
+        Runnable detach = () -> { handlerLogger.detachAppender(capture); capture.stop(); };
+
+        int N = 5;
+        AtomicInteger closedCount = new AtomicInteger(0);
+
+        for (int i = 0; i < N; i++) {
+            // Raw socket with SO_LINGER(true, 0) so close() emits a TCP RST instead of a
+            // FIN — this is what fires more than one server-side cleanup handler. Mirrors
+            // the §8.1 WebSocket test; blocking socket I/O genuinely needs a worker thread.
+            vertx.executeBlocking(() -> {
+                try (java.net.Socket sock = new java.net.Socket("localhost", TEST_PORT)) {
+                    sock.setSoLinger(true, 0); // close() sends RST, not FIN
+                    java.io.OutputStream out = sock.getOutputStream();
+                    out.write((
+                            "GET /sse/metrics HTTP/1.1\r\n" +
+                            "Host: localhost:" + TEST_PORT + "\r\n" +
+                            "Accept: text/event-stream\r\n" +
+                            "\r\n").getBytes());
+                    out.flush();
+                    // Read past the end of the 200 response headers so the server has fully
+                    // registered the SSE connection (incremented the counter) before the RST.
+                    java.io.InputStream in = sock.getInputStream();
+                    byte[] buf = new byte[1024];
+                    StringBuilder sb = new StringBuilder();
+                    while (!sb.toString().contains("\r\n\r\n")) {
+                        int n = in.read(buf);
+                        if (n < 0) break;
+                        sb.append(new String(buf, 0, n));
+                    }
+                    closedCount.incrementAndGet();
+                    // try-with-resources close() → TCP RST sent here
+                }
+                return null;
+            }, false)
+            .onFailure(err -> logger.warn("§8.1 SSE abrupt-close (raw socket) failed: {}", err.getMessage()));
+        }
+
+        // The N abrupt closes and their server-side cleanup have no client-observable
+        // Future after a RST, so a settle delay is the only option — mirrors the §8.1 test.
+        vertx.setTimer(2000, tid -> {
+            WebSocketConnectOptions opts = new WebSocketConnectOptions()
+                    .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+            wsClient.connect(opts)
+                    .onSuccess(observerWs -> {
+                        observerWs.exceptionHandler(err -> { detach.run(); testContext.failNow(err); });
+                        observerWs.textMessageHandler(message -> testContext.verify(() -> {
+                            JsonObject msg = new JsonObject(message);
+                            if ("system_stats".equals(msg.getString("type"))) {
+                                int activeConnections = msg.getJsonObject("data")
+                                        .getInteger("activeConnections", -999);
+                                logger.info("§8.1 SSE observer sees activeConnections={} (closedCount={})",
+                                        activeConnections, closedCount.get());
+                                List<ILoggingEvent> errors = capture.list.stream()
+                                        .filter(e -> e.getLevel().equals(Level.ERROR)).toList();
+                                boolean hasSseError = errors.stream().anyMatch(e ->
+                                        e.getFormattedMessage().contains("SSE error for") ||
+                                        e.getFormattedMessage().contains("Error sending SSE"));
+                                detach.run();
+                                assertTrue(activeConnections >= 1,
+                                        "§8.1 SSE regression: activeConnections must be >= 1 while the " +
+                                        "observer WebSocket is open, but got " + activeConnections +
+                                        ". Indicates cleanupSSEConnection decremented the shared " +
+                                        "totalConnections counter more than once per SSE connection.");
+                                assertFalse(hasSseError,
+                                        "An abrupt SSE RST disconnect must not be logged at ERROR (with a " +
+                                        "SocketException stack trace) — it is ordinary client behaviour. Got: " +
+                                        errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                                observerWs.close();
+                                testContext.completeNow();
+                            }
+                        }));
+                    })
+                    .onFailure(err -> { detach.run(); testContext.failNow(err); });
+        });
+
+        vertx.setTimer(12000, tid -> {
+            if (!testContext.completed()) {
+                detach.run();
+                testContext.failNow(new AssertionError(
+                        "§8.1 SSE test timed out — observer did not receive system_stats within 12s"));
+            }
+        });
+    }
+
+    // ── Recovery: malformed / unknown WS commands are reported and the stream survives ──
+
+    @Test
+    @Order(15)
+    @Tag("regression")
+    void testMalformedAndUnknownCommandsAreReportedAndStreamSurvives(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 15: malformed and unknown WS commands must not tear down the stream ===");
+
+        // A monitoring client can send garbage (non-JSON) or an unknown command type.
+        // The handler must (1) contain the decode/dispatch failure so no exception escapes
+        // to the event loop, (2) reply with a structured {"type":"error", ...} message,
+        // (3) keep the connection open so metrics keep streaming, and (4) NOT log malformed
+        // client input at ERROR with a stack trace (that is client error, not a server fault).
+        // This proves recovery happens quietly at the boundary — not by throwing (and logging)
+        // exceptions everywhere.
+
+        ch.qos.logback.classic.Logger handlerLogger = (ch.qos.logback.classic.Logger)
+                LoggerFactory.getLogger(SystemMonitoringHandler.class);
+        ListAppender<ILoggingEvent> capture = new ListAppender<>();
+        capture.start();
+        handlerLogger.addAppender(capture);
+        Runnable detach = () -> { handlerLogger.detachAppender(capture); capture.stop(); };
+
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+                .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        AtomicInteger errorsSeen = new AtomicInteger(0);
+        AtomicBoolean configured = new AtomicBoolean(false);
+
+        wsClient.connect(opts)
+                .onSuccess(ws -> {
+                    ws.exceptionHandler(err -> { detach.run(); testContext.failNow(err); });
+                    ws.textMessageHandler(message -> testContext.verify(() -> {
+                        JsonObject msg = new JsonObject(message);
+                        switch (msg.getString("type", "")) {
+                            case "welcome" ->
+                                // Not valid JSON → handler must catch the decode failure and reply error.
+                                ws.writeTextMessage("this-is-not-json");
+                            case "error" -> {
+                                int seen = errorsSeen.incrementAndGet();
+                                assertNotNull(msg.getString("message"),
+                                        "error response must carry a human-readable message");
+                                if (seen == 1) {
+                                    // Valid JSON, unknown command type → second distinct error path.
+                                    ws.writeTextMessage(new JsonObject()
+                                            .put("type", "bogus-command").encode());
+                                } else if (seen == 2 && configured.compareAndSet(false, true)) {
+                                    // The stream must still accept valid commands after two bad ones.
+                                    ws.writeTextMessage(new JsonObject()
+                                            .put("type", "configure").put("interval", 1).encode());
+                                }
+                            }
+                            case "system_stats" -> {
+                                // Only meaningful once we have configured AFTER the two errors:
+                                // its arrival proves the connection survived the malformed input.
+                                if (configured.get()) {
+                                    assertEquals(2, errorsSeen.get(),
+                                            "both malformed inputs must have been reported as errors");
+                                    List<ILoggingEvent> errors = capture.list.stream()
+                                            .filter(e -> e.getLevel().equals(Level.ERROR)).toList();
+                                    boolean hasCommandError = errors.stream().anyMatch(e ->
+                                            e.getFormattedMessage().contains("Error handling WebSocket command"));
+                                    detach.run();
+                                    assertFalse(hasCommandError,
+                                            "Malformed client input must not be logged at ERROR (with a stack " +
+                                            "trace) — it is a client error, not a server fault. Got: " +
+                                            errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                                    ws.close();
+                                    testContext.completeNow();
+                                }
+                            }
+                            default -> { /* welcome's initial pre-configure stats: ignore */ }
+                        }
+                    }));
+                })
+                .onFailure(err -> { detach.run(); testContext.failNow(err); });
+
+        vertx.setTimer(15000, tid -> {
+            if (!testContext.completed()) {
+                detach.run();
+                testContext.failNow(new AssertionError(
+                        "Test 15 timed out — expected 2 error replies then a post-configure " +
+                        "system_stats (errorsSeen=" + errorsSeen.get() + ")"));
+            }
+        });
+    }
+
+    // ── Recovery: connect/disconnect churn restores the baseline connection count ──
+
+    @Test
+    @Order(16)
+    @Tag("regression")
+    void testConnectDisconnectChurnRestoresBaselineConnectionCount(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 16: N clean WS connect/close cycles must leave the counter at baseline ===");
+
+        // Each clean lifecycle is connect → welcome → close. After N of them settle, a
+        // single fresh observer must see activeConnections == 1 (itself, exactly):
+        //   - if cleanup under-counts (leak), the observer sees > 1;
+        //   - if cleanup over-counts (double-decrement regression), it sees <= 0.
+        // Both failure modes are caught by the exact-equality assertion.
+
+        int N = 6;
+        io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
+        for (int i = 0; i < N; i++) {
+            chain = chain.compose(v -> oneCleanWebSocketLifecycle());
+        }
+
+        chain
+            .onSuccess(v ->
+                // The server-side decrement on close has no client-observable Future, so a
+                // short settle is required before sampling — mirrors the §8.1 test.
+                vertx.setTimer(2000, tid -> {
+                    WebSocketConnectOptions opts = new WebSocketConnectOptions()
+                            .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+                    wsClient.connect(opts)
+                            .onSuccess(observerWs -> {
+                                observerWs.exceptionHandler(testContext::failNow);
+                                AtomicBoolean asked = new AtomicBoolean(false);
+                                observerWs.textMessageHandler(message -> testContext.verify(() -> {
+                                    JsonObject msg = new JsonObject(message);
+                                    String type = msg.getString("type", "");
+                                    if ("welcome".equals(type) && asked.compareAndSet(false, true)) {
+                                        observerWs.writeTextMessage(new JsonObject()
+                                                .put("type", "configure").put("interval", 1).encode());
+                                    } else if ("system_stats".equals(type) && asked.get()) {
+                                        int activeConnections = msg.getJsonObject("data")
+                                                .getInteger("activeConnections", -999);
+                                        logger.info("Test 16 observer sees activeConnections={} after {} churn cycles",
+                                                activeConnections, N);
+                                        assertEquals(1, activeConnections,
+                                                "After " + N + " clean connect/close cycles the only open " +
+                                                "connection is the observer, so activeConnections must be exactly 1. " +
+                                                "A value > 1 means a connection leaked; a value <= 0 means cleanup " +
+                                                "double-decremented the counter.");
+                                        observerWs.close();
+                                        testContext.completeNow();
+                                    }
+                                }));
+                            })
+                            .onFailure(testContext::failNow);
+                }))
+            .onFailure(testContext::failNow);
+
+        vertx.setTimer(20000, tid -> {
+            if (!testContext.completed()) {
+                testContext.failNow(new AssertionError(
+                        "Test 16 timed out — churn + observer did not complete within 20s"));
+            }
+        });
+    }
+
+    /** One clean WebSocket lifecycle: connect → await welcome → close. Future resolves once closed. */
+    private io.vertx.core.Future<Void> oneCleanWebSocketLifecycle() {
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+                .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+        io.vertx.core.Promise<Void> done = io.vertx.core.Promise.promise();
+        wsClient.connect(opts)
+                .onSuccess(ws -> {
+                    ws.exceptionHandler(done::tryFail);
+                    ws.textMessageHandler(message -> {
+                        JsonObject msg = new JsonObject(message);
+                        if ("welcome".equals(msg.getString("type"))) {
+                            ws.close()
+                                    .onSuccess(v -> done.tryComplete())
+                                    .onFailure(done::tryFail);
+                        }
+                    });
+                })
+                .onFailure(done::fail);
+        return done.future();
+    }
+
 }
