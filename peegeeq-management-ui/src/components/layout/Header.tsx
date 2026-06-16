@@ -21,6 +21,9 @@ const pageTitle: Record<string, string> = {
   '/queues': 'Queues',
   '/consumer-groups': 'Consumer Groups',
   '/event-stores': 'Event Stores',
+  '/events': 'Events',
+  '/causation-tree': 'Causation Tree',
+  '/aggregate-stream': 'Aggregate Stream',
   '/messages': 'Message Browser',
   '/message-browser': 'Message Browser',
   '/database-setups': 'Database Setups',
@@ -29,6 +32,18 @@ const pageTitle: Record<string, string> = {
   '/queue-designer': 'Queue Designer',
   '/monitoring': 'Monitoring',
   '/settings': 'Settings',
+}
+
+/**
+ * Resolve the header title for a route. Exact matches come from `pageTitle`; the dynamic
+ * Queue Details route (`/queues/:setupId/:queueName`) is matched by pattern. The `/queues`
+ * list page is exact-matched above, so it stays "Queues".
+ */
+const resolvePageTitle = (pathname: string): string => {
+  const exact = pageTitle[pathname]
+  if (exact) return exact
+  if (/^\/queues\/[^/]+\/[^/]+\/?$/.test(pathname)) return 'Queue Details'
+  return 'PeeGeeQ Management'
 }
 
 const userMenuItems = [
@@ -55,7 +70,7 @@ const userMenuItems = [
 const Header: React.FC = () => {
   const location = useLocation()
   const navigate = useNavigate()
-  const currentTitle = pageTitle[location.pathname] || 'PeeGeeQ Management'
+  const currentTitle = resolvePageTitle(location.pathname)
   const { notifications, unreadCount, markAllNotificationsRead, clearNotifications } = useManagementStore()
   const [notifOpen, setNotifOpen] = useState(false)
 

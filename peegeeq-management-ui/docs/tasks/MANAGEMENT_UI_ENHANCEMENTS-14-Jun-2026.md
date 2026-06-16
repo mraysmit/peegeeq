@@ -515,7 +515,7 @@ The following features exist in the UI as placeholders or no-op stubs. None have
 
 | Tab | Component | Status |
 |---|---|---|
-| **Consumers** | `QueueDetailsEnhanced.tsx` | Stub — shows info banner "Consumers Tab - Coming in Week 5". No API call, no data. |
+| **Consumers** | `QueueDetailsEnhanced.tsx` | ✅ Done (2026-06-16, §7.2) — real `Table` fetching `/consumers`. No longer a stub. |
 | **Bindings** | `QueueDetailsEnhanced.tsx` | Stub — shows info banner "Bindings Tab - Coming in Week 5". No API call, no data. |
 | **Charts** | `QueueDetailsEnhanced.tsx` | Stub — shows info banner "Charts Tab - Coming in Week 2". No API call, no data. |
 
@@ -734,7 +734,7 @@ Backend handlers (all in `peegeeq-rest`): router `PeeGeeQRestServer.java`; `Mana
 | **Delete event store** | `EventStores.tsx:174` DELETE `management/event-stores/{storeId}` | `DELETE /api/v1/management/event-stores/:storeId` → `deleteEventStore` → `deleteEventStoreImpl` (1796) | **Verifies the store exists, then returns `"deleted successfully"` — performs no `getEventStores().remove(...)` and no DROP.** A subsequent list (`getEventStores`, which reads `setupResult.getEventStores()`) would still show it. Contrast with queue delete, which does deregister. | ❗ |
 | Create consumer group | `ConsumerGroups.tsx:193` POST `management/consumer-groups` | `POST /api/v1/management/consumer-groups` → `createConsumerGroup` (~1270) | `subscriptionService.subscribe` → DB | ✅ |
 | Delete consumer group | `ConsumerGroups.tsx:178` DELETE `management/consumer-groups/{s}/{q}/{g}` | `DELETE …/consumer-groups/:setupId/:queueName/:groupName` → `deleteConsumerGroup` (1345) | `subscriptionService.cancel` → DB | ✅ |
-| Setup "View Details" action | `DatabaseSetups.tsx:185` `message.info('View details coming soon')` | — | none | ⛔ |
+| Setup "View Details" action | `DatabaseSetups.tsx` row action → `setup-details-modal` | `GET /api/v1/setups/:setupId` → `getSetupDetails` | real modal (§7.4) | ✅ |
 
 **Asymmetry:** event-store *create* is real but *delete* is a no-op — `deleteEventStoreImpl` contains no removal logic, visible directly in the source.
 
@@ -746,7 +746,7 @@ Backend handlers (all in `peegeeq-rest`): router `PeeGeeQRestServer.java`; `Mana
 | Get messages (browse) | `QueueDetailsEnhanced.tsx:250` GET `queues/{s}/{q}/messages` | `GET …/messages` → `getQueueMessages` (2108) | `createBrowser().browse()` → DB | ✅ |
 | Pause / Resume | `QueueDetailsEnhanced.tsx:116` POST `queues/{s}/{q}/pause`\|`resume` | `POST …/pause`, `…/resume` → `pauseQueue` (2255) / `resumeQueue` (2311) | lists subs → `subscriptionService.pause`/`resume` each | ✅ |
 | Purge (details page) | `QueueDetailsEnhanced.tsx:146` POST `queues/{s}/{q}/purge` | `POST …/purge` → `purgeQueue` (2207) | `queueFactory.purgeMessages` → DB | ✅ |
-| **Purge (list page)** | `QueuesEnhanced.tsx:250` `message.info('Purge functionality coming in Week 4')` | — (no call) | none | ⛔ |
+| Purge (list page) | `QueuesEnhanced.tsx` `handlePurgeQueue` → `showPurgeConfirm` | `POST …/purge` → `purgeQueue` (2207) | real (§7.3) | ✅ |
 | Queue details (Overview tab) | `QueueDetailsEnhanced.tsx` RTK `useGetQueueDetailsQuery` | `GET /api/v1/queues/:setupId/:queueName` → `getQueueDetails` (1875) | live stats + subscription-derived status | ✅ |
 
 **Purge split:** the same labelled action is real on the Queue Details page but a no-op toast on the Queues list page.
@@ -757,7 +757,7 @@ Backend handlers (all in `peegeeq-rest`): router `PeeGeeQRestServer.java`; `Mana
 |---|---|---|---|
 | Overview | real cards (`QueueDetailsEnhanced.tsx:493`) | `getQueueDetails` (1875) | ✅ |
 | Messages | real (publish / get / table) | as §6.2 | ✅ |
-| **Consumers** | stub banner "Coming in Week 5" (`:588`) | `getQueueConsumers` (1994) returns **real** subscription data | ⚠️ backend-only — UI never calls the working endpoint |
+| **Consumers** | real `Table` fetching `/consumers` (`QueueDetailsEnhanced.tsx`, commit 518517bb) | `getQueueConsumers` (1994) returns **real** subscription data | ✅ wired (2026-06-16, §7.2) |
 | **Bindings** | stub banner "Coming in Week 5" (`:637`) | `getQueueBindings` (2067) **always returns an empty array** | ⛔ both ends (PeeGeeQ has no binding concept) |
 | **Charts** | stub banner "Coming in Week 2" (`:649`) | none | ⛔ |
 
@@ -810,12 +810,12 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | # | What it delivers | Layer(s) | Prerequisite |
 |---|---|---|---|
 | 1 | Fix event-store delete | `peegeeq-rest` | — | ✅ Complete |
-| 2 | Queue Details — Consumers tab wired | `peegeeq-management-ui` | — |
-| 3 | Queues list — Purge action wired | `peegeeq-management-ui` | — |
-| 4 | Database Setups — View Details modal | `peegeeq-management-ui` | — |
-| 4a | Header title mapping (quick fix) | `peegeeq-management-ui` | — |
+| 2 | Queue Details — Consumers tab wired | `peegeeq-management-ui` | — | ✅ Complete (commit 518517bb) |
+| 3 | Queues list — Purge action wired | `peegeeq-management-ui` | — | ✅ Complete |
+| 4 | Database Setups — View Details modal | `peegeeq-management-ui` | — | ✅ Complete |
+| 4a | Header title mapping (quick fix) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
 | 5 | WS queue stream in Queue Details | `peegeeq-management-ui` | — |
-| 6 | Reconnection UI — E2E coverage + SSE parity *(UI already implemented)* | `peegeeq-management-ui` | — |
+| 6 | Reconnection UI — E2E coverage + SSE parity *(UI already implemented)* | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
 | 7 | Consumer Groups success toasts *(other resource flows already done)* | `peegeeq-management-ui` | — |
 | 7a | Notifications page (`/notifications`) | `peegeeq-management-ui` | — |
 | 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 |
@@ -868,7 +868,15 @@ Without this test, a regression that re-introduces the no-op `deleteEventStoreIm
 
 ---
 
-### 7.2 Queue Details — Consumers tab wired
+### 7.2 Queue Details — Consumers tab wired ✅ Complete (verified 2026-06-16)
+
+> **Status — Complete.** Delivered in commit `518517bb`. `QueueDetailsEnhanced.tsx` fetches
+> `GET /api/v1/queues/:setupId/:queueName/consumers` into `consumers` state (with a
+> `consumersLoading` flag), surfaces failures via `message.error`, and renders an Ant Design
+> `Table` (Group Name, Topic, Status tag, …) with empty-state text — the "Coming in Week 5"
+> stub banner is gone (only Bindings remains stubbed). E2E coverage:
+> `queue-details-consumers.spec.ts` (5 tests — table-not-stub, row with group name, status
+> tag, plus API setup/cleanup), passing in the full suite.
 
 **Source**: §6.3. `QueueDetailsEnhanced.tsx:588` shows a stub banner. `GET /api/v1/queues/:setupId/:queueName/consumers` → `getQueueConsumers` (line 1994) is fully real.
 
@@ -914,7 +922,11 @@ test('consumers tab shows active consumer data')
 
 ---
 
-### 7.3 Queues list — Purge action wired
+### 7.3 Queues list — Purge action wired ✅ Complete (verified 2026-06-16)
+
+> **Status — Complete.** `QueuesEnhanced.tsx` `handlePurgeQueue` uses `showPurgeConfirm`,
+> calls the purge API, and shows success/error toasts (the "Coming in Week 4" stub is gone).
+> E2E coverage in `queue-management.spec.ts` (purge-from-list test).
 
 **Source**: §6.2 ⛔. `QueuesEnhanced.tsx:250` fires `message.info('Purge functionality coming in Week 4')`. `POST /api/v1/queues/{s}/{q}/purge` → `purgeQueue` (2207) is real and already used by `QueueDetailsEnhanced.tsx:146`.
 
@@ -937,7 +949,11 @@ test('purge from queue list page empties the queue')
 
 ---
 
-### 7.4 Database Setups — View Details modal
+### 7.4 Database Setups — View Details modal ✅ Complete (verified 2026-06-16)
+
+> **Status — Complete.** The row action opens a real `setup-details-modal` (the
+> "View details coming soon" toast is gone). E2E coverage: `database-setup.spec.ts:237`
+> ("view details modal shows setup configuration") and `overview-setup-details-modal.spec.ts`.
 
 **Source**: §6.1 ⛔. `DatabaseSetups.tsx:185` fires `message.info('View details coming soon')`. `GET /api/v1/setups/:setupId` → `DatabaseSetupHandler.getSetupDetails` is real (`PeeGeeQRestServer.java:379`).
 
@@ -961,9 +977,18 @@ test('view details modal shows setup configuration')
 
 ---
 
-### 7.4a Header title mapping (quick fix)
+### 7.4a Header title mapping (quick fix) — ✅ Complete (2026-06-16)
 
-**Source**: codebase review 2026-06-14. `Header.tsx:18` has a `pageTitle` lookup map that does not include `/causation-tree`, `/aggregate-stream`, or `/queues/:setupId/:queueName`. Navigating to any of these shows the fallback `"PeeGeeQ Management"` as the page title.
+> **Status — Complete 2026-06-16.** `Header.tsx` `pageTitle` now includes `/events`,
+> `/causation-tree`, and `/aggregate-stream`; a new `resolvePageTitle()` helper matches the
+> dynamic `/queues/:setupId/:queueName` route → "Queue Details" (the `/queues` list page
+> stays "Queues" via exact match). E2E coverage: `header-page-title.spec.ts`, parameterized
+> over all five routes including the list-page-vs-details guard. Registered in
+> `playwright.config.ts` as project `header-page-title` — **note:** the config is an explicit
+> per-spec project allow-list, so a new spec must be added there or it silently never runs; a
+> confirming run is pending.
+
+**Source**: codebase review 2026-06-14. `Header.tsx:18` has a `pageTitle` lookup map that does not include `/events`, `/causation-tree`, `/aggregate-stream`, or `/queues/:setupId/:queueName`. Navigating to any of these shows the fallback `"PeeGeeQ Management"` as the page title. (Reconciliation 2026-06-16 confirmed `/events` is also missing — add it alongside the other three.)
 
 **Failing test (write first)**
 
@@ -1012,7 +1037,39 @@ test('new message appears in Messages tab in real time without page reload')
 
 ---
 
-### 7.6 Reconnection UI — E2E coverage + SSE parity
+### 7.6 Reconnection UI — E2E coverage + SSE parity  ✅ Complete (2026-06-16)
+
+> **Status — Complete 2026-06-16.**
+> - **SSE parity (was missing, now implemented):** `createSystemMetricsSSE` passed no
+>   `onReconnecting` callback and `SSEService` had no concept of one, so a dropped metrics SSE
+>   went straight to orange "Disconnected" — the gold SSE "Reconnecting…" tag could never
+>   appear. `SSEService` now maps a native EventSource auto-reconnect (`readyState` =
+>   `CONNECTING`) to `onReconnecting`, threaded through `createSystemMetricsSSE` →
+>   `Overview.tsx` `setSseReconnecting(true)`, mirroring the WS path. Its error log was also
+>   downgraded `console.error` → `console.warn`.
+> - **E2E coverage added:** `overview-reconnect-recovery.spec.ts` (WS dropped then proxied
+>   back to the real backend → tag returns to green "Connected"), `overview-sse-reconnecting-banner.spec.ts`
+>   (SSE abort → gold "Reconnecting…"), and `overview-stats-values.spec.ts` (strengthened
+>   §8.1/§8.2 value assertions: `activeConnections` a non-negative integer, `messagesPerSecond`
+>   a finite non-negative number). The pre-existing `overview-reconnecting-banner.spec.ts`
+>   already covers the WS reconnecting tag. (These use `page.routeWebSocket` / `page.route`
+>   fault injection rather than the invalid-URL-in-Settings approach sketched below — more
+>   reliable and self-contained.)
+> - **Backend reconnection tests** also added in `SystemMonitoringHandlerTest`:
+>   `testWebSocketReconnectAfterDropResumesWithFreshSession` and
+>   `testSseReconnectResumesWithFreshEventNumbering` (confirming clean re-accept — fresh
+>   monotonic `connectionId`, stream resumes, counter stays consistent). Note: there is **no
+>   session-resume protocol** (no `Last-Event-ID`); reconnection means clean re-accept, not
+>   event replay — a possible future enhancement.
+> - **Local retries:** `playwright.config.ts` now uses `retries: process.env.CI ? 2 : 1` so a
+>   transient headed-browser death self-heals instead of failing the run.
+> - **⚠️ Registration correction (2026-06-16):** the Playwright config is an explicit per-spec
+>   project allow-list. The three specs above were initially **not registered and therefore
+>   never ran** in the suite (the earlier "448 passed" did not include them). They are now
+>   registered as projects `10f-overview-reconnect-recovery`, `10g-overview-sse-reconnecting-banner`,
+>   and `10h-overview-stats-values`; a confirming run is required before treating them as green.
+>   The SSE-reconnecting wiring itself is implemented; the backend reconnection tests
+>   (`SystemMonitoringHandlerTest`) did run and pass.
 
 **Source**: §2.4 and codebase review 2026-06-14. The codebase review confirmed that the yellow `"Reconnecting…"` tag is **already implemented**: `Overview.tsx:314` renders it using `wsReconnecting` / `sseReconnecting` from the Zustand store, and the WS service `onReconnecting` callback is already wired. No implementation work is needed for WS reconnection.
 
@@ -1041,7 +1098,11 @@ Check only: if the SSE service (`createSystemMetricsSSE`, `createSystemMonitorin
 
 ---
 
-### 7.7 Consumer Groups success toasts
+### 7.7 Consumer Groups success toasts — ⏳ Pending (verified not done 2026-06-16)
+
+> **Status — verified not yet implemented (2026-06-16).** `ConsumerGroups.tsx`
+> `handleCreateModalOk` and `handleDeleteGroup` have `message.error` on failure but no
+> `message.success` on success (only `handleBackfill` shows a success toast). Scope unchanged.
 
 **Source**: §2.3 and codebase review 2026-06-14. The codebase review confirmed that `DatabaseSetups.tsx`, `QueuesEnhanced.tsx`, and `EventStores.tsx` **already fire `message.success(...)`** on create and delete. The only resource type that does not is `ConsumerGroups.tsx`: both `handleCreateModalOk` and `handleDeleteGroup` close silently on success.
 
@@ -1066,7 +1127,10 @@ test('shows success toast after consumer group deletion')
 
 ---
 
-### 7.7a Notifications page (`/notifications`)
+### 7.7a Notifications page (`/notifications`) — ⏳ Pending (verified not started 2026-06-16)
+
+> **Status — verified not started (2026-06-16).** No `NotificationsPage.tsx`, no
+> `/notifications` route in `App.tsx`, no `nav-notifications` sidebar item. Scope unchanged.
 
 **Design**: the existing bell drawer (§1.4) is unchanged — it remains the quick-glance surface. The notifications page is a full history view, reachable from a new sidebar nav item. Both read from the same `managementStore` slice.
 
@@ -1884,11 +1948,22 @@ npx playwright test --workers=1
 
 ## 8. Overview Page Chart Defects (2026-06-15)
 
-Two defects identified in the real-time charts on the System Overview page (`/`).
+Three defects identified in the real-time charts on the System Overview page (`/`).
+**§8.1 and §8.2 are fixed (2026-06-16); §8.3 (split `activeConnections`) remains open as Phase 11.**
 
 ---
 
-### 8.1 Active Connections graph shows negative values  ❗
+### 8.1 Active Connections graph shows negative values  ✅ FIXED (2026-06-16)
+
+> **Status — Fixed 2026-06-16.** The decrement (and per-IP bookkeeping) is now inside the
+> `if (connection != null)` guard in **both** `cleanupWebSocketConnection` and
+> `cleanupSSEConnection` — `remove()` is the idempotency gate, so a connection cleaned up
+> twice (e.g. TCP RST firing both `exceptionHandler` and `closeHandler`) is decremented
+> exactly once. Verified by `testActiveConnectionCountNeverNegativeAcrossLifecycle` (WS,
+> `@Order(11)`) and the new `testSseAbruptDisconnectKeepsConnectionCountNonNegative` (SSE) —
+> both green; the full 18-test `SystemMonitoringHandlerTest` passes with zero ERROR log noise.
+> As part of the same change, client disconnects (FIN/RST) and malformed input now log at
+> DEBUG via an `isClientDisconnect(...)` helper instead of ERROR-with-stack-trace.
 
 **Symptom**: The "Active Connections" area chart on the Overview page occasionally shows negative numbers on the Y-axis.
 
@@ -1932,9 +2007,9 @@ Apply the same guard in `cleanupSSEConnection` (line 750).
 
 **Backend regression test (write first — JUnit)**
 
-This test **already exists** in `SystemMonitoringHandlerTest.java` as `testActiveConnectionCountNeverNegativeAcrossLifecycle` (`@Order(11)`, `@Tag("regression")`). It is currently **failing** because the double-decrement bug is not yet fixed.
+This test exists in `SystemMonitoringHandlerTest.java` as `testActiveConnectionCountNeverNegativeAcrossLifecycle` (`@Order(11)`, `@Tag("regression")`). It was failing before the fix and is **now green** (2026-06-16); a companion SSE test `testSseAbruptDisconnectKeepsConnectionCountNonNegative` was added to cover the `cleanupSSEConnection` path.
 
-To confirm it fails before applying the fix:
+To reproduce the original failure on pre-fix code:
 ```
 mvn test -pl peegeeq-rest -Pintegration-tests -Dtest=SystemMonitoringHandlerTest#testActiveConnectionCountNeverNegativeAcrossLifecycle
 ```
@@ -1957,7 +2032,20 @@ test('Active Connections value is never negative')
 
 ---
 
-### 8.2 Message Throughput graph does not reflect real-time rate  ❗
+### 8.2 Message Throughput graph does not reflect real-time rate  ✅ FIXED (2026-06-16)
+
+> **Status — Fixed 2026-06-16, with an implementation that supersedes the proposal below.**
+> `messagesPerSecond` is now a **per-connection delta rate** computed by a shared
+> `withPerConnectionRate(metrics, now, prevTotal, prevTs)` helper, applied on **both** the
+> WebSocket and SSE send paths (each connection tracks its own `prevTotalMessages` /
+> `prevMessagesTimestampMs`). This was chosen over the handler-level
+> `lastTotalMessages`/`lastMeasurementTime` fields proposed below because the shared metrics
+> cache TTL (5 s) can exceed the stream interval, so a single handler-level delta produced
+> stale/zero or cross-test-polluted values; a per-connection sample seeded on connect does
+> not. Applying the same helper to WS **and** SSE also **reconciles the two transports** —
+> previously WS reported a delta while SSE forwarded the cached lifetime value, so the UI's
+> merged number flipped between two different computations. Verified by
+> `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` (`@Order(12)`) — green.
 
 **Symptom**: The "Message Throughput" chart title implies a live throughput view, and the "Messages/sec" stats card label implies a per-second rate. In practice the chart shows a flat or very slowly drifting line that does not respond to bursts of messages.
 
@@ -2005,9 +2093,9 @@ This gives a true per-interval rate that reacts to real-time message traffic. Th
 
 **Backend regression test (write first — JUnit)**
 
-This test **already exists** in `SystemMonitoringHandlerTest.java` as `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` (`@Order(12)`, `@Tag("regression")`). It is currently **failing** because the lifetime-average formula is not yet replaced.
+This test exists in `SystemMonitoringHandlerTest.java` as `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` (`@Order(12)`, `@Tag("regression")`). It was failing before the fix and is **now green** (2026-06-16).
 
-To confirm it fails before applying the fix:
+To reproduce the original failure on pre-fix code:
 ```
 mvn test -pl peegeeq-rest -Pintegration-tests -Dtest=SystemMonitoringHandlerTest#testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks
 ```
@@ -2394,14 +2482,14 @@ The following backend scenarios have no dedicated test coverage (identified duri
 
 | Area | Gap |
 |---|---|
-| `SystemMonitoringHandler` — negative `totalConnections` | `decrementAndGet()` called outside null-check (§8.1); no test asserts non-negative value after duplicate disconnect |
-| `SystemMonitoringHandler` — lifetime-average `messagesPerSecond` | No test asserts delta-rate semantics vs. lifetime-average (§8.2) |
+| `SystemMonitoringHandler` — negative `totalConnections` | ✅ RESOLVED 2026-06-16 — decrement guarded by the null-check in both WS and SSE cleanup (§8.1); covered by `testActiveConnectionCountNeverNegativeAcrossLifecycle` (WS) + `testSseAbruptDisconnectKeepsConnectionCountNonNegative` (SSE) |
+| `SystemMonitoringHandler` — lifetime-average `messagesPerSecond` | ✅ RESOLVED 2026-06-16 — per-connection delta rate, WS/SSE reconciled (§8.2); covered by `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` |
 | `PeeGeeQMetrics.updateConnectionPoolMetrics()` | Method exists (lines 357–367) but is never called — no test covers pool metric propagation to Micrometer |
 | `ConsumerAlertHandler` | No dedicated test class |
 | Auth / RBAC | No tests — not yet implemented |
 | `peegeeq-integration-tests` module | Reserved for cross-module smoke tests; currently empty |
 
-The §8.1 and §8.2 bugs (negative connections, flat throughput) are the highest priority backend fixes and should each get a `@Tag("integration")` regression test in `SystemMonitoringHandlerTest.java` before the fix is merged.
+The §8.1 and §8.2 bugs (negative connections, flat throughput) were the highest-priority backend fixes; both are **fixed (2026-06-16)** with `@Tag("regression")` tests in `SystemMonitoringHandlerTest.java` (see §8.1 / §8.2). The remaining gaps above (`updateConnectionPoolMetrics`, `ConsumerAlertHandler`, auth) are still open.
 
 ---
 
@@ -2414,9 +2502,16 @@ All three gaps from §10.5 that were actionable without first implementing a fix
 | Test | Order | Tag | What it verifies |
 |---|---|---|---|
 | `testActiveConnectionCountNeverNegativeAcrossLifecycle` | 11 | `integration, regression` | §8.1: After 5 abrupt WS disconnects (`ws.connection().close()` — triggers both `exceptionHandler` and `closeHandler` on the server), an observer WS must see `activeConnections >= 1` (itself). With the double-decrement bug each abrupt close leaves `totalConnections` one below its true value; after 5 closes the observer sees `1 - 5 = -4` → assertion fails. |
-| `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` | 12 | `integration, regression` | §8.2: Seeds 5 pending messages (no consumer), configures a 2-second WS interval, collects two consecutive `system_stats` ticks. Between tick-1 and tick-2 the pending count is unchanged. The delta formula gives `(5 - 5) / 2 = 0`; the lifetime-average formula gives `5 / uptime > 0`. Asserts `messagesPerSecond == 0.0 ± 0.01` on tick-2 — **fails with current code, passes after fix**. |
+| `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` | 12 | `integration, regression` | §8.2: Seeds 5 pending messages (no consumer), configures a 2-second WS interval, collects two consecutive `system_stats` ticks. Between tick-1 and tick-2 the pending count is unchanged. The delta formula gives `(5 - 5) / 2 = 0`; the lifetime-average formula gives `5 / uptime > 0`. Asserts `messagesPerSecond == 0.0 ± 0.01` on tick-2 — **now passes** (fix applied 2026-06-16). |
 
 The original Test 11 (SSE disconnect log-level) is renumbered to Test 13.
+
+**Further tests added (2026-06-16)** — `SystemMonitoringHandlerTest` is now 18 tests, all green with zero ERROR log noise:
+- `testSseAbruptDisconnectKeepsConnectionCountNonNegative` — SSE variant of §8.1 (covers `cleanupSSEConnection`).
+- `testMalformedAndUnknownCommandsAreReportedAndStreamSurvives` — bad WS input is reported and the stream survives, logged at DEBUG not ERROR (quiet recovery).
+- `testWebSocketReconnectAfterDropResumesWithFreshSession` / `testSseReconnectResumesWithFreshEventNumbering` — clean re-accept on reconnect (fresh `connectionId`, stream resumes, counter consistent).
+
+Frontend E2E (Phase 6, §7.6): `overview-reconnect-recovery`, `overview-sse-reconnecting-banner`, `overview-stats-values` added; `event-stores-scope-filter` rewritten to genuinely exercise the scope filter.
 
 **`peegeeq-integration-tests` — new `PeeGeeQCriticalPathSmokeTest.java`**
 
