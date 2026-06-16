@@ -48,26 +48,28 @@ class OutboxFactoryRegistrarTest {
     }
 
     @Test
-    @DisplayName("Should create factory with null DatabaseService")
+    @DisplayName("Should create factory with null DatabaseService when config is provided")
     void testCreateFactoryWithNullDatabaseService() throws Exception {
         OutboxFactoryRegistrar.registerWith(testRegistrar);
-        
+
         Map<String, Object> config = new HashMap<>();
+        config.put("peeGeeQConfiguration", new PeeGeeQConfiguration("test", new Properties()));
         QueueFactory factory = testRegistrar.lastCreator.create(null, config);
-        
+
         assertNotNull(factory);
         assertInstanceOf(OutboxFactory.class, factory);
     }
 
     @Test
-    @DisplayName("Should create factory with DatabaseService only")
+    @DisplayName("Should create factory with non-PgDatabaseService when config is provided in map")
     void testCreateFactoryWithDatabaseServiceOnly() throws Exception {
         OutboxFactoryRegistrar.registerWith(testRegistrar);
-        
+
         TestDatabaseService dbService = new TestDatabaseService();
         Map<String, Object> config = new HashMap<>();
+        config.put("peeGeeQConfiguration", new PeeGeeQConfiguration("test", new Properties()));
         QueueFactory factory = testRegistrar.lastCreator.create(dbService, config);
-        
+
         assertNotNull(factory);
         assertInstanceOf(OutboxFactory.class, factory);
     }
@@ -89,31 +91,30 @@ class OutboxFactoryRegistrarTest {
     }
 
     @Test
-    @DisplayName("Should ignore non-PeeGeeQConfiguration in config map")
-    void testCreateFactoryWithInvalidConfigurationType() throws Exception {
+    @DisplayName("Should throw when peeGeeQConfiguration value is not a PeeGeeQConfiguration and no fallback is available")
+    void testCreateFactoryWithInvalidConfigurationType() {
         OutboxFactoryRegistrar.registerWith(testRegistrar);
-        
+
         TestDatabaseService dbService = new TestDatabaseService();
         Map<String, Object> config = new HashMap<>();
         config.put("peeGeeQConfiguration", "not a config object");
-        
-        QueueFactory factory = testRegistrar.lastCreator.create(dbService, config);
-        
-        assertNotNull(factory, "Should create factory even with invalid config type");
-        assertInstanceOf(OutboxFactory.class, factory);
+
+        assertThrows(IllegalStateException.class,
+            () -> testRegistrar.lastCreator.create(dbService, config),
+            "Non-PeeGeeQConfiguration value is ignored; with no PgDatabaseService fallback, factory must throw");
     }
 
     @Test
-    @DisplayName("Should handle empty configuration map")
-    void testCreateFactoryWithEmptyConfig() throws Exception {
+    @DisplayName("Should throw when configuration map is empty and DatabaseService provides no config")
+    void testCreateFactoryWithEmptyConfig() {
         OutboxFactoryRegistrar.registerWith(testRegistrar);
-        
+
         TestDatabaseService dbService = new TestDatabaseService();
         Map<String, Object> config = new HashMap<>();
-        QueueFactory factory = testRegistrar.lastCreator.create(dbService, config);
-        
-        assertNotNull(factory);
-        assertInstanceOf(OutboxFactory.class, factory);
+
+        assertThrows(IllegalStateException.class,
+            () -> testRegistrar.lastCreator.create(dbService, config),
+            "Empty config map with non-PgDatabaseService must throw — PeeGeeQ has no default schema");
     }
 
     @Test
