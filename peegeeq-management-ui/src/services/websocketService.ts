@@ -188,19 +188,22 @@ export class SSEService {
     private onConnect?: () => void
     private onDisconnect?: () => void
     private onError?: (error: Event) => void
+    private onReconnecting?: () => void
 
     constructor(
         url: string,
         onMessage?: (data: any) => void,
         onConnect?: () => void,
         onDisconnect?: () => void,
-        onError?: (error: Event) => void
+        onError?: (error: Event) => void,
+        onReconnecting?: () => void
     ) {
         this.url = url
         this.onMessage = onMessage
         this.onConnect = onConnect
         this.onDisconnect = onDisconnect
         this.onError = onError
+        this.onReconnecting = onReconnecting
     }
 
     connect(): void {
@@ -225,8 +228,13 @@ export class SSEService {
                 // reload are expected transient events; the browser reconnects automatically.
                 console.warn('SSE error:', error)
                 this.onError?.(error)
-                // SSE errors usually mean disconnection
-                if (this.eventSource?.readyState === EventSource.CLOSED) {
+                // Discriminate transient reconnect from terminal close, mirroring the
+                // WebSocketService reconnecting state. The native EventSource auto-reconnects:
+                // while it is doing so readyState is CONNECTING; it only reaches CLOSED when
+                // the browser gives up (or close() was called).
+                if (this.eventSource?.readyState === EventSource.CONNECTING) {
+                    this.onReconnecting?.()
+                } else if (this.eventSource?.readyState === EventSource.CLOSED) {
                     this.onDisconnect?.()
                 }
             }
@@ -257,14 +265,17 @@ export class SSEService {
 export const createSystemMetricsSSE = (
     onUpdate: (metrics: any) => void,
     onConnect?: () => void,
-    onDisconnect?: () => void
+    onDisconnect?: () => void,
+    onReconnecting?: () => void
 ) => {
     const service = new SSEService(
         getVersionedApiUrl('sse/metrics'),
         onUpdate,
         onConnect,
         onDisconnect,
-        (error) => console.error('System metrics SSE error:', error)
+        // Warn, not error — transient SSE drops are expected and recovered by auto-reconnect.
+        (error) => console.warn('System metrics SSE error:', error),
+        onReconnecting
     )
     service.connect()
     return service
