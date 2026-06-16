@@ -11,6 +11,12 @@ import { test, expect } from '@playwright/test'
  * system monitoring WebSocket and close it immediately.  The WebSocketService
  * onclose handler calls scheduleReconnect() → onReconnecting() → the Zustand
  * store's setWsReconnecting(true), switching the tag to gold "Reconnecting…".
+ *
+ * ── NO-MOCK POLICY EXCEPTION (fault injection) ─────────────────────────────
+ * Sanctioned exception to the no-mock rule (decision 2026-06-15). routeWebSocket closes the
+ * /ws/monitoring connection to force the reconnecting state — a healthy backend will not drop
+ * a valid WebSocket on demand. Deliberate fault injection to exercise the gold "Reconnecting…"
+ * tag, NOT data mocking.
  */
 test.describe('Overview – Reconnecting Banner', () => {
 

@@ -10,6 +10,12 @@ import { test, expect } from '@playwright/test'
  *
  * After wiring SSEService to map a native EventSource auto-reconnect (readyState CONNECTING)
  * to onReconnecting → setSseReconnecting(true), aborting the stream must show the gold tag.
+ *
+ * ── NO-MOCK POLICY EXCEPTION (fault injection) ─────────────────────────────
+ * Sanctioned exception to the no-mock rule (decision 2026-06-15). route.abort on the metrics
+ * SSE forces the EventSource auto-reconnect cycle — a healthy backend will not refuse a valid
+ * SSE on demand. Deliberate fault injection to exercise the gold "Reconnecting…" wiring, NOT
+ * data mocking.
  */
 test.describe('Overview – SSE Reconnecting Banner', () => {
 
