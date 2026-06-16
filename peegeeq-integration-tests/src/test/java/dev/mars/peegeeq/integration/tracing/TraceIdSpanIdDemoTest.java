@@ -121,71 +121,55 @@ public class TraceIdSpanIdDemoTest {
                     "SpanId should be different on worker thread (child span)");
                 
                 return "done";
-            }).onComplete(ar -> {
-                if (ar.succeeded()) {
-                    // Back on event loop
-                    try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
-                        log.info("STEP 3: Back to root span on event loop");
-                    }
-
-                    // Verify captured logs
-                    try {
-                        List<String> logs = traceAppender.getCapturedLogs();
-
-                        // Print logs for demonstration
-                        log.info("\n========== TRACE ID vs SPAN ID DEMONSTRATION ==========");
-                        log.info("Expected TraceId: {}", expectedTraceId);
-                        log.info("Root SpanId: {}", rootSpanId);
-                        log.info("");
-
-                        String step1SpanId = null;
-                        String step2SpanId = null;
-                        String step3SpanId = null;
-
-                        for (String logLine : logs) {
-                            if (logLine.contains("STEP")) {
-                                log.info("{}", logLine);
-
-                                Matcher m = TRACE_SPAN_PATTERN.matcher(logLine);
-                                if (m.find()) {
-                                    String traceId = m.group(1);
-                                    String spanId = m.group(2);
-
-                                    // All logs should have the same traceId
-                                    assertEquals(expectedTraceId, traceId,
-                                        "TraceId must be constant across all log lines");
-
-                                    if (logLine.contains("STEP 1")) step1SpanId = spanId;
-                                    if (logLine.contains("STEP 2")) step2SpanId = spanId;
-                                    if (logLine.contains("STEP 3")) step3SpanId = spanId;
-                                }
-                            }
-                        }
-
-                        log.info("");
-                        log.info("Analysis:");
-                        log.info("  - STEP 1 (event loop): spanId = {}", step1SpanId);
-                        log.info("  - STEP 2 (worker):     spanId = {} <-- DIFFERENT (child span)", step2SpanId);
-                        log.info("  - STEP 3 (event loop): spanId = {} <-- SAME as STEP 1 (root span)", step3SpanId);
-                        log.info("  - TraceId: SAME across all steps");
-                        log.info("=======================================================\n");
-
-                        // Verify step 1 and step 3 have the same spanId (root span)
-                        assertEquals(step1SpanId, step3SpanId,
-                            "Event loop spans should have same spanId");
-
-                        // Verify step 2 has different spanId (worker/child span)
-                        assertNotEquals(step1SpanId, step2SpanId,
-                            "Worker span should have different spanId");
-
-                        testContext.completeNow();
-                    } catch (Throwable t) {
-                        testContext.failNow(t);
-                    }
-                } else {
-                    testContext.failNow(ar.cause());
+            }).onSuccess(result -> {
+                try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
+                    log.info("STEP 3: Back to root span on event loop");
                 }
-            });
+
+                List<String> logs = traceAppender.getCapturedLogs();
+
+                log.info("\n========== TRACE ID vs SPAN ID DEMONSTRATION ==========");
+                log.info("Expected TraceId: {}", expectedTraceId);
+                log.info("Root SpanId: {}", rootSpanId);
+                log.info("");
+
+                String[] stepSpanIds = {null, null, null};
+                List<String> capturedTraceIds = new ArrayList<>();
+
+                for (String logLine : logs) {
+                    if (logLine.contains("STEP")) {
+                        log.info("{}", logLine);
+                        Matcher m = TRACE_SPAN_PATTERN.matcher(logLine);
+                        if (m.find()) {
+                            capturedTraceIds.add(m.group(1));
+                            String spanId = m.group(2);
+                            if (logLine.contains("STEP 1")) stepSpanIds[0] = spanId;
+                            if (logLine.contains("STEP 2")) stepSpanIds[1] = spanId;
+                            if (logLine.contains("STEP 3")) stepSpanIds[2] = spanId;
+                        }
+                    }
+                }
+
+                log.info("");
+                log.info("Analysis:");
+                log.info("  - STEP 1 (event loop): spanId = {}", stepSpanIds[0]);
+                log.info("  - STEP 2 (worker):     spanId = {} <-- DIFFERENT (child span)", stepSpanIds[1]);
+                log.info("  - STEP 3 (event loop): spanId = {} <-- SAME as STEP 1 (root span)", stepSpanIds[2]);
+                log.info("  - TraceId: SAME across all steps");
+                log.info("=======================================================\n");
+
+                testContext.verify(() -> {
+                    for (String traceId : capturedTraceIds) {
+                        assertEquals(expectedTraceId, traceId,
+                            "TraceId must be constant across all log lines");
+                    }
+                    assertEquals(stepSpanIds[0], stepSpanIds[2],
+                        "Event loop spans should have same spanId");
+                    assertNotEquals(stepSpanIds[0], stepSpanIds[1],
+                        "Worker span should have different spanId");
+                });
+                testContext.completeNow();
+            }).onFailure(testContext::failNow);
         });
     }
 
@@ -233,40 +217,34 @@ public class TraceIdSpanIdDemoTest {
                 .addHeader("traceparent", childSpan.traceparent());
             
             vertx.eventBus().request(eventBusAddress, "test-message", opts)
-                .onComplete(ar -> {
-                    try {
-                        // consumerTraceId and consumerSpanId were set before msg.reply("acknowledged"),
-                        // so they are available when request() completes  no latch needed.
-                        
-                        try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
-                            log.info("STEP 3: Back in publisher after Event Bus round-trip");
-                        }
-                        
-                        // Print demonstration
-                        log.info("\n========== EVENT BUS TRACE PROPAGATION ==========");
-                        log.info("Publisher TraceId: {}", expectedTraceId);
-                        log.info("Publisher SpanId:  {}", rootSpanId);
-                        log.info("Consumer TraceId:  {}", consumerTraceId.get());
-                        log.info("Consumer SpanId:   {}", consumerSpanId.get());
-                        log.info("");
-                        log.info("Analysis:");
-                        log.info("  - TraceId: {}", expectedTraceId.equals(consumerTraceId.get()) ? "SAME" : "DIFFERENT");
-                        log.info("  - SpanId:  {}", rootSpanId.equals(consumerSpanId.get()) ? "SAME" : "DIFFERENT (child span)");
-                        log.info("=================================================\n");
-                        
-                        // Verify traceId is propagated
-                        assertEquals(expectedTraceId, consumerTraceId.get(), 
-                            "TraceId should be propagated across Event Bus");
-                        
-                        // Verify spanId is different (child span)
-                        assertNotEquals(rootSpanId, consumerSpanId.get(), 
-                            "SpanId should be different (child span via Event Bus)");
-                        
-                        testContext.completeNow();
-                    } catch (Throwable t) {
-                        testContext.failNow(t);
+                .onSuccess(reply -> {
+                    // consumerTraceId and consumerSpanId were set before msg.reply("acknowledged"),
+                    // so they are available when request() completes — no latch needed.
+
+                    try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
+                        log.info("STEP 3: Back in publisher after Event Bus round-trip");
                     }
-                });
+
+                    log.info("\n========== EVENT BUS TRACE PROPAGATION ==========");
+                    log.info("Publisher TraceId: {}", expectedTraceId);
+                    log.info("Publisher SpanId:  {}", rootSpanId);
+                    log.info("Consumer TraceId:  {}", consumerTraceId.get());
+                    log.info("Consumer SpanId:   {}", consumerSpanId.get());
+                    log.info("");
+                    log.info("Analysis:");
+                    log.info("  - TraceId: {}", expectedTraceId.equals(consumerTraceId.get()) ? "SAME" : "DIFFERENT");
+                    log.info("  - SpanId:  {}", rootSpanId.equals(consumerSpanId.get()) ? "SAME" : "DIFFERENT (child span)");
+                    log.info("=================================================\n");
+
+                    testContext.verify(() -> {
+                        assertEquals(expectedTraceId, consumerTraceId.get(),
+                            "TraceId should be propagated across Event Bus");
+                        assertNotEquals(rootSpanId, consumerSpanId.get(),
+                            "SpanId should be different (child span via Event Bus)");
+                    });
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         });
     }
 

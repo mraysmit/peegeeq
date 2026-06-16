@@ -23,6 +23,7 @@ import dev.mars.peegeeq.rest.config.RestServerConfig;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClosedException;
+import io.vertx.core.json.DecodeException;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.http.ServerWebSocket;
@@ -236,8 +237,13 @@ public class SystemMonitoringHandler {
                 .put("message", "Connected to PeeGeeQ system monitoring");
         ws.writeTextMessage(welcome.encode());
 
-        // Send initial stats update immediately (off event loop)
-        sendMetricsToWebSocket(connection);
+        // Send initial stats update immediately (off event loop).
+        // This MUST be a fresh collection, not a cached one: the per-connection rate
+        // baseline is seeded here. A stale cache (TTL can exceed the streaming interval)
+        // would seed an out-of-date totalMessages, making the next tick report a spurious
+        // delta. Forcing a fresh collect also primes the shared cache so subsequent ticks
+        // observe a consistent baseline.
+        sendInitialMetricsToWebSocket(connection);
 
         // Start per-connection streaming with jitter
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
@@ -255,12 +261,21 @@ public class SystemMonitoringHandler {
                 JsonObject command = new JsonObject(text);
                 handleWebSocketCommand(connection, command);
                 connection.lastActivity = System.currentTimeMillis();
-            } catch (Exception e) {
-                log.error("Error handling WebSocket command from {}", connectionId, e);
-                JsonObject error = new JsonObject()
+            } catch (DecodeException e) {
+                // Malformed client input is a client error, not a server fault. Reply with a
+                // structured error and keep the stream open; log at DEBUG without a stack trace.
+                log.debug("Ignoring malformed WebSocket command from {}: {}", connectionId, e.getMessage());
+                ws.writeTextMessage(new JsonObject()
                         .put("type", "error")
-                        .put("message", "Invalid command format");
-                ws.writeTextMessage(error.encode());
+                        .put("message", "Invalid command format")
+                        .encode());
+            } catch (Exception e) {
+                // Unexpected server-side fault while dispatching a well-formed command — keep this loud.
+                log.error("Error handling WebSocket command from {}", connectionId, e);
+                ws.writeTextMessage(new JsonObject()
+                        .put("type", "error")
+                        .put("message", "Invalid command format")
+                        .encode());
             }
         });
 
@@ -271,7 +286,13 @@ public class SystemMonitoringHandler {
         });
 
         ws.exceptionHandler(err -> {
-            log.error("WebSocket error for {}", connectionId, err);
+            if (isClientDisconnect(err)) {
+                // A client dropping the connection (clean close or TCP RST) is expected for a
+                // long-lived monitoring stream — not a server error. Log quietly, clean up.
+                log.debug("WebSocket client disconnected: {}", connectionId);
+            } else {
+                log.error("WebSocket error for {}", connectionId, err);
+            }
             cleanupWebSocketConnection(connectionId, clientIp);
         });
 
@@ -357,7 +378,7 @@ public class SystemMonitoringHandler {
             try {
                 connection.sendHeartbeat();
             } catch (Exception e) {
-                if (e instanceof HttpClosedException) {
+                if (isClientDisconnect(e)) {
                     log.debug("SSE client disconnected during heartbeat: {}", connectionId);
                 } else {
                     log.error("Error sending SSE heartbeat to {}", connectionId, e);
@@ -375,7 +396,7 @@ public class SystemMonitoringHandler {
         });
 
         response.exceptionHandler(err -> {
-            if (err instanceof HttpClosedException) {
+            if (isClientDisconnect(err)) {
                 log.debug("SSE client disconnected: {}", connectionId);
             } else {
                 log.error("SSE error for {}", connectionId, err);
@@ -764,15 +785,16 @@ public class SystemMonitoringHandler {
                 vertx.cancelTimer(connection.heartbeatTimerId);
             if (connection.idleCheckerId > 0)
                 vertx.cancelTimer(connection.idleCheckerId);
-        }
-
-        totalConnections.decrementAndGet();
-
-        AtomicInteger ipCount = connectionsByIp.get(clientIp);
-        if (ipCount != null) {
-            ipCount.decrementAndGet();
-            if (ipCount.get() <= 0) {
-                connectionsByIp.remove(clientIp);
+            // Decrement only when the connection was actually present — guards against
+            // double-decrement when TCP RST fires both closeHandler and exceptionHandler.
+            // sseConnections.remove() is the idempotency gate (mirrors cleanupWebSocketConnection).
+            totalConnections.decrementAndGet();
+            AtomicInteger ipCount = connectionsByIp.get(clientIp);
+            if (ipCount != null) {
+                ipCount.decrementAndGet();
+                if (ipCount.get() <= 0) {
+                    connectionsByIp.remove(clientIp);
+                }
             }
         }
     }
@@ -780,10 +802,37 @@ public class SystemMonitoringHandler {
     private void sendMetricsToWebSocket(WebSocketConnection connection) {
         collectMetricsOnWorker(
                 metrics -> {
-                    connection.sendMetrics(metrics);
-                    connection.lastActivity = System.currentTimeMillis();
+                    long now = System.currentTimeMillis();
+                    long totalMessages = metrics.getLong("totalMessages", 0L);
+                    long prevMessages = connection.prevTotalMessages.getAndSet(totalMessages);
+                    long prevTs = connection.prevMessagesTimestampMs.getAndSet(now);
+                    long intervalMs = now - prevTs;
+                    double rate = prevTs > 0 && intervalMs > 0 && totalMessages >= prevMessages
+                            ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
+                    connection.sendMetrics(metrics.copy().put("messagesPerSecond", rate));
+                    connection.lastActivity = now;
                 },
                 error -> log.error("Error sending WebSocket metrics to {}", connection.connectionId, error));
+    }
+
+    /**
+     * Initial metrics send for a freshly-connected WebSocket. Always performs a fresh
+     * collection (bypassing the TTL cache) so the per-connection rate baseline reflects
+     * current state, and primes the shared cache so subsequent ticks are consistent.
+     * The reported {@code messagesPerSecond} is 0.0 — there is no prior sample to delta against.
+     */
+    private void sendInitialMetricsToWebSocket(WebSocketConnection connection) {
+        long now = System.currentTimeMillis();
+        collectMetricsFromServices()
+                .onSuccess(metrics -> {
+                    cachedMetrics.set(new CachedMetrics(metrics, now));
+                    connection.prevTotalMessages.set(metrics.getLong("totalMessages", 0L));
+                    connection.prevMessagesTimestampMs.set(now);
+                    connection.sendMetrics(metrics.copy().put("messagesPerSecond", 0.0));
+                    connection.lastActivity = now;
+                })
+                .onFailure(error ->
+                        log.error("Error sending initial WebSocket metrics to {}", connection.connectionId, error));
     }
 
     private void sendMetricsToSse(SSEConnection connection, Runnable onError) {
@@ -793,7 +842,7 @@ public class SystemMonitoringHandler {
                     connection.lastActivity = System.currentTimeMillis();
                 },
                 error -> {
-                    if (error instanceof HttpClosedException) {
+                    if (isClientDisconnect(error)) {
                         log.debug("SSE client disconnected during metrics send: {}", connection.connectionId);
                     } else {
                         log.error("Error sending SSE metrics to {}", connection.connectionId, error);
@@ -809,6 +858,37 @@ public class SystemMonitoringHandler {
         getOrUpdateCachedMetrics()
             .onSuccess(result -> onSuccess.accept(result))
             .onFailure(error -> onFailure.accept(error));
+    }
+
+    /**
+     * Returns true when the throwable represents an ordinary client-side disconnect rather
+     * than a server fault. Covers Vert.x's clean-close signal ({@link HttpClosedException})
+     * and the raw TCP transport drops a browser or proxy produces when it goes away
+     * mid-stream — RST ("Connection reset"), broken pipe, etc. These are expected for
+     * long-lived WebSocket/SSE monitoring streams and must be logged at DEBUG, not ERROR:
+     * logging them as errors (with stack traces) is alarm-fatigue noise, not a real fault.
+     */
+    private static boolean isClientDisconnect(Throwable err) {
+        for (Throwable t = err; t != null; t = t.getCause()) {
+            if (t instanceof HttpClosedException) {
+                return true;
+            }
+            if (t instanceof java.io.IOException) {
+                String msg = t.getMessage();
+                if (msg == null) {
+                    // A message-less IOException on a stream connection is a transport drop.
+                    return true;
+                }
+                String lower = msg.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("connection reset")
+                        || lower.contains("broken pipe")
+                        || lower.contains("connection was closed")
+                        || lower.contains("connection reset by peer")) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private int parseInterval(String param) {
@@ -871,6 +951,11 @@ public class SystemMonitoringHandler {
         long timerId = -1;
         long idleCheckerId = -1;
         long lastActivity = System.currentTimeMillis();
+        // Per-connection delta tracking for messagesPerSecond.
+        // The cached metrics JSON has a stale rate when cache TTL > WS interval;
+        // recomputing per-tick here gives the correct change-per-interval value.
+        final AtomicLong prevTotalMessages = new AtomicLong(0L);
+        final AtomicLong prevMessagesTimestampMs = new AtomicLong(0L);
 
         WebSocketConnection(String connectionId, ServerWebSocket webSocket, String clientIp) {
             this.connectionId = connectionId;
