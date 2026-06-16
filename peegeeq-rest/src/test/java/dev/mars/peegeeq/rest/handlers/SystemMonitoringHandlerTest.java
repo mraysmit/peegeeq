@@ -1216,6 +1216,176 @@ class SystemMonitoringHandlerTest {
         });
     }
 
+    // ── Reconnection: a returning client is accepted cleanly with fresh state ──
+    //
+    // This handler has NO session-resume protocol — no Last-Event-ID, no reconnect token,
+    // no session restore. generateConnectionId() is a monotonic counter and every connect
+    // is independent. So "reconnection" here means: after a client drops, it can reconnect
+    // and the server serves it cleanly — a NEW connectionId, metrics resume, and the dropped
+    // connection is fully cleaned up so the counter does not drift.
+
+    @Test
+    @Order(17)
+    @Tag("regression")
+    void testWebSocketReconnectAfterDropResumesWithFreshSession(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 17: WebSocket reconnect must get a fresh session and resume streaming ===");
+
+        WebSocketConnectOptions opts = new WebSocketConnectOptions()
+                .setHost("localhost").setPort(TEST_PORT).setURI("/ws/monitoring");
+
+        AtomicReference<String> firstId = new AtomicReference<>();
+
+        // First connection: capture its connectionId from the welcome, then close it.
+        // (Abrupt-drop cleanup is covered by Test 14/16; reconnection is about the return.)
+        wsClient.connect(opts)
+                .onSuccess(ws1 -> {
+                    ws1.exceptionHandler(testContext::failNow);
+                    ws1.textMessageHandler(message -> {
+                        JsonObject msg = new JsonObject(message);
+                        if ("welcome".equals(msg.getString("type"))
+                                && firstId.compareAndSet(null, msg.getString("connectionId"))) {
+                            ws1.close()
+                                    .onSuccess(v -> reconnectWebSocketAndVerify(vertx, opts, firstId.get(), testContext))
+                                    .onFailure(testContext::failNow);
+                        }
+                    });
+                })
+                .onFailure(testContext::failNow);
+
+        vertx.setTimer(20000, tid -> {
+            if (!testContext.completed()) {
+                testContext.failNow(new AssertionError(
+                        "Test 17 timed out — WebSocket reconnect did not complete within 20s"));
+            }
+        });
+    }
+
+    private void reconnectWebSocketAndVerify(Vertx vertx, WebSocketConnectOptions opts,
+            String firstId, VertxTestContext testContext) {
+        // Settle so the first connection's server-side cleanup completes before we sample the counter.
+        vertx.setTimer(2000, tid -> {
+            wsClient.connect(opts)
+                    .onSuccess(ws2 -> {
+                        ws2.exceptionHandler(testContext::failNow);
+                        AtomicBoolean asked = new AtomicBoolean(false);
+                        ws2.textMessageHandler(message -> testContext.verify(() -> {
+                            JsonObject msg = new JsonObject(message);
+                            String type = msg.getString("type", "");
+                            if ("welcome".equals(type)) {
+                                String secondId = msg.getString("connectionId");
+                                assertNotNull(secondId, "reconnect must receive a welcome carrying a connectionId");
+                                assertNotEquals(firstId, secondId,
+                                        "reconnect must get a fresh connectionId, not reuse the dropped one");
+                                // connectionId is allocated from a monotonic counter, so the
+                                // reconnect's id must be strictly newer than the dropped one.
+                                long firstNum = Long.parseLong(firstId.substring("monitoring-".length()));
+                                long secondNum = Long.parseLong(secondId.substring("monitoring-".length()));
+                                assertTrue(secondNum > firstNum,
+                                        "reconnect connectionId (" + secondId + ") must be strictly newer than " +
+                                        "the dropped one (" + firstId + ")");
+                                if (asked.compareAndSet(false, true)) {
+                                    ws2.writeTextMessage(new JsonObject()
+                                            .put("type", "configure").put("interval", 1).encode());
+                                }
+                            } else if ("system_stats".equals(type) && asked.get()) {
+                                int activeConnections = msg.getJsonObject("data")
+                                        .getInteger("activeConnections", -999);
+                                logger.info("Test 17 reconnect sees activeConnections={}", activeConnections);
+                                assertEquals(1, activeConnections,
+                                        "after reconnect only the new connection is open, so activeConnections " +
+                                        "must be exactly 1; a higher value means the dropped connection leaked, " +
+                                        "a value <= 0 means its cleanup double-decremented the counter");
+                                ws2.close();
+                                testContext.completeNow();
+                            }
+                        }));
+                    })
+                    .onFailure(testContext::failNow);
+        });
+    }
+
+    @Test
+    @Order(18)
+    @Tag("regression")
+    void testSseReconnectResumesWithFreshEventNumbering(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 18: SSE reconnect must reopen cleanly and resume with fresh event numbering ===");
+
+        // SSE has no Last-Event-ID resume here, so a reconnect is a brand-new stream. Verify a
+        // client can drop an SSE stream and reopen it cleanly: the reopened stream resumes
+        // delivering metric events, and its event ids start fresh at 1 (per-connection eventId —
+        // no stale numbering leaked from the dropped stream).
+
+        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/sse/metrics")
+                .compose(io.vertx.core.http.HttpClientRequest::send)
+                .onSuccess(resp1 -> {
+                    testContext.verify(() -> assertEquals(200, resp1.statusCode(),
+                            "first SSE stream must return 200"));
+                    StringBuilder sb1 = new StringBuilder();
+                    AtomicBoolean dropped = new AtomicBoolean(false);
+                    resp1.handler(buf -> {
+                        if (dropped.get()) {
+                            return;
+                        }
+                        // Accumulate: SSE frames can arrive split across chunks. Only consume the
+                        // drop flag once an actual event id has been delivered (check BEFORE the CAS,
+                        // otherwise a leading chunk without "id: " would burn the flag and the drop
+                        // would never fire).
+                        sb1.append(buf.toString());
+                        if (sb1.toString().contains("id: ") && dropped.compareAndSet(false, true)) {
+                            // Got at least one event on the first stream — drop it and reconnect.
+                            resp1.request().connection().close();
+                            reconnectSseAndVerify(vertx, testContext);
+                        }
+                    });
+                    resp1.exceptionHandler(err -> {
+                        if (!(err instanceof io.vertx.core.http.HttpClosedException)) {
+                            testContext.failNow(err);
+                        }
+                    });
+                })
+                .onFailure(testContext::failNow);
+
+        vertx.setTimer(20000, tid -> {
+            if (!testContext.completed()) {
+                testContext.failNow(new AssertionError(
+                        "Test 18 timed out — SSE reconnect did not complete within 20s"));
+            }
+        });
+    }
+
+    private void reconnectSseAndVerify(Vertx vertx, VertxTestContext testContext) {
+        // Settle so the first SSE stream's server-side cleanup completes before reconnecting.
+        vertx.setTimer(1500, tid -> {
+            httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", "/sse/metrics")
+                    .compose(io.vertx.core.http.HttpClientRequest::send)
+                    .onSuccess(resp2 -> {
+                        testContext.verify(() -> assertEquals(200, resp2.statusCode(),
+                                "reopened SSE stream must return 200"));
+                        StringBuilder sb = new StringBuilder();
+                        AtomicBoolean done = new AtomicBoolean(false);
+                        resp2.handler(buf -> {
+                            if (done.get()) {
+                                return;
+                            }
+                            sb.append(buf.toString());
+                            if (sb.toString().contains("id: 1\n")) {
+                                done.set(true);
+                                testContext.verify(() -> assertTrue(sb.toString().contains("data:"),
+                                        "reopened SSE stream must resume delivering metric data events; got: " + sb));
+                                resp2.request().connection().close();
+                                testContext.completeNow();
+                            }
+                        });
+                        resp2.exceptionHandler(err -> {
+                            if (!(err instanceof io.vertx.core.http.HttpClosedException)) {
+                                testContext.failNow(err);
+                            }
+                        });
+                    })
+                    .onFailure(testContext::failNow);
+        });
+    }
+
     /** One clean WebSocket lifecycle: connect → await welcome → close. Future resolves once closed. */
     private io.vertx.core.Future<Void> oneCleanWebSocketLifecycle() {
         WebSocketConnectOptions opts = new WebSocketConnectOptions()

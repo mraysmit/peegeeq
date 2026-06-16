@@ -803,16 +803,30 @@ public class SystemMonitoringHandler {
         collectMetricsOnWorker(
                 metrics -> {
                     long now = System.currentTimeMillis();
-                    long totalMessages = metrics.getLong("totalMessages", 0L);
-                    long prevMessages = connection.prevTotalMessages.getAndSet(totalMessages);
-                    long prevTs = connection.prevMessagesTimestampMs.getAndSet(now);
-                    long intervalMs = now - prevTs;
-                    double rate = prevTs > 0 && intervalMs > 0 && totalMessages >= prevMessages
-                            ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
-                    connection.sendMetrics(metrics.copy().put("messagesPerSecond", rate));
+                    connection.sendMetrics(withPerConnectionRate(metrics, now,
+                            connection.prevTotalMessages, connection.prevMessagesTimestampMs));
                     connection.lastActivity = now;
                 },
                 error -> log.error("Error sending WebSocket metrics to {}", connection.connectionId, error));
+    }
+
+    /**
+     * Returns a copy of {@code metrics} with {@code messagesPerSecond} replaced by a
+     * per-connection delta rate: messages added since this connection's previous sample,
+     * divided by the elapsed interval. Both the WebSocket and SSE streaming paths use this
+     * so a client sees the SAME rate semantics regardless of transport — rather than the
+     * WebSocket reporting a per-connection delta while SSE forwarded the shared cached value.
+     * The first sample on a connection reports {@code 0.0} (no prior point to delta against).
+     */
+    private static JsonObject withPerConnectionRate(JsonObject metrics, long nowMs,
+            AtomicLong prevTotalMessages, AtomicLong prevMessagesTimestampMs) {
+        long totalMessages = metrics.getLong("totalMessages", 0L);
+        long prevMessages = prevTotalMessages.getAndSet(totalMessages);
+        long prevTs = prevMessagesTimestampMs.getAndSet(nowMs);
+        long intervalMs = nowMs - prevTs;
+        double rate = prevTs > 0 && intervalMs > 0 && totalMessages >= prevMessages
+                ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
+        return metrics.copy().put("messagesPerSecond", rate);
     }
 
     /**
@@ -838,8 +852,10 @@ public class SystemMonitoringHandler {
     private void sendMetricsToSse(SSEConnection connection, Runnable onError) {
         collectMetricsOnWorker(
                 metrics -> {
-                    connection.sendMetricsEvent(metrics);
-                    connection.lastActivity = System.currentTimeMillis();
+                    long now = System.currentTimeMillis();
+                    connection.sendMetricsEvent(withPerConnectionRate(metrics, now,
+                            connection.prevTotalMessages, connection.prevMessagesTimestampMs));
+                    connection.lastActivity = now;
                 },
                 error -> {
                     if (isClientDisconnect(error)) {
@@ -982,6 +998,10 @@ public class SystemMonitoringHandler {
         long idleCheckerId = -1;
         long lastActivity = System.currentTimeMillis();
         long eventId = 0;
+        // Per-connection delta tracking for messagesPerSecond — identical to
+        // WebSocketConnection so both transports report the same rate semantics.
+        final AtomicLong prevTotalMessages = new AtomicLong(0L);
+        final AtomicLong prevMessagesTimestampMs = new AtomicLong(0L);
 
         SSEConnection(String connectionId, HttpServerResponse response, String clientIp, int interval) {
             this.connectionId = connectionId;

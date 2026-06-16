@@ -69,6 +69,7 @@ const Overview = () => {
         setWebSocketStatus,
         setSSEStatus,
         setWsReconnecting,
+        setSseReconnecting,
         refreshAll
     } = useManagementStore()
 
@@ -208,8 +209,9 @@ const Overview = () => {
                 // Use the new store action to update stats cards
                 useManagementStore.getState().setSystemStats(metrics)
             },
-            () => setSSEStatus(true),  // onConnect
-            () => setSSEStatus(false)  // onDisconnect
+            () => setSSEStatus(true),         // onConnect
+            () => setSSEStatus(false),        // onDisconnect
+            () => setSseReconnecting(true)    // onReconnecting — mirrors the WebSocket path
         )
     }
 
