@@ -321,6 +321,24 @@ export default defineConfig({
       testMatch: '**/overview-live-stats-update.spec.ts',
       use: chromeMaximized,
     },
+    // Step 10f: Overview WS reconnect recovery – drop /ws/monitoring then proxy back → tag returns green (Phase 6)
+    {
+      name: '10f-overview-reconnect-recovery',
+      testMatch: '**/overview-reconnect-recovery.spec.ts',
+      use: chromeMaximized,
+    },
+    // Step 10g: Overview SSE reconnecting banner – aborted SSE → gold "Reconnecting" tag (Phase 6)
+    {
+      name: '10g-overview-sse-reconnecting-banner',
+      testMatch: '**/overview-sse-reconnecting-banner.spec.ts',
+      use: chromeMaximized,
+    },
+    // Step 10h: Overview live stats values – activeConnections (§8.1) and messagesPerSecond (§8.2) invariants
+    {
+      name: '10h-overview-stats-values',
+      testMatch: '**/overview-stats-values.spec.ts',
+      use: chromeMaximized,
+    },
     // Step 11: Queues Scope Selector - Tests Setup selector on Queues page
     {
       name: '11-queues-scope-selector',
@@ -409,6 +427,12 @@ export default defineConfig({
     {
       name: 'error-paths',
       testMatch: '**/api-error-paths.spec.ts',
+      use: chromeMaximized,
+    },
+    // Header page title mapping (Phase 4a) – route-derived <h1> title incl. dynamic Queue Details (standalone)
+    {
+      name: 'header-page-title',
+      testMatch: '**/header-page-title.spec.ts',
       use: chromeMaximized,
     },
     // Screenshots: regenerates documentation screenshots (run manually)
