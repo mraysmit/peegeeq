@@ -7,27 +7,27 @@ import { test, expect } from '@playwright/test'
  * "Reconnecting…" tag APPEARS when the system-monitoring WebSocket is dropped. It never
  * asserts that the UI actually RECOVERS.
  *
- * This spec drops /ws/monitoring on its first attempt (→ gold "Reconnecting…"), then lets
- * subsequent reconnect attempts proxy through to the real backend, and asserts the tag
- * returns to green "Connected".
+ * Strategy: route /ws/monitoring through a stateful handler. While `allowConnect` is false
+ * it closes EVERY connection — so the reconnecting state is stable and observable no matter
+ * how many connections open (React StrictMode double-mounts the Overview effect in dev, so a
+ * simple "close the first attempt" counter is unreliable). Once we've observed the gold
+ * "Reconnecting…" tag we flip `allowConnect`, and the next reconnect attempt (5s default
+ * interval) proxies to the real backend, so the tag must return to green "Connected".
  *
  * Backend counterpart:
- *   SystemMonitoringHandlerTest.testWebSocketReconnectAfterDropResumesWithFreshSession
- *   (drop → reconnect → fresh session, stream resumes, counter stays consistent).
+ *   SystemMonitoringHandlerTest.testWebSocketReconnectAfterDropResumesWithFreshSession.
  */
 test.describe('Overview – WebSocket reconnect recovery', () => {
 
     test('WebSocket recovers to Connected (green) after a transient drop', async ({ page }) => {
-        let attempt = 0
+        let allowConnect = false
         await page.routeWebSocket('**/ws/monitoring', ws => {
-            attempt++
-            if (attempt === 1) {
-                // First attempt: simulate a transient drop. The WebSocketService onclose
-                // handler calls scheduleReconnect() → onReconnecting() → gold tag.
-                ws.close()
-            } else {
-                // Subsequent attempts: let the client reach the real backend so it recovers.
+            if (allowConnect) {
+                // Recovery phase: proxy to the real backend so the client reconnects.
                 ws.connectToServer()
+            } else {
+                // Down phase: drop every connection → stable "Reconnecting…" state.
+                ws.close()
             }
         })
 
@@ -37,10 +37,15 @@ test.describe('Overview – WebSocket reconnect recovery', () => {
         const wsTag = page.getByTestId('websocket-status')
         await expect(wsTag).toBeVisible({ timeout: 5000 })
 
-        // After the drop the tag must go gold "Reconnecting…".
-        await expect(wsTag).toContainText('Reconnecting', { timeout: 10000 })
+        // Down phase: the WebSocketService cycles connect → close → scheduleReconnect, so the
+        // tag must show gold "Reconnecting…" within a couple of 5s reconnect cycles.
+        await expect(wsTag).toContainText('Reconnecting', { timeout: 15000 })
 
-        // The reconnect attempt (5s default interval) proxies to the real backend → recovery.
+        // Allow recovery: the next reconnect attempt now reaches the real backend.
+        allowConnect = true
+
+        // The tag must return to green "Connected" ("Connected" is not a substring of
+        // "Reconnecting" or "Disconnected", so this matches only the recovered state).
         await expect(wsTag).toContainText('Connected', { timeout: 20000 })
         const tagClass = await wsTag.getAttribute('class')
         expect(tagClass).toContain('ant-tag-green')
