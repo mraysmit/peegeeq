@@ -329,7 +329,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
         // Store handlers that manage consumers in instance fields for proper shutdown
         // cleanup
-        this.sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
+        this.sseHandler = new ServerSentEventsHandler(vertx);
         ManagementApiHandler managementHandler = new ManagementApiHandler(setupService, objectMapper, vertx);
         this.webhookHandler = new WebhookSubscriptionHandler(setupService, objectMapper, vertx);
         DeadLetterHandler deadLetterHandler = new DeadLetterHandler(setupService, objectMapper);
@@ -411,8 +411,10 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/webhook-subscriptions/:subscriptionId").handler(webhookHandler::getSubscription);
         router.delete("/api/v1/webhook-subscriptions/:subscriptionId").handler(webhookHandler::deleteSubscription);
 
-        // Queue routes - Phase 4: Real-time Streaming
-        router.get("/api/v1/queues/:setupId/:queueName/stream").handler(sseHandler::handleQueueStream);
+        // REMOVED (data-loss hazard): GET /api/v1/queues/:setupId/:queueName/stream.
+        // handleQueueStream created a real consumer and subscribed, so it DRAINED messages off the
+        // queue — observing a queue must never consume. A non-destructive observe stream (browser
+        // tail → plain SELECT → push) will replace it; consumption stays with the real consumer APIs.
         router.get("/api/v1/sse/queues/:setupId").handler(sseHandler::handleQueueUpdates);
 
         // Queue routes - Phase 4: Consumer Group Management
