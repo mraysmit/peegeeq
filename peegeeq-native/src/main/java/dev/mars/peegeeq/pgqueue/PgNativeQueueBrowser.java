@@ -161,47 +161,64 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
 
         final String channel = NativeQueueChannels.channelFor(schema, topic);
 
-        // Dedicated, non-pooled connection for LISTEN (pooled connections are recycled and must
-        // not hold a LISTEN). On each NOTIFY the payload is the new message's DB id (see
-        // PgNativeQueueProducer's pg_notify); we read that row non-destructively and push it.
-        return poolAdapter.connectDedicated().compose(conn -> {
-            this.tailConnection = conn;
+        // Mirror PgNativeQueueConsumer.startListening exactly: a dedicated, non-pooled connection
+        // for LISTEN (pooled connections are recycled and must not hold a LISTEN); execute LISTEN
+        // first (quoted identifier — the channel name is generated and may need quoting); then,
+        // on success, register the notification/close/exception handlers. On each NOTIFY the
+        // payload is the new message's DB id (see PgNativeQueueProducer's pg_notify); we read that
+        // row non-destructively (plain SELECT — no FOR UPDATE/status change/delete) and push it.
+        return poolAdapter.connectDedicated().compose(conn ->
+                conn.query("LISTEN \"" + channel + "\"").execute()
+                        .compose(rs -> {
+                            this.tailConnection = conn;
+                            logger.info("tail: observing channel {} (non-destructive)", channel);
 
-            conn.notificationHandler(notification -> {
-                if (!channel.equals(notification.getChannel())) {
-                    return;
-                }
-                final long id;
-                try {
-                    id = Long.parseLong(notification.getPayload().trim());
-                } catch (NumberFormatException e) {
-                    logger.warn("tail: unexpected NOTIFY payload '{}' on channel {}",
-                            notification.getPayload(), channel);
-                    return;
-                }
-                readById(id)
-                        .onSuccess(message -> {
-                            if (message != null) {
-                                onMessage.handle(message)
-                                        .onFailure(err -> logger.warn("tail: handler failed for message {}: {}",
-                                                id, err.getMessage()));
-                            }
+                            conn.notificationHandler(notification -> {
+                                if (!channel.equals(notification.getChannel())) {
+                                    return;
+                                }
+                                final long id;
+                                try {
+                                    id = Long.parseLong(notification.getPayload().trim());
+                                } catch (NumberFormatException e) {
+                                    logger.warn("tail: unexpected NOTIFY payload '{}' on channel {}",
+                                            notification.getPayload(), channel);
+                                    return;
+                                }
+                                readById(id)
+                                        .onSuccess(message -> {
+                                            if (message != null) {
+                                                onMessage.handle(message)
+                                                        .onFailure(err -> logger.error(
+                                                                "tail: handler failed for message {}: {}",
+                                                                id, err.getMessage()));
+                                            }
+                                        })
+                                        .onFailure(err -> logger.error(
+                                                "tail: failed to read message id {} on {}: {}",
+                                                id, channel, err.getMessage()));
+                            });
+
+                            // Surface connection-level faults instead of letting a dropped LISTEN
+                            // hang the observer silently — mirrors PgNativeQueueConsumer.
+                            conn.exceptionHandler(err -> logger.error(
+                                    "tail: LISTEN connection error on channel {}: {}", channel, err.getMessage()));
+                            conn.closeHandler(v -> {
+                                this.tailConnection = null;
+                                if (!closed) {
+                                    logger.warn("tail: LISTEN connection for channel {} closed unexpectedly", channel);
+                                }
+                            });
+
+                            return Future.<Void>succeededFuture();
                         })
-                        .onFailure(err -> logger.warn("tail: failed to read message id {} on {}: {}",
-                                id, channel, err.getMessage()));
-            });
-
-            return conn.query("LISTEN " + channel).execute()
-                    .onSuccess(v -> logger.info("tail: observing channel {} (non-destructive)", channel))
-                    .<Void>mapEmpty()
-                    .onFailure(err -> {
-                        logger.error("tail: LISTEN failed on {}: {}", channel, err.getMessage());
-                        this.tailConnection = null;
-                        conn.close().onFailure(closeErr ->
-                                logger.warn("tail: failed to close connection after LISTEN error: {}",
-                                        closeErr.getMessage()));
-                    });
-        });
+                        // If LISTEN fails, close the dedicated connection we opened (no leak); the
+                        // failed Future still propagates to the caller, so the fault is not hidden.
+                        .onFailure(err -> {
+                            logger.error("tail: failed to start LISTEN on channel {}: {}", channel, err.getMessage());
+                            conn.close().onFailure(closeErr -> logger.warn(
+                                    "tail: failed to close connection after LISTEN error: {}", closeErr.getMessage()));
+                        }));
     }
 
     @Override
@@ -212,6 +229,14 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
     @Override
     public void close() {
         closed = true;
+        PgConnection conn = this.tailConnection;
+        this.tailConnection = null;
+        if (conn != null) {
+            // Closing the connection drops the LISTEN with it; no explicit UNLISTEN needed.
+            conn.close().onFailure(err ->
+                    logger.warn("Failed to close tail LISTEN connection for topic {}: {}",
+                            topic, err.getMessage()));
+        }
         logger.debug("Closed browser for topic: {}", topic);
     }
 }
