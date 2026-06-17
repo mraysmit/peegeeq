@@ -2,9 +2,9 @@
 
 **Complete reference for operators, integrators, and developers**
 
-Version: 1.0  
-Date: May 9, 2026  
-Author: Mark Andrew Ray-Smith Cityline Ltd
+*Author: Mark Andrew Ray-Smith Cityline Ltd*  
+*Version: 1.0*  
+*Date: May 9, 2026*  
 
 ---
 
