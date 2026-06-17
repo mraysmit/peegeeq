@@ -1,6 +1,6 @@
 # PeeGeeQ Complete Guide
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025  
-#### Version 0.9
+**© Mark Andrew Ray-Smith Cityline Ltd 2025**  
+Version 0.9  
 
 <div align="left">
     <img src="PGQ-logo.png" alt="PeeGeeQ Logo" width="200" style="display:block; margin-left:0;" />

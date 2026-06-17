@@ -1,6 +1,7 @@
 # PeeGeeQ Architecture & API Reference
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025
-#### Version 0.9
+**© Mark Andrew Ray-Smith Cityline Ltd 2025**  
+**Version 0.9**  
+**Date 14 May 2025**
 
 **Technical reference documentation for PeeGeeQ system architecture, API specifications, and integration patterns.**
 

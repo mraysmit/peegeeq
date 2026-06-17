@@ -71,7 +71,7 @@ sequenceDiagram
 
     App->>Sub: subscribe(topic, group, FROM_BEGINNING)
     Sub->>Cx: withConnection(serviceId)
-    Cx->>DB: INSERT/UPSERT outbox_topic_subscriptions\nstatus=ACTIVE start_from_message_id=1
+    Cx->>DB: INSERT/UPSERT outbox_topic_subscriptions<br/>status=ACTIVE start_from_message_id=1
     DB-->>Sub: Subscription row persisted
 
     alt BackfillService configured
@@ -92,19 +92,19 @@ sequenceDiagram
 
             loop Batch loop (tail-recursive Future compose)
                 Bf->>Cx: withTransaction(serviceId)
-                Cx->>DB: SELECT subscription FOR UPDATE\n(check cancel/progress)
-                Cx->>DB: SELECT outbox IDs from checkpoint\nLIMIT batch
+                Cx->>DB: SELECT subscription FOR UPDATE<br/>(check cancel/progress)
+                Cx->>DB: SELECT outbox IDs from checkpoint<br/>LIMIT batch
                 Cx->>DB: UPDATE outbox increment required_consumer_groups
-                Cx->>DB: INSERT outbox_consumer_groups\nON CONFLICT DO NOTHING
+                Cx->>DB: INSERT outbox_consumer_groups<br/>ON CONFLICT DO NOTHING
                 Cx->>DB: UPDATE checkpoint + processed_messages
                 DB-->>Bf: batch committed
             end
 
-            Bf->>DB: UPDATE backfill_status=COMPLETED\nset completed_at
+            Bf->>DB: UPDATE backfill_status=COMPLETED<br/>set completed_at
             Bf-->>Sub: COMPLETED(processedCount)
         end
 
-        Sub-->>App: subscribe succeeds\n(backfill is best-effort)
+        Sub-->>App: subscribe succeeds<br/>(backfill is best-effort)
     else no BackfillService configured
         Sub-->>App: subscribe succeeds only
     end
@@ -186,7 +186,7 @@ sequenceDiagram
     participant Handler as Group Handler
     participant Track as CompletionTracker
 
-    Prod->>DB: INSERT INTO outbox(topic,payload,headers,...)\nstatus='PENDING'
+    Prod->>DB: INSERT INTO outbox(topic,payload,headers,...)<br/>status='PENDING'
     alt duplicate idempotency_key
         DB-->>Prod: unique constraint hit
         Prod-->>Prod: treat as successful no-op
@@ -194,7 +194,7 @@ sequenceDiagram
         DB-->>Prod: row created
     end
 
-    Fetch->>DB: SELECT outbox rows\nJOIN subscription + LEFT JOIN outbox_consumer_groups\nFOR UPDATE OF outbox SKIP LOCKED
+    Fetch->>DB: SELECT outbox rows<br/>JOIN subscription + LEFT JOIN outbox_consumer_groups<br/>FOR UPDATE OF outbox SKIP LOCKED
     DB-->>Fetch: batch of group-visible messages
     Fetch-->>Handler: OutboxMessage list
 
