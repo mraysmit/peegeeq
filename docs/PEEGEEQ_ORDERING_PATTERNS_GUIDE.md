@@ -1,6 +1,6 @@
 # PeeGeeQ Ordering Patterns Guide
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025
-#### Version 1.0
+*© Mark Andrew Ray-Smith Cityline Ltd 2025*  
+*Version 1.0*
 
 **How to choose and apply the right ordering model for your workload.**
 
