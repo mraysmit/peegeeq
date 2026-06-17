@@ -1,7 +1,6 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
@@ -270,27 +269,16 @@ public class WebSocketHandler {
                         return;
                     }
 
-                    try {
-                        // Create consumer for streaming
-                        MessageConsumer<Object> consumer = queueFactory.createConsumer(connection.getQueueName(),
-                                Object.class);
-                        connection.setConsumer(consumer);
-
-                        // TODO: Implement actual message streaming from consumer
-                        // This is a placeholder - in a real implementation, we would:
-                        // 1. Subscribe to the consumer's message stream
-                        // 2. Apply filters if configured
-                        // 3. Send messages to WebSocket in real-time
-                        // 4. Handle consumer group coordination
-
-                        logger.info("Message streaming started for WebSocket connection: {}",
-                                connection.getConnectionId());
-
-                    } catch (Exception e) {
-                        logger.error("Error starting message streaming for connection {}: {}",
-                                connection.getConnectionId(), e.getMessage(), e);
-                        sendErrorMessage(connection, "Failed to start message streaming: " + e.getMessage());
-                    }
+                    // Intentionally NON-CONSUMING. The management UI is an admin/observability tool
+                    // and must never consume/ack messages just to display them — doing so would steal
+                    // them from the application's real consumers. So NO consumer is created here. Admin
+                    // live views use the non-destructive browse endpoint
+                    // (GET /queues/{s}/{q}/messages → createBrowser().browse()), browse-polled by the
+                    // client (see QueueDetailsEnhanced.tsx / MessageBrowser.tsx). A future real-time
+                    // non-destructive tail must be built on LISTEN/NOTIFY + browse — never
+                    // createConsumer/subscribe.
+                    logger.info("WebSocket queue stream connected (non-consuming) for {} on {}/{}",
+                            connection.getConnectionId(), connection.getSetupId(), connection.getQueueName());
                 })
                 .onFailure(throwable -> {
                     logger.error("Error setting up message streaming for connection {}: {}",

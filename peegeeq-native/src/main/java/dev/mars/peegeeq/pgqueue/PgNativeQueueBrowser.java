@@ -18,8 +18,10 @@ package dev.mars.peegeeq.pgqueue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import io.vertx.core.Future;
+import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
@@ -50,13 +52,18 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
     private final Pool pool;
     private final ObjectMapper objectMapper;
     private final String schema;
+    // Adapter is used only by tail() to obtain a dedicated (non-pooled) LISTEN connection.
+    private final VertxPoolAdapter poolAdapter;
     private volatile boolean closed = false;
+    // Dedicated LISTEN connection for tail() — non-pooled, closed in close().
+    private volatile PgConnection tailConnection;
 
     // The schema-defaulting constructor was removed deliberately: the browser's SQL is
     // schema-qualified, and PeeGeeQ has no default schema — callers pass it explicitly.
 
     public PgNativeQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper,
-            String schema) {
+            String schema, VertxPoolAdapter poolAdapter) {
+        this.poolAdapter = poolAdapter;
         this.topic = topic;
         this.payloadType = payloadType;
         this.pool = pool;
@@ -84,30 +91,117 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
                 .map(rows -> {
                     List<Message<T>> messages = new ArrayList<>();
                     for (Row row : rows) {
-                        try {
-                            String id = String.valueOf(row.getLong("id"));
-                            String payloadJson = row.getJsonObject("payload").encode();
-                            T payload = objectMapper.readValue(payloadJson, payloadType);
-
-                            Map<String, String> headers = new HashMap<>();
-                            var headersJson = row.getJsonObject("headers");
-                            if (headersJson != null) {
-                                for (String key : headersJson.fieldNames()) {
-                                    headers.put(key, headersJson.getString(key));
-                                }
-                            }
-
-                            Instant createdAt = row.getLocalDateTime("created_at") != null
-                                    ? row.getLocalDateTime("created_at").toInstant(ZoneOffset.UTC)
-                                    : Instant.now();
-
-                            messages.add(new PgNativeMessage<>(id, payload, createdAt, headers));
-                        } catch (Exception e) {
-                            logger.warn("Failed to parse message: {}", e.getMessage());
+                        Message<T> message = mapRow(row);
+                        if (message != null) {
+                            messages.add(message);
                         }
                     }
                     return messages;
                 });
+    }
+
+    /**
+     * Maps a {@code queue_messages} row to a {@link Message}. Returns null if the row cannot be
+     * parsed (logged at WARN). Shared by {@link #browse(int, int)} and {@link #readById(long)}.
+     */
+    private Message<T> mapRow(Row row) {
+        try {
+            String id = String.valueOf(row.getLong("id"));
+            String payloadJson = row.getJsonObject("payload").encode();
+            T payload = objectMapper.readValue(payloadJson, payloadType);
+
+            Map<String, String> headers = new HashMap<>();
+            var headersJson = row.getJsonObject("headers");
+            if (headersJson != null) {
+                for (String key : headersJson.fieldNames()) {
+                    headers.put(key, headersJson.getString(key));
+                }
+            }
+
+            Instant createdAt = row.getLocalDateTime("created_at") != null
+                    ? row.getLocalDateTime("created_at").toInstant(ZoneOffset.UTC)
+                    : Instant.now();
+
+            return new PgNativeMessage<>(id, payload, createdAt, headers);
+        } catch (Exception e) {
+            logger.warn("Failed to parse message: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Non-destructive read of a single message by its database id. A plain SELECT — no
+     * FOR UPDATE, no status change, no delete — so it never consumes the message.
+     */
+    private Future<Message<T>> readById(long id) {
+        String sql = String.format("""
+                SELECT id, payload, headers, created_at, status
+                FROM %s.queue_messages
+                WHERE topic = $1 AND id = $2
+                """, schema);
+        return pool.preparedQuery(sql)
+                .execute(Tuple.of(topic, id))
+                .map(rows -> {
+                    var it = rows.iterator();
+                    return it.hasNext() ? mapRow(it.next()) : null;
+                });
+    }
+
+    @Override
+    public Future<Void> tail(MessageHandler<T> onMessage) {
+        if (closed) {
+            return Future.failedFuture(new IllegalStateException("Browser is closed"));
+        }
+        if (onMessage == null) {
+            return Future.failedFuture(new IllegalArgumentException("onMessage handler is required"));
+        }
+        if (tailConnection != null) {
+            return Future.failedFuture(new IllegalStateException("tail is already active on this browser"));
+        }
+
+        final String channel = NativeQueueChannels.channelFor(schema, topic);
+
+        // Dedicated, non-pooled connection for LISTEN (pooled connections are recycled and must
+        // not hold a LISTEN). On each NOTIFY the payload is the new message's DB id (see
+        // PgNativeQueueProducer's pg_notify); we read that row non-destructively and push it.
+        return poolAdapter.connectDedicated().compose(conn -> {
+            this.tailConnection = conn;
+
+            conn.notificationHandler(notification -> {
+                if (!channel.equals(notification.getChannel())) {
+                    return;
+                }
+                final long id;
+                try {
+                    id = Long.parseLong(notification.getPayload().trim());
+                } catch (NumberFormatException e) {
+                    logger.warn("tail: unexpected NOTIFY payload '{}' on channel {}",
+                            notification.getPayload(), channel);
+                    return;
+                }
+                readById(id)
+                        .onSuccess(message -> {
+                            if (message != null) {
+                                onMessage.handle(message)
+                                        .onFailure(err -> logger.warn("tail: handler failed for message {}: {}",
+                                                id, err.getMessage()));
+                            }
+                        })
+                        .onFailure(err -> logger.warn("tail: failed to read message id {} on {}: {}",
+                                id, channel, err.getMessage()));
+            });
+
+            return conn.query("LISTEN " + channel).execute()
+                    .onSuccess(v -> logger.info("tail: observing channel {} (non-destructive)", channel))
+                    .<Void>mapEmpty()
+                    .onFailure(err -> {
+                        logger.error("tail: LISTEN failed on {}: {}", channel, err.getMessage());
+                        this.tailConnection = null;
+                        conn.close().onFailure(closeErr ->
+                                logger.warn("tail: failed to close connection after LISTEN error: {}",
+                                        closeErr.getMessage()));
+                    });
+        });
     }
 
     @Override

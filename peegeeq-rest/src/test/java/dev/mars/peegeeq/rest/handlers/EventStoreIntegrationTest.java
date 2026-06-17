@@ -208,6 +208,74 @@ public class EventStoreIntegrationTest {
                 })));
     }
 
+    /**
+     * §7.1 regression (event-store delete). Before the fix, {@code deleteEventStoreImpl}
+     * returned {@code "deleted successfully"} without removing anything, so a deleted store
+     * still appeared in {@code getEventStores()}. This asserts the handler-level contract:
+     * after DELETE, the store is gone from {@code GET /api/v1/setups/:setupId}.
+     *
+     * <p>The composite delete id is {@code setupId-storeName} (parsed via {@code lastIndexOf('-')}).
+     * The underlying Postgres table drop is performed by
+     * {@code PeeGeeQDatabaseSetupService.removeEventStore} (CASCADE) and is asserted at the
+     * service level; this test does not query {@code pg_tables} directly because raw JDBC in
+     * tests is prohibited and there is no REST surface that lists physical tables.
+     */
+    @Test
+    void testDeleteEventStoreRemovesItFromSetupListing(VertxTestContext testContext) {
+        logger.info("=== TEST METHOD STARTED: testDeleteEventStoreRemovesItFromSetupListing ===");
+
+        String storeName = "del_probe_" + System.currentTimeMillis();
+        JsonObject createBody = new JsonObject()
+                .put("name", storeName)
+                .put("setup", testSetupId)
+                .put("biTemporalEnabled", true)
+                .put("retentionDays", 365);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/management/event-stores")
+                .putHeader("content-type", "application/json")
+                .timeout(30000)
+                .sendJsonObject(createBody)
+                .compose(createResp -> {
+                    testContext.verify(() -> {
+                        logger.info("Create response: {} - {}", createResp.statusCode(), createResp.bodyAsString());
+                        assertTrue(createResp.statusCode() == 200 || createResp.statusCode() == 201,
+                                "Event store create must return 200/201; got: " + createResp.bodyAsString());
+                    });
+                    return webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId)
+                            .timeout(10000).send();
+                })
+                .compose(listBefore -> {
+                    testContext.verify(() -> {
+                        assertEquals(200, listBefore.statusCode(), "Setup details must return 200");
+                        JsonArray stores = listBefore.bodyAsJsonObject().getJsonArray("eventStores");
+                        assertTrue(stores.contains(storeName),
+                                "Created store '" + storeName + "' must appear in the setup listing; got: " + stores.encode());
+                    });
+                    String storeId = testSetupId + "-" + storeName;
+                    return webClient.delete(TEST_PORT, "localhost", "/api/v1/management/event-stores/" + storeId)
+                            .timeout(30000).send();
+                })
+                .compose(deleteResp -> {
+                    testContext.verify(() -> {
+                        logger.info("Delete response: {} - {}", deleteResp.statusCode(), deleteResp.bodyAsString());
+                        assertTrue(deleteResp.statusCode() == 200 || deleteResp.statusCode() == 204,
+                                "Event store delete must return 200/204; got: " + deleteResp.bodyAsString());
+                    });
+                    return webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId)
+                            .timeout(10000).send();
+                })
+                .onComplete(testContext.succeeding(listAfter -> testContext.verify(() -> {
+                    logger.info("Setup listing after delete: {} - {}", listAfter.statusCode(), listAfter.bodyAsString());
+                    assertEquals(200, listAfter.statusCode(), "Setup details must return 200");
+                    JsonArray stores = listAfter.bodyAsJsonObject().getJsonArray("eventStores");
+                    assertFalse(stores.contains(storeName),
+                            "Deleted store '" + storeName + "' must NOT appear in the setup listing — regression: " +
+                            "deleteEventStoreImpl used to return success without removing the store. Got: " + stores.encode());
+                    logger.info("=== TEST METHOD COMPLETED: testDeleteEventStoreRemovesItFromSetupListing ===");
+                    testContext.completeNow();
+                })));
+    }
+
     @Test
     void testStoreOneEvent(VertxTestContext testContext) {
         logger.info("=== TEST METHOD STARTED: testStoreOneEvent ===");
