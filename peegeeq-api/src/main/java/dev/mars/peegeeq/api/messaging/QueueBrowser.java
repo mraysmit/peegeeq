@@ -43,14 +43,32 @@ public interface QueueBrowser<T> extends AutoCloseable {
     
     /**
      * Browse messages in the queue without consuming them, starting from the beginning.
-     * 
+     *
      * @param limit Maximum number of messages to return
      * @return A Future containing the list of messages
      */
     default Future<List<Message<T>>> browse(int limit) {
         return browse(limit, 0);
     }
-    
+
+    /**
+     * Observe new messages as they arrive, <strong>non-destructively</strong> — observe only,
+     * never acknowledge or remove. This is the live counterpart to {@link #browse(int, int)}
+     * for an admin/observability view: observed messages remain in the queue and are still
+     * delivered to the application's real consumers.
+     *
+     * <p>Contrast {@code MessageConsumer.subscribe(...)}, which <em>consumes</em> (acks/removes)
+     * messages. {@code tail} must never do that.
+     *
+     * @param onMessage invoked for each newly-observed message; its returned Future signals the
+     *                  observer has finished pushing it (no acknowledgement semantics)
+     * @return a Future that completes once the tail subscription is established
+     */
+    default Future<Void> tail(MessageHandler<T> onMessage) {
+        return Future.failedFuture(new UnsupportedOperationException(
+                "tail() (non-destructive live observe) is not implemented for this browser"));
+    }
+
     /**
      * Get the topic/queue name this browser is associated with.
      * 

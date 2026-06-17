@@ -180,49 +180,30 @@ const MessageBrowser = () => {
     //   }
     // }, [liveMessages, isRealTimeEnabled, messages])
 
-    // Live SSE connection — streams real messages from the backend queue
-    const liveEventSourceRef = useRef<EventSource | null>(null)
+    // Live mode = faster NON-DESTRUCTIVE auto-refresh. The management UI is an admin tool and
+    // must never consume messages to display them. This previously opened a consuming SSE stream
+    // (`/queues/{s}/{q}/stream` → createConsumer/subscribe), which stole messages from the
+    // application's real consumers. It now browse-polls the read-only listing faster (every 3 s)
+    // instead — the default background refresh is every 30 s.
+    const livePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
     useEffect(() => {
-        if (liveEventSourceRef.current) {
-            liveEventSourceRef.current.close()
-            liveEventSourceRef.current = null
+        if (livePollRef.current) {
+            clearInterval(livePollRef.current)
+            livePollRef.current = null
         }
 
-        if (!isRealTimeEnabled || !selectedSetupId || !selectedQueueName) {
-            return
+        if (isRealTimeEnabled) {
+            fetchMessages() // immediate refresh on enable
+            livePollRef.current = setInterval(fetchMessages, 3000)
         }
-
-        const sseUrl = getVersionedApiUrl(`queues/${selectedSetupId}/${selectedQueueName}/stream`)
-        const eventSource = new EventSource(sseUrl)
-        liveEventSourceRef.current = eventSource
-
-        eventSource.addEventListener('message', (event) => {
-            try {
-                const sseData = JSON.parse(event.data)
-                if (sseData.type === 'data') {
-                    const newMsg: Message = {
-                        key: sseData.messageId,
-                        id: sseData.messageId,
-                        queueName: selectedQueueName,
-                        setup: selectedSetupId,
-                        messageType: sseData.messageType || 'Live',
-                        payload: sseData.payload,
-                        headers: sseData.headers || {},
-                        timestamp: new Date(sseData.timestamp).toISOString(),
-                        size: JSON.stringify(sseData.payload || '').length,
-                        status: 'pending'
-                    }
-                    setMessages(prev => [newMsg, ...prev.slice(0, 49)])
-                }
-            } catch (e) {
-                console.error('Failed to parse SSE message:', e)
-            }
-        })
 
         return () => {
-            eventSource.close()
-            liveEventSourceRef.current = null
+            if (livePollRef.current) {
+                clearInterval(livePollRef.current)
+                livePollRef.current = null
+            }
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isRealTimeEnabled, selectedSetupId, selectedQueueName])
 
     // Filter messages based on current filters
