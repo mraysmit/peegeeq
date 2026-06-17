@@ -1,8 +1,9 @@
 # PeeGeeQ REST API Reference
 
-**Version:** 1.0-SNAPSHOT  
-**Base URL:** `http://localhost:8080`  
-**Framework:** Vert.x 5.0.4
+**© Mark Andrew Ray-Smith Cityline Ltd 2025**
+Version: 1.0  
+Date: Jun 14, 2026  
+Author: Mark Andrew Ray-Smith Cityline Ltd
 
 ## Table of Contents
 
@@ -14,11 +15,12 @@
 6. [Webhook Subscription Endpoints](#webhook-subscription-endpoints)
 7. [Dead Letter Queue Endpoints](#dead-letter-queue-endpoints)
 8. [Subscription Lifecycle Endpoints](#subscription-lifecycle-endpoints)
-9. [Event Store Endpoints](#event-store-endpoints)
-10. [Per-Setup Health Endpoints](#per-setup-health-endpoints)
-11. [Management API Endpoints](#management-api-endpoints)
-12. [Health & Metrics Endpoints](#health--metrics-endpoints)
-13. [Real-time Streaming Endpoints](#real-time-streaming-endpoints)
+9. [Consumer Alert Endpoints](#consumer-alert-endpoints)
+10. [Event Store Endpoints](#event-store-endpoints)
+11. [Per-Setup Health Endpoints](#per-setup-health-endpoints)
+12. [Management API Endpoints](#management-api-endpoints)
+13. [Health & Metrics Endpoints](#health--metrics-endpoints)
+14. [Real-time Streaming Endpoints](#real-time-streaming-endpoints)
 
 ---
 
@@ -92,14 +94,14 @@ Creates a complete database setup with queues and event stores. This is the prim
 | `eventStores[].biTemporalEnabled` | boolean | No | true | Enable bi-temporal event storage (transaction time + valid time). |
 | `eventStores[].notificationPrefix` | string | No | auto-generated | Prefix for PostgreSQL NOTIFY channel names. |
 
-**Response:** `200 OK`
+**Response:** `201 Created`
 ```json
 {
   "setupId": "string",
   "status": "ACTIVE|CREATING|FAILED",
-  "createdAt": "timestamp",
-  "queueFactories": {},
-  "eventStores": {}
+  "queueCount": 0,
+  "eventStoreCount": 0,
+  "message": "Setup created successfully"
 }
 ```
 
@@ -109,9 +111,9 @@ Creates a complete database setup with queues and event stores. This is the prim
 |:------|:-----|:------------|
 | `setupId` | string | The setup identifier (echoed from request) |
 | `status` | enum | Current state: `CREATING` (initializing), `ACTIVE` (ready for use), `FAILED` (initialization error) |
-| `createdAt` | string | ISO-8601 timestamp when setup was created |
-| `queueFactories` | object | Map of queue names to their factory metadata |
-| `eventStores` | object | Map of event store names to their metadata |
+| `queueCount` | integer | Number of queues created in this setup |
+| `eventStoreCount` | integer | Number of event stores created in this setup |
+| `message` | string | Human-readable success message |
 
 **Error Responses:**
 
@@ -161,7 +163,8 @@ Retrieves the current status of a database setup. Use this to check if a setup h
 - Debugging setup initialization issues
 
 **Endpoint:** `GET /api/v1/database-setup/:setupId/status`
-**Handler:** `DatabaseSetupHandler.getStatus()`
+**Alternative:** `GET /api/v1/setups/:setupId/status`
+**Handler:** `DatabaseSetupHandler.getSetupStatus()`
 **Service:** `DatabaseSetupService.getSetupStatus()`
 
 **Path Parameters:**
@@ -174,8 +177,7 @@ Retrieves the current status of a database setup. Use this to check if a setup h
 ```json
 {
   "setupId": "string",
-  "status": "ACTIVE|CREATING|FAILED",
-  "createdAt": "timestamp"
+  "status": "ACTIVE|CREATING|FAILED"
 }
 ```
 
@@ -185,7 +187,6 @@ Retrieves the current status of a database setup. Use this to check if a setup h
 |:------|:-----|:------------|
 | `setupId` | string | The setup identifier |
 | `status` | enum | `CREATING` - Setup is initializing tables and connections. `ACTIVE` - Setup is ready for use. `FAILED` - Setup initialization failed (check logs). |
-| `createdAt` | string | ISO-8601 timestamp when setup creation was initiated |
 
 **Error Responses:**
 
@@ -320,6 +321,72 @@ Dynamically adds a new bi-temporal event store to an existing database setup.
 
 ---
 
+### List Queues in Setup
+
+Lists all queues in a specific setup.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/queues`
+**Handler:** `DatabaseSetupHandler.listQueues()`
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+
+**Response:** `200 OK`
+```json
+{
+  "count": 0,
+  "queues": ["string"],
+  "queueDetails": [
+    {
+      "name": "string",
+      "implementationType": "string"
+    }
+  ]
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `404 Not Found` | Setup does not exist |
+
+---
+
+### List Event Stores in Setup
+
+Lists all event stores in a specific setup.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/eventstores`
+**Handler:** `DatabaseSetupHandler.listEventStores()`
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+
+**Response:** `200 OK`
+```json
+{
+  "count": 0,
+  "eventStores": ["string"]
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `404 Not Found` | Setup does not exist |
+
+---
+
 ### List All Setups
 
 Lists all database setups in the system. Useful for administrative dashboards and monitoring.
@@ -336,15 +403,8 @@ Lists all database setups in the system. Useful for administrative dashboards an
 **Response:** `200 OK`
 ```json
 {
-  "setups": [
-    {
-      "setupId": "string",
-      "status": "ACTIVE|CREATING|FAILED",
-      "createdAt": "timestamp"
-    }
-  ],
   "count": 0,
-  "timestamp": 0
+  "setupIds": ["string"]
 }
 ```
 
@@ -352,12 +412,8 @@ Lists all database setups in the system. Useful for administrative dashboards an
 
 | Field | Type | Description |
 |:------|:-----|:------------|
-| `setups` | array | List of all setups |
-| `setups[].setupId` | string | Unique identifier |
-| `setups[].status` | enum | Current state of the setup |
-| `setups[].createdAt` | string | ISO-8601 creation timestamp |
-| `count` | integer | Total number of setups |
-| `timestamp` | integer | Response timestamp (epoch milliseconds) |
+| `count` | integer | Total number of active setups |
+| `setupIds` | array | Flat list of setup ID strings |
 
 ---
 
@@ -524,13 +580,11 @@ Gets detailed information about a specific queue including message counts and co
 
 Gets statistics for a specific queue including message counts and processing metrics.
 
-**Implementation Status:** PARTIAL - Currently returns basic queue availability information. Full message statistics (counts, processing rates) require `QueueFactory.getStats()` to be implemented.
-
 **Use Cases:**
 - Monitoring queue health and availability
 - Checking queue implementation type
-- Alerting on queue depth thresholds (when fully implemented)
-- Performance analysis (when fully implemented)
+- Alerting on queue depth thresholds
+- Performance analysis
 
 **Endpoint:** `GET /api/v1/queues/:setupId/:queueName/stats`
 **Handler:** `QueueHandler.getQueueStats()`
@@ -553,7 +607,13 @@ Gets statistics for a specific queue including message counts and processing met
   "totalMessages": 0,
   "pendingMessages": 0,
   "processedMessages": 0,
-  "note": "Full message statistics require QueueFactory.getStats() implementation",
+  "inFlightMessages": 0,
+  "deadLetteredMessages": 0,
+  "messagesPerSecond": 0.0,
+  "avgProcessingTimeMs": 0.0,
+  "successRatePercent": 0.0,
+  "firstMessageAt": "ISO-8601 timestamp",
+  "lastMessageAt": "ISO-8601 timestamp",
   "timestamp": 0
 }
 ```
@@ -566,10 +626,16 @@ Gets statistics for a specific queue including message counts and processing met
 | `setupId` | string | Setup ID containing the queue |
 | `implementationType` | string | Queue implementation type (`native` or `outbox`) |
 | `healthy` | boolean | Whether the queue factory is healthy |
-| `totalMessages` | integer | Total messages (currently 0 - placeholder) |
-| `pendingMessages` | integer | Pending messages (currently 0 - placeholder) |
-| `processedMessages` | integer | Processed messages (currently 0 - placeholder) |
-| `note` | string | Implementation status note |
+| `totalMessages` | integer | Total messages in queue |
+| `pendingMessages` | integer | Messages waiting to be consumed |
+| `processedMessages` | integer | Messages successfully processed |
+| `inFlightMessages` | integer | Messages currently being processed |
+| `deadLetteredMessages` | integer | Messages moved to dead letter queue |
+| `messagesPerSecond` | number | Current message throughput rate |
+| `avgProcessingTimeMs` | number | Average message processing time in milliseconds |
+| `successRatePercent` | number | Percentage of messages successfully processed |
+| `firstMessageAt` | string | ISO-8601 timestamp of the first message (optional, present when messages exist) |
+| `lastMessageAt` | string | ISO-8601 timestamp of the most recent message (optional, present when messages exist) |
 | `timestamp` | integer | Response timestamp in epoch milliseconds |
 
 ---
@@ -684,6 +750,69 @@ Purges all messages from a queue.
   "timestamp": 0
 }
 ```
+
+---
+
+### Pause Queue
+
+Pauses message delivery for a queue.
+
+**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/pause`  
+**Handler:** `ManagementApiHandler.pauseQueue()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+
+**Response:** `200 OK`
+
+---
+
+### Resume Queue
+
+Resumes message delivery for a paused queue.
+
+**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/resume`  
+**Handler:** `ManagementApiHandler.resumeQueue()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+
+**Response:** `200 OK`
+
+---
+
+### Delete Queue (by name)
+
+Deletes a queue using separate path parameters (Standard REST pattern).
+
+**Endpoint:** `DELETE /api/v1/queues/:setupId/:queueName`  
+**Handler:** `ManagementApiHandler.deleteQueueByName()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+
+**Response:** `200 OK`
+
+---
+
+### Publish Message (alias)
+
+Alternative endpoint for sending a message to a queue. Functionally identical to Send Message.
+
+**Endpoint:** `POST /api/v1/queues/:setupId/:queueName/publish`  
+**Handler:** `QueueHandler.sendMessage()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+
+See [Send Message](#send-message) for request/response details.
 
 ---
 
@@ -864,80 +993,22 @@ Sends multiple messages to a queue in a single request. More efficient than send
 
 ### Get Next Message
 
-Polls for the next available message from a queue. This is a synchronous pull-based consumption pattern.
-
-**When to Use Polling:**
-- Simple consumers that process messages one at a time
-- Batch processing jobs that run periodically
-- When you need explicit control over message retrieval timing
-
-**Note:** For real-time message delivery, consider using SSE, WebSocket, or Webhook endpoints instead.
-
-**Endpoint:** `GET /api/v1/queues/:setupId/:queueName/messages/next`
-**Handler:** `QueueHandler.getNextMessage()`
-**Service:** Uses `QueueFactory.createConsumer()` and internal polling
-
-**Path Parameters:**
-
-| Parameter | Type | Required | Description |
-|:----------|:-----|:---------|:------------|
-| `setupId` | string | Yes | The setup ID |
-| `queueName` | string | Yes | The queue name |
-
-**Query Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|:----------|:-----|:---------|:--------|:------------|
-| `timeout` | integer | No | 30000 | Visibility timeout in milliseconds. Message is hidden for this duration. |
-| `maxWait` | integer | No | 5000 | Maximum time to wait for a message if queue is empty. |
-| `consumerGroup` | string | No | null | Consumer group name for coordinated consumption. |
-
-**Response:** `200 OK` (message found) or `204 No Content` (no messages available)
-```json
-{
-  "message": "Message retrieved successfully",
-  "queueName": "string",
-  "setupId": "string",
-  "messageId": "string",
-  "payload": {},
-  "headers": {},
-  "timestamp": 0,
-  "priority": 5,
-  "messageType": "string",
-  "deliveryCount": 1,
-  "visibilityTimeout": 30000
-}
-```
-
-**Response Fields:**
-
-| Field | Type | Description |
-|:------|:-----|:------------|
-| `messageId` | string | Unique message identifier - use this to acknowledge |
-| `payload` | object | The message content |
-| `headers` | object | Message headers/metadata |
-| `timestamp` | integer | When message was originally sent |
-| `priority` | integer | Message priority |
-| `messageType` | string | Optional message type |
-| `deliveryCount` | integer | Number of times this message has been delivered |
-| `visibilityTimeout` | integer | Milliseconds until message becomes visible again if not acknowledged |
-
-**Important:** You must acknowledge the message after processing using the Acknowledge Message endpoint. If not acknowledged within the visibility timeout, the message will become visible again and be redelivered.
+> **⚠️ NOT IMPLEMENTED** — This endpoint is planned but does not currently exist in the codebase. Use SSE streaming (`GET /api/v1/queues/:setupId/:queueName/stream`), WebSocket (`ws://localhost:8080/ws/queues/:setupId/:queueName`), or Webhook subscriptions for message consumption.
 
 ---
 
-### Get Multiple Messages
+### Get Multiple Messages (Management Browsing)
 
-Polls for multiple messages from a queue in a single request. More efficient than calling Get Next Message repeatedly.
+Gets messages from a queue for management/browsing purposes. This is **not** a consumer polling endpoint — messages retrieved here are not locked or hidden from other consumers.
 
 **Use Cases:**
-- Batch processing multiple messages together
-- Reducing network round-trips for high-throughput consumers
-- Prefetching messages for local processing
+- Management UI message browsing
+- Debugging queue contents
+- Inspecting message payloads
 
 **Endpoint:** `GET /api/v1/queues/:setupId/:queueName/messages`
-**Handler:** `QueueHandler.getMessages()`
-**Service:** Uses `QueueFactory.createConsumer()` and internal polling
+**Handler:** `ManagementApiHandler.getQueueMessages()`
+**Service:** `DatabaseSetupService.getSetupResult()`
 
 **Path Parameters:**
 
@@ -946,72 +1017,13 @@ Polls for multiple messages from a queue in a single request. More efficient tha
 | `setupId` | string | Yes | The setup ID |
 | `queueName` | string | Yes | The queue name |
 
-**Query Parameters:**
-
-| Parameter | Type | Required | Default | Description |
-|:----------|:-----|:---------|:--------|:------------|
-| `limit` | integer | No | 10 | Maximum messages to retrieve. Range: 1-100. |
-| `timeout` | integer | No | 5000 | Maximum wait time in milliseconds. |
-| `consumerGroup` | string | No | null | Consumer group name. |
-
 **Response:** `200 OK`
-```json
-{
-  "message": "Messages retrieved successfully",
-  "queueName": "string",
-  "setupId": "string",
-  "messageCount": 0,
-  "timestamp": 0,
-  "messages": [
-    {
-      "messageId": "string",
-      "payload": {},
-      "headers": {},
-      "timestamp": 0,
-      "priority": 5,
-      "deliveryCount": 1
-    }
-  ]
-}
-```
-
-**Response Fields:**
-
-| Field | Type | Description |
-|:------|:-----|:------------|
-| `messageCount` | integer | Number of messages returned (may be less than limit) |
-| `messages` | array | Array of message objects |
 
 ---
 
 ### Acknowledge Message
 
-Acknowledges a message, marking it as successfully processed and removing it from the queue. This is a critical step in the message lifecycle.
-
-**Important:** Always acknowledge messages after successful processing. Failure to acknowledge will cause the message to be redelivered after the visibility timeout expires.
-
-**Endpoint:** `DELETE /api/v1/queues/:setupId/:queueName/messages/:messageId`
-**Handler:** `QueueHandler.acknowledgeMessage()`
-**Service:** Uses `QueueFactory.createConsumer()` and internal acknowledgment
-
-**Path Parameters:**
-
-| Parameter | Type | Required | Description |
-|:----------|:-----|:---------|:------------|
-| `setupId` | string | Yes | The setup ID |
-| `queueName` | string | Yes | The queue name |
-| `messageId` | string | Yes | The message ID to acknowledge (from Get Next Message response) |
-
-**Response:** `200 OK` (acknowledged) or `404 Not Found` (message not found or already acknowledged)
-```json
-{
-  "message": "Message acknowledged successfully",
-  "queueName": "string",
-  "setupId": "string",
-  "messageId": "string",
-  "timestamp": 0
-}
-```
+> **⚠️ NOT IMPLEMENTED** — This endpoint is planned but does not currently exist in the codebase. Message acknowledgment is handled automatically by consumer groups, SSE streams, and webhook subscriptions.
 
 ---
 
@@ -1888,16 +1900,10 @@ Deletes a webhook subscription and stops message delivery. Any in-flight deliver
 | Parameter | Type | Required | Description |
 |:----------|:-----|:---------|:------------|
 | `subscriptionId` | string | Yes | The subscription UUID |
-- `subscriptionId` (string, required): The subscription UUID
 
-**Response:** `200 OK`
-```json
-{
-  "message": "Webhook subscription deleted successfully",
-  "subscriptionId": "uuid",
-  "timestamp": 0
-}
-```
+**Response:** `204 No Content`
+
+No response body. The subscription has been deleted and message delivery stopped.
 
 ---
 
@@ -2097,8 +2103,7 @@ Moves a dead letter message back to its original queue for reprocessing. The mes
 **Request Body (optional):**
 ```json
 {
-  "priority": 10,
-  "delaySeconds": 60
+  "reason": "Fixed consumer bug in version 2.1"
 }
 ```
 
@@ -2106,8 +2111,7 @@ Moves a dead letter message back to its original queue for reprocessing. The mes
 
 | Parameter | Type | Required | Default | Description |
 |:----------|:-----|:---------|:--------|:------------|
-| `priority` | integer | No | original | Override message priority (1-10) |
-| `delaySeconds` | integer | No | 0 | Delay before message becomes visible |
+| `reason` | string | No | null | Human-readable reason for reprocessing (for audit) |
 
 **Response:** `200 OK`
 ```json
@@ -2151,16 +2155,16 @@ Permanently deletes a dead letter message. Use this when a message is no longer 
 |:----------|:-----|:---------|:------------|
 | `setupId` | string | Yes | The setup ID |
 | `messageId` | string | Yes | The dead letter message ID |
-- `messageId` (string, required): The dead letter message ID
 
-**Response:** `200 OK`
-```json
-{
-  "message": "Message deleted successfully",
-  "messageId": "string",
-  "timestamp": 0
-}
-```
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|:----------|:-----|:---------|:--------|:------------|
+| `reason` | string | No | null | Optional reason for deletion (audit) |
+
+**Response:** `204 No Content`
+
+No response body. The message has been permanently deleted.
 
 ---
 
@@ -2179,11 +2183,11 @@ Gets statistics for dead letter messages.
 ```json
 {
   "totalMessages": 0,
-  "messagesByTopic": {
-    "queue-name": 5
-  },
-  "oldestMessage": 0,
-  "newestMessage": 0
+  "uniqueTopics": 0,
+  "uniqueTables": 0,
+  "averageRetryCount": 0.0,
+  "oldestFailure": "ISO-8601 timestamp",
+  "newestFailure": "ISO-8601 timestamp"
 }
 ```
 
@@ -2200,19 +2204,18 @@ Cleans up old dead letter messages based on age.
 **Path Parameters:**
 - `setupId` (string, required): The setup ID
 
-**Request Body:**
-```json
-{
-  "olderThanDays": 30
-}
-```
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|:----------|:-----|:---------|:--------|:------------|
+| `retentionDays` | integer | No | 30 | Delete messages older than this many days |
 
 **Response:** `200 OK`
 ```json
 {
-  "message": "Cleanup completed",
-  "deletedCount": 0,
-  "timestamp": 0
+  "success": true,
+  "messagesDeleted": 0,
+  "retentionDays": 30
 }
 ```
 
@@ -2286,6 +2289,53 @@ Lists all consumer group subscriptions for a topic/queue. Useful for monitoring 
 | `subscriptions[].lastHeartbeat` | integer | Epoch milliseconds of last heartbeat |
 | `subscriptions[].createdAt` | integer | When subscription was created |
 | `count` | integer | Total number of subscriptions |
+
+---
+
+### Create Subscription
+
+Creates a new subscription for a consumer group on a topic. This registers the consumer group with the subscription service for lifecycle management.
+
+**Endpoint:** `POST /api/v1/setups/:setupId/subscriptions/:topic`
+**Handler:** `SubscriptionHandler.createSubscription()`
+**Service:** `SubscriptionService.subscribe()`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+
+**Request Body:**
+```json
+{
+  "groupName": "string",
+  "startPosition": "FROM_NOW|FROM_BEGINNING|FROM_MESSAGE_ID|FROM_TIMESTAMP",
+  "startFromMessageId": 12345,
+  "startFromTimestamp": "2025-11-23T00:00:00Z",
+  "heartbeatIntervalSeconds": 60,
+  "heartbeatTimeoutSeconds": 300
+}
+```
+
+**Response:** `201 Created`
+```json
+{
+  "success": true,
+  "topic": "string",
+  "groupName": "string",
+  "action": "subscribed",
+  "subscription": {}
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `400 Bad Request` | Missing groupName or invalid parameters |
+| `409 Conflict` | Subscription already exists |
 
 ---
 
@@ -2532,6 +2582,364 @@ Cancels and removes a subscription. All consumers in the group will be disconnec
 
 ---
 
+### Force Remove Consumer Group
+
+Forcefully removes a consumer group and cleans up orphaned resources. Use when a consumer group is in an inconsistent state and normal deletion fails.
+
+**Endpoint:** `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove`
+**Handler:** `SubscriptionHandler.forceRemoveConsumerGroup()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "topic": "string",
+  "groupName": "string",
+  "action": "force-removed",
+  "previousStatus": "string",
+  "messagesDecremented": 0,
+  "orphanRowsRemoved": 0,
+  "messagesAutoCompleted": 0,
+  "totalActions": 0
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `404 Not Found` | Subscription does not exist |
+| `409 Conflict` | Consumer group is still active |
+
+---
+
+### Start Backfill
+
+Starts a backfill operation to replay historical messages to a consumer group.
+
+**Endpoint:** `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill`
+**Handler:** `SubscriptionHandler.startBackfill()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Request Body (optional):**
+```json
+{
+  "backfillScope": "PENDING_ONLY|ALL_RETAINED"
+}
+```
+
+**Response:** `200 OK`
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `404 Not Found` | Subscription does not exist |
+| `409 Conflict` | Backfill already in progress |
+| `501 Not Implemented` | Backfill not supported for this queue type |
+
+---
+
+### Get Backfill Progress
+
+Gets the current progress of a backfill operation.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill`
+**Handler:** `SubscriptionHandler.getBackfillProgress()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Response:** `200 OK`
+```json
+{
+  "topic": "string",
+  "groupName": "string",
+  "backfillStatus": "IN_PROGRESS|COMPLETED|CANCELLED|NOT_STARTED",
+  "processedMessages": 0,
+  "totalMessages": 0,
+  "checkpointId": "string",
+  "startedAt": "ISO-8601 timestamp",
+  "completedAt": "ISO-8601 timestamp",
+  "percentComplete": 0.0
+}
+```
+
+---
+
+### Cancel Backfill
+
+Cancels an in-progress backfill operation.
+
+**Endpoint:** `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill`
+**Handler:** `SubscriptionHandler.cancelBackfill()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "topic": "string",
+  "groupName": "string",
+  "action": "backfill_cancelled"
+}
+```
+
+---
+
+### Join Partitioned Group
+
+Joins a partitioned consumer group (OFFSET_WATERMARK mode). Returns partition assignments for this instance.
+
+**Endpoint:** `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join`
+**Handler:** `SubscriptionHandler.joinPartitionedGroup()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Request Body:**
+```json
+{
+  "instanceId": "string"
+}
+```
+
+**Response:** `200 OK` — JSON array of partition assignment objects
+
+---
+
+### Leave Partitioned Group
+
+Leaves a partitioned consumer group and releases partition assignments.
+
+**Endpoint:** `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave`
+**Handler:** `SubscriptionHandler.leavePartitionedGroup()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Query Parameters:**
+- `instanceId` (string, required): The instance ID to leave
+
+**Response:** `200 OK`
+```json
+{
+  "success": true,
+  "topic": "string",
+  "groupName": "string",
+  "instanceId": "string",
+  "action": "left"
+}
+```
+
+---
+
+### Get Partition Assignments
+
+Gets current partition assignments for a consumer group instance.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions`
+**Handler:** `SubscriptionHandler.getPartitionAssignments()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Query Parameters:**
+- `instanceId` (string, required): The instance ID
+
+**Response:** `200 OK` — JSON array of partition assignment objects
+
+---
+
+### Fetch Partitioned Messages
+
+Fetches messages from assigned partitions.
+
+**Endpoint:** `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch`
+**Handler:** `SubscriptionHandler.fetchPartitioned()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Request Body:**
+```json
+{
+  "partitionKey": "string",
+  "batchSize": 10,
+  "generation": 0
+}
+```
+
+**Response:** `200 OK` — JSON array of messages
+
+---
+
+### Commit Partitioned Offset
+
+Commits an offset for a partition, marking messages as processed up to that point.
+
+**Endpoint:** `POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit`
+**Handler:** `SubscriptionHandler.commitPartitionedOffset()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+| `topic` | string | Yes | The queue name |
+| `groupName` | string | Yes | The consumer group name |
+
+**Request Body:**
+```json
+{
+  "partitionKey": "string",
+  "offset": 0,
+  "generation": 0
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "committed": true,
+  "topic": "string",
+  "groupName": "string",
+  "partitionKey": "string",
+  "offset": 0
+}
+```
+
+---
+
+## Consumer Alert Endpoints
+
+Consumer alerting endpoints provide dead consumer detection and blocked message statistics.
+
+### List Dead Subscriptions
+
+Lists consumer group subscriptions that have missed their heartbeat timeout and are considered dead.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/consumer-alerts/dead`
+**Handler:** `ConsumerAlertHandler.listDeadSubscriptions()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+
+**Response:** `200 OK`
+```json
+{
+  "deadSubscriptions": [
+    {
+      "topic": "string",
+      "groupName": "string",
+      "state": "string",
+      "heartbeatTimeoutSeconds": 300,
+      "lastHeartbeatAt": "ISO-8601 timestamp",
+      "lastActiveAt": "ISO-8601 timestamp"
+    }
+  ],
+  "totalDead": 0
+}
+```
+
+---
+
+### Get Consumer Health Summary
+
+Gets a summary of consumer health across all subscriptions for a setup.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/consumer-alerts/summary`
+**Handler:** `ConsumerAlertHandler.getHealthSummary()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+
+**Response:** `200 OK`
+
+---
+
+### Get Blocked Message Statistics
+
+Gets statistics about blocked messages across consumer groups.
+
+**Endpoint:** `GET /api/v1/setups/:setupId/consumer-alerts/blocked`
+**Handler:** `ConsumerAlertHandler.getBlockedStats()`
+**Service:** `SubscriptionService`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup ID |
+
+**Response:** `200 OK`
+
+---
+
 ## Event Store Endpoints
 
 Event stores provide bi-temporal event sourcing capabilities. Events are stored with both a valid time (when the event occurred in the real world) and a transaction time (when the event was recorded in the system). This enables powerful temporal queries and corrections.
@@ -2765,6 +3173,100 @@ Gets statistics for an event store.
   "timestamp": 0
 }
 ```
+
+---
+
+### Get Unique Aggregates
+
+Gets a list of unique aggregate IDs with summary statistics for each.
+
+**Endpoint:** `GET /api/v1/eventstores/:setupId/:eventStoreName/aggregates`  
+**Handler:** `EventStoreHandler.getUniqueAggregates()`  
+**Service:** `BiTemporalEventStore`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `eventStoreName` (string, required): The event store name
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|:----------|:-----|:---------|:--------|:------------|
+| `eventType` | string | No | all | Filter by event type |
+| `limit` | integer | No | 1000 | Maximum aggregates to return (max: 1000) |
+| `offset` | integer | No | 0 | Offset for pagination |
+| `source` | string | No | auto | Data source: `log` (event log scan) or `summary` (aggregate summary table) |
+
+**Response:** `200 OK`
+```json
+{
+  "aggregates": [
+    {
+      "aggregateId": "string",
+      "eventCount": 0,
+      "firstEventTime": "ISO-8601 timestamp",
+      "lastEventTime": "ISO-8601 timestamp",
+      "eventTypes": ["string"]
+    }
+  ],
+  "count": 0,
+  "totalCount": 0,
+  "truncated": false,
+  "limit": 1000,
+  "offset": 0
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `404 Not Found` | Setup or event store does not exist |
+
+---
+
+### Reconcile Aggregate Summary
+
+Verifies or rebuilds the aggregate summary table against the event log.
+
+**Endpoint:** `POST /api/v1/eventstores/:setupId/:eventStoreName/aggregate-summary/reconcile`  
+**Handler:** `EventStoreHandler.reconcileAggregateSummary()`  
+**Service:** `BiTemporalEventStore`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `eventStoreName` (string, required): The event store name
+
+**Query Parameters:**
+
+| Parameter | Type | Required | Default | Description |
+|:----------|:-----|:---------|:--------|:------------|
+| `mode` | string | No | verify | `verify` (report mismatches) or `rebuild` (fix mismatches) |
+
+**Response:** `200 OK`
+```json
+{
+  "mode": "verify|rebuild",
+  "aggregatesChecked": 0,
+  "missingInSummary": 0,
+  "staleInSummary": 0,
+  "orphanedInSummary": 0,
+  "repaired": 0,
+  "sampleMismatches": [],
+  "timestamp": 0
+}
+```
+
+**Response Fields:**
+
+| Field | Type | Description |
+|:------|:-----|:------------|
+| `aggregatesChecked` | integer | Number of aggregates checked |
+| `missingInSummary` | integer | Aggregates in event log but not in summary |
+| `staleInSummary` | integer | Summary entries with outdated counts |
+| `orphanedInSummary` | integer | Summary entries with no corresponding events |
+| `repaired` | integer | Number of repairs made (only in `rebuild` mode) |
+| `sampleMismatches` | array | Sample of mismatches found (for debugging) |
 
 ---
 
@@ -3007,41 +3509,6 @@ curl -X DELETE "http://localhost:8080/api/v1/eventstores/production/order_events
 - ✅ Use when you have setupId and storeName as separate values
 - ✅ Use for consistency with other Standard REST CRUD operations
 - ❌ Don't use from Management UI (use Management API instead)
-
----
-
-### Stream Events (SSE)
-
-Streams events in real-time via Server-Sent Events.
-
-**Endpoint:** `GET /api/v1/eventstores/:setupId/:eventStoreName/events/stream`
-**Handler:** `EventStoreHandler.handleEventStream()`
-**Service:** `BiTemporalEventStore` with LISTEN/NOTIFY
-
-**Path Parameters:**
-- `setupId` (string, required): The setup ID
-- `eventStoreName` (string, required): The event store name
-
-**Query Parameters:**
-- `eventType` (string, optional): Filter by event type
-- `fromTime` (string, optional): Start streaming from this timestamp
-
-**Response:** `200 OK` (Content-Type: text/event-stream)
-
-**Event Stream Format:**
-```
-event: connection
-data: {"connectionId":"sse-1","eventStoreName":"string","setupId":"string","timestamp":0}
-
-event: event
-data: {"id":"string","eventType":"string","eventData":{},"validFrom":"timestamp","transactionTime":"timestamp"}
-
-event: heartbeat
-data: {"timestamp":0}
-
-event: error
-data: {"error":"string"}
-```
 
 ---
 
@@ -3374,12 +3841,13 @@ Creates a new queue in a setup.
 
 Updates queue configuration.
 
-**Endpoint:** `PUT /api/v1/management/queues/:queueId`  
+**Endpoint:** `PUT /api/v1/management/queues/:setupId/:queueName`  
 **Handler:** `ManagementApiHandler.updateQueue()`  
 **Service:** `DatabaseSetupService.getSetupResult()`
 
 **Path Parameters:**
-- `queueId` (string, required): Queue ID in format "setupId-queueName"
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
 
 **Request Body:**
 ```json
@@ -3408,12 +3876,13 @@ Updates queue configuration.
 
 Deletes a queue from a setup.
 
-**Endpoint:** `DELETE /api/v1/management/queues/:queueId`  
+**Endpoint:** `DELETE /api/v1/management/queues/:setupId/:queueName`  
 **Handler:** `ManagementApiHandler.deleteQueue()`  
 **Service:** `DatabaseSetupService.getSetupResult()`
 
 **Path Parameters:**
-- `queueId` (string, required): Queue ID in format "setupId-queueName"
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
 
 **Response:** `200 OK`
 ```json
@@ -3497,12 +3966,14 @@ Creates a new consumer group via management API.
 
 Deletes a consumer group via management API.
 
-**Endpoint:** `DELETE /api/v1/management/consumer-groups/:groupId`  
+**Endpoint:** `DELETE /api/v1/management/consumer-groups/:setupId/:queueName/:groupName`  
 **Handler:** `ManagementApiHandler.deleteConsumerGroup()`  
 **Service:** `DatabaseSetupService.getSetupResult()`
 
 **Path Parameters:**
-- `groupId` (string, required): Group ID in format "setupId-groupName"
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
 
 **Response:** `200 OK`
 ```json
@@ -3515,6 +3986,57 @@ Deletes a consumer group via management API.
   "timestamp": 0
 }
 ```
+
+---
+
+### Pause Consumer Group (Management)
+
+Pauses a consumer group via management API.
+
+**Endpoint:** `POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/pause`  
+**Handler:** `ManagementApiHandler.pauseConsumerGroup()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
+
+**Response:** `200 OK`
+
+---
+
+### Resume Consumer Group (Management)
+
+Resumes a paused consumer group via management API.
+
+**Endpoint:** `POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/resume`  
+**Handler:** `ManagementApiHandler.resumeConsumerGroup()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
+
+**Response:** `200 OK`
+
+---
+
+### Backfill Consumer Group (Management)
+
+Triggers a backfill operation for a consumer group via management API.
+
+**Endpoint:** `POST /api/v1/management/consumer-groups/:setupId/:queueName/:groupName/backfill`  
+**Handler:** `ManagementApiHandler.backfillConsumerGroup()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+- `queueName` (string, required): The queue name
+- `groupName` (string, required): The consumer group name
+
+**Response:** `200 OK`
 
 ---
 
@@ -3763,15 +4285,15 @@ Basic health check endpoint.
 Enhanced health check for management UI.
 
 **Endpoint:** `GET /api/v1/health`  
-**Handler:** `ManagementApiHandler.getHealth()`  
+**Handler:** Inline handler in `PeeGeeQRestServer.createRouter()`  
 **Service:** Internal system information
 
 **Response:** `200 OK`
 ```json
 {
   "status": "UP",
-  "timestamp": "ISO-8601 timestamp",
-  "uptime": "string",
+  "timestamp": 0,
+  "uptime": 0,
   "version": "1.0.0",
   "build": "Phase-5-Management-UI"
 }
@@ -3839,6 +4361,50 @@ data: {"reason":"..."}
 
 ---
 
+### SSE Queue Updates
+
+Streams real-time queue update events for a setup via Server-Sent Events.
+
+**Endpoint:** `GET /api/v1/sse/queues/:setupId`  
+**Handler:** `ServerSentEventsHandler.handleQueueUpdates()`  
+**Service:** `DatabaseSetupService.getSetupResult()`
+
+**Path Parameters:**
+- `setupId` (string, required): The setup ID
+
+**Response:** `200 OK` (Content-Type: text/event-stream)
+
+---
+
+### SSE Health Check
+
+Health check endpoint for SSE connectivity.
+
+**Endpoint:** `GET /api/v1/sse/health`  
+**Handler:** Inline handler
+
+**Response:** `200 OK` (Content-Type: text/event-stream)
+
+Sends a single health event and closes the connection:
+```
+data: {"status":"UP","type":"sse","timestamp":1234567890}
+```
+
+---
+
+### SSE Metrics Stream
+
+Streams real-time system metrics via Server-Sent Events.
+
+**Endpoint:** `GET /api/v1/sse/metrics`  
+**Alternative:** `GET /sse/metrics` (legacy unversioned path)  
+**Handler:** `SystemMonitoringHandler.handleSSEMetrics()`  
+**Service:** Internal metrics registry
+
+**Response:** `200 OK` (Content-Type: text/event-stream)
+
+---
+
 ### WebSocket Stream
 
 Streams queue messages in real-time via WebSocket.
@@ -3867,6 +4433,34 @@ Streams queue messages in real-time via WebSocket.
   "messageId": "string",
   "payload": {},
   "headers": {},
+  "timestamp": 0
+}
+```
+
+---
+
+### WebSocket System Monitoring
+
+Streams real-time system monitoring metrics via WebSocket.
+
+**Endpoint:** `ws://localhost:8080/ws/monitoring`  
+**Handler:** `SystemMonitoringHandler.handleWebSocketMonitoring()`  
+**Service:** Internal metrics registry
+
+---
+
+### WebSocket Health Check
+
+One-shot WebSocket health check that sends a health frame and closes.
+
+**Endpoint:** `ws://localhost:8080/ws/health`  
+**Handler:** Inline handler
+
+**Response:** Sends single frame and closes:
+```json
+{
+  "status": "UP",
+  "type": "websocket",
   "timestamp": 0
 }
 ```
@@ -4077,27 +4671,20 @@ The core `QueueFactory.createConsumer()` method supports custom consumer configu
 
 ### 2. Message Operations Gaps
 
-#### 2.1 Missing Message Acknowledgment Features
+#### 2.1 Pull-Based Polling Not Implemented
 
-**Status:** ⚠️ **MAJOR GAP**
+**Status:** ⚠️ **DESIGN DECISION**
 
 **Core API:** `MessageConsumer` provides push-based subscription with automatic message delivery via `MessageHandler`.
 
-**REST API:** Implements pull-based polling with manual acknowledgment, but:
-- `getNextMessage()` and `getMessages()` are **placeholder implementations**
-- `acknowledgeMessage()` is **placeholder implementation**
-- No negative acknowledgment (NACK) support
-- No visibility timeout extension
-- No message requeue with delay
+**REST API:** Pull-based polling endpoints (`getNextMessage`, `getMessages`, `acknowledgeMessage`) were **never implemented**. The REST API uses push-based delivery exclusively:
+- **SSE streaming** (`GET /api/v1/queues/:setupId/:queueName/stream`) — recommended for browser clients
+- **WebSocket** (`ws://localhost:8080/ws/queues/:setupId/:queueName`) — for bidirectional communication
+- **Webhook subscriptions** (`POST /api/v1/setups/:setupId/queues/:queueName/webhook-subscriptions`) — recommended for production
 
-**Impact:** REST API message consumption is not fully functional. Messages cannot be reliably consumed and acknowledged.
+**Impact:** No HTTP polling-based consumption. All consumption is push-based.
 
-**Recommendation:** 
-1. Implement actual database polling queries for message retrieval
-2. Add advisory locking for message ownership
-3. Implement proper acknowledgment with database updates
-4. Add NACK endpoint for failed message processing
-5. Add visibility timeout extension endpoint
+**Note:** The `GET /api/v1/queues/:setupId/:queueName/messages` route exists but serves a different purpose — it's a management/browsing endpoint (via `ManagementApiHandler.getQueueMessages()`) for inspecting queue contents, not for consumer polling.
 
 ---
 
@@ -4400,17 +4987,15 @@ GET /api/v1/eventstores/{setupId}/{eventStoreName}/events?validTimeFrom=2025-12-
 
 #### 4.4 Placeholder Implementations
 
-**Status:** 🔴 **BLOCKER**
+**Status:** ✅ **RESOLVED** (June 2026)
 
-These event store methods are **placeholder implementations** with no actual database queries:
+~~These event store methods were placeholder implementations with no actual database queries:~~
 
-- `queryEvents()` - Returns sample/mock events
-- `getEvent()` - Returns sample event or null
-- `getStats()` - Returns sample statistics
+- ~~`queryEvents()` - Returns sample/mock events~~ ✅ Now queries BiTemporalEventStore
+- ~~`getEvent()` - Returns sample event or null~~ ✅ Now queries BiTemporalEventStore
+- ~~`getStats()` - Returns sample statistics~~ ✅ Now queries BiTemporalEventStore
 
-**Impact:** Event store REST API is **NOT FUNCTIONAL** for production use.
-
-**Recommendation:** Implement actual database queries before production use.
+All event store REST API endpoints are now backed by real database queries.
 
 ---
 
@@ -4678,11 +5263,9 @@ All reactive variants are internal convenience methods - not needed in REST API.
 
 #### 🔴 Blockers (Must Fix Before Production)
 
-1. **Message consumption endpoints are placeholders** - No actual polling implementation
-2. **Message acknowledgment is placeholder** - No actual database updates
-3. **Event store query is placeholder** - Returns mock data
-4. **Event store stats is placeholder** - Returns mock data
-5. **All real-time statistics return zero** - No database queries implemented
+1. ~~**Message consumption endpoints are placeholders**~~ — Polling endpoints (getNextMessage, acknowledgeMessage) were **never implemented**. Consumption is via SSE, WebSocket, or Webhook push delivery. ⚠️ **DESIGN DECISION** — not a bug.
+2. ~~**Event store query is placeholder**~~ ✅ **IMPLEMENTED** — Real database queries now power `queryEvents()` and `getStats()`
+3. **All real-time statistics return zero** - Management overview metrics (`messagesPerSecond`, `activeConnections`) are not yet backed by real data
 
 #### ⚠️ High Priority (Significant Feature Gaps)
 
@@ -4699,12 +5282,9 @@ All reactive variants are internal convenience methods - not needed in REST API.
 #### ℹ️ Medium Priority (Nice to Have)
 
 1. Consumer configuration support
-2. Message filtering in consumption
-3. Extended statistics and metrics
-4. Version history queries for events
-5. Real-time event subscription via REST
-6. CloudEvents explicit support
-7. Negative acknowledgment (NACK) support
+2. Extended statistics and metrics
+3. CloudEvents explicit support
+4. Negative acknowledgment (NACK) support
 
 #### ✅ Low Priority (Acceptable As-Is)
 
@@ -4745,6 +5325,6 @@ All reactive variants are internal convenience methods - not needed in REST API.
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** 2025-07-19  
+**Document Version:** 1.1  
+**Last Updated:** 2026-06-17  
 **Author:** Mark Andrew Ray-Smith Cityline Ltd

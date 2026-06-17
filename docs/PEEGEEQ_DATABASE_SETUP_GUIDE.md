@@ -2,9 +2,9 @@
 
 **Comprehensive guide to database initialization across all services and environments**
 
-Version: 1.1
-Date: December 11, 2025
-Author: Mark Andrew Ray-Smith Cityline Ltd
+Version: 1.1  
+Date: December 11, 2025  
+Author: Mark Andrew Ray-Smith Cityline Ltd  
 
 ---
 

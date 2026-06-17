@@ -13,7 +13,7 @@ A service discovery and federation manager for PeeGeeQ instances using HashiCorp
 
 ```mermaid
 graph TB
-    subgraph "PeeGeeQ Service Manager (Port 9090)"
+    subgraph ServiceManager["PeeGeeQ Service Manager - Port 9090"]
         SM[Service Manager]
         RH[Registration Handler]
         FH[Federation Handler]
@@ -32,17 +32,17 @@ graph TB
         CR --> HM
     end
 
-    subgraph "HashiCorp Consul (Port 8500)"
+    subgraph Consul["HashiCorp Consul - Port 8500"]
         CONSUL[Consul Server]
     end
 
-    subgraph "PeeGeeQ Instances"
-        P1[PeeGeeQ Instance<br/>Port 8080]
-        P2[PeeGeeQ Instance<br/>Port 8081]
-        P3[PeeGeeQ Instance<br/>Port 8082]
+    subgraph Instances["PeeGeeQ Instances"]
+        P1["PeeGeeQ Instance\nPort 8080"]
+        P2["PeeGeeQ Instance\nPort 8081"]
+        P3["PeeGeeQ Instance\nPort 8082"]
     end
 
-    subgraph "Client Applications"
+    subgraph Clients["Client Applications"]
         UI[Management UI]
         API[API Clients]
         MON[Monitoring Tools]

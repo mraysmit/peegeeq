@@ -1,6 +1,6 @@
 # PeeGeeQ Consumer Groups - Getting Started Guide
-#### © Mark Andrew Ray-Smith Cityline Ltd 2025
-#### Version 1.1.0
+© Mark Andrew Ray-Smith Cityline Ltd 2025  
+Version 1.1.0
 
 **A gentle introduction to Consumer Groups in PeeGeeQ, progressing from basic concepts to advanced features.**
 
