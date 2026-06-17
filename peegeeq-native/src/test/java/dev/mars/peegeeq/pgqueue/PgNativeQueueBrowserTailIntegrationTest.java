@@ -144,4 +144,64 @@ class PgNativeQueueBrowserTailIntegrationTest {
                 }))
                 .onFailure(ctx::failNow);
     }
+
+    // ============================================================
+    // Fail-fast guards — every tail() setup fault must surface as a failed Future,
+    // never a silent 30s VertxTestContext timeout. These lock in the contract that
+    // protects against the "errors don't surface → hang" deviation. A regression that
+    // removes a guard (or swallows the failure) turns these from PASS into a timeout.
+    // ============================================================
+
+    @Test
+    void tail_onClosedBrowser_failsFastWithoutHanging(VertxTestContext ctx) {
+        factory.<String>createBrowser("tail-closed-" + System.currentTimeMillis(), String.class)
+                .compose(browser -> {
+                    browser.close();
+                    // tail on a closed browser must reject immediately, not hang.
+                    return browser.tail(message -> Future.succeededFuture());
+                })
+                .onSuccess(v -> ctx.failNow("tail on a closed browser must fail, not succeed"))
+                .onFailure(err -> ctx.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, err,
+                            "closed browser must surface IllegalStateException");
+                    ctx.completeNow();
+                }));
+    }
+
+    @Test
+    void tail_withNullHandler_failsFastWithoutHanging(VertxTestContext ctx) {
+        factory.<String>createBrowser("tail-null-" + System.currentTimeMillis(), String.class)
+                .compose(browser -> browser.tail(null)
+                        .eventually(() -> {
+                            try { browser.close(); } catch (Exception ignored) { }
+                            return Future.succeededFuture();
+                        }))
+                .onSuccess(v -> ctx.failNow("tail(null) must fail, not succeed"))
+                .onFailure(err -> ctx.verify(() -> {
+                    assertInstanceOf(IllegalArgumentException.class, err,
+                            "null handler must surface IllegalArgumentException");
+                    ctx.completeNow();
+                }));
+    }
+
+    @Test
+    void tail_calledTwice_secondFailsFastWithoutHanging(VertxTestContext ctx) {
+        String topic = "tail-twice-" + System.currentTimeMillis();
+        factory.<String>createBrowser(topic, String.class)
+                .compose(browser ->
+                        // First tail establishes the live observe; once it resolves a second
+                        // tail on the same browser must reject (one LISTEN connection per browser).
+                        browser.tail(message -> Future.succeededFuture())
+                                .compose(v -> browser.tail(message -> Future.succeededFuture()))
+                                .eventually(() -> {
+                                    try { browser.close(); } catch (Exception ignored) { }
+                                    return Future.succeededFuture();
+                                }))
+                .onSuccess(v -> ctx.failNow("second tail() on the same browser must fail, not succeed"))
+                .onFailure(err -> ctx.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, err,
+                            "a second concurrent tail must surface IllegalStateException");
+                    ctx.completeNow();
+                }));
+    }
 }

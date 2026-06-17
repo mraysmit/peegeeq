@@ -267,7 +267,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         }
 
         String schema = configuration.getDatabaseConfig().getSchema();
-        return Future.succeededFuture(registerResource(new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema)));
+        return Future.succeededFuture(registerResource(new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema, poolAdapter)));
     }
 
     @Override
