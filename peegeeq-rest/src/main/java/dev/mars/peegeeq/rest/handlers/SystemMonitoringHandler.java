@@ -837,8 +837,16 @@ public class SystemMonitoringHandler {
      */
     private void sendInitialMetricsToWebSocket(WebSocketConnection connection) {
         long now = System.currentTimeMillis();
+        // This is a genuine metrics collection (it bypasses the cache), so record the same
+        // collection-duration timer that getOrUpdateCachedMetrics records — otherwise a client
+        // that connects, reads the first frame, and disconnects before any periodic tick would
+        // leave that timer at count 0.
+        Timer.Sample sample = Timer.start(meterRegistry);
         collectMetricsFromServices()
                 .onSuccess(metrics -> {
+                    sample.stop(Timer.builder("peegeeq.monitoring.collection.duration")
+                            .description("Time taken to collect and aggregate system metrics")
+                            .register(meterRegistry));
                     cachedMetrics.set(new CachedMetrics(metrics, now));
                     connection.prevTotalMessages.set(metrics.getLong("totalMessages", 0L));
                     connection.prevMessagesTimestampMs.set(now);
