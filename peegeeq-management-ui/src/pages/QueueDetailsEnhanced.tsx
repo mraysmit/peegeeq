@@ -2,7 +2,7 @@
  * Enhanced Queue Details Page - Phase 1 Implementation
  * Multi-tab interface for comprehensive queue management
  */
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card,
@@ -23,6 +23,8 @@ import {
     Input,
     InputNumber,
     Table,
+    Switch,
+    Badge,
 } from 'antd';
 import {
     ArrowLeftOutlined,
@@ -67,6 +69,11 @@ const QueueDetailsPage = () => {
     const [getMessagesModalVisible, setGetMessagesModalVisible] = useState(false);
     const [publishForm] = Form.useForm();
     const [getMessagesForm] = Form.useForm();
+
+    // Non-destructive live view: browse-poll the queue while enabled. This is an admin tool,
+    // so viewing must NEVER consume/ack messages — we re-read via the browse endpoint, never a consumer.
+    const [liveMode, setLiveMode] = useState(false);
+    const livePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     // Consumers tab state
     interface ConsumerInfo {
@@ -113,6 +120,43 @@ const QueueDetailsPage = () => {
         { setupId: setupId!, queueName: queueName! },
         { skip: !setupId || !queueName, pollingInterval: 5000 } // Poll every 5 seconds
     );
+
+    // Non-destructive live updates: browse-poll the queue (server-side createBrowser().browse())
+    // while Live is enabled and the Messages tab is active. This NEVER consumes or acks messages —
+    // the management UI is an admin tool and must not drain the queue just to display it.
+    // Declared here, with the other hooks ABOVE the early returns below, to satisfy rules-of-hooks.
+    const pollMessagesQuietly = async () => {
+        if (!setupId || !queueName) return;
+        try {
+            const resp = await axios.get(getVersionedApiUrl(`/queues/${setupId}/${queueName}/messages`), {
+                params: { limit: 50 }
+            });
+            const msgs = resp.data?.messages ?? (Array.isArray(resp.data) ? resp.data : []);
+            setMessages(msgs);
+        } catch (error) {
+            // Surface once and stop polling rather than spamming a toast every interval.
+            setLiveMode(false);
+            message.error(`Live updates stopped: failed to fetch messages: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        }
+    };
+
+    useEffect(() => {
+        if (livePollRef.current) {
+            clearInterval(livePollRef.current);
+            livePollRef.current = null;
+        }
+        if (liveMode && activeTab === 'messages') {
+            pollMessagesQuietly(); // immediate refresh on enable
+            livePollRef.current = setInterval(pollMessagesQuietly, 3000);
+        }
+        return () => {
+            if (livePollRef.current) {
+                clearInterval(livePollRef.current);
+                livePollRef.current = null;
+            }
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [liveMode, activeTab, setupId, queueName]);
 
     if (isLoading) {
         return (
@@ -681,7 +725,12 @@ const QueueDetailsPage = () => {
                         },
                         {
                             key: 'messages',
-                            label: 'Messages',
+                            label: (
+                                <Space size={4}>
+                                    Messages
+                                    {liveMode && <Badge status="processing" data-testid="messages-live-tab-dot" />}
+                                </Space>
+                            ),
                             children: (
                                 <div>
                                     <Space style={{ marginBottom: 16 }}>
@@ -705,6 +754,19 @@ const QueueDetailsPage = () => {
                                         >
                                             Clear
                                         </Button>
+                                        <Space size={4} style={{ marginLeft: 8 }}>
+                                            <Text>Live</Text>
+                                            <Switch
+                                                checked={liveMode}
+                                                onChange={setLiveMode}
+                                                data-testid="messages-live-switch"
+                                            />
+                                            {liveMode && (
+                                                <Tag color="green" data-testid="messages-live-indicator">
+                                                    Live · read-only (auto-refresh)
+                                                </Tag>
+                                            )}
+                                        </Space>
                                     </Space>
                                     <Table
                                         columns={messageColumns}

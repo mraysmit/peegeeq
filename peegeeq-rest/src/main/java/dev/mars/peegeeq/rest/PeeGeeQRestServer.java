@@ -56,6 +56,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 
 import io.vertx.core.http.HttpServer;
+import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.json.jackson.DatabindCodec;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.handler.BodyHandler;
@@ -90,7 +91,6 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
     private final RestServerConfig config;
     private final DatabaseSetupService setupService;
-    @SuppressWarnings("unused") // Used by SystemMonitoringHandler and exposed via /metrics
     private final PrometheusMeterRegistry meterRegistry;
     private final ObjectMapper objectMapper;
 
@@ -180,40 +180,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .compose(router -> {
                     return vertx.createHttpServer()
                             .requestHandler(router)
-                            .webSocketHandler(webSocket -> {
-                                // Handle WebSocket connections for real-time streaming
-                                String path = webSocket.path();
-                                if (path.startsWith("/ws/queues/")) {
-                                    if (webSocketHandler != null) {
-                                        webSocketHandler.handleQueueStream(webSocket);
-                                    } else {
-                                        logger.error("WebSocketHandler not initialized");
-                                        webSocket.close((short) 1011, "Internal Server Error");
-                                    }
-                                } else if (path.equals("/ws/monitoring")) {
-                                    // System monitoring WebSocket endpoint (uses shared singleton)
-                                    if (monitoringHandler != null) {
-                                        monitoringHandler.handleWebSocketMonitoring(webSocket);
-                                    } else {
-                                        logger.error("SystemMonitoringHandler not initialized");
-                                        webSocket.close((short) 1011, "Internal Server Error");
-                                    }
-                                } else if (path.equals("/ws/health")) {
-                                    // WebSocket health check endpoint
-                                    logger.info("WebSocket health check connection from: {}",
-                                            webSocket.remoteAddress());
-                                    JsonObject healthResponse = new JsonObject()
-                                            .put("status", "UP")
-                                            .put("type", "websocket")
-                                            .put("timestamp", System.currentTimeMillis());
-                                    webSocket.writeTextMessage(healthResponse.encode());
-                                    webSocket.close();
-                                    logger.info("WebSocket health check response sent and connection closed");
-                                } else {
-                                    logger.info("WebSocket connection to unknown path: {}, closing", path);
-                                    webSocket.close();
-                                }
-                            })
+                            .webSocketHandler(this::routeWebSocket)
                             .listen(config.port());
                 })
                 .compose(httpServer -> {
@@ -226,6 +193,53 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                     logger.error("Failed to start PeeGeeQ REST API server", cause);
                     startPromise.fail(cause);
                 });
+    }
+
+    /**
+     * Routes an incoming WebSocket connection by path. Extracted from the startup compose
+     * chain so each chain stage reads at a glance — mirrors how REST routes are organised in
+     * {@link #createRouter()}. Behaviour is unchanged: {@code /ws/queues/...} streams a queue,
+     * {@code /ws/monitoring} streams system stats, {@code /ws/health} returns a one-shot health
+     * frame, and any other path is closed.
+     */
+    private void routeWebSocket(ServerWebSocket webSocket) {
+        String path = webSocket.path();
+        if (path.startsWith("/ws/queues/")) {
+            if (webSocketHandler != null) {
+                webSocketHandler.handleQueueStream(webSocket);
+            } else {
+                closeWithServerError(webSocket, "WebSocketHandler not initialized");
+            }
+        } else if (path.equals("/ws/monitoring")) {
+            // System monitoring WebSocket endpoint (uses shared singleton)
+            if (monitoringHandler != null) {
+                monitoringHandler.handleWebSocketMonitoring(webSocket);
+            } else {
+                closeWithServerError(webSocket, "SystemMonitoringHandler not initialized");
+            }
+        } else if (path.equals("/ws/health")) {
+            // WebSocket health check endpoint
+            logger.info("WebSocket health check connection from: {}", webSocket.remoteAddress());
+            JsonObject healthResponse = new JsonObject()
+                    .put("status", "UP")
+                    .put("type", "websocket")
+                    .put("timestamp", System.currentTimeMillis());
+            webSocket.writeTextMessage(healthResponse.encode());
+            webSocket.close();
+            logger.info("WebSocket health check response sent and connection closed");
+        } else {
+            logger.info("WebSocket connection to unknown path: {}, closing", path);
+            webSocket.close();
+        }
+    }
+
+    /**
+     * Closes a WebSocket with an internal-server-error status (1011) after logging the cause.
+     * Used when a required handler was not initialized.
+     */
+    private void closeWithServerError(ServerWebSocket webSocket, String reason) {
+        logger.error(reason);
+        webSocket.close((short) 1011, "Internal Server Error");
     }
 
     /**

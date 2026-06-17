@@ -205,6 +205,13 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 7c3: Queue Details Live Messages – non-destructive browse-poll live view (Phase 5)
+    {
+      name: '7c3-queue-details-live-messages',
+      testMatch: '**/queue-details-live-messages.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 7d: Queue Config Create and Display – create-form fields + config card on Overview tab
     {
       name: '7d-queue-config-create-and-display',
@@ -409,10 +416,10 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
-    // Step 14c2: Message Browser SSE Failure Recovery – EventSource abort/dropout handling
+    // Step 14c2: Message Browser Live mode is non-destructive – browse-poll, no consuming SSE
     {
-      name: '14c2-message-browser-sse-failure',
-      testMatch: '**/message-browser-sse-failure.spec.ts',
+      name: '14c2-message-browser-nondestructive-live',
+      testMatch: '**/message-browser-nondestructive-live.spec.ts',
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },

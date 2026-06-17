@@ -769,7 +769,7 @@ Backend handlers (all in `peegeeq-rest`): router `PeeGeeQRestServer.java`; `Mana
 | Metrics SSE `/sse/metrics` | `Overview.tsx` `createSystemMetricsSSE` | `SystemMonitoringHandler.handleSSEMetrics` | ✅ | `system-metrics-sse` |
 | Queue-updates SSE `/sse/queues/{setupId}` | `QueuesEnhanced.tsx:126` `createQueueUpdatesSSE` → `refetch()` | `ServerSentEventsHandler.handleQueueUpdates` (58): event bus `peegeeq.queues.changed.{setupId}` → SSE | ⚠️ wired, but the bus event fires **only on queue create/update/delete** (`publishQueueChanged`, 2430) — not on message publish/purge, so no live message-count | `queue-updates-sse` |
 | Message-stream SSE `/queues/{s}/{q}/stream` | `MessageBrowser.tsx:195` native `EventSource` | `ServerSentEventsHandler.handleQueueStream` (58→534/640): `createConsumer` + `subscribe` → SSE `data` events | ✅ | `message-sse-stream`, `message-browser-sse-failure` |
-| Message-stream WS `/ws/queues/{s}/{q}` | `createMessageStreamService` exists; `useMessageStream` hook **commented out** (`MessageBrowser.tsx:173`) | `WebSocketHandler.handleQueueStream` (46→275): `createConsumer` — real | ❌ frontend-disconnected | — |
+| Message-stream WS `/ws/queues/{s}/{q}` | `createMessageStreamService` exists but **intentionally unused by the admin UI** — Queue Details uses a non-destructive browse-poll instead (§7.5) | `WebSocketHandler.handleQueueStream` — **non-consuming by design** (a consuming impl was added then reverted: admin views must not consume/ack) | ⚪ not used by admin UI (non-destructive browse, §7.5) | `queue-details-live-messages` |
 | WS health `/ws/health` | `ConnectionStatus.tsx` | inline in `PeeGeeQRestServer` (201–211) | ✅ | `connection-status` |
 | SSE health `/api/v1/sse/health` | `configService.ts:125` ping | inline in `PeeGeeQRestServer` (346–362) | ✅ | `settings-ping-utilities` |
 | REST health `/api/v1/health` | `ConnectionStatus` / Settings | inline (333) | ✅ | — |
@@ -814,7 +814,7 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | 3 | Queues list — Purge action wired | `peegeeq-management-ui` | — | ✅ Complete |
 | 4 | Database Setups — View Details modal | `peegeeq-management-ui` | — | ✅ Complete |
 | 4a | Header title mapping (quick fix) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
-| 5 | WS queue stream in Queue Details | `peegeeq-management-ui` | — |
+| 5 | Queue Details live messages (non-destructive browse-poll; WS consume approach rejected) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-17) |
 | 6 | Reconnection UI — E2E coverage + SSE parity *(UI already implemented)* | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
 | 7 | Consumer Groups success toasts *(other resource flows already done)* | `peegeeq-management-ui` | — |
 | 7a | Notifications page (`/notifications`) | `peegeeq-management-ui` | — |
@@ -822,6 +822,8 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — |
 | 10 | Authentication layer | TBD — architecture decision required | — |
 | 11 | Split `activeConnections` — meaningful connection metrics | `peegeeq-rest` + `peegeeq-management-ui` | — |
+| 12 | Non-destructive live message stream (LISTEN/NOTIFY → browse → push; replace the consuming SSE/WS reads) | `peegeeq-api` + `peegeeq-native` + `peegeeq-outbox` + `peegeeq-rest` + `peegeeq-management-ui` | — |
+| 13 | Destructive-read safeguards (remove latent consuming clients; naming contract; guard test) | `peegeeq-management-ui` + `peegeeq-rest` | 12 |
 
 Phases 1–4a are the lowest-risk deliveries: Phase 1 is a confirmed defect, Phases 2–4 have a fully-real backend endpoint waiting for a UI stub to be removed, Phase 4a is a two-line lookup-table fix. Phases 5–9 add new real-time behaviour. Phase 10 is gated on an architecture call (§7.10). Phase 11 replaces the meaningless `activeConnections` composite metric with three distinct, accurately named connection dimensions (see §8.3 and §7.11).
 
@@ -851,20 +853,17 @@ test('delete event store — store no longer appears in list after deletion')
 
 **Verification (2026-06-15)**: Both the backend fix and the E2E test are present and match the spec above. `PeeGeeQDatabaseSetupService.removeEventStore()` closes the store, drops both Postgres tables (`CASCADE`), deregisters from `setup.getEventStores()`, and clears `eventStoreConfigs`. `ManagementApiHandler.deleteEventStoreImpl` delegates to this via `RestDatabaseSetupService`. The E2E test at `event-store-management.spec.ts:236` creates a uniquely-named store, deletes via the UI, asserts absence, reloads and re-asserts — exactly matching the plan.
 
-**Backend JUnit test gap**: the backend fix is implemented but no JUnit `@Tag("integration")` test in `peegeeq-rest` asserts the deletion at the handler level. Add to `EventStoreIntegrationTest.java` (or a new `ManagementApiHandlerEventStoreTest.java`):
+**Backend JUnit test gap** — ✅ CLOSED (2026-06-17). `EventStoreIntegrationTest.testDeleteEventStoreRemovesItFromSetupListing` (`@Tag(INTEGRATION)`) now asserts the handler-level contract against a real TestContainers PostgreSQL:
 
 ```
-test 'deleteEventStore removes the store and its Postgres tables'
-  @Tag("integration")
-  1. Deploy the full REST verticle against a real TestContainers PostgreSQL
-  2. POST /api/v1/management/event-stores to create a uniquely-named store; assert 200/201
-  3. GET /api/v1/setups/:setupId — assert the store appears in the response
-  4. DELETE /api/v1/management/event-stores/:storeId — assert 200
-  5. GET /api/v1/setups/:setupId — assert the store is absent from the response
-  6. Query pg_tables WHERE tablename LIKE 'event_store_{storeId}%' — assert 0 rows
+testDeleteEventStoreRemovesItFromSetupListing
+  1. POST /api/v1/management/event-stores  { name, setup, biTemporalEnabled, retentionDays } → assert 200/201
+  2. GET  /api/v1/setups/:setupId          → assert eventStores[] contains the new store
+  3. DELETE /api/v1/management/event-stores/{setupId}-{name}  → assert 200/204
+  4. GET  /api/v1/setups/:setupId          → assert eventStores[] no longer contains it
 ```
 
-Without this test, a regression that re-introduces the no-op `deleteEventStoreImpl` would only be caught by the Playwright E2E suite, not by the faster backend integration suite.
+The `pg_tables` step from the original sketch was intentionally **omitted**: raw JDBC in tests is prohibited (testing-standards §10) and there is no REST surface that lists physical tables. The CASCADE table drop is covered at the service level (`PeeGeeQDatabaseSetupService.removeEventStore`); the setup-listing absence is the meaningful guard against re-introducing the no-op `deleteEventStoreImpl`.
 
 ---
 
@@ -985,8 +984,8 @@ test('view details modal shows setup configuration')
 > stays "Queues" via exact match). E2E coverage: `header-page-title.spec.ts`, parameterized
 > over all five routes including the list-page-vs-details guard. Registered in
 > `playwright.config.ts` as project `header-page-title` — **note:** the config is an explicit
-> per-spec project allow-list, so a new spec must be added there or it silently never runs; a
-> confirming run is pending.
+> per-spec project allow-list, so a new spec must be added there or it silently never runs.
+> ✅ Confirmed green (2026-06-17).
 
 **Source**: codebase review 2026-06-14. `Header.tsx:18` has a `pageTitle` lookup map that does not include `/events`, `/causation-tree`, `/aggregate-stream`, or `/queues/:setupId/:queueName`. Navigating to any of these shows the fallback `"PeeGeeQ Management"` as the page title. (Reconciliation 2026-06-16 confirmed `/events` is also missing — add it alongside the other three.)
 
@@ -1014,26 +1013,40 @@ test('header shows correct page title on navigation')
 
 ---
 
-### 7.5 WS queue stream in Queue Details
+### 7.5 Queue Details live messages (non-destructive)  ✅ Complete (rebuilt 2026-06-17)
 
-**Source**: §6.4 ❌. `createMessageStreamService` in `websocketService.ts` exists; `useMessageStream` hook is commented out; `QueueDetailsEnhanced.tsx` polls REST. Backend `WebSocketHandler.handleQueueStream` is real (`ws://host/ws/queues/{setupId}/{queueName}`).
+> **Rebuilt 2026-06-17 — non-destructive.** Investigation found the WS `/stream` backend
+> (`WebSocketHandler.startMessageStreaming`) was a TODO stub. An initial attempt implemented it
+> as a consuming `createConsumer().subscribe()` stream — then **reverted**, because the
+> management UI is an admin/observability tool and must **never consume/ack messages just to
+> display them** (that would steal them from the application's real consumers). See memory
+> *"Admin UI Non-Destructive Reads"*.
+>
+> **Implemented instead — browse-poll:** the Queue Details "Messages" tab gains a **Live** toggle
+> (`data-testid="messages-live-switch"`, default OFF) that browse-polls the non-destructive
+> `GET /queues/{s}/{q}/messages` (server-side `createBrowser().browse()`) every 3 s while the tab
+> is active — **no consumer, never drains the queue**. A "Live · read-only (auto-refresh)"
+> indicator and a tab badge show when on; polling stops on toggle-off / tab change / unmount and
+> self-stops with one error toast on failure (`QueueDetailsEnhanced.tsx`).
+>
+> **Backend:** `WebSocketHandler.handleQueueStream` reverted to non-consuming, with a comment
+> documenting that admin streams must not consume (a future real-time tail must use LISTEN/NOTIFY
+> + browse, not `createConsumer/subscribe`); the consuming JUnit test was removed.
+>
+> **E2E:** `queue-details-live-messages.spec.ts` (registered project `7c3-queue-details-live-messages`) —
+> **✅ confirmed green 2026-06-17**: (1) Live auto-surfaces a published message with no manual
+> refresh; (2) viewing does **not** consume — the message is still browsable on a fresh load.
+> (A rules-of-hooks bug — the live `useEffect` placed after the component's early returns — was
+> caught by this spec and fixed; `npm run build`/tsc didn't flag it, `npm run lint` would have.)
+>
+> **Follow-up (now planned):** the existing SSE `/stream` "Live" toggle in Message Browser is
+> still a consuming read — same violation of the non-destructive principle. Tracked as
+> **Phase 12** (non-destructive live tail) and **Phase 13** (destructive-read safeguards).
 
-**Failing test (write first)**
-
-Add to `src/tests/e2e/specs/queue-details-operations.spec.ts`:
-```
-test('new message appears in Messages tab in real time without page reload')
-  1. Navigate to /queues/default/{queueName}, click Messages tab
-  2. Publish a message via REST API directly
-  3. Assert a new row appears in the tab within 5 seconds
-  4. No manual refresh performed
-```
-
-**Implementation**
-
-`QueueDetailsEnhanced.tsx` — on Messages tab activation, call `createMessageStreamService({setupId, queueName})`; prepend each received WS message to the local list (cap at 50, matching Message Browser); disconnect on tab change / unmount (store the service in a `useRef`). Add a "Live" badge to the Messages tab label when the WS connection is open. Expose `onConnect` / `onDisconnect` from `createMessageStreamService` in `websocketService.ts` if not already present.
-
-**Acceptance**: new messages appear within 5 s; "Live" badge visible while connected; all tests pass.
+**Original plan (superseded):** §6.4 marked the WS backend "real" (it was a stub). The original
+intent was to wire `createMessageStreamService` (a consuming WS stream) into Queue Details. That
+approach was dropped in favour of the non-destructive browse-poll above; `createMessageStreamService`
+remains unused by the admin UI.
 
 ---
 
@@ -1067,9 +1080,10 @@ test('new message appears in Messages tab in real time without page reload')
 >   project allow-list. The three specs above were initially **not registered and therefore
 >   never ran** in the suite (the earlier "448 passed" did not include them). They are now
 >   registered as projects `10f-overview-reconnect-recovery`, `10g-overview-sse-reconnecting-banner`,
->   and `10h-overview-stats-values`; a confirming run is required before treating them as green.
->   The SSE-reconnecting wiring itself is implemented; the backend reconnection tests
->   (`SystemMonitoringHandlerTest`) did run and pass.
+>   and `10h-overview-stats-values`, and are now **✅ confirmed green (2026-06-17)** — note `10f`
+>   was rewritten to a stateful fault-injection pattern after a StrictMode double-mount made the
+>   transient reconnecting window unobservable. The backend reconnection tests
+>   (`SystemMonitoringHandlerTest`) also pass.
 
 **Source**: §2.4 and codebase review 2026-06-14. The codebase review confirmed that the yellow `"Reconnecting…"` tag is **already implemented**: `Overview.tsx:314` renders it using `wsReconnecting` / `sseReconnecting` from the Zustand store, and the WS service `onReconnecting` callback is already wired. No implementation work is needed for WS reconnection.
 
@@ -1946,6 +1960,97 @@ npx playwright test --workers=1
 
 ---
 
+### 7.12 Non-destructive live message stream (observe, never consume)
+
+**Source**: 2026-06-17 review. The SSE `/queues/{s}/{q}/stream` endpoint
+(`ServerSentEventsHandler.subscribeToMessages`) is **destructive** — it does
+`createConsumer(...).subscribe(handler)` and the handler returns a succeeded `Future`, which
+acks (removes) the message. So "watching" a queue in the admin UI consumes it, stealing
+messages from the application's real consumers. (Phase 5's Queue Details Live view already
+avoids this by browse-polling; this phase fixes the SSE stream itself and is the correct,
+push-based version.)
+
+**Principle**: the admin UI and every API it uses must be non-destructive by default —
+*observe ≠ consume* (see memory *"Admin UI Non-Destructive Reads"*).
+
+**What already exists (reuse, do not rebuild):**
+- Non-destructive **read**: `QueueBrowser.browse(limit, offset)` (`peegeeq-api`) — plain
+  `SELECT … ORDER BY id DESC`, no `FOR UPDATE`/status-change/delete — in **both**
+  `PgNativeQueueBrowser` and `OutboxQueueBrowser`, exposed via `QueueFactory.createBrowser(...)`.
+- Native **push signal**: `PgNativeQueueProducer` does `pg_notify(channelFor(schema,topic), newId)`
+  on insert (`PgNativeQueueProducer.java:192`); `NativeQueueChannels.channelFor` + the LISTEN
+  pattern in `PgNativeQueue` already exist. LISTEN is inherently non-destructive.
+
+**The only new work — a live tail over the existing browse:**
+1. **`peegeeq-api`** — add `QueueBrowser.tail(MessageHandler<T> onMessage): Future<Void>`,
+   documented "non-destructive — observes new messages, never acks/removes". (One thin method;
+   the read is the existing `browse`.)
+2. **`peegeeq-native`** — implement `tail()`: dedicated LISTEN connection on
+   `channelFor(schema, topic)`; on NOTIFY (payload = new id) read that id via the existing
+   browse SQL (`WHERE id = $1`, or `browse` newest and filter `id > lastSeen`); invoke handler;
+   track `lastSeenId`; optional backlog via `browse(N)` on connect; `close()` tears down the
+   LISTEN connection. **No `FOR UPDATE`, no status change.**
+3. **`peegeeq-outbox`** — implement `tail()`. ⚠️ Confirm first whether outbox emits an insert
+   NOTIFY: if yes mirror native; if not, implement `tail()` as an internal non-destructive
+   browse-poll (still reuses the existing browse) so the api contract holds.
+4. **`peegeeq-rest`** — `ServerSentEventsHandler.handleQueueStream`: replace
+   `createConsumer().subscribe()` with `createBrowser().tail()`; keep `shouldSendMessage`
+   filters; push `type:"data"`; close on disconnect. `WebSocketHandler.handleQueueStream`: same
+   (currently a non-consuming stub → wire to `tail()` for real WS).
+5. **`peegeeq-management-ui`** — revert the Phase-5-era polling detour in `MessageBrowser.tsx`,
+   restore the SSE `EventSource` (now non-destructive); restore the SSE-based live spec + its
+   playwright project entry. (Queue Details Phase 5 may keep browse-poll or switch to the SSE
+   tail — both non-destructive.)
+
+**Tests**: backend integration — open the tail/SSE, publish, assert pushed, **then `browse()`
+and assert the message is still present** and a real consumer still receives it (proves
+observe-not-consume). Frontend E2E restored with a "still browsable after viewing" assertion.
+
+**Confirm before coding**: outbox insert-NOTIFY existence; exact read-by-id query; `tail()` on
+`QueueBrowser` vs a separate `QueueObserver` interface.
+
+**Sequencing**: api method → native impl + JUnit non-destructive proof → rest SSE swap →
+frontend restore SSE → outbox tail (after NOTIFY check) → WS parity (optional).
+
+---
+
+### 7.13 Destructive-read safeguards
+
+**Source**: 2026-06-17 audit of every queue message-read path in `peegeeq-rest` and the UI.
+This is an **admin/observability tool**, so a destructive read must be rare, explicit, and
+impossible to introduce by accident. The audit found the reads the UI uses are mostly the safe
+browse path, **but** there is no structural safeguard, plus latent landmines:
+
+*Audit summary —*
+- ✅ Safe (browse): `GET management/messages` (`ManagementApiHandler:1022`) and
+  `GET /queues/{s}/{q}/messages` (`:2125`), both `createBrowser().browse()`.
+- ❌ Destructive view (fixed by §7.12): SSE `/stream` (`ServerSentEventsHandler:534/640`).
+- ⚠️ **Latent destructive clients, no guard** (defined, currently unused — one keystroke from a
+  view): `PeeGeeQClient.streamMessages()` (`PeeGeeQClient.ts:588` → consuming `/stream`),
+  `createMessageStreamService()` (`websocketService.ts:143`) + `useMessageStream()`
+  (`useRealTimeUpdates.ts:187`, WS consumer).
+- ✅ Intentional destructive **actions** (keep, already gated): queue Purge/Delete (confirm
+  dialogs), consumer-group CRUD, webhook subscription (consumes by design). Event-store
+  `subscribe`/`streamEvents` is non-destructive (events are immutable).
+
+**Work:**
+1. **Remove the latent destructive clients** — delete `streamMessages` (PeeGeeQClient),
+   `createMessageStreamService` + `useMessageStream` (dead code), so a consuming read cannot be
+   wired into an admin view by accident. (If a real consuming client is ever needed, isolate it
+   under an obviously-named, non-admin module.)
+2. **Naming as a contract** — non-destructive endpoints are `…/messages` (browse) or `…/tail`
+   (observe, §7.12); any genuinely-consuming endpoint is named `…/consume` and is **never**
+   called by the admin UI.
+3. **Guard test** (mirroring `OnSuccessExceptionSwallowingGuardTest`) — a static check that
+   admin-facing read/view/stream handlers and the UI never use `createConsumer`/`.subscribe(`
+   for a queue; destructive consumption only via explicitly-named, confirmed paths.
+4. Leave the explicit destructive **actions** (purge/delete + their confirm dialogs) unchanged.
+
+**Prerequisite**: §7.12 (the consuming `/stream` must be non-destructive before the latent
+clients are removed and the guard is locked in).
+
+---
+
 ## 8. Overview Page Chart Defects (2026-06-15)
 
 Three defects identified in the real-time charts on the System Overview page (`/`).
@@ -2002,8 +2107,8 @@ if (connection != null) {
 
 Apply the same guard in `cleanupSSEConnection` (line 750).
 
-**Files affected**:
-- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — lines 730–748 (`cleanupWebSocketConnection`) and 750–769 (`cleanupSSEConnection`)
+**Files affected** (current locations after the fix — the line numbers in the root-cause prose above are pre-fix):
+- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — `cleanupWebSocketConnection` ~759–776 (guarded decrement ~768) and `cleanupSSEConnection` ~779–800 (guarded decrement ~791); disconnect classification helper `isClientDisconnect(...)` ~887.
 
 **Backend regression test (write first — JUnit)**
 
@@ -2087,8 +2192,8 @@ This gives a true per-interval rate that reacts to real-time message traffic. Th
 
 **Note on thread safety**: `SystemMonitoringHandler` is a Vert.x verticle; the `sendMetricsToWebSocket` / `sendMetricsToSSE` paths execute on the event loop, so `lastTotalMessages` and `lastMeasurementTime` are accessed from a single thread and do not need synchronization. Confirm this holds if `collectSetupMetrics` dispatches to worker threads.
 
-**Files affected**:
-- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — lines 488–489 (calculation) and class-level field additions
+**Files affected** (current locations after the fix — the proposed handler-level field approach below was superseded; see the §8.2 status note):
+- `peegeeq-rest/…/handlers/SystemMonitoringHandler.java` — `withPerConnectionRate(...)` helper ~821–830, applied in `sendMetricsToWebSocket` ~806 and `sendMetricsToSse` ~856; per-connection `prevTotalMessages`/`prevMessagesTimestampMs` fields on each connection. The old lifetime-average calculation (formerly ~488–489) no longer exists.
 - Frontend: no changes needed once the backend emits a correct value
 
 **Backend regression test (write first — JUnit)**
@@ -2126,7 +2231,7 @@ test('Message Throughput chart value increases after publishing messages')
 **Root cause analysis**
 
 ```java
-// SystemMonitoringHandler.java:490–491
+// SystemMonitoringHandler.java ~519–520 (still present; emitted in system_stats ~533)
 int activeConnectionsTotal = totalConnections.get()
         + agg.getInteger("activeConsumerConnections", 0);
 ```
