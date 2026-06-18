@@ -1960,94 +1960,183 @@ npx playwright test --workers=1
 
 ---
 
-### 7.12 Non-destructive live message stream (observe, never consume)
+### 7.12 Live non-destructive message stream — Phase 12
 
-**Source**: 2026-06-17 review. The SSE `/queues/{s}/{q}/stream` endpoint
-(`ServerSentEventsHandler.subscribeToMessages`) is **destructive** — it does
-`createConsumer(...).subscribe(handler)` and the handler returns a succeeded `Future`, which
-acks (removes) the message. So "watching" a queue in the admin UI consumes it, stealing
-messages from the application's real consumers. (Phase 5's Queue Details Live view already
-avoids this by browse-polling; this phase fixes the SSE stream itself and is the correct,
-push-based version.)
+**Objective.** Provide a *push* stream of new queue messages to the admin UI that **observes
+without consuming** — the live, push-based counterpart to `browse`.
 
-**Principle**: the admin UI and every API it uses must be non-destructive by default —
-*observe ≠ consume* (see memory *"Admin UI Non-Destructive Reads"*).
+**Status (2026-06-18).** The old destructive consuming SSE endpoint
+`GET /api/v1/queues/{s}/{q}/stream` was **removed** in commit `7a5b0a66` (it ran
+`createConsumer().subscribe()` and acked/removed messages, stealing them from real consumers).
+Consequences of that removal are **not yet cleaned up** (broken tests, orphaned `SSEConnection`,
+stale frontend specs — see Phase 12.0). There is currently **no live push** for queue messages;
+admin live views fall back to browse-polling (Phase 5). This phase builds the correct replacement.
 
-**What already exists (reuse, do not rebuild):**
-- Non-destructive **read**: `QueueBrowser.browse(limit, offset)` (`peegeeq-api`) — plain
-  `SELECT … ORDER BY id DESC`, no `FOR UPDATE`/status-change/delete — in **both**
-  `PgNativeQueueBrowser` and `OutboxQueueBrowser`, exposed via `QueueFactory.createBrowser(...)`.
-- Native **push signal**: `PgNativeQueueProducer` does `pg_notify(channelFor(schema,topic), newId)`
-  on insert (`PgNativeQueueProducer.java:192`); `NativeQueueChannels.channelFor` + the LISTEN
-  pattern in `PgNativeQueue` already exist. LISTEN is inherently non-destructive.
+**Principle.** *Observe ≠ consume.* Every admin API is non-destructive by default (memory
+*Admin UI Non-Destructive Reads*). The live stream must never `subscribe`/ack/`FOR UPDATE`/
+change status/delete. A destructive stream is "a `SELECT` that also deletes the rows it read".
 
-**The only new work — a live tail over the existing browse:**
-1. **`peegeeq-api`** — add `QueueBrowser.tail(MessageHandler<T> onMessage): Future<Void>`,
-   documented "non-destructive — observes new messages, never acks/removes". (One thin method;
-   the read is the existing `browse`.)
-2. **`peegeeq-native`** — implement `tail()`: dedicated LISTEN connection on
-   `channelFor(schema, topic)`; on NOTIFY (payload = new id) read that id via the existing
-   browse SQL (`WHERE id = $1`, or `browse` newest and filter `id > lastSeen`); invoke handler;
-   track `lastSeenId`; optional backlog via `browse(N)` on connect; `close()` tears down the
-   LISTEN connection. **No `FOR UPDATE`, no status change.**
-3. **`peegeeq-outbox`** — implement `tail()`. ⚠️ Confirm first whether outbox emits an insert
-   NOTIFY: if yes mirror native; if not, implement `tail()` as an internal non-destructive
-   browse-poll (still reuses the existing browse) so the api contract holds.
-4. **`peegeeq-rest`** — `ServerSentEventsHandler.handleQueueStream`: replace
-   `createConsumer().subscribe()` with `createBrowser().tail()`; keep `shouldSendMessage`
-   filters; push `type:"data"`; close on disconnect. `WebSocketHandler.handleQueueStream`: same
-   (currently a non-consuming stub → wire to `tail()` for real WS).
-5. **`peegeeq-management-ui`** — revert the Phase-5-era polling detour in `MessageBrowser.tsx`,
-   restore the SSE `EventSource` (now non-destructive); restore the SSE-based live spec + its
-   playwright project entry. (Queue Details Phase 5 may keep browse-poll or switch to the SSE
-   tail — both non-destructive.)
+**Reuse — do not rebuild:**
+- Non-destructive read: `QueueBrowser.browse(...)` — plain `SELECT`, no status change — in
+  `PgNativeQueueBrowser` and `OutboxQueueBrowser`, via `QueueFactory.createBrowser(...)`.
+- Push signal (native): `PgNativeQueueProducer` emits `pg_notify(channelFor(schema,topic), newId)`
+  on insert (`PgNativeQueueProducer.java:192`).
+- **Established observer pattern: `ReactiveNotificationHandler` (peegeeq-bitemporal).** It is the
+  canonical non-destructive LISTEN/NOTIFY observer: dedicated connection, `start()/stop()`
+  lifecycle, `closeHandler`-driven reconnect with bounded backoff, `vertx.runOnContext`
+  dispatch, read-full-row-by-id, and WARN→ERROR handler-failure escalation. **This is the
+  pattern Phase 12.2 follows.**
 
-**Tests**: backend integration — open the tail/SSE, publish, assert pushed, **then `browse()`
-and assert the message is still present** and a real consumer still receives it (proves
-observe-not-consume). Frontend E2E restored with a "still browsable after viewing" assertion.
-
-**Confirm before coding**: outbox insert-NOTIFY existence; exact read-by-id query; `tail()` on
-`QueueBrowser` vs a separate `QueueObserver` interface.
-
-**Sequencing**: api method → native impl + JUnit non-destructive proof → rest SSE swap →
-frontend restore SSE → outbox tail (after NOTIFY check) → WS parity (optional).
+**Design decision — where the observe logic lives.** The live observe is a *dedicated
+non-destructive observer* that **mirrors `ReactiveNotificationHandler`**, not hand-rolled LISTEN
+code inside the browser. The browser stays a thin point-in-time reader (`browse`); the observer
+owns the LISTEN connection, reconnection, and lifecycle. `QueueBrowser.tail()` is the public
+entry point and **delegates** to the observer. *(Rejected: embedding connection lifecycle in
+`PgNativeQueueBrowser` — it mixes concerns and creates a fourth divergent copy of the
+LISTEN/reconnect logic. The first native `tail()` attempt did this and was discarded.)*
 
 ---
 
-### 7.13 Destructive-read safeguards
+#### Phase 12.0 — Stabilise after the destructive-endpoint removal  ✅ DONE (2026-06-18)
+*No new feature; make the tree green and free of dead references first.*
 
-**Source**: 2026-06-17 audit of every queue message-read path in `peegeeq-rest` and the UI.
-This is an **admin/observability tool**, so a destructive read must be rare, explicit, and
-impossible to introduce by accident. The audit found the reads the UI uses are mostly the safe
-browse path, **but** there is no structural safeguard, plus latent landmines:
+> **Done 2026-06-18:** Deleted 3 wholesale `/stream` test classes (`SSEBasicStreamingIntegrationTest`,
+> `SSEBatchingIntegrationTest`, `SSEReconnectionIntegrationTest`); trimmed the `/stream` methods from
+> 4 mixed classes (`RealTimeStreamingIntegrationTest` ×1, `ServerSentEventsHandlerTest` ×4,
+> `CrossLayerPropagationIntegrationTest` ×2, `ConsumerGroupSubscriptionIntegrationTest` ×6 + the
+> now-unused `extractEventData` helper + unused imports); deleted orphaned `SSEConnection.java`.
+> Frontend: deleted `message-sse-stream.spec.ts` (+ unregistered `14c` in `playwright.config.ts`),
+> removed test '15 Live SSE' from `message-browser.spec.ts`. Doc: corrected the route table, file
+> tree, and constructor example in `PEEGEEQ_REST_MODULE_GUIDE.md`.
+> **Carved out:** (1) `endpoints.ts` `QUEUE.STREAM` URL is left until **Phase 13.1** because
+> `PeeGeeQClient.streamMessages` still references it — removing it alone breaks the TS build; the two
+> go together. (2) The REST guide's deeper *implementation walkthrough* (≈ lines 340–460, 745–760)
+> still narrates the removed SSE streaming and needs a dedicated doc pass (non-blocking).
+- **Delete** the integration tests that exercised the removed `/stream` route (they now 404):
+  `ServerSentEventsHandlerTest`, `SSEBasicStreamingIntegrationTest`,
+  `SSEBatchingIntegrationTest`, `SSEReconnectionIntegrationTest`,
+  `RealTimeStreamingIntegrationTest`, and the SSE-`/stream` cases in
+  `ConsumerGroupSubscriptionIntegrationTest` and `CrossLayerPropagationIntegrationTest`.
+- **Delete** orphaned top-level `SSEConnection.java` (only the removed handler used it;
+  `SystemMonitoringHandler`/`EventStoreHandler` have their own connection types).
+- **Frontend:** remove specs asserting the consuming stream (`message-sse-stream.spec.ts`, the
+  `/stream` wait in `message-browser.spec.ts`) and the dead `QUEUE.STREAM` URL in `endpoints.ts`.
+- **Docs:** correct `PEEGEEQ_REST_MODULE_GUIDE.md` (no `handleQueueStream`, `/stream`, old
+  4-arg constructor, `SSEConnection`).
+- **Exit:** `peegeeq-rest` integration + Playwright suites green; zero references to the removed
+  route/handler/class; live view documented as browse-poll interim.
+
+#### Phase 12.1 — API contract (`peegeeq-api`)
+- `QueueBrowser.tail(MessageHandler<T>): Future<Void>` — *already added.* Refine Javadoc:
+  non-destructive; resolves when the subscription is established; `close()` tears it down;
+  default impl throws `UnsupportedOperationException`.
+- **Exit:** compiles; contract documented.
+
+#### Phase 12.2 — Native non-destructive observer (`peegeeq-native`) — core
+> **Full design:** `docs-design/dev/non-destructive-queue-observer-design-18-Jun-2026.md`.
+- New observer class mirroring `ReactiveNotificationHandler`: `connectDedicated()` LISTEN on
+  `channelFor(schema,topic)`; `notificationHandler` → `runOnContext` → read new id via
+  non-destructive `SELECT … WHERE topic=$1 AND id=$2` → invoke handler; `closeHandler` reconnect
+  with bounded backoff; `start()/stop()`; WARN→ERROR escalation.
+- `PgNativeQueueBrowser.tail()` delegates to it; `browser.close()` stops it. Remove the
+  hand-rolled tail currently in `PgNativeQueueBrowser`.
+- **Tests** (JUnit `@Tag(INTEGRATION)`, TestContainers, no mocking):
+  1. **Observe-not-consume** — tail, publish, assert pushed; then `browse()` asserts the message
+     is *still present* **and** a real `createConsumer().subscribe()` still receives it.
+  2. **Reconnect** — terminate the LISTEN backend (`pg_terminate_backend`), assert resubscribe
+     and a subsequently-published message is observed.
+  3. **Fail-fast guards** — closed browser / null handler / double-tail each surface as a failed
+     `Future` (no silent 30 s hang).
+- **Exit:** all native tail tests green; no banned patterns; conforms to the reference observer.
+
+#### Phase 12.3 — Outbox tail (`peegeeq-outbox`)  ✅ DONE (2026-06-18)
+> **Done 2026-06-18:** Confirmed the outbox emits **no** insert NOTIFY (poll-based queue), so
+> implemented `tail()` as a non-destructive **browse-poll**: new `OutboxQueueObserver` (seed
+> `MAX(id)` FROM_NOW → `vertx.setPeriodic` → `SELECT … WHERE id > highWaterId` → push), shared
+> row-mapper `OutboxMessages`, `OutboxQueueBrowser` made Vert.x-aware (existing constructors kept),
+> `OutboxFactory.createBrowser` passes `databaseService.getVertx()`. Test
+> `OutboxQueueBrowserTailIntegrationTest` green (observe-not-consume); 13 existing browser tests
+> still green (no regression).
+- **Confirm first:** does the outbox emit an insert `NOTIFY`? If yes, mirror Phase 12.2; if not,
+  implement `tail()` as an internal non-destructive browse-poll (`id > lastSeenId`) so the API
+  contract holds without consuming.
+- **Tests:** same observe-not-consume proof as 12.2.
+- **Exit:** outbox tail green; behaviour (LISTEN vs poll) documented.
+
+#### Phase 12.4 — REST non-destructive stream endpoint (`peegeeq-rest`)  ✅ DONE (2026-06-18)
+> **Done 2026-06-18:** Added `GET /api/v1/queues/{setupId}/{queueName}/messages/stream` →
+> `ServerSentEventsHandler.handleQueueMessageStream` (resolves setup→factory→`createBrowser().tail()`,
+> pushes each new message over SSE, emits a `subscribed` readiness event, `browser.close()` on
+> disconnect — no consumer, no subscribe). `SseMessageStreamDemoIntegrationTest` proves 10 messages
+> produced over REST stream back over SSE and remain browsable (non-destructive). NOTE: requires
+> `peegeeq-native`/`peegeeq-outbox` installed to the local repo first (the rest module resolves them
+> as JARs).
+
+- Add a **new, clearly-named** route (the `/stream` name is retired): e.g.
+  `GET /api/v1/queues/{setupId}/{queueName}/messages/stream` → SSE, backed by
+  `createBrowser().tail()`. Keep the existing message-filter logic (`messageType`/header
+  filters); push `event: message` with `id:` for SSE resume; heartbeat; tear down the browser
+  (`browser.close()`) on client disconnect.
+- (`ServerSentEventsHandler` is currently updates-only; either extend it or add a small
+  dedicated handler — do **not** reintroduce a consumer.)
+- **Tests** (JUnit integration): open the SSE endpoint, publish, assert the event is pushed;
+  then `GET …/messages` (browse) asserts the message is still present (observe-not-consume at
+  the HTTP layer); disconnect closes the browser.
+- **Exit:** endpoint green; no `createConsumer`/`subscribe` anywhere in the path.
+
+#### Phase 12.5 — Frontend: restore SSE push (`peegeeq-management-ui`)
+- Point `MessageBrowser` (and optionally Queue Details live) at the new `…/messages/stream`
+  `EventSource`; surface errors (`message.error`), handle native auto-reconnect, close on unmount.
+- **Tests** (Playwright E2E, `workers:1`): live push appears on send; **and** after viewing,
+  the message is still listed by browse (still-browsable assertion); register the spec in
+  `playwright.config.ts`.
+- **Exit:** live push works non-destructively end-to-end; E2E green.
+
+#### Phase 12.6 — WebSocket parity (optional)
+- Wire `WebSocketHandler.handleQueueStream` (currently a non-consuming stub) to the same
+  `tail()` so WS clients get the same non-destructive push. Defer unless a WS consumer is needed.
+
+**Sequencing:** 12.0 → 12.1 → 12.2 → 12.3 → 12.4 → 12.5 → (12.6). One phase at a time; the tree
+stays green and the user runs the tests at each gate.
+
+---
+
+### 7.13 Destructive-read safeguards — Phase 13
+
+*Runs after Phase 12.5 (the non-destructive stream must exist before the latent consuming
+clients are deleted and the guard is locked in).*
+
+**Source.** 2026-06-17 audit of every queue message-read path in `peegeeq-rest` and the UI. As an
+admin/observability tool, a destructive read must be rare, explicit, and impossible to introduce
+by accident.
 
 *Audit summary —*
-- ✅ Safe (browse): `GET management/messages` (`ManagementApiHandler:1022`) and
-  `GET /queues/{s}/{q}/messages` (`:2125`), both `createBrowser().browse()`.
-- ❌ Destructive view (fixed by §7.12): SSE `/stream` (`ServerSentEventsHandler:534/640`).
+- ✅ Safe (browse): `GET management/messages` (`ManagementApiHandler:1022`),
+  `GET /queues/{s}/{q}/messages` (`:2125`) — both `createBrowser().browse()`.
+- ✅ Destructive view: **removed** 2026-06-17 (the consuming `/stream`).
 - ⚠️ **Latent destructive clients, no guard** (defined, currently unused — one keystroke from a
-  view): `PeeGeeQClient.streamMessages()` (`PeeGeeQClient.ts:588` → consuming `/stream`),
+  view): `PeeGeeQClient.streamMessages()` (`PeeGeeQClient.ts:588`),
   `createMessageStreamService()` (`websocketService.ts:143`) + `useMessageStream()`
-  (`useRealTimeUpdates.ts:187`, WS consumer).
+  (`useRealTimeUpdates.ts:187`).
 - ✅ Intentional destructive **actions** (keep, already gated): queue Purge/Delete (confirm
-  dialogs), consumer-group CRUD, webhook subscription (consumes by design). Event-store
-  `subscribe`/`streamEvents` is non-destructive (events are immutable).
+  dialogs), consumer-group CRUD, webhook subscription. Event-store `subscribe`/`streamEvents` is
+  non-destructive (events are immutable).
 
-**Work:**
-1. **Remove the latent destructive clients** — delete `streamMessages` (PeeGeeQClient),
-   `createMessageStreamService` + `useMessageStream` (dead code), so a consuming read cannot be
-   wired into an admin view by accident. (If a real consuming client is ever needed, isolate it
-   under an obviously-named, non-admin module.)
-2. **Naming as a contract** — non-destructive endpoints are `…/messages` (browse) or `…/tail`
-   (observe, §7.12); any genuinely-consuming endpoint is named `…/consume` and is **never**
-   called by the admin UI.
-3. **Guard test** (mirroring `OnSuccessExceptionSwallowingGuardTest`) — a static check that
-   admin-facing read/view/stream handlers and the UI never use `createConsumer`/`.subscribe(`
-   for a queue; destructive consumption only via explicitly-named, confirmed paths.
-4. Leave the explicit destructive **actions** (purge/delete + their confirm dialogs) unchanged.
+#### Phase 13.1 — Remove latent destructive clients
+- Delete `streamMessages` (`PeeGeeQClient`), `createMessageStreamService` + `useMessageStream`
+  (dead code), so a consuming read cannot be wired into an admin view by accident.
+- **Exit:** no admin-reachable consuming client remains; build green.
 
-**Prerequisite**: §7.12 (the consuming `/stream` must be non-destructive before the latent
-clients are removed and the guard is locked in).
+#### Phase 13.2 — Naming contract
+- Non-destructive endpoints are `…/messages` (browse) or `…/messages/stream` (observe, §7.12);
+  any genuinely-consuming endpoint is named `…/consume` and is **never** called by the admin UI.
+- **Exit:** routes/clients renamed to match; documented.
+
+#### Phase 13.3 — Guard test
+- Static check (mirroring `OnSuccessExceptionSwallowingGuardTest`, `@Tag(CORE)`, no DB) that
+  admin-facing read/view/stream handlers and the UI never use `createConsumer`/`.subscribe(` for
+  a queue; destructive consumption only via explicitly-named, confirmed paths.
+- **Exit:** guard runs in the default profile and fails the build on any regression.
 
 ---
 

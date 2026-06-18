@@ -36,8 +36,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -156,130 +154,6 @@ class ServerSentEventsHandlerTest {
     }
 
     @Test
-    @Order(2)
-    void testSSEStreamEndpointExists(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 2: SSE Stream Endpoint Exists ===");
-
-        String ssePath = "/api/v1/queues/" + testSetupId + "/" + testQueueName + "/stream";
-
-        // Use HttpClient directly - WebClient.send() waits for response body which never completes for SSE
-        io.vertx.core.http.HttpClient httpClient = vertx.createHttpClient();
-        httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
-            .compose(request -> {
-                request.putHeader("Accept", "text/event-stream");
-                return request.send();
-            })
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
-                int status = response.statusCode();
-                logger.info("SSE endpoint returned status: {}", status);
-
-                // SSE endpoints should return 200 with text/event-stream content type
-                // or 404 if not implemented
-                assertTrue(status == 200 || status == 404,
-                    "SSE endpoint should return 200 or 404, got: " + status);
-
-                if (status == 200) {
-                    String contentType = response.getHeader("Content-Type");
-                    logger.info("Content-Type: {}", contentType);
-                    // SSE should have text/event-stream content type
-                    assertTrue(contentType == null || contentType.contains("text/event-stream") ||
-                               contentType.contains("application/json"),
-                        "Content-Type should be text/event-stream or application/json");
-                }
-
-                // Close the connection - SSE streams don't end naturally
-                httpClient.close();
-                testContext.completeNow();
-            })))
-            .onFailure(err -> {
-                logger.warn("SSE endpoint request failed: {}", err.getMessage());
-                httpClient.close();
-                testContext.completeNow();
-            });
-    }
-
-    @Test
-    @Order(3)
-    void testSSEStreamWithQueryParams(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 3: SSE Stream with Query Parameters ===");
-
-        String ssePath = "/api/v1/queues/" + testSetupId + "/" + testQueueName + "/stream"
-            + "?consumerGroup=test-group&batchSize=10&maxWait=5000&messageType=OrderCreated";
-
-        // Use HttpClient directly - WebClient.send() waits for response body which never completes for SSE
-        io.vertx.core.http.HttpClient httpClient = vertx.createHttpClient();
-        httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
-            .compose(request -> {
-                request.putHeader("Accept", "text/event-stream");
-                return request.send();
-            })
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
-                int status = response.statusCode();
-                logger.info("SSE endpoint with params returned status: {}", status);
-
-                // Accept 200 or 404
-                assertTrue(status == 200 || status == 404,
-                    "SSE endpoint should return 200 or 404, got: " + status);
-
-                // Close the connection - SSE streams don't end naturally
-                httpClient.close();
-                testContext.completeNow();
-            })))
-            .onFailure(err -> {
-                logger.warn("SSE endpoint request failed: {}", err.getMessage());
-                httpClient.close();
-                testContext.completeNow();
-            });
-    }
-
-    @Test
-    @Order(4)
-    void testSSEStreamConnection(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 4: SSE Stream Connection ===");
-
-        String ssePath = "/api/v1/queues/" + testSetupId + "/" + testQueueName + "/stream";
-        AtomicBoolean receivedData = new AtomicBoolean(false);
-
-        // Use raw HTTP client for streaming
-        vertx.createHttpClient()
-            .request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
-            .compose(request -> {
-                request.putHeader("Accept", "text/event-stream");
-                return request.send();
-            })
-            .onSuccess(response -> {
-                logger.info("SSE response status: {}", response.statusCode());
-
-                if (response.statusCode() == 200) {
-                    response.handler(buffer -> {
-                        String data = buffer.toString();
-                        logger.info("Received SSE data: {}", data);
-                        receivedData.set(true);
-
-                        // Check for SSE format
-                        if (data.contains("event:") || data.contains("data:")) {
-                            testContext.verify(() -> {
-                                assertTrue(data.contains("event:") || data.contains("data:"),
-                                    "SSE data should contain event: or data: prefix");
-                            });
-                        }
-                    });
-
-                    // Set timeout to complete test
-                    vertx.setTimer(3000, id -> {
-                        testContext.completeNow();
-                    });
-                } else {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(err -> {
-                logger.warn("SSE connection failed: {}", err.getMessage());
-                testContext.completeNow();
-            });
-    }
-
-    @Test
     @Order(5)
     void testSSEEventFormat(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Test 5: SSE Event Format ===");
@@ -315,51 +189,5 @@ class ServerSentEventsHandlerTest {
 
         logger.info("SSE event format verified");
         testContext.completeNow();
-    }
-
-    @Test
-    @Order(6)
-    void testSSEConnectionHeaders(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 6: SSE Connection Headers ===");
-
-        String ssePath = "/api/v1/queues/" + testSetupId + "/" + testQueueName + "/stream";
-
-        // Use HttpClient directly - WebClient.send() waits for response body which never completes for SSE
-        io.vertx.core.http.HttpClient httpClient = vertx.createHttpClient();
-        httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
-            .compose(request -> {
-                request.putHeader("Accept", "text/event-stream");
-                return request.send();
-            })
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
-                int status = response.statusCode();
-
-                if (status == 200) {
-                    // Verify SSE-specific headers
-                    String contentType = response.getHeader("Content-Type");
-                    String cacheControl = response.getHeader("Cache-Control");
-                    String connection = response.getHeader("Connection");
-
-                    logger.info("Content-Type: {}", contentType);
-                    logger.info("Cache-Control: {}", cacheControl);
-                    logger.info("Connection: {}", connection);
-
-                    // SSE should have specific headers
-                    if (contentType != null) {
-                        assertTrue(contentType.contains("text/event-stream") ||
-                                   contentType.contains("application/json"),
-                            "Content-Type should be text/event-stream");
-                    }
-                }
-
-                // Close the connection - SSE streams don't end naturally
-                httpClient.close();
-                testContext.completeNow();
-            })))
-            .onFailure(err -> {
-                logger.warn("SSE headers test failed: {}", err.getMessage());
-                httpClient.close();
-                testContext.completeNow();
-            });
     }
 }
