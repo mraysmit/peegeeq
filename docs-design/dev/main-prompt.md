@@ -30,4 +30,7 @@ main-prompt.md
 
 ** Step 7. After the code changes have been made you must validate the changes against the testing standard, at the very least PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md` in full.
 
+
+follow `docs-design/testing/PEEGEEQ-TEST-COMMANDS.md'
+
 ---

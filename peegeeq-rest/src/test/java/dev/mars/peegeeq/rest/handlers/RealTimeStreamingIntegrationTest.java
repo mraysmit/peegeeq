@@ -213,47 +213,8 @@ class RealTimeStreamingIntegrationTest {
             });
     }
 
-    @Test
-    @Order(3)
-    void testSSEStreamEndpoint(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 3: SSE Stream Endpoint ===");
-
-        String ssePath = "/api/v1/queues/" + testSetupId + "/" + testQueueName + "/stream";
-
-        // SSE is a streaming endpoint - we need to use sendStream to handle the continuous response
-        // We'll verify the connection is established and content type is correct, then close it
-        HttpClient httpClient = vertx.createHttpClient();
-        httpClient.request(io.vertx.core.http.HttpMethod.GET, TEST_PORT, "localhost", ssePath)
-            .compose(request -> {
-                request.putHeader("Accept", "text/event-stream");
-                return request.send();
-            })
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
-                int status = response.statusCode();
-                logger.info("SSE endpoint returned status: {}", status);
-
-                // Verify status code
-                assertTrue(status == 200 || status == 404,
-                    "SSE endpoint should return 200 or 404, got: " + status);
-
-                if (status == 200) {
-                    // Verify content type for SSE
-                    String contentType = response.getHeader("Content-Type");
-                    logger.info("SSE Content-Type: {}", contentType);
-                    assertTrue(contentType != null && contentType.contains("text/event-stream"),
-                        "SSE should return text/event-stream content type");
-                }
-
-                // Close the connection - SSE streams don't end naturally
-                httpClient.close();
-                testContext.completeNow();
-            })))
-            .onFailure(err -> {
-                logger.warn("SSE endpoint request failed: {}", err.getMessage());
-                httpClient.close();
-                testContext.completeNow();
-            });
-    }
+    // testSSEStreamEndpoint removed 2026-06-18: the consuming SSE /stream endpoint was removed
+    // (data-loss hazard, Phase 12). The non-destructive observe stream is its replacement.
 
     @Test
     @Order(4)

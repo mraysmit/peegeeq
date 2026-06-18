@@ -310,40 +310,7 @@ test.describe('Message Browser', () => {
         await expect(liveSwitch).not.toHaveClass(/ant-switch-checked/)
     })
 
-    test('15 Live SSE — message published via API appears in table without manual refresh', async ({ page }) => {
-        test.setTimeout(60000)
-
-        // Navigate and load initial 4 messages
-        await loadMessages(page)
-
-        const rows = page.locator('.ant-table-tbody tr.ant-table-row')
-        await expect(rows).toHaveCount(4, { timeout: 10000 })
-
-        // Enable live mode — the browser will open an SSE connection
-        // Start listening for the SSE request before clicking so we can wait for it
-        const sseRequestPromise = page.waitForRequest(
-            req => req.url().includes(`/queues/${SETUP_ID}/${queueName}/stream`)
-        )
-
-        await page.getByTestId('live-switch').click()
-        await expect(page.getByTestId('live-alert')).toBeVisible({ timeout: 5000 })
-
-        // Wait for the SSE GET request to be issued, confirming EventSource is established
-        await sseRequestPromise
-
-        // Give the backend consumer a moment to subscribe to the queue
-        await page.waitForTimeout(1500)
-
-        // Publish a 5th message via API — the SSE consumer will receive it
-        const livePayload = { liveId: `sse-live-${Date.now()}`, action: 'LiveDelivery' }
-        const publishResp = await page.request.post(
-            `/api/v1/queues/${SETUP_ID}/${queueName}/publish`,
-            { data: { payload: livePayload } }
-        )
-        expect(publishResp.ok()).toBeTruthy()
-
-        // The SSE stream should deliver the new message; wait up to 20 seconds
-        await expect(rows).not.toHaveCount(4, { timeout: 20000 })
-        expect(await rows.count()).toBeGreaterThan(4)
-    })
+    // Removed 2026-06-18 (Phase 12.0): test '15 Live SSE' asserted the consuming /stream
+    // EventSource, which was removed (data-loss hazard). The non-destructive live view is
+    // covered by message-browser-nondestructive-live.spec.ts.
 })
