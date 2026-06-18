@@ -876,6 +876,30 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.locator('[data-testid="live-switch"]').click()
   })
 
+  test('10f2 message browser - live messages streaming in over SSE', async ({ page }) => {
+    await page.goto('/messages')
+    await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
+    await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
+    await page.waitForTimeout(600)
+    await selectAntOption(page.getByTestId('queue-scope-selector'), queueName)
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible({ timeout: 15000 })
+    const before = await page.locator('.ant-table-tbody tr.ant-table-row').count()
+
+    // Enable Live (opens the non-destructive /messages/stream SSE), then publish a few messages so
+    // the capture shows them having streamed into the table live (push-driven, no manual refresh).
+    await page.locator('[data-testid="live-switch"]').click()
+    await expect(page.locator('[data-testid="live-alert"]')).toBeVisible({ timeout: 5000 })
+    for (let i = 1; i <= 5; i++) {
+      await page.request.post(`/api/v1/queues/${SETUP_ID}/${queueName}/publish`,
+        { data: { payload: { orderId: `live-shot-${i}`, category: 'LiveStream' } } })
+    }
+    await expect.poll(async () => page.locator('.ant-table-tbody tr.ant-table-row').count(),
+      { timeout: 20000 }).toBeGreaterThan(before)
+    await page.waitForTimeout(500)
+    await shot(page, '10f2-message-browser-live-streaming.png')
+    await page.locator('[data-testid="live-switch"]').click()
+  })
+
   test('10g message browser - quick filters card', async ({ page }) => {
     await page.goto('/messages')
     await page.locator('[data-testid="app-sidebar"]').waitFor({ state: 'visible' })
