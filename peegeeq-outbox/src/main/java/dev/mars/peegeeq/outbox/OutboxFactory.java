@@ -329,7 +329,10 @@ public class OutboxFactory implements QueueFactory {
                 return io.vertx.core.Future.failedFuture(new IllegalStateException("Pool not available for browser creation"));
             }
             String schema = configuration.getDatabaseConfig().getSchema();
-            OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
+            // Pass Vertx so the browser's tail() (live non-destructive poll-observe) can schedule
+            // its periodic poll — same Vertx source OutboxConsumer uses.
+            OutboxQueueBrowser<T> browser = new OutboxQueueBrowser<>(
+                    topic, payloadType, pool, objectMapper, schema, databaseService.getVertx());
             synchronized (this) {
                 createdResources.add(browser);
             }

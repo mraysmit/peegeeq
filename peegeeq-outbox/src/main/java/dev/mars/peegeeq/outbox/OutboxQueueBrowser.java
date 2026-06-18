@@ -18,25 +18,27 @@ package dev.mars.peegeeq.outbox;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import io.vertx.core.Future;
-import io.vertx.core.json.JsonObject;
+import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Implementation of QueueBrowser for outbox pattern queues.
  * Allows browsing messages without consuming them.
+ *
+ * <p>{@link #browse(int, int)} is the point-in-time non-destructive read; {@link #tail(MessageHandler)}
+ * is the live non-destructive observe, delegated to a poll-based {@link OutboxQueueObserver} (the
+ * outbox has no insert NOTIFY). Neither path acks, locks, or removes messages. {@code tail} requires
+ * a Vert.x-aware browser — create it via {@code OutboxFactory.createBrowser(...)}.
  *
  * @param <T> The type of message payload
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -51,19 +53,29 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
     private final Pool pool;
     private final ObjectMapper objectMapper;
     private final String schema;
+    // Used only by tail() to schedule the poll; null for direct-construction callers (tail unavailable).
+    private final Vertx vertx;
     private volatile boolean closed = false;
+    // The live tail observer (one per browser); null until tail() is called, stopped in close().
+    private volatile OutboxQueueObserver<T> observer;
 
     public OutboxQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper) {
-        this(topic, payloadType, pool, objectMapper, null);
+        this(topic, payloadType, pool, objectMapper, null, null);
     }
 
     public OutboxQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper, String schema) {
+        this(topic, payloadType, pool, objectMapper, schema, null);
+    }
+
+    public OutboxQueueBrowser(String topic, Class<T> payloadType, Pool pool, ObjectMapper objectMapper,
+            String schema, Vertx vertx) {
         this.topic = topic;
         this.payloadType = payloadType;
         this.pool = pool;
         this.objectMapper = objectMapper;
         // null schema  unqualified SQL (relies on search_path); non-null  schema-qualified SQL
         this.schema = schema;
+        this.vertx = vertx;
     }
 
     @Override
@@ -86,45 +98,37 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
                 .map(rows -> {
                     List<Message<T>> messages = new ArrayList<>();
                     for (Row row : rows) {
-                        try {
-                            String id = String.valueOf(row.getLong("id"));
-                            JsonObject jsonPayload = row.getJsonObject("payload");
-                            T payload;
-
-                            // Handle primitive wrapper created by OutboxProducer
-                            if ((payloadType == String.class || Number.class.isAssignableFrom(payloadType) || payloadType == Boolean.class)
-                                    && jsonPayload.containsKey("value") && jsonPayload.size() == 1) {
-                                Object value = jsonPayload.getValue("value");
-                                if (payloadType == String.class) {
-                                    payload = payloadType.cast(String.valueOf(value));
-                                } else {
-                                    payload = objectMapper.convertValue(value, payloadType);
-                                }
-                            } else {
-                                payload = objectMapper.readValue(jsonPayload.encode(), payloadType);
-                            }
-
-                            Map<String, String> headers = new HashMap<>();
-                            var headersJson = row.getJsonObject("headers");
-                            if (headersJson != null) {
-                                for (String key : headersJson.fieldNames()) {
-                                    headers.put(key, headersJson.getString(key));
-                                }
-                            }
-
-                            Instant createdAt = row.getLocalDateTime("created_at") != null
-                                    ? row.getLocalDateTime("created_at").toInstant(ZoneOffset.UTC)
-                                    : Instant.now();
-
-                            String correlationId = row.getString("correlation_id");
-
-                            messages.add(new OutboxMessage<>(id, payload, createdAt, headers, correlationId));
-                        } catch (Exception e) {
-                            logger.error("Failed to parse message: {}", e.getMessage());
+                        Message<T> message = OutboxMessages.map(row, objectMapper, payloadType);
+                        if (message != null) {
+                            messages.add(message);
                         }
                     }
                     return messages;
                 });
+    }
+
+    @Override
+    public Future<Void> tail(MessageHandler<T> onMessage) {
+        if (closed) {
+            return Future.failedFuture(new IllegalStateException("Browser is closed"));
+        }
+        if (onMessage == null) {
+            return Future.failedFuture(new IllegalArgumentException("onMessage handler is required"));
+        }
+        if (vertx == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "tail requires a Vert.x-aware browser; create it via OutboxFactory.createBrowser(...)"));
+        }
+        if (observer != null) {
+            return Future.failedFuture(new IllegalStateException("tail is already active on this browser"));
+        }
+
+        // Delegate to the dedicated non-destructive poll observer (watermark drain over a periodic
+        // timer). The browser stays a thin reader; the observer owns the poll lifecycle.
+        OutboxQueueObserver<T> obs = new OutboxQueueObserver<>(
+                topic, payloadType, schema, pool, vertx, objectMapper, onMessage);
+        this.observer = obs;
+        return obs.start();
     }
 
     @Override
@@ -135,6 +139,12 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
     @Override
     public void close() {
         closed = true;
+        OutboxQueueObserver<T> obs = this.observer;
+        this.observer = null;
+        if (obs != null) {
+            obs.stop().onFailure(err ->
+                    logger.warn("Failed to stop tail observer for topic {}: {}", topic, err.getMessage()));
+        }
         logger.debug("Closed browser for topic: {}", topic);
     }
 }

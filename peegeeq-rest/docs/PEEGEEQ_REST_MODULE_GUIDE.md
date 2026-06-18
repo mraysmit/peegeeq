@@ -72,7 +72,6 @@ peegeeq-rest/
     │   │   ├── SubscriptionHandler.java    # Subscription lifecycle (311 lines)
     │   │   ├── HealthHandler.java          # Health monitoring (215 lines)
     │   │   ├── ManagementApiHandler.java   # Management UI support (1585 lines)
-    │   │   ├── SSEConnection.java          # SSE connection wrapper
     │   │   ├── ConsumerGroup.java          # Consumer group model
     │   │   ├── LoadBalancingStrategy.java  # Load balancing enum
     │   │   └── SubscriptionManagerFactory.java
@@ -119,7 +118,7 @@ private Router createRouter() {
     QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
     EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper, vertx);
     ConsumerGroupHandler consumerGroupHandler = new ConsumerGroupHandler(setupService, objectMapper, subscriptionManagerFactory);
-    ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(setupService, objectMapper, vertx, consumerGroupHandler);
+    ServerSentEventsHandler sseHandler = new ServerSentEventsHandler(vertx);
     // ... more handlers
 }
 ```
@@ -145,7 +144,6 @@ private Router createRouter() {
 | POST | `/api/v1/queues/:setupId/:queueName/messages` | `sendMessage` | Send a single message |
 | POST | `/api/v1/queues/:setupId/:queueName/messages/batch` | `sendMessages` | Send batch of messages |
 | GET | `/api/v1/queues/:setupId/:queueName/stats` | `getQueueStats` | Get queue statistics |
-| GET | `/api/v1/queues/:setupId/:queueName/stream` | `handleQueueStream` | SSE message stream |
 | GET | `/api/v1/queues/:setupId/:queueName` | `getQueueDetails` | Get queue details |
 | POST | `/api/v1/queues/:setupId/:queueName/purge` | `purgeQueue` | Purge queue messages |
 

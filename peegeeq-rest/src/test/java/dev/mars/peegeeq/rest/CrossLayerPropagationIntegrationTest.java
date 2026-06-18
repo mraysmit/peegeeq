@@ -22,12 +22,8 @@ import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
-import io.vertx.core.http.HttpClientRequest;
-import io.vertx.core.http.HttpClientResponse;
-import io.vertx.core.http.HttpMethod;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
@@ -46,10 +42,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -208,95 +200,6 @@ public class CrossLayerPropagationIntegrationTest {
         cleanup.onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
 
-    // ========== Test 1: REST  Database  SSE Consumer ==========
-
-    /**
-     * Test 1: Complete Message Production and Consumption Flow via SSE
-     *
-     * Verifies the complete cross-layer flow:
-     * 1. REST API receives message send request
-     * 2. QueueHandler delegates to QueueFactory
-     * 3. MessageProducer inserts message into PostgreSQL
-     * 4. SSE consumer receives the message via streaming
-     * 5. Message payload and headers are correctly propagated
-     *
-     * This addresses the gap where existing tests only verify REST  Database
-     * but not the consumption flow through the REST layer.
-     */
-    @Test
-    @Order(1)
-    @DisplayName("Test 1: REST  Producer  Database  SSE Consumer")
-    void testCompleteMessageProductionAndConsumptionFlow(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== Test 1: Complete Message Production and Consumption Flow via SSE ===");
-
-        CountDownLatch messageLatch = new CountDownLatch(1);
-        AtomicReference<String> receivedPayload = new AtomicReference<>();
-        AtomicReference<HttpClientResponse> responseRef = new AtomicReference<>();
-
-        String sseUrl = "/api/v1/queues/" + testSetupId + "/" + QUEUE_NAME + "/stream";
-
-        // Establish SSE connection
-        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
-            .compose(HttpClientRequest::send)
-            .onSuccess(response -> {
-                responseRef.set(response);
-                testContext.verify(() -> {
-                    assertEquals(200, response.statusCode(), "SSE connection should succeed");
-                    assertEquals("text/event-stream", response.getHeader("Content-Type"));
-                });
-                logger.info("SSE connection established");
-
-                response.handler(buffer -> {
-                    String data = buffer.toString();
-                    logger.debug("SSE data received: {}", data);
-
-                    // Look for our test message
-                    if (data.contains("testField") && data.contains("testValue")) {
-                        receivedPayload.set(data);
-                        logger.info("Received test message via SSE: {}", data);
-                        messageLatch.countDown();
-                    }
-                });
-
-                // Send message via REST API the SSE handler is already registered above,
-                // so the stream is ready to receive events as soon as this send is dispatched.
-                JsonObject sendRequest = new JsonObject()
-                    .put("payload", new JsonObject()
-                        .put("testField", "testValue")
-                        .put("timestamp", System.currentTimeMillis()))
-                    .put("headers", new JsonObject().put("X-Test-Header", "test-value"));
-
-                String sendUrl = String.format("/api/v1/queues/%s/%s/messages", testSetupId, QUEUE_NAME);
-
-                client.post(TEST_PORT, "localhost", sendUrl)
-                    .putHeader("content-type", "application/json")
-                    .sendJsonObject(sendRequest)
-                    .onSuccess(sendResponse -> {
-                        logger.info("Message sent via REST API, status: {}", sendResponse.statusCode());
-                    })
-                    .onFailure(err -> logger.error("Failed to send message", err));
-            })
-            .onFailure(testContext::failNow);
-
-        // Wait for message to be received via SSE
-        boolean received = messageLatch.await(15, TimeUnit.SECONDS);
-
-        testContext.verify(() -> {
-            assertTrue(received, "Should receive message via SSE within 15 seconds");
-            assertNotNull(receivedPayload.get(), "Received payload should not be null");
-            assertTrue(receivedPayload.get().contains("testValue"),
-                "Payload should contain the test value");
-            logger.info("Complete flow verified: REST  Producer  DB  SSE Consumer");
-        });
-
-        // Close SSE connection
-        if (responseRef.get() != null) {
-            responseRef.get().request().connection().close();
-        }
-
-        testContext.completeNow();
-    }
-
     // ========== Test 2: DLQ REST API Verification ==========
 
     /**
@@ -347,106 +250,6 @@ public class CrossLayerPropagationIntegrationTest {
                     logger.info("DLQ REST API cross-layer verification complete");
                 });
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
-    }
-
-    // ========== Test 3: Multiple SSE Consumers Receive Messages ==========
-
-    /**
-     * Test 3: Multiple SSE Consumers Message Distribution
-     *
-     * Verifies that when multiple SSE consumers subscribe to the same queue,
-     * messages are delivered to all consumers (broadcast pattern for SSE).
-     *
-     * This tests the REST  SSE streaming cross-layer flow.
-     */
-    @Test
-    @Order(3)
-    @DisplayName("Test 3: Multiple SSE consumers receive messages")
-    void testMultipleSSEConsumersMessageDistribution(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 3: Multiple SSE Consumers Message Distribution ===");
-
-        Promise<Void> conn1Ready = Promise.promise();
-        Promise<Void> conn2Ready = Promise.promise();
-        Promise<String> msg1Promise = Promise.promise();
-        Promise<String> msg2Promise = Promise.promise();
-        AtomicReference<HttpClientResponse> response1Ref = new AtomicReference<>();
-        AtomicReference<HttpClientResponse> response2Ref = new AtomicReference<>();
-
-        String sseUrl = "/api/v1/queues/" + testSetupId + "/" + QUEUE_NAME + "/stream";
-        String uniqueMarker = "multi-consumer-test-" + System.currentTimeMillis();
-
-        // Establish first SSE connection resolve conn1Ready on the initial SSE connection event
-        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
-            .compose(HttpClientRequest::send)
-            .onSuccess(response1 -> {
-                response1Ref.set(response1);
-                logger.info("SSE Consumer 1 connected");
-                response1.handler(buffer -> {
-                    String data = buffer.toString();
-                    if (data.contains("event: connection")) conn1Ready.tryComplete();
-                    if (data.contains(uniqueMarker)) {
-                        logger.info("Consumer 1 received: {}", data);
-                        msg1Promise.tryComplete(data);
-                    }
-                });
-            })
-            .onFailure(conn1Ready::tryFail);
-
-        // Establish second SSE connection resolve conn2Ready on the initial SSE connection event
-        httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
-            .compose(HttpClientRequest::send)
-            .onSuccess(response2 -> {
-                response2Ref.set(response2);
-                logger.info("SSE Consumer 2 connected");
-                response2.handler(buffer -> {
-                    String data = buffer.toString();
-                    if (data.contains("event: connection")) conn2Ready.tryComplete();
-                    if (data.contains(uniqueMarker)) {
-                        logger.info("Consumer 2 received: {}", data);
-                        msg2Promise.tryComplete(data);
-                    }
-                });
-            })
-            .onFailure(conn2Ready::tryFail);
-
-        // Wait for both SSE connections to signal readiness, then send the message
-        Future.all(conn1Ready.future(), conn2Ready.future())
-            .compose(ignored -> {
-                JsonObject sendRequest = new JsonObject()
-                    .put("payload", new JsonObject()
-                        .put("marker", uniqueMarker)
-                        .put("timestamp", System.currentTimeMillis()));
-
-                String sendUrl = String.format("/api/v1/queues/%s/%s/messages", testSetupId, QUEUE_NAME);
-                return client.post(TEST_PORT, "localhost", sendUrl)
-                    .putHeader("content-type", "application/json")
-                    .sendJsonObject(sendRequest);
-            })
-            .onSuccess(sendResponse -> logger.info("Message sent, status: {}", sendResponse.statusCode()))
-            .onFailure(testContext::failNow);
-
-        // Fail if neither consumer receives the message within 15 s
-        long timeoutId = vertx.setTimer(15000, id ->
-            testContext.failNow(new AssertionError("Neither SSE consumer received the message within 15 s")));
-
-        // Complete as soon as at least one consumer receives the message
-        Future.any(msg1Promise.future(), msg2Promise.future())
-            .onSuccess(cf -> {
-                vertx.cancelTimer(timeoutId);
-                boolean consumer1Received = msg1Promise.future().isComplete();
-                boolean consumer2Received = msg2Promise.future().isComplete();
-                testContext.verify(() -> {
-                    assertTrue(consumer1Received || consumer2Received,
-                        "At least one SSE consumer should receive the message");
-                    logger.info("Consumer 1 received: {}, Consumer 2 received: {}",
-                        consumer1Received, consumer2Received);
-                    logger.info("Multiple SSE consumers test complete");
-                    if (response1Ref.get() != null) response1Ref.get().request().connection().close();
-                    if (response2Ref.get() != null) response2Ref.get().request().connection().close();
-                    testContext.completeNow();
-                });
             })
             .onFailure(testContext::failNow);
     }

@@ -1,5 +1,10 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import dev.mars.peegeeq.api.messaging.QueueBrowser;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
@@ -8,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Server-Sent Events (SSE) handler.
@@ -31,10 +37,129 @@ public class ServerSentEventsHandler {
     private static final Logger logger = LoggerFactory.getLogger(ServerSentEventsHandler.class);
 
     private final Vertx vertx;
+    private final DatabaseSetupService setupService;
     private final AtomicLong connectionIdCounter = new AtomicLong(0);
 
-    public ServerSentEventsHandler(Vertx vertx) {
+    public ServerSentEventsHandler(Vertx vertx, DatabaseSetupService setupService) {
         this.vertx = vertx;
+        this.setupService = setupService;
+    }
+
+    /**
+     * Handles SSE connections for a NON-DESTRUCTIVE live message stream.
+     * SSE URL: GET /api/v1/queues/{setupId}/{queueName}/messages/stream
+     *
+     * <p>Backed by {@code QueueBrowser.tail(...)} — it <strong>observes</strong> new messages and
+     * pushes them, but never consumes (no {@code subscribe}, no ack, no delete). Observed messages
+     * remain in the queue and are still delivered to the application's real consumers. The tail is
+     * torn down ({@code browser.close()}) when the client disconnects.
+     */
+    public void handleQueueMessageStream(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+        String connectionId = "msg-stream-" + connectionIdCounter.incrementAndGet();
+
+        logger.info("SSE message stream established: {} for queue '{}' in setup '{}' (non-destructive observe)",
+                connectionId, queueName, setupId);
+
+        HttpServerResponse response = ctx.response();
+        response.putHeader("Content-Type", "text/event-stream")
+                .putHeader("Cache-Control", "no-cache")
+                .putHeader("Connection", "keep-alive")
+                .putHeader("Access-Control-Allow-Origin", "*")
+                .putHeader("Access-Control-Allow-Headers", "Cache-Control")
+                .setChunked(true);
+
+        AtomicReference<QueueBrowser<Object>> browserRef = new AtomicReference<>();
+        AtomicLong observed = new AtomicLong(0);
+        long[] heartbeatTimer = {-1};
+
+        // Tear down the tail (browser.close()) and heartbeat when the client disconnects.
+        ctx.request().connection().closeHandler(v -> {
+            logger.info("SSE message stream closed: {} (observed {} message(s))", connectionId, observed.get());
+            if (heartbeatTimer[0] != -1) {
+                vertx.cancelTimer(heartbeatTimer[0]);
+            }
+            QueueBrowser<Object> b = browserRef.get();
+            if (b != null) {
+                try { b.close(); }
+                catch (Exception e) { logger.warn("Error closing tail browser for {}: {}", connectionId, e.getMessage()); }
+            }
+        });
+
+        writeSSEEvent(response, "connected", new JsonObject()
+                .put("type", "connected")
+                .put("connectionId", connectionId)
+                .put("setupId", setupId)
+                .put("queueName", queueName)
+                .put("timestamp", System.currentTimeMillis()));
+
+        heartbeatTimer[0] = vertx.setPeriodic(30000L, id -> {
+            if (response.closed()) {
+                vertx.cancelTimer(heartbeatTimer[0]);
+            } else {
+                writeSSEEvent(response, "heartbeat", new JsonObject()
+                        .put("type", "heartbeat")
+                        .put("connectionId", connectionId)
+                        .put("timestamp", System.currentTimeMillis()));
+            }
+        });
+
+        setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.<QueueBrowser<Object>>failedFuture(
+                                new IllegalStateException("Setup '" + setupId + "' is not active"));
+                    }
+                    QueueFactory factory = setupResult.getQueueFactories().get(queueName);
+                    if (factory == null) {
+                        return Future.<QueueBrowser<Object>>failedFuture(
+                                new IllegalArgumentException("Queue '" + queueName + "' not found in setup '" + setupId + "'"));
+                    }
+                    return factory.createBrowser(queueName, Object.class);
+                })
+                .compose(browser -> {
+                    browserRef.set(browser);
+                    if (response.closed()) {
+                        // Client disconnected before the tail was established — release the browser.
+                        try { browser.close(); }
+                        catch (Exception e) { logger.warn("Error closing tail browser for {}: {}", connectionId, e.getMessage()); }
+                        return Future.<Void>succeededFuture();
+                    }
+                    // Non-destructive live observe: tail pushes each new message; it never consumes.
+                    return browser.tail(message -> {
+                        long n = observed.incrementAndGet();
+                        logger.info("SSE message stream {}: pushing message #{} (id={}) to client",
+                                connectionId, n, message.getId());
+                        writeSSEEvent(response, "message", new JsonObject()
+                                .put("type", "message")
+                                .put("connectionId", connectionId)
+                                .put("messageId", message.getId())
+                                .put("payload", message.getPayload())
+                                .put("timestamp", System.currentTimeMillis()));
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> {
+                    // Signal readiness: the tail is live and the FROM_NOW watermark is seeded, so a
+                    // client can now publish and be sure those messages will be observed.
+                    logger.info("SSE message stream {} observing queue '{}' (tail established)",
+                            connectionId, queueName);
+                    writeSSEEvent(response, "subscribed", new JsonObject()
+                            .put("type", "subscribed")
+                            .put("connectionId", connectionId)
+                            .put("queueName", queueName)
+                            .put("timestamp", System.currentTimeMillis()));
+                })
+                .onFailure(err -> {
+                    logger.error("SSE message stream {} failed for queue '{}': {}",
+                            connectionId, queueName, err.getMessage());
+                    writeSSEEvent(response, "error", new JsonObject()
+                            .put("type", "error")
+                            .put("connectionId", connectionId)
+                            .put("error", err.getMessage())
+                            .put("timestamp", System.currentTimeMillis()));
+                });
     }
 
     /**
