@@ -180,29 +180,48 @@ const MessageBrowser = () => {
     //   }
     // }, [liveMessages, isRealTimeEnabled, messages])
 
-    // Live mode = faster NON-DESTRUCTIVE auto-refresh. The management UI is an admin tool and
-    // must never consume messages to display them. This previously opened a consuming SSE stream
-    // (`/queues/{s}/{q}/stream` → createConsumer/subscribe), which stole messages from the
-    // application's real consumers. It now browse-polls the read-only listing faster (every 3 s)
-    // instead — the default background refresh is every 30 s.
-    const livePollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+    // Live mode = NON-DESTRUCTIVE live observe. The management UI is an admin tool and must never
+    // consume messages to display them. It subscribes to the server-side non-destructive message
+    // stream (`/queues/{s}/{q}/messages/stream`, backed by QueueBrowser.tail() → plain SELECT, never
+    // a consumer/subscribe). Each pushed message wakes a debounced browse refresh so the table shows
+    // full detail (status, headers) consistent with the read-only listing — push-driven, no polling.
+    const liveStreamRef = useRef<EventSource | null>(null)
+    const liveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
     useEffect(() => {
-        if (livePollRef.current) {
-            clearInterval(livePollRef.current)
-            livePollRef.current = null
-        }
-
-        if (isRealTimeEnabled) {
-            fetchMessages() // immediate refresh on enable
-            livePollRef.current = setInterval(fetchMessages, 3000)
-        }
-
-        return () => {
-            if (livePollRef.current) {
-                clearInterval(livePollRef.current)
-                livePollRef.current = null
+        const closeStream = () => {
+            if (liveStreamRef.current) {
+                liveStreamRef.current.close()
+                liveStreamRef.current = null
+            }
+            if (liveRefreshTimerRef.current) {
+                clearTimeout(liveRefreshTimerRef.current)
+                liveRefreshTimerRef.current = null
             }
         }
+        closeStream()
+
+        if (isRealTimeEnabled && selectedSetupId && selectedQueueName) {
+            fetchMessages() // show current state immediately on enable
+
+            const url = getVersionedApiUrl(
+                `queues/${selectedSetupId}/${selectedQueueName}/messages/stream`)
+            const es = new EventSource(url)
+            liveStreamRef.current = es
+            // Each non-destructive push wakes a debounced browse refresh (coalesces bursts).
+            es.addEventListener('message', () => {
+                if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current)
+                liveRefreshTimerRef.current = setTimeout(fetchMessages, 400)
+            })
+            es.onerror = () => {
+                // The native EventSource auto-reconnects (readyState CONNECTING); surface only a
+                // genuine, terminal failure so transient reconnects don't spam the user.
+                if (es.readyState === EventSource.CLOSED) {
+                    message.error('Live message stream disconnected. Toggle Live off and on to retry.')
+                }
+            }
+        }
+
+        return closeStream
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isRealTimeEnabled, selectedSetupId, selectedQueueName])
 

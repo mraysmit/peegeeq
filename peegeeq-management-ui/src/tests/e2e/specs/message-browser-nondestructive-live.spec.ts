@@ -8,12 +8,14 @@ import { selectAntOption } from '../utils/ant-helpers'
  * The management UI is an admin/observability tool: viewing must never consume messages.
  * Live mode previously opened a CONSUMING SSE stream (`/queues/{s}/{q}/stream` →
  * createConsumer/subscribe), which stole messages from the application's real consumers.
- * It now browse-polls the read-only listing (`management/messages`) faster (every 3 s).
+ * It now opens the NON-DESTRUCTIVE message stream (`/queues/{s}/{q}/messages/stream`, backed by
+ * QueueBrowser.tail() → plain SELECT, never a consumer) and refreshes the read-only listing on
+ * each push.
  *
  * Verifies:
  *   1. enabling Live shows the "Real-time Mode Active" banner (toggle-driven);
- *   2. Live does NOT open the consuming `/stream` SSE (the destructive read is gone);
- *   3. Live browse-polls — a newly published message appears with no manual refresh;
+ *   2. Live opens the non-destructive `/messages/stream` SSE and NEVER the consuming `/stream`;
+ *   3. Live surfaces a newly published message over SSE with no manual refresh;
  *   4. messages are preserved / re-loadable (viewing does not consume);
  *   5. the Live toggle can be turned off cleanly.
  *
@@ -39,7 +41,10 @@ test.describe('Message Browser – Live Mode (non-destructive)', () => {
         }
     }
 
-    async function loadMessages(page: Parameters<Parameters<typeof test>[1]>[0]): Promise<void> {
+    async function loadMessages(
+        page: Parameters<Parameters<typeof test>[1]>[0],
+        expectRows = true
+    ): Promise<void> {
         await page.goto('/messages')
         await page.waitForLoadState('load')
         await selectAntOption(page.getByTestId('setup-scope-selector'), SETUP_ID)
@@ -47,8 +52,10 @@ test.describe('Message Browser – Live Mode (non-destructive)', () => {
         await expect(queueSelector).not.toHaveClass(/ant-select-disabled/, { timeout: 5000 })
         await selectAntOption(queueSelector, queueName)
         await page.getByRole('button', { name: /refresh/i }).click()
-        await expect(page.locator('.ant-table-tbody tr.ant-table-row').first())
-            .toBeVisible({ timeout: 15000 })
+        if (expectRows) {
+            await expect(page.locator('.ant-table-tbody tr.ant-table-row').first())
+                .toBeVisible({ timeout: 15000 })
+        }
     }
 
     // ── 0. Setup ──────────────────────────────────────────────────────────────
@@ -81,30 +88,40 @@ test.describe('Message Browser – Live Mode (non-destructive)', () => {
 
     // ── 2. Live does NOT open the consuming SSE stream (non-destructive) ─────────
 
-    test('02 Live mode does NOT open the consuming /stream SSE', async ({ page }) => {
+    test('02 Live opens the non-destructive /messages/stream, never the consuming /stream', async ({ page }) => {
         test.setTimeout(30000)
 
-        let streamRequested = false
+        let consumingStreamRequested = false
+        // The OLD consuming stream (.../{queueName}/stream) must never be hit. This glob does NOT
+        // match the new .../{queueName}/messages/stream (different path segment).
         await page.route(`**/queues/${SETUP_ID}/${queueName}/stream**`, (route) => {
-            streamRequested = true
+            consumingStreamRequested = true
             return route.abort('connectionrefused')
         })
 
         await loadMessages(page)
+
+        // The non-destructive message stream MUST be opened when Live is enabled.
+        const nonDestructiveStream = page.waitForRequest(
+            req => req.url().includes(`/queues/${SETUP_ID}/${queueName}/messages/stream`),
+            { timeout: 10000 }
+        )
         await page.getByTestId('live-switch').click()
         await expect(page.getByTestId('live-alert')).toBeVisible({ timeout: 8000 })
 
-        // Give it well past a couple of poll intervals; the consuming stream must never be hit.
-        await page.waitForTimeout(7000)
+        await nonDestructiveStream  // fails if the non-destructive SSE stream was not opened
+
+        // And the consuming stream must never have been hit.
+        await page.waitForTimeout(2000)
         expect(
-            streamRequested,
+            consumingStreamRequested,
             'Live mode must NOT open the consuming /stream SSE — admin views must be non-destructive'
         ).toBe(false)
     })
 
-    // ── 3. Live browse-polls: a newly published message appears with no manual refresh ──
+    // ── 3. Live SSE: a newly published message appears with no manual refresh ──
 
-    test('03 Live browse-poll surfaces a newly published message', async ({ page }) => {
+    test('03 Live SSE surfaces a newly published message', async ({ page }) => {
         test.setTimeout(30000)
         await loadMessages(page)
 
@@ -115,7 +132,7 @@ test.describe('Message Browser – Live Mode (non-destructive)', () => {
         await page.getByTestId('live-switch').click()
         await expect(page.getByTestId('live-alert')).toBeVisible({ timeout: 8000 })
 
-        // Publish via the API; the 3s browse-poll must surface it without a manual Refresh.
+        // Publish via the API; the live SSE push must surface it without a manual Refresh.
         await publishMessage(page, { orderId: 'live-04', category: 'LiveTest' })
 
         await expect.poll(async () => rows.count(), { timeout: 12000 })
@@ -143,5 +160,45 @@ test.describe('Message Browser – Live Mode (non-destructive)', () => {
         await liveSwitch.click()
         await expect(page.getByTestId('live-alert')).not.toBeVisible({ timeout: 5000 })
         await expect(liveSwitch).not.toHaveClass(/ant-switch-checked/)
+    })
+
+    // ── 6. Live SSE pushes a 10-message burst to the UI ─────────────────────────
+
+    test('06 Live SSE pushes a 10-message burst to the UI without manual refresh', async ({ page }) => {
+        test.setTimeout(120000)
+
+        // Self-contained: create a fresh queue so this test can be run in isolation too — e.g.
+        // headed:  npx playwright test --project=14c2-message-browser-nondestructive-live \
+        //          --workers=1 --headed -g "10-message burst"
+        // (it does not rely on the serial '00 setup' test having created the shared queue).
+        queueName = `mb_burst_${Date.now()}`
+        const createResp = await page.request.post(
+            '/api/v1/management/queues',
+            { data: { setupId: SETUP_ID, name: queueName, type: 'native' } }
+        )
+        if (!createResp.ok()) {
+            throw new Error(`Create queue failed: ${createResp.status()} ${await createResp.text()}`)
+        }
+        await page.waitForTimeout(1000)
+
+        // Fresh queue is empty, so don't wait for an initial row.
+        await loadMessages(page, false)
+
+        await page.getByTestId('live-switch').click()
+        await expect(page.getByTestId('live-alert')).toBeVisible({ timeout: 8000 })
+
+        // Publish 10 messages via the API; the live SSE push must surface all 10 with no manual Refresh.
+        const burstId = `burst-${Date.now()}`
+        for (let i = 1; i <= 10; i++) {
+            await publishMessage(page, { orderId: `${burstId}-${i}`, category: 'LiveBurst' })
+        }
+
+        // Each non-destructive SSE push wakes a browse refresh; all 10 must appear (no manual refresh).
+        const rows = page.locator('.ant-table-tbody tr.ant-table-row')
+        await expect.poll(async () => rows.count(), { timeout: 25000 }).toBeGreaterThanOrEqual(10)
+
+        // Non-destructive: all 10 are still browsable on a fresh load (nothing was consumed).
+        await loadMessages(page, true)
+        await expect.poll(async () => rows.count(), { timeout: 10000 }).toBeGreaterThanOrEqual(10)
     })
 })

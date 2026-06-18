@@ -2084,7 +2084,15 @@ LISTEN/reconnect logic. The first native `tail()` attempt did this and was disca
   the HTTP layer); disconnect closes the browser.
 - **Exit:** endpoint green; no `createConsumer`/`subscribe` anywhere in the path.
 
-#### Phase 12.5 — Frontend: restore SSE push (`peegeeq-management-ui`)
+#### Phase 12.5 — Frontend: restore SSE push (`peegeeq-management-ui`)  ✅ DONE (2026-06-18)
+> **Done 2026-06-18:** `MessageBrowser` Live mode now opens an `EventSource` on the non-destructive
+> `/api/v1/queues/{s}/{q}/messages/stream` (replacing the Phase-5 3s browse-poll); each push wakes a
+> debounced browse refresh (full detail, no polling), terminal disconnect surfaces `message.error`,
+> stream closed on toggle-off/unmount. `npm run build` green. E2E `message-browser-nondestructive-live`
+> spec expanded to 7 tests (added the 10-message burst, made self-contained) — full project run
+> 37/37 passed, confirming Live opens the non-destructive stream, the burst surfaces live, and all
+> messages stay browsable; the consuming `/stream` is never opened.
+
 - Point `MessageBrowser` (and optionally Queue Details live) at the new `…/messages/stream`
   `EventSource`; surface errors (`message.error`), handle native auto-reconnect, close on unmount.
 - **Tests** (Playwright E2E, `workers:1`): live push appears on send; **and** after viewing,
