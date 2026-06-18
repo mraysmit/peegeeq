@@ -29,8 +29,10 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -110,6 +112,7 @@ class PgNativeQueueBrowserTailIntegrationTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void tail_observesNewMessage_andLeavesItBrowsable(VertxTestContext ctx) {
         String topic = "tail-nondestructive-" + System.currentTimeMillis();
         Promise<Message<String>> observed = Promise.promise();
@@ -153,6 +156,7 @@ class PgNativeQueueBrowserTailIntegrationTest {
     // ============================================================
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void tail_onClosedBrowser_failsFastWithoutHanging(VertxTestContext ctx) {
         factory.<String>createBrowser("tail-closed-" + System.currentTimeMillis(), String.class)
                 .compose(browser -> {
@@ -169,6 +173,7 @@ class PgNativeQueueBrowserTailIntegrationTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void tail_withNullHandler_failsFastWithoutHanging(VertxTestContext ctx) {
         factory.<String>createBrowser("tail-null-" + System.currentTimeMillis(), String.class)
                 .compose(browser -> browser.tail(null)
@@ -185,6 +190,7 @@ class PgNativeQueueBrowserTailIntegrationTest {
     }
 
     @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
     void tail_calledTwice_secondFailsFastWithoutHanging(VertxTestContext ctx) {
         String topic = "tail-twice-" + System.currentTimeMillis();
         factory.<String>createBrowser(topic, String.class)
@@ -203,5 +209,81 @@ class PgNativeQueueBrowserTailIntegrationTest {
                             "a second concurrent tail must surface IllegalStateException");
                     ctx.completeNow();
                 }));
+    }
+
+    // ============================================================
+    // Resilience — the live tail must survive a dropped LISTEN connection and catch up.
+    //
+    // This is the signature guarantee of the watermark-drain observer design
+    // (docs-design/dev/non-destructive-queue-observer-design-18-Jun-2026.md): a NOTIFY
+    // delivered while the observer is disconnected is LOST, so on reconnect the observer must
+    // re-read everything above its high-water mark (a plain non-destructive SELECT) rather than
+    // trusting per-NOTIFY ids. A read-by-single-id tail with no reconnect cannot satisfy this —
+    // the gap message is never observed and the test times out.
+    // ============================================================
+
+    @Test
+    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    void tail_reconnectsAfterListenConnectionDropped_andObservesGapMessage(VertxTestContext ctx) {
+        String topic = "tail-reconnect-" + System.currentTimeMillis();
+        // Same package as NativeQueueChannels — compute the exact channel the observer LISTENs on.
+        String channel = NativeQueueChannels.channelFor(PostgreSQLTestConstants.TEST_SCHEMA, topic);
+        MessageProducer<String> producer = factory.createProducer(topic, String.class);
+
+        Promise<Message<String>> beforeObserved = Promise.promise();
+        Promise<Message<String>> afterObserved = Promise.promise();
+
+        factory.<String>createBrowser(topic, String.class)
+                .compose(browser -> browser
+                        .tail(msg -> {
+                            // First delivery proves the tail is live; the second is the gap message.
+                            if (!beforeObserved.tryComplete(msg)) {
+                                afterObserved.tryComplete(msg);
+                            }
+                            return Future.succeededFuture();
+                        })
+                        // 1. Publish and confirm the tail observes it (subscription is live).
+                        .compose(v -> producer.send("before-drop"))
+                        .compose(v -> beforeObserved.future())
+                        // 2. Kill ONLY the observer's dedicated LISTEN backend connection.
+                        .compose(before -> killListenBackend(channel))
+                        // 3. Publish during the outage — its NOTIFY is lost while disconnected.
+                        .compose(v -> producer.send("after-drop"))
+                        // 4. The observer must reconnect and catch up to observe the gap message.
+                        .compose(v -> afterObserved.future())
+                        .eventually(() -> {
+                            try { browser.close(); }
+                            catch (Exception e) { logger.warn("Error closing browser: {}", e.getMessage()); }
+                            return Future.succeededFuture();
+                        }))
+                .onSuccess(after -> ctx.verify(() -> {
+                    assertEquals("after-drop", after.getPayload(),
+                            "tail must reconnect after its LISTEN connection drops and observe the "
+                                    + "message published during the outage");
+                    ctx.completeNow();
+                }))
+                .onFailure(ctx::failNow);
+    }
+
+    /**
+     * Terminates the observer's dedicated LISTEN backend by matching its exact {@code LISTEN}
+     * statement in {@code pg_stat_activity} (it sits idle after subscribing). Targeted so the
+     * shared pool is left intact — this exercises the observer's reconnect, not the pool's.
+     */
+    private Future<Void> killListenBackend(String channel) {
+        return databaseService.getPool().preparedQuery(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                                + "WHERE datname = current_database() AND state = 'idle' AND query = $1")
+                .execute(Tuple.of("LISTEN \"" + channel + "\""))
+                .compose(rows -> {
+                    int terminated = rows.size();
+                    logger.info("Terminated {} LISTEN backend(s) for channel {}", terminated, channel);
+                    if (terminated < 1) {
+                        return Future.failedFuture(new AssertionError(
+                                "Expected to terminate the observer's LISTEN backend for channel "
+                                        + channel + " but matched none"));
+                    }
+                    return Future.succeededFuture();
+                });
     }
 }

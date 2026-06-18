@@ -409,13 +409,8 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
-    // Step 14c: Message SSE Stream – Direct API tests (no UI components, pure REST+EventSource)
-    {
-      name: '14c-message-sse-stream',
-      testMatch: '**/message-sse-stream.spec.ts',
-      use: chromeMaximized,
-      dependencies: ['3c-setup-prerequisite'],
-    },
+    // Step 14c removed 2026-06-18 (Phase 12.0): message-sse-stream.spec tested the consuming
+    // /stream EventSource, which was removed. See 14c2 for the non-destructive replacement.
     // Step 14c2: Message Browser Live mode is non-destructive – browse-poll, no consuming SSE
     {
       name: '14c2-message-browser-nondestructive-live',

@@ -21,23 +21,23 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import io.vertx.core.Future;
-import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
+import java.util.Objects;
 
 /**
  * Implementation of QueueBrowser for native PostgreSQL queues.
  * Allows browsing messages without consuming them.
+ *
+ * <p>{@link #browse(int, int)} is the point-in-time non-destructive read; {@link #tail(MessageHandler)}
+ * is the live non-destructive observe, delegated to a {@link PgNativeQueueObserver}. Neither path
+ * acks, locks, or removes messages.
  *
  * @param <T> The type of message payload
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -52,11 +52,11 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
     private final Pool pool;
     private final ObjectMapper objectMapper;
     private final String schema;
-    // Adapter is used only by tail() to obtain a dedicated (non-pooled) LISTEN connection.
+    // Adapter is used only by tail() to give the observer a dedicated (non-pooled) LISTEN connection.
     private final VertxPoolAdapter poolAdapter;
     private volatile boolean closed = false;
-    // Dedicated LISTEN connection for tail() — non-pooled, closed in close().
-    private volatile PgConnection tailConnection;
+    // The live tail observer (one per browser); null until tail() is called, stopped in close().
+    private volatile PgNativeQueueObserver<T> observer;
 
     // The schema-defaulting constructor was removed deliberately: the browser's SQL is
     // schema-qualified, and PeeGeeQ has no default schema — callers pass it explicitly.
@@ -68,7 +68,7 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
         this.payloadType = payloadType;
         this.pool = pool;
         this.objectMapper = objectMapper;
-        this.schema = java.util.Objects.requireNonNull(schema,
+        this.schema = Objects.requireNonNull(schema,
             "schema cannot be null — PeeGeeQ has no default schema");
     }
 
@@ -91,59 +91,12 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
                 .map(rows -> {
                     List<Message<T>> messages = new ArrayList<>();
                     for (Row row : rows) {
-                        Message<T> message = mapRow(row);
+                        Message<T> message = PgNativeMessages.map(row, objectMapper, payloadType);
                         if (message != null) {
                             messages.add(message);
                         }
                     }
                     return messages;
-                });
-    }
-
-    /**
-     * Maps a {@code queue_messages} row to a {@link Message}. Returns null if the row cannot be
-     * parsed (logged at WARN). Shared by {@link #browse(int, int)} and {@link #readById(long)}.
-     */
-    private Message<T> mapRow(Row row) {
-        try {
-            String id = String.valueOf(row.getLong("id"));
-            String payloadJson = row.getJsonObject("payload").encode();
-            T payload = objectMapper.readValue(payloadJson, payloadType);
-
-            Map<String, String> headers = new HashMap<>();
-            var headersJson = row.getJsonObject("headers");
-            if (headersJson != null) {
-                for (String key : headersJson.fieldNames()) {
-                    headers.put(key, headersJson.getString(key));
-                }
-            }
-
-            Instant createdAt = row.getLocalDateTime("created_at") != null
-                    ? row.getLocalDateTime("created_at").toInstant(ZoneOffset.UTC)
-                    : Instant.now();
-
-            return new PgNativeMessage<>(id, payload, createdAt, headers);
-        } catch (Exception e) {
-            logger.warn("Failed to parse message: {}", e.getMessage());
-            return null;
-        }
-    }
-
-    /**
-     * Non-destructive read of a single message by its database id. A plain SELECT — no
-     * FOR UPDATE, no status change, no delete — so it never consumes the message.
-     */
-    private Future<Message<T>> readById(long id) {
-        String sql = String.format("""
-                SELECT id, payload, headers, created_at, status
-                FROM %s.queue_messages
-                WHERE topic = $1 AND id = $2
-                """, schema);
-        return pool.preparedQuery(sql)
-                .execute(Tuple.of(topic, id))
-                .map(rows -> {
-                    var it = rows.iterator();
-                    return it.hasNext() ? mapRow(it.next()) : null;
                 });
     }
 
@@ -155,70 +108,16 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
         if (onMessage == null) {
             return Future.failedFuture(new IllegalArgumentException("onMessage handler is required"));
         }
-        if (tailConnection != null) {
+        if (observer != null) {
             return Future.failedFuture(new IllegalStateException("tail is already active on this browser"));
         }
 
-        final String channel = NativeQueueChannels.channelFor(schema, topic);
-
-        // Mirror PgNativeQueueConsumer.startListening exactly: a dedicated, non-pooled connection
-        // for LISTEN (pooled connections are recycled and must not hold a LISTEN); execute LISTEN
-        // first (quoted identifier — the channel name is generated and may need quoting); then,
-        // on success, register the notification/close/exception handlers. On each NOTIFY the
-        // payload is the new message's DB id (see PgNativeQueueProducer's pg_notify); we read that
-        // row non-destructively (plain SELECT — no FOR UPDATE/status change/delete) and push it.
-        return poolAdapter.connectDedicated().compose(conn ->
-                conn.query("LISTEN \"" + channel + "\"").execute()
-                        .compose(rs -> {
-                            this.tailConnection = conn;
-                            logger.info("tail: observing channel {} (non-destructive)", channel);
-
-                            conn.notificationHandler(notification -> {
-                                if (!channel.equals(notification.getChannel())) {
-                                    return;
-                                }
-                                final long id;
-                                try {
-                                    id = Long.parseLong(notification.getPayload().trim());
-                                } catch (NumberFormatException e) {
-                                    logger.warn("tail: unexpected NOTIFY payload '{}' on channel {}",
-                                            notification.getPayload(), channel);
-                                    return;
-                                }
-                                readById(id)
-                                        .onSuccess(message -> {
-                                            if (message != null) {
-                                                onMessage.handle(message)
-                                                        .onFailure(err -> logger.error(
-                                                                "tail: handler failed for message {}: {}",
-                                                                id, err.getMessage()));
-                                            }
-                                        })
-                                        .onFailure(err -> logger.error(
-                                                "tail: failed to read message id {} on {}: {}",
-                                                id, channel, err.getMessage()));
-                            });
-
-                            // Surface connection-level faults instead of letting a dropped LISTEN
-                            // hang the observer silently — mirrors PgNativeQueueConsumer.
-                            conn.exceptionHandler(err -> logger.error(
-                                    "tail: LISTEN connection error on channel {}: {}", channel, err.getMessage()));
-                            conn.closeHandler(v -> {
-                                this.tailConnection = null;
-                                if (!closed) {
-                                    logger.warn("tail: LISTEN connection for channel {} closed unexpectedly", channel);
-                                }
-                            });
-
-                            return Future.<Void>succeededFuture();
-                        })
-                        // If LISTEN fails, close the dedicated connection we opened (no leak); the
-                        // failed Future still propagates to the caller, so the fault is not hidden.
-                        .onFailure(err -> {
-                            logger.error("tail: failed to start LISTEN on channel {}: {}", channel, err.getMessage());
-                            conn.close().onFailure(closeErr -> logger.warn(
-                                    "tail: failed to close connection after LISTEN error: {}", closeErr.getMessage()));
-                        }));
+        // Delegate to the dedicated non-destructive observer (watermark drain + LISTEN reconnect).
+        // The browser stays a thin reader; the observer owns the LISTEN connection and lifecycle.
+        PgNativeQueueObserver<T> obs = new PgNativeQueueObserver<>(
+                topic, payloadType, schema, pool, poolAdapter, objectMapper, onMessage);
+        this.observer = obs;
+        return obs.start();
     }
 
     @Override
@@ -229,13 +128,12 @@ public class PgNativeQueueBrowser<T> implements QueueBrowser<T> {
     @Override
     public void close() {
         closed = true;
-        PgConnection conn = this.tailConnection;
-        this.tailConnection = null;
-        if (conn != null) {
-            // Closing the connection drops the LISTEN with it; no explicit UNLISTEN needed.
-            conn.close().onFailure(err ->
-                    logger.warn("Failed to close tail LISTEN connection for topic {}: {}",
-                            topic, err.getMessage()));
+        PgNativeQueueObserver<T> obs = this.observer;
+        this.observer = null;
+        if (obs != null) {
+            // Stop the tail (UNLISTEN + close the dedicated connection); observe the failure.
+            obs.stop().onFailure(err ->
+                    logger.warn("Failed to stop tail observer for topic {}: {}", topic, err.getMessage()));
         }
         logger.debug("Closed browser for topic: {}", topic);
     }
