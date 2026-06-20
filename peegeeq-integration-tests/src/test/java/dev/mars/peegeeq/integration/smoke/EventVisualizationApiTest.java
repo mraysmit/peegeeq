@@ -22,6 +22,7 @@ import com.networknt.schema.ValidationMessage;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -70,7 +71,7 @@ class EventVisualizationApiTest extends SmokeTestBase {
                 .put("databaseName", "viz_db_" + System.currentTimeMillis())
                 .put("username", getPostgresUsername())
                 .put("password", getPostgresPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray())

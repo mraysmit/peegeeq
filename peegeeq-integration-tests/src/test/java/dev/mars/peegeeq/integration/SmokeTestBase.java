@@ -178,7 +178,7 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
                         .put("databaseName", "smoke_db_" + setupId.replace("-", "_"))
                         .put("username", getPostgresUsername())
                         .put("password", getPostgresPassword())
-                        .put("schema", "public")
+                        .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                         .put("templateDatabase", "template0")
                         .put("encoding", "UTF8"))
                 .put("queues", new io.vertx.core.json.JsonArray()

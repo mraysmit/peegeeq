@@ -16,6 +16,7 @@
 package dev.mars.peegeeq.integration.smoke;
 
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -57,7 +58,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
                 .put("databaseName", "mgmt_es_" + System.currentTimeMillis())
                 .put("username", getPostgresUsername())
                 .put("password", getPostgresPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
@@ -227,7 +228,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
                 .put("databaseName", "std_es_" + System.currentTimeMillis())
                 .put("username", getPostgresUsername())
                 .put("password", getPostgresPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
@@ -278,7 +279,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
                 .put("databaseName", "test_" + System.currentTimeMillis())
                 .put("username", getPostgresUsername())
                 .put("password", getPostgresPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
@@ -314,7 +315,7 @@ class EventStoreManagementSmokeTest extends SmokeTestBase {
                 .put("databaseName", "mgmt_es_" + System.currentTimeMillis())
                 .put("username", getPostgresUsername())
                 .put("password", getPostgresPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
