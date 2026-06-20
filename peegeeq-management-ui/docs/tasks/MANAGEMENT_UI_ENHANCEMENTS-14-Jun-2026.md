@@ -5,6 +5,48 @@
 
 ---
 
+## Open Items (gaps needing attention — updated 2026-06-18)
+
+Consolidated from the gaps surfaced during the SSE/non-destructive-observe and schema work,
+prioritised. Each links to where it is tracked in detail.
+
+**High**
+1. **Finish the no-`public`-in-tests schema sweep — Phases B–E.** Phase A (`ManagementApiIntegrationTest`)
+   done/green; ~59 files remain across `peegeeq-rest` (B), `peegeeq-db`/`peegeeq-integration-tests`/
+   `peegeeq-runtime`/`peegeeq-rest-client` (C), `peegeeq-examples`/`peegeeq-native`/`peegeeq-outbox` (D),
+   and the frontend e2e/TS create flows + fixtures (E). Run each module separately — moving off `public`
+   may surface masked `search_path` defects. **Phase B (`peegeeq-rest`) converted 2026-06-18 — pending its integration run.** *Tracked: `docs-design/tasks/SCHEMA-PROCESSING-GAPS-CRITICAL-17-Jun-2026.md` → "Follow-up: no `public` in any test".*
+2. ✅ **DONE (2026-06-18) — real-consumer leg added to the observe-≠-consume test (native + outbox).**
+   Test 1 now proves "still browsable" via `browse()` **and** that a real `createConsumer().subscribe()`
+   still receives the message — green for both `PgNativeQueueBrowserTailIntegrationTest` and
+   `OutboxQueueBrowserTailIntegrationTest`. *Tracked: §7.12 Phase 12.2;
+   `docs-design/dev/non-destructive-queue-observer-design-18-Jun-2026.md` §11.*
+
+**Medium**
+3. **SSE message-stream failure/reconnect coverage.** The deleted `message-browser-sse-failure.spec.ts`
+   covered EventSource dropout/recovery; with the new non-destructive `/messages/stream` that coverage is
+   valid again and currently absent end-to-end (the backend observer reconnect *is* tested; the UI
+   Live-mode dropout → `message.error` → auto-reconnect path is not). *Source: commit `c609bd4d` deletion + §7.12 Phase 12.5.*
+4. **Phase 13 — remove latent destructive clients.** Delete `PeeGeeQClient.streamMessages`,
+   `createMessageStreamService` + `useMessageStream`, and the dead `endpoints.ts QUEUE.STREAM` URL (the
+   Phase 12.0 carve-out) so a consuming read cannot be wired into an admin view by accident; then the
+   §13.2 naming contract. *Tracked: §7.13.*
+
+**Low**
+5. **Confirm + close the last two backend-coverage tests.** `testUpdateQueueEndpoint` (`@Order 23`) and
+   `testGetQueueBindingsEndpoint` (`@Order 24`) in `ManagementApiIntegrationTest` were written but not
+   confirmed green; run them, then flip their §10.5 rows to resolved. *Tracked: §10.5.*
+6. **REST module guide doc pass.** `peegeeq-rest/docs/PEEGEEQ_REST_MODULE_GUIDE.md`'s implementation
+   walkthrough (~lines 340–460, 745–760) still narrates the removed consuming SSE stream. *Tracked: §7.12 Phase 12.0 carve-out.*
+7. **Pending UI phases.** Phase 7 (Consumer Groups success toasts — verified not done) and 7a
+   (Notifications page — not started). *Tracked: §7.7, §7.7a.*
+
+**Optional**
+8. **Phase 12.6 — WebSocket parity.** Wire `WebSocketHandler.handleQueueStream` (a non-consuming stub)
+   to `tail()` so WS clients get the same non-destructive push. Defer unless a WS consumer is needed.
+
+---
+
 ## 0. Complete Functionality Inventory
 
 Every piece of functionality on every screen, as implemented.
@@ -1965,12 +2007,13 @@ npx playwright test --workers=1
 **Objective.** Provide a *push* stream of new queue messages to the admin UI that **observes
 without consuming** — the live, push-based counterpart to `browse`.
 
-**Status (2026-06-18).** The old destructive consuming SSE endpoint
-`GET /api/v1/queues/{s}/{q}/stream` was **removed** in commit `7a5b0a66` (it ran
-`createConsumer().subscribe()` and acked/removed messages, stealing them from real consumers).
-Consequences of that removal are **not yet cleaned up** (broken tests, orphaned `SSEConnection`,
-stale frontend specs — see Phase 12.0). There is currently **no live push** for queue messages;
-admin live views fall back to browse-polling (Phase 5). This phase builds the correct replacement.
+**Status (2026-06-18) — live push IMPLEMENTED end-to-end.** The old destructive consuming SSE
+endpoint `GET /api/v1/queues/{s}/{q}/stream` was **removed** (commit `7a5b0a66`; it ran
+`createConsumer().subscribe()` and acked/removed messages, stealing them from real consumers) and its
+fallout cleaned up (Phase 12.0 ✅). The correct **non-destructive** replacement is now built: native
+observer (12.2 ✅), outbox observer (12.3 ✅), REST SSE endpoint `GET …/messages/stream` (12.4 ✅), and
+UI Live mode on that stream (12.5 ✅). Admin live views push again — without consuming. Remaining:
+optional WS parity (12.6) and the latent destructive-client cleanup (Phase 13).
 
 **Principle.** *Observe ≠ consume.* Every admin API is non-destructive by default (memory
 *Admin UI Non-Destructive Reads*). The live stream must never `subscribe`/ack/`FOR UPDATE`/
@@ -2032,8 +2075,18 @@ LISTEN/reconnect logic. The first native `tail()` attempt did this and was disca
   default impl throws `UnsupportedOperationException`.
 - **Exit:** compiles; contract documented.
 
-#### Phase 12.2 — Native non-destructive observer (`peegeeq-native`) — core
+#### Phase 12.2 — Native non-destructive observer (`peegeeq-native`) — core  ✅ DONE (2026-06-18)
 > **Full design:** `docs-design/dev/non-destructive-queue-observer-design-18-Jun-2026.md`.
+> **Done 2026-06-18:** Implemented as `PgNativeQueueObserver` (package-private `final class`) per the
+> design doc. NOTE the design **superseded** the read-by-id sketch in the bullets below with a
+> **watermark drain** (`SELECT … WHERE id > highWaterId ORDER BY id ASC`, FROM_NOW seed via
+> `MAX(id)`) — immune to out-of-order commits and reconnect gaps, which read-by-id is not.
+> `PgNativeQueueBrowser.tail()` delegates to it; shared row-mapper extracted to `PgNativeMessages`.
+> Tests (`PgNativeQueueBrowserTailIntegrationTest`): observe-not-consume, reconnect/catch-up
+> (`pg_terminate_backend`), and 3 fail-fast guards — green; no banned patterns.
+> **Gap closed (2026-06-18):** test #1 now adds the `createConsumer().subscribe()` real-consumer leg —
+> after the tail observes and `browse()` still sees the message, a real consumer still receives it.
+> Green for native and outbox.
 - New observer class mirroring `ReactiveNotificationHandler`: `connectDedicated()` LISTEN on
   `channelFor(schema,topic)`; `notificationHandler` → `runOnContext` → read new id via
   non-destructive `SELECT … WHERE topic=$1 AND id=$2` → invoke handler; `closeHandler` reconnect

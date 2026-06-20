@@ -112,7 +112,7 @@ public class DeadLetterRequeueIntegrationTest {
                 .put("databaseName", "dlq_db_" + System.currentTimeMillis())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray()

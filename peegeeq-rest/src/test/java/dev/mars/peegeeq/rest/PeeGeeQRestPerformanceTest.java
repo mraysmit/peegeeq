@@ -396,7 +396,7 @@ public class PeeGeeQRestPerformanceTest {
                         .put("databaseName", dbName)
                         .put("username", postgres.getUsername())
                         .put("password", postgres.getPassword())
-                        .put("schema", "public"))
+                        .put("schema", PostgreSQLTestConstants.TEST_SCHEMA))
                 .put("queues", new JsonArray())
                 .put("eventStores", new JsonArray())
                 .put("additionalProperties", new JsonObject().put("performance", true));
