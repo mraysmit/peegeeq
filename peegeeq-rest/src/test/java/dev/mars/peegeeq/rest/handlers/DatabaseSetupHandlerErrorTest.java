@@ -4,6 +4,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
 import dev.mars.peegeeq.rest.support.ControllableSetupService;
 import dev.mars.peegeeq.api.setup.SetupNotFoundException;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -242,7 +243,7 @@ class DatabaseSetupHandlerErrorTest {
                         "databaseName", "testdb",
                         "username", "postgres",
                         "password", "postgres",
-                        "schema", "public"));
+                        "schema", PostgreSQLTestConstants.TEST_SCHEMA));
 
         vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
                 .compose(auxId ->
@@ -283,7 +284,7 @@ class DatabaseSetupHandlerErrorTest {
                         "databaseName", "testdb",
                         "username", "postgres",
                         "password", "postgres",
-                        "schema", "public"));
+                        "schema", PostgreSQLTestConstants.TEST_SCHEMA));
 
         vertx.deployVerticle(new PeeGeeQRestServer(config, svc))
                 .compose(auxId ->

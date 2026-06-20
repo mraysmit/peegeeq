@@ -1,8 +1,18 @@
 # Native Non-Destructive Queue Observer — Design (Phase 12.2)
 
-**Status:** design draft, 2026-06-18.
+**Status:** ✅ **IMPLEMENTED 2026-06-18** — built to this design for **native**
+(`PgNativeQueueObserver`) and, via the poll variant (§13.4), for **outbox** (`OutboxQueueObserver`).
+Delivered across commits `7a5b0a66` (SSE handler build-out), `1cf67c00` (outbox observer),
+`1021d93e` (native + outbox SSE streaming). The as-built constructor (§6), constants (§7), and the
+watermark-drain / FROM_NOW-seed / reconnect structure (§4–§7) match this design — verified against
+`PgNativeQueueObserver.java`.
 **Scope:** `peegeeq-native`. The component that backs `QueueBrowser.tail(...)` — a live,
 **non-destructive** observer of new messages on a native queue topic.
+**Delivery surface (as-built):** the REST SSE endpoint
+`GET /api/v1/queues/:setupId/:queueName/messages/stream` → `ServerSentEventsHandler.handleQueueMessageStream`
+→ `browser.tail(...)` streams observed messages to the management UI **without consuming them**. The
+old *consuming* stream `GET …/{queueName}/stream` — which created a consumer and drained the queue (a
+data-loss hazard) — and its `SSEConnection` wrapper were **removed** in the same work.
 **Companion plan:** `peegeeq-management-ui/docs/tasks/MANAGEMENT_UI_ENHANCEMENTS-14-Jun-2026.md` §7.12.
 
 ---
@@ -40,19 +50,28 @@ observe is "a `SELECT` that also deletes the rows it read" and is forbidden in t
    lifecycle, reconnection, and the watermark live in a **separate observer class**; `tail()`
    delegates to it.
 
-## 3. Where it lives
+## 3. Where it lives (as-built)
 
 ```
 peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/
-    PgNativeQueueObserver.java     ← NEW: the observer (this design)
-    PgNativeQueueBrowser.java      ← tail() delegates to the observer; browse() unchanged
-    PgNativeQueueFactory.java      ← already passes Pool + VertxPoolAdapter into the browser
+    PgNativeQueueObserver.java     ← the observer — package-private `final class` (this design)
+    PgNativeMessages.java          ← shared static row→Message mapper (resolves §13.1)
+    PgNativeQueueBrowser.java      ← tail() delegates to the observer; browse() unchanged (~148 lines lighter)
+    PgNativeQueueFactory.java      ← passes Pool + VertxPoolAdapter into the browser
     NativeQueueChannels.java       ← channelFor(schema, topic) (reused)
+
+peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/   (poll variant — §13.4)
+    OutboxQueueObserver.java       ← browse-poll sibling: vertx.setPeriodic → drain (no LISTEN)
+    OutboxMessages.java            ← shared static row→Message mapper
+    OutboxQueueBrowser.java        ← tail() delegates to OutboxQueueObserver
+
+peegeeq-rest/.../handlers/ServerSentEventsHandler.java   (REST delivery)
+    handleQueueMessageStream       ← GET …/messages/stream → browser.tail() → SSE; consuming /stream + SSEConnection removed
 ```
 
 `PgNativeQueueBrowser.tail()` creates and `start()`s a `PgNativeQueueObserver`, returns its
-`Future<Void>`, and stops it in `browser.close()`. The hand-rolled LISTEN currently in
-`PgNativeQueueBrowser` is **removed** and replaced by this delegation.
+`Future<Void>`, and stops it in `browser.close()`. The hand-rolled LISTEN previously inlined in
+`PgNativeQueueBrowser` was **removed** and replaced by this delegation.
 
 ## 4. Core design choice — watermark drain, not read-by-single-id
 
@@ -355,24 +374,35 @@ Each test mirrors the setup of `PgNativeQueueFactoryIntegrationTest`
 everything through the injected `VertxTestContext` (`onSuccess`/`onFailure`, `ctx.verify`), per the
 testing-standards doc.
 
-## 12. Banned-pattern compliance checklist
+**As-built (2026-06-18) — `PgNativeQueueBrowserTailIntegrationTest`:** tests 1 (observe-not-consume),
+3 (reconnect/catch-up via `pg_terminate_backend`), and the 3 fail-fast guards (4) are implemented and
+green. ✅ **Gap closed (2026-06-18):** test 1 now adds the `createConsumer().subscribe()` leg — after
+the tail observes and `browse()` still sees the message, a real consumer still receives it (the decisive
+observe-≠-consume proof), green for native and outbox. The standalone no-miss/out-of-order case (2) is
+not a separate test (catch-up is covered by the reconnect test); backpressure (5, optional) is not
+implemented.
 
-- [ ] No `.recover(` / `.otherwise(` — `stop()` cleanup uses `.transform(...)` then `conn.close()`.
-- [ ] No `.await(` / `CompletableFuture` / `.join()` / `.get()` — pure `Future` composition.
-- [ ] No `Thread.sleep` / `LockSupport.parkNanos` — backoff via `vertx.setTimer` (production timer).
-- [ ] No `Handler<AsyncResult>` / `.onComplete(ar -> …succeeded)` for branching — the drain clears
+## 12. Banned-pattern compliance checklist — ✅ verified as-built (2026-06-18)
+
+- [x] No `.recover(` / `.otherwise(` — `stop()` cleanup uses `.transform(...)` then `conn.close()`.
+- [x] No `.await(` / `CompletableFuture` / `.join()` / `.get()` — pure `Future` composition.
+- [x] No `Thread.sleep` / `LockSupport.parkNanos` — backoff via `vertx.setTimer` (production timer).
+- [x] No `Handler<AsyncResult>` / `.onComplete(ar -> …succeeded)` for branching — the drain clears
       its single-flight guard via `onSuccess`/`onFailure` → `finishDrain(...)`, not `onComplete`.
-- [ ] Every `Future` observed (`.onFailure(...)` or chained); no fire-and-forget.
-- [ ] All reads non-destructive: `SELECT … WHERE id > $2` only; no `FOR UPDATE`/status/delete.
+- [x] Every `Future` observed (`.onFailure(...)` or chained); no fire-and-forget.
+- [x] All reads non-destructive: `SELECT … WHERE id > $2` only; no `FOR UPDATE`/status/delete.
 
-## 13. Open decisions
+Verified by a full read of `PgNativeQueueObserver.java`; `OutboxQueueObserver.java` is clean too (a
+grep for every banned token returns nothing).
 
-1. **Row-mapper sharing.** Extract `PgNativeQueueBrowser.mapRow` into a shared static
-   (`PgNativeMessages.map`) so `browse` and the observer cannot drift — recommended.
-2. **`DRAIN_BATCH_LIMIT` value.** 200 is a starting point; tune against SSE write throughput.
-3. **Backlog policy.** Keep the observer strictly FROM_NOW and let REST/UI fetch initial history via
-   `browse(N)` — recommended (clean separation). Revisit only if a combined "history + live" single
-   call is wanted at the API layer.
+## 13. Open decisions — all resolved (as-built 2026-06-18)
+
+1. **Row-mapper sharing.** ✅ Resolved — extracted to a shared static `PgNativeMessages.map(...)`
+   (and `OutboxMessages.map(...)` for outbox), so `browse` and the observer read paths cannot drift.
+2. **`DRAIN_BATCH_LIMIT` value.** ✅ Shipped at **200** (both native and outbox observers); revisit
+   only if SSE write throughput warrants tuning.
+3. **Backlog policy.** ✅ Resolved — the observer stays strictly FROM_NOW; REST/UI fetch initial
+   history via `browse(N)`. No combined "history + live" call at the API layer.
 4. **Reuse for outbox (12.3).** ✅ Resolved 2026-06-18: the outbox emits **no** insert NOTIFY (it
    is a poll-based queue — `OutboxConsumer` uses `vertx.setPeriodic`, not LISTEN), so it uses the
    watermark **poll** variant: a sibling `OutboxQueueObserver` that shares this drain/watermark

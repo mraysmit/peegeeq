@@ -138,7 +138,7 @@ public class SetupManagementIntegrationTest {
                 .put("databaseName", "setup_mgmt_db_" + System.currentTimeMillis())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray()
@@ -192,7 +192,7 @@ public class SetupManagementIntegrationTest {
                     assertTrue(body.getInteger("port") > 0, "port should be a positive integer");
                     assertNotNull(body.getString("databaseName"), "databaseName should be present");
                     assertFalse(body.getString("databaseName").isBlank(), "databaseName should not be blank");
-                    assertEquals("public", body.getString("schema"), "schema should be public");
+                    assertEquals(PostgreSQLTestConstants.TEST_SCHEMA, body.getString("schema"), "schema should be the test schema");
 
                     // Queue created in Order 2 must appear in queueFactories
                     JsonArray queueFactories = body.getJsonArray("queueFactories");

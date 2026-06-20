@@ -17,6 +17,7 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -112,10 +113,11 @@ class PgNativeQueueBrowserTailIntegrationTest {
     }
 
     @Test
-    @Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 15, timeUnit = TimeUnit.SECONDS)
     void tail_observesNewMessage_andLeavesItBrowsable(VertxTestContext ctx) {
         String topic = "tail-nondestructive-" + System.currentTimeMillis();
         Promise<Message<String>> observed = Promise.promise();
+        Promise<Message<String>> consumedByRealConsumer = Promise.promise();
 
         factory.<String>createBrowser(topic, String.class)
                 .compose(browser ->
@@ -133,16 +135,34 @@ class PgNativeQueueBrowserTailIntegrationTest {
                                 .compose(msg -> {
                                     ctx.verify(() -> assertEquals("hello-tail", msg.getPayload(),
                                             "tail must observe the published message"));
-                                    // NON-DESTRUCTIVE proof: the observed message must still be in the queue.
+                                    // Proof 1 — still browsable: a non-destructive read still sees it.
                                     return browser.browse(50, 0);
+                                })
+                                .compose(messages -> {
+                                    ctx.verify(() -> assertTrue(
+                                            messages.stream().anyMatch(m -> "hello-tail".equals(m.getPayload())),
+                                            "observing via tail must NOT consume — the message must remain browsable"));
+                                    // Proof 2 (the decisive one) — a REAL consumer must STILL receive it.
+                                    // Observing must not steal the message from the application's real
+                                    // consumers; a "SELECT that also deletes" would fail this assertion.
+                                    MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
+                                    return consumer.subscribe(m -> {
+                                                consumedByRealConsumer.tryComplete(m);
+                                                return Future.succeededFuture();
+                                            })
+                                            .compose(v -> consumedByRealConsumer.future())
+                                            .eventually(() -> {
+                                                try { consumer.close(); } catch (Exception ignored) { }
+                                                return Future.succeededFuture();
+                                            });
                                 })
                                 .eventually(() -> {
                                     try { browser.close(); } catch (Exception ignored) { }
                                     return Future.succeededFuture();
                                 }))
-                .onSuccess(messages -> ctx.verify(() -> {
-                    assertTrue(messages.stream().anyMatch(m -> "hello-tail".equals(m.getPayload())),
-                            "observing via tail must NOT consume — the message must remain browsable");
+                .onSuccess(consumedMsg -> ctx.verify(() -> {
+                    assertEquals("hello-tail", consumedMsg.getPayload(),
+                            "a real consumer must still receive the observed message — observe did not consume it");
                     ctx.completeNow();
                 }))
                 .onFailure(ctx::failNow);
