@@ -25,6 +25,7 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
@@ -62,7 +63,7 @@ public class BasicUnitTest {
                 .databaseName("test_db")
                 .username("test_user")
                 .password("test_pass")
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .templateDatabase("template0")
                 .encoding("UTF8")
                 .build();
@@ -73,7 +74,7 @@ public class BasicUnitTest {
         assertEquals("test_db", config.getDatabaseName());
         assertEquals("test_user", config.getUsername());
         assertEquals("test_pass", config.getPassword());
-        assertEquals("public", config.getSchema());
+        assertEquals(PostgreSQLTestConstants.TEST_SCHEMA, config.getSchema());
         assertEquals("template0", config.getTemplateDatabase());
         assertEquals("UTF8", config.getEncoding());
         
@@ -141,7 +142,7 @@ public class BasicUnitTest {
                 .databaseName("test_db")
                 .username("test_user")
                 .password("test_pass")
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
         
         QueueConfig queueConfig = new QueueConfig.Builder()

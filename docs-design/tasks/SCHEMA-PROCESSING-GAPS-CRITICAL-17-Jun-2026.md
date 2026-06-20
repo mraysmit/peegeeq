@@ -408,7 +408,7 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 | Phase | Scope | Status |
 |---|---|---|
 | A | `ManagementApiIntegrationTest` create-setup → `peegeeq_test` (proves the non-public create path) | ✅ **Done 2026-06-16 — GREEN.** The full class passed against `peegeeq_test`, confirming the setup-service create path (CREATE SCHEMA → `search_path` → DDL → NOTIFY) works on a non-public schema. B–E are therefore a mechanical `"public"` → non-public swap (still run per module). |
-| B | Remaining `peegeeq-rest` test setup-creation + `.schema("public")` | Pending |
+| B | Remaining `peegeeq-rest` test setup-creation + `.schema("public")` | Converted 2026-06-18 — 31 files moved off `public` to `PostgreSQLTestConstants.TEST_SCHEMA` (29 uniform `.put("schema", …)` via regex; `BasicUnitTest`/`DatabaseSetupHandlerErrorTest` builder/`JsonObject.of` forms + import added; plus the stale `SetupManagementIntegrationTest:195` response assertion the swap exposed). Grep-clean: zero `public` schema literals in `peegeeq-rest/src/test`. **Pending validation before marking green — `mvn test -Pintegration-tests -pl :peegeeq-rest` (change is confined to `peegeeq-rest/src/test`; `-Pall-tests` is the pre-commit regression gate, not the per-change check).** |
 | C | `peegeeq-db` / `peegeeq-integration-tests` / `peegeeq-runtime` / `peegeeq-rest-client` | Pending |
 | D | `peegeeq-examples` / `peegeeq-native` / `peegeeq-outbox` test usages | Pending |
 | E | Frontend e2e/TS (`peegeeq-management-ui`) create flows + fixtures | Pending |

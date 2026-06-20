@@ -253,7 +253,7 @@ public class RestApiExampleTest {
                 .put("databaseName", postgres.getDatabaseName())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
-                .put("schema", "public"))
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA))
             .put("queues", new JsonArray()
                 .add(new JsonObject()
                     .put("queueName", "orders")
