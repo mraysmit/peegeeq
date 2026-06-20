@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.junit5.VertxExtension;
@@ -44,7 +45,7 @@ public class EventDrivenLifecycleTest {
             postgres.getDatabaseName(),
             postgres.getUsername(),
             postgres.getPassword(),
-            "public");
+            PostgreSQLTestConstants.TEST_SCHEMA);
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         logger.info("Verifying reactive lifecycle API structure...");
@@ -83,7 +84,7 @@ public class EventDrivenLifecycleTest {
             postgres.getDatabaseName(),
             postgres.getUsername(),
             postgres.getPassword(),
-            "public");
+            PostgreSQLTestConstants.TEST_SCHEMA);
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         logger.info("Verifying health check manager initialization...");

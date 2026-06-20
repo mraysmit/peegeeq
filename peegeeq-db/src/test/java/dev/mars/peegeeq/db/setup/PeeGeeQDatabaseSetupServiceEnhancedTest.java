@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.test.TestFactoryRegistration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import io.vertx.core.Future;
@@ -74,7 +75,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .databaseName("enhanced_test_db_" + System.currentTimeMillis())
                 .username(getPostgres().getUsername())
                 .password(getPostgres().getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .templateDatabase("template0")
                 .encoding("UTF8")
                 .build();
@@ -125,7 +126,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .databaseName("factory_usage_test_db_" + System.currentTimeMillis())
                 .username(getPostgres().getUsername())
                 .password(getPostgres().getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         List<QueueConfig> queues = List.of(
@@ -208,7 +209,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .databaseName("dynamic_queue_test_db_" + System.currentTimeMillis())
                 .username(getPostgres().getUsername())
                 .password(getPostgres().getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         DatabaseSetupRequest request = new DatabaseSetupRequest(
@@ -268,7 +269,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .databaseName("eventstore_test_db_" + System.currentTimeMillis())
                 .username(getPostgres().getUsername())
                 .password(getPostgres().getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         List<EventStoreConfig> eventStores = List.of(
@@ -317,7 +318,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .databaseName("destruction_test_db_" + System.currentTimeMillis())
                 .username(getPostgres().getUsername())
                 .password(getPostgres().getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         DatabaseSetupRequest request = new DatabaseSetupRequest(
@@ -771,7 +772,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .databaseName("agg_summary_test_db_" + System.currentTimeMillis())
                 .username(getPostgres().getUsername())
                 .password(getPostgres().getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .templateDatabase("template0")
                 .encoding("UTF8")
                 .build();

@@ -16,6 +16,7 @@
 package dev.mars.peegeeq.integration.smoke;
 
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -395,7 +396,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                 .put("databaseName", "advanced_" + System.currentTimeMillis())
                 .put("username", getPostgresUsername())
                 .put("password", getPostgresPassword())
-                .put("schema", "public")
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
                 .put("templateDatabase", "template0")
                 .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
