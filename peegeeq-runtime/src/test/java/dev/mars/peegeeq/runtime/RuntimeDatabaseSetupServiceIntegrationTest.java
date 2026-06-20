@@ -100,7 +100,7 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                 .databaseName("test_db_" + System.currentTimeMillis())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .templateDatabase("template0")
                 .encoding("UTF8")
                 .build();

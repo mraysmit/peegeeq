@@ -10,6 +10,7 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -322,7 +323,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                 .databaseName("smoke_db_" + setupId.replace("-", "_"))
                 .username(getPostgresUsername())
                 .password(getPostgresPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .templateDatabase("template0")
                 .encoding("UTF8")
                 .build();
