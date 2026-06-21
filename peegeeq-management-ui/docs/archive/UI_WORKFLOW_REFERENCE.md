@@ -87,7 +87,7 @@ await page.getByLabel('Port').fill('5432')
 await page.getByLabel('Database Name').fill('mydb')
 await page.getByLabel('Username').fill('postgres')
 await page.getByLabel('Password').fill('password')
-await page.getByLabel('Schema').fill('public')
+await page.getByLabel('Schema').fill('peegeeq_test')
 ```
 - **Expected**: Each field shows the typed value
 - **Expected**: No validation errors (if inputs are valid)

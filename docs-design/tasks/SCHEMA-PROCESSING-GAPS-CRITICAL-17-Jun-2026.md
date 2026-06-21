@@ -409,9 +409,10 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 |---|---|---|
 | A | `ManagementApiIntegrationTest` create-setup → `peegeeq_test` (proves the non-public create path) | ✅ **Done 2026-06-16 — GREEN.** The full class passed against `peegeeq_test`, confirming the setup-service create path (CREATE SCHEMA → `search_path` → DDL → NOTIFY) works on a non-public schema. B–E are therefore a mechanical `"public"` → non-public swap (still run per module). |
 | B | Remaining `peegeeq-rest` test setup-creation + `.schema("public")` | ✅ **Done 2026-06-20 — GREEN.** 31 files moved off `public` to `PostgreSQLTestConstants.TEST_SCHEMA` (29 uniform `.put("schema", …)` via regex; `BasicUnitTest`/`DatabaseSetupHandlerErrorTest` builder/`JsonObject.of` forms + import added; plus the stale `SetupManagementIntegrationTest:195` response assertion the swap exposed). Grep-clean: zero `public` schema literals in `peegeeq-rest/src/test`. Validated via `mvn test -Pintegration-tests -pl :peegeeq-rest` (log `logs/peegeeq-rest-integration-20260619.txt`): **321 tests, 0 failures**, every schema-converted file passing. The one error — `SseMessageStreamDemoIntegrationTest.tenMessages_streamOverSse_outboxQueue` `HttpClosedException` — is unrelated to the schema swap (functional path completed: all 10 received + non-destructive verified before the exception) and **passes clean in isolation** (`logs/sse-msgstream-rerun-20260619.txt`, 2/2 green); logged as a separate parallel-teardown flake in Open Items below. |
-| C | `peegeeq-db` / `peegeeq-integration-tests` / `peegeeq-runtime` / `peegeeq-rest-client` | **Partial.** ✅ `peegeeq-runtime` (`RuntimeDatabaseSetupServiceIntegrationTest:103` `.schema(...)`) + `peegeeq-rest-client` (`RestClientIntegrationTest:147` `.put("schema",…)`) converted to `PostgreSQLTestConstants.TEST_SCHEMA` and GREEN 2026-06-20 (`logs/schema-phaseC-runtime-restclient-20260620.txt`: runtime 38/0, rest-client 15/0). ✅ `peegeeq-db` **GREEN 2026-06-20** — 8 genuine schema-config literals across 2 files (`PeeGeeQDatabaseSetupServiceEnhancedTest` ×6 create-path, `EventDrivenLifecycleTest` ×2 positional) → `TEST_SCHEMA`; 3 occurrences deliberately LEFT (`PeeGeeQManagerTimerGuardTest:519` + `PeeGeeQManagerCloseLogLevelTest:287` `if (!"public".equals(schema))` sentinels where schema already = `TEST_SCHEMA`; `PostgreSqlIdentifierValidatorTest:238` validator fixture). Validated via `mvn test -Pintegration-tests -pl :peegeeq-db` (`logs/schema-phaseC-db-20260620.txt`): **727 tests, 0 failures**, both converted classes pass. Confirmed `EventDrivenLifecycleTest` (construction-only, schema not pre-provisioned) tolerates `TEST_SCHEMA`. 🔄 `peegeeq-integration-tests` converted 2026-06-20 — 10 create-path schema literals across 7 files (`SmokeTestBase` shared helper, `PeeGeeQCriticalPathSmokeTest`, `NativeConcurrencySmokeTest`, `BiTemporalEventStoreSmokeTest`, `EventVisualizationApiTest`, `EventStoreAdvancedAttributesSmokeTest`, `EventStoreManagementSmokeTest` ×4) → `TEST_SCHEMA` (+import added to the 5 that lacked it); grep-clean. **Mixed tags** — 5 `@Tag(SMOKE)` + 2 `@Tag(INTEGRATION)` — so verify with module-scoped all-tags: **`mvn test -pl :peegeeq-integration-tests -Pall-tests`**. Flagged (not fixed): `PeeGeeQCriticalPathSmokeTest` hand-rolls its container (antipattern §2); `NativeConcurrencySmokeTest` uses `CountDownLatch.await`/`setTimer` readiness guards/reflection field access (pre-existing, unrelated to schema swap). **With this, all Phase C conversions are complete — only the integration-tests run remains to confirm green.** Flagged (not fixed here): `RestClientIntegrationTest` hand-rolls its container instead of `PostgreSQLTestConstants.createStandardContainer()` (antipattern §2). |
-| D | `peegeeq-examples` / `peegeeq-native` / `peegeeq-outbox` test usages | Pending |
-| E | Frontend e2e/TS (`peegeeq-management-ui`) create flows + fixtures | Pending |
+| C | `peegeeq-db` / `peegeeq-integration-tests` / `peegeeq-runtime` / `peegeeq-rest-client` | ✅ **DONE — all GREEN.** ✅ `peegeeq-runtime` (`RuntimeDatabaseSetupServiceIntegrationTest:103` `.schema(...)`) + `peegeeq-rest-client` (`RestClientIntegrationTest:147` `.put("schema",…)`) converted to `PostgreSQLTestConstants.TEST_SCHEMA` and GREEN 2026-06-20 (`logs/schema-phaseC-runtime-restclient-20260620.txt`: runtime 38/0, rest-client 15/0). ✅ `peegeeq-db` **GREEN 2026-06-20** — 8 genuine schema-config literals across 2 files (`PeeGeeQDatabaseSetupServiceEnhancedTest` ×6 create-path, `EventDrivenLifecycleTest` ×2 positional) → `TEST_SCHEMA`; 3 occurrences deliberately LEFT (`PeeGeeQManagerTimerGuardTest:519` + `PeeGeeQManagerCloseLogLevelTest:287` `if (!"public".equals(schema))` sentinels where schema already = `TEST_SCHEMA`; `PostgreSqlIdentifierValidatorTest:238` validator fixture). Validated via `mvn test -Pintegration-tests -pl :peegeeq-db` (`logs/schema-phaseC-db-20260620.txt`): **727 tests, 0 failures**, both converted classes pass. Confirmed `EventDrivenLifecycleTest` (construction-only, schema not pre-provisioned) tolerates `TEST_SCHEMA`. ✅ `peegeeq-integration-tests` **GREEN 2026-06-21** — 10 create-path schema literals across 7 files (`SmokeTestBase` shared helper, `PeeGeeQCriticalPathSmokeTest`, `NativeConcurrencySmokeTest`, `BiTemporalEventStoreSmokeTest`, `EventVisualizationApiTest`, `EventStoreAdvancedAttributesSmokeTest`, `EventStoreManagementSmokeTest` ×4) → `TEST_SCHEMA` (+import added to the 5 that lacked it); grep-clean. **Mixed tags** (5 `@Tag(SMOKE)` + 2 `@Tag(INTEGRATION)`) verified via module-scoped all-tags `mvn test -pl :peegeeq-integration-tests -Pall-tests` (`logs/schema-phaseC-integtests-20260620.txt`): **97 tests, 0 failures**, all 7 converted classes pass. Flagged (not fixed): `PeeGeeQCriticalPathSmokeTest` hand-rolls its container (antipattern §2); `NativeConcurrencySmokeTest` uses `CountDownLatch.await`/`setTimer` readiness guards/reflection field access (pre-existing, unrelated to schema swap). **All Phase C conversions complete and GREEN.** Flagged (not fixed here): `RestClientIntegrationTest` hand-rolls its container instead of `PostgreSQLTestConstants.createStandardContainer()` (antipattern §2). |
+| D | `peegeeq-examples` / `peegeeq-native` / `peegeeq-outbox` test usages | ✅ **DONE — all GREEN.** **Owner ruling 2026-06-21:** cosmetic/non-config `"public"` defaults are CONVERTED too (not left); only documentation prose referencing `"public"` to explain the no-public rule stays (converting it would make the doc factually wrong). ✅ `peegeeq-native` **GREEN 2026-06-21** — `PeeGeeQExampleTest:258` dead `getString(key,"public")` log fallback → `TEST_SCHEMA`; 2 doc references left (`PgNativeQueueFactoryIntegrationTest:91` comment, `PgNativeQueueFactoryContractTest:38` Javadoc). `mvn test -Pintegration-tests -pl :peegeeq-native` (`logs/schema-phaseD-native-20260621.txt`): **190 tests, 0 failures** (6 pre-existing skips). ✅ `peegeeq-outbox` **GREEN 2026-06-21** — 2 genuine config literals → `TEST_SCHEMA` (`OutboxBlockingSafetyTest:38`, `OutboxFactoryCloseHookTest:181`; both `@Tag(CORE)`, no-DB construction-only configs) +imports; 1 Javadoc left (`OutboxFactoryContractTest:38`). `mvn test -pl :peegeeq-outbox` (`logs/schema-phaseD-outbox-20260621.txt`): **81 tests, 0 failures**. Flagged (not fixed): `OutboxFactoryCloseHookTest` uses banned `Future.await()` throughout (pre-existing). ✅ `peegeeq-examples` **GREEN 2026-06-21** — 3 genuine create-path literals → `TEST_SCHEMA` (`DatabaseSetupServiceIntegrationTest:116` & `:339`, `RestApiExampleTest:196`; both files already imported the constant); 1 comment left (`ConsumerGroupLoadBalancingDemoTest:170`, documents the "no public fallback" rule). `mvn test -Pintegration-tests -pl :peegeeq-examples -Dtest=DatabaseSetupServiceIntegrationTest,RestApiExampleTest` (`logs/schema-phaseD-examples-20260621.txt`): **13 tests, 0 failures** (DatabaseSetupServiceIntegrationTest 8/0, RestApiExampleTest 5/0). Flagged (not fixed): `DatabaseSetupServiceIntegrationTest` hand-rolls its container (§2); `RestApiExampleTest:122` post-`deployVerticle` `vertx.timer(500)` readiness delay (setTimer-guard antipattern). **Note (pre-existing, unrelated):** the run logged 7× `"already on a Vert.x context… create a new Vertx instance?"` warnings — root cause is `PeeGeeQDatabaseSetupService:178` constructing `new PeeGeeQManager(config)` without passing its context Vert.x, so `PeeGeeQManager:187` creates a fresh Vert.x on the event loop. Production-code lifecycle issue, not a schema-sweep concern; tracked separately below. |
+| E | Frontend e2e/TS (`peegeeq-management-ui`) create flows + fixtures | 🔄 **Converted 2026-06-21, pending e2e run.** Added `TEST_SCHEMA = 'peegeeq_test'` to `src/tests/e2e/test-constants.ts` (mirrors Java `PostgreSQLTestConstants.TEST_SCHEMA`). Converted **12 genuine schema literals across 10 spec files**: 4 `schema: 'public'` object-literals (`setup-prerequisite`, `database-setup` ×2, `event-stores-scope-filter`) + 8 `getByLabel(/schema/i).fill('public')` form-fills (`api-error-paths`, `event-store-management`, `event-store-workflow`, `event-visualization`, `queue-messaging-workflow`, `queue-management`, `take-screenshots` ×2; `take-screenshots` uses a local `TEST_SCHEMA` const to mirror its local-`SETUP_ID` idiom). Left intentionally: `database-cleanup.ts:61` system-schema *preserve* sentinel (`NOT IN (…, 'public')`), and the `test-constants.ts` doc comment. `npm run type-check` passes. **Pending behavioral verification via `npm run test:e2e`** — the shared `'default'` setup schema changed, so dependent specs must be re-run (full suite). **Scope note:** my first grep caught only `schema: 'public'` object-literals and missed the `.fill('public')` form-fills — corrected (this is why E is 10 files, not the 3 first reported). **Still NOT done (separate scope decision):** PowerShell helper scripts `scripts/create-test-setup.ps1`, `scripts/test-create-setup.ps1`, `scripts/setup-test-data.ps1` and several `docs/`/`docs/archive/` markdown files still reference schema `public`. |
+| F | **Testing discovery (not a schema conversion)** — Vert.x lifecycle issues surfaced during sweep verification runs | 🔎 **Logged 2026-06-21, not fixed.** Production-code (and related test-side) Vert.x lifecycle defects found while running the schema-sweep verification suites. Out of scope for the sweep; each needs its own analysis + targeted run before any change. Detail in "Phase F — Testing discoveries: Vert.x lifecycle" below. |
 
 ### Open items surfaced during Phase B validation (not schema-related)
 
@@ -423,3 +424,85 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
   points at a teardown / SSE-connection-close race under parallel execution (`test.parallel=methods`, 4 threads), not
   a defect in the streaming feature or the schema swap. Needs its own investigation — the test should not surface a
   post-assertion connection close as an error. **Do not** fold this into the schema sweep. No code changed for it here.
+
+## Phase F — Testing discoveries: Vert.x lifecycle (not schema-related)
+
+Production-code (and related test-side) Vert.x lifecycle issues surfaced by the schema-sweep
+**verification runs**. These are **not** schema conversions and were **not** fixed as part of the sweep —
+each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: logged,
+not fixed. No code changed for any F item.**
+
+### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production)
+
+**Symptom.** The Phase D `peegeeq-examples` run logged the following **7×**, one per `createCompleteSetup`,
+all on `vert.x-eventloop-thread-0` during `DatabaseSetupServiceIntegrationTest`
+(`logs/schema-phaseD-examples-20260621.txt` lines 48–77):
+
+> `WARN io.vertx.core.impl.VertxImpl - You're already on a Vert.x context, are you sure you want to create a new Vertx instance?`
+
+**Root cause (confirmed by reading the code, not inferred).**
+- `PeeGeeQDatabaseSetupService:105-107` correctly captures the context's Vert.x —
+  `var ctx = Vertx.currentContext(); this.vertx = (ctx != null) ? ctx.owner() : Vertx.vertx();` — does **not** warn.
+- But `PeeGeeQDatabaseSetupService:178` constructs `new PeeGeeQManager(config)` **without** passing that Vert.x.
+- So `PeeGeeQManager:182-189` takes the `vertx == null` branch and calls `Vertx.vertx()` at line 187, executed on
+  the event-loop thread `createCompleteSetup` runs on → the warning, once per setup.
+
+**Impact.** Non-fatal (the run is green). But every setup spins up its **own** Vert.x — a fresh event loop plus a
+20-thread `peegeeq-worker-pool` worker executor (`PeeGeeQManager:194`) — instead of reusing the context's. Resource
+waste, and the testing-standards "manual `Vertx.vertx()`" antipattern in production code.
+
+**Fix sketch + why it is its own task (not a drive-by).** Pass the captured `this.vertx` into the per-setup manager
+(`PeeGeeQManager` has a Vert.x-accepting constructor — the `if (vertx != null)` branch). That flips ownership: the
+manager would set `vertxOwnedByManager = false` and stop closing the Vert.x on `destroySetup`. That changes
+teardown/lifecycle and isolation semantics (all setups in a context sharing one Vert.x), so it must be verified —
+confirm `destroySetup` still releases per-setup resources and does not leak or prematurely close a shared Vert.x.
+Requires a targeted run of `DatabaseSetupServiceIntegrationTest` plus the setup-lifecycle suites after the change.
+
+### F2 — Related Vert.x test-side antipatterns flagged during the sweep (pre-existing)
+
+Surfaced while reading files for the conversions; all pre-existing, none touched by the sweep:
+- `OutboxFactoryCloseHookTest` (`peegeeq-outbox`, `@Tag(CORE)`) — uses banned `Future.await()` throughout
+  (lines 60, 83, 101–103, 116, 151, 168–169), and its `HookCapturingDatabaseService` stub creates an
+  unclosed `Vertx.vertx()` (line 234; stub `close()` is a no-op).
+- `NativeConcurrencySmokeTest` (`peegeeq-integration-tests`) — `CountDownLatch.await(...)` in test bodies,
+  `setTimer` readiness guard (line 123), and reflection-based field access (`getDeclaredField`).
+- `RestApiExampleTest` (`peegeeq-examples`) — `vertx.timer(500)` post-`deployVerticle` readiness delay (line 122),
+  the `setTimer`-as-readiness-guard antipattern.
+
+(Container hand-rolling — antipattern §2 — was also flagged in several files, but that is not a Vert.x issue and is
+noted inline in the phase rows above, not here.)
+
+## Follow-up sweep: remove ALL `"public"` references incl. comments (2026-06-21)
+
+Owner directive after Phase E: remove every `"public"` schema reference from test code, comments included.
+Re-scan (repo-wide `"public"` over `**/src/test/**/*.java` + the frontend) caught references the per-phase
+config-literal greps had missed, including modules never in the original sweep (`peegeeq-bitemporal`,
+`peegeeq-migrations`, `peegeeq-test-support`). Owner ruling: **"comments + setup guards"** (keep tests that
+verify/protect public-schema behavior).
+
+**Done:**
+- Frontend: 3 PowerShell helper scripts (`scripts/create-test-setup.ps1`, `test-create-setup.ps1`,
+  `setup-test-data.ps1`) `schema = "public"` → `"peegeeq_test"`; `test-constants.ts` doc comment reworded.
+- Reworded 5 no-public-rule doc comments/Javadoc: `bitemporal/BiTemporalAggregateSummaryIntegrationTest:127`,
+  `native/PgNativeQueueFactoryIntegrationTest:91`, `native/PgNativeQueueFactoryContractTest:38`,
+  `examples/ConsumerGroupLoadBalancingDemoTest:170`, `outbox/OutboxFactoryContractTest:38`.
+- Removed 3 `if (!"public".equals(schema))` setup guards (→ unconditional idempotent `CREATE SCHEMA IF NOT
+  EXISTS`, behavior-identical): `bitemporal/PgBiTemporalEventStorePerformanceTest:123`,
+  `db/PeeGeeQManagerTimerGuardTest:519`, `db/PeeGeeQManagerCloseLogLevelTest:287`. The two db classes verified
+  GREEN 2026-06-21 (`logs/public-sweep-db-20260621.txt`: 9 tests, 0 failures); `bitemporal/PgBiTemporalEventStorePerformanceTest` guard removal still to be run under its perf profile.
+
+**Kept by ruling (verify/protect public handling — NOT "tests using public"):**
+`migrations/CustomSchemaIntegrationTest:164` (asserts flyway history NOT in public),
+`db/PostgreSqlIdentifierValidatorTest:238` (validator accepts `"public"`),
+`test-support/PeeGeeQTestSchemaInitializerSchemaParameterTest:92-93` (`testInitializeSchemaWithPublicSchema`),
+`management-ui/src/tests/fixtures/database-cleanup.ts:61` (protective `NOT IN (…,'public')`).
+
+**Docs swept 2026-06-21:** all `public` schema **example snippets** in `peegeeq-management-ui/docs` converted to
+`peegeeq_test` — 10 markdown files (active testing guide + the enhancements doc's example test code + 8 `archive/`
+docs: `schema: 'public'`, `PEEGEEQ_DATABASE_SCHEMA="public"`, form `default: "public"`, `.fill('public')`,
+`toHaveValue('public')`) plus the postman `Event_Store_Management_API` create-setup body (`\"schema\": \"public\"`).
+**Kept** (documentation *of* the rule, not usage — same basis as the ③ tests): prose that describes the no-public
+principle / this sweep / a known bug / form defaults, where `public` is the necessary subject term
+(e.g. PHASE-A "search_path has no `, public` fallback" / "never `public`"; MANAGEMENT_UI_ENHANCEMENTS "the
+no-`public`-in-tests sweep"; AGGREGATE-STREAM "manager pinned to `public`"; COVERAGE_GAPS form-default description).
+The pervasive Java `public` keyword in code snippets is not a schema reference and is untouched.

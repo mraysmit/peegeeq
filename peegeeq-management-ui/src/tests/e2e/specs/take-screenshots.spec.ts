@@ -27,6 +27,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const DIR = path.resolve(__dirname, '../../../../../docs-design/peegeeq-management-ui/screenshots')
 const STATE_FILE = path.join(process.cwd(), 'screenshots-state.json')
 const SETUP_ID = 'default'
+const TEST_SCHEMA = 'peegeeq_test'
 
 // Ensure output directory exists
 if (!fs.existsSync(DIR)) fs.mkdirSync(DIR, { recursive: true })
@@ -108,7 +109,7 @@ test.describe('PeeGeeQ UI Screenshots', () => {
       await page.getByLabel('Database Name').fill(`screenshots_${ts}`)
       await page.getByLabel('Username').fill(dbConfig.username)
       await page.getByLabel('Password').fill(dbConfig.password)
-      await page.getByLabel('Schema').fill('public')
+      await page.getByLabel('Schema').fill(TEST_SCHEMA)
       await page.getByRole('button', { name: /create setup/i }).last().click()
       await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 120000 })
     }
@@ -477,7 +478,7 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.getByLabel('Database Name').fill('demodb')
     await page.getByLabel('Username').fill('demo')
     await page.getByLabel('Password').fill('demo')
-    await page.getByLabel('Schema').fill('public')
+    await page.getByLabel('Schema').fill(TEST_SCHEMA)
     await page.locator('.ant-modal .ant-btn-primary').click()
     await expect(page.locator('.ant-message-error').filter({ hasText: 'Database connection failed' }).first()).toBeVisible({ timeout: 5000 })
     await page.waitForTimeout(400)

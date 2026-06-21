@@ -68,7 +68,7 @@ Frame 2: Create Setup Modal
   * Database Name (text input, required, placeholder: "mydb")
   * Username (text input, required)
   * Password (password input, required, show/hide toggle)
-  * Schema (text input, optional, default: "public")
+  * Schema (text input, optional, default: "peegeeq_test")
 - Buttons: "Cancel" (secondary), "Create Setup" (primary, disabled until valid)
 
 Frame 3: Success State
@@ -132,7 +132,7 @@ Frame 4: Error State
 
 - Schema:
   * Optional
-  * Default: "public"
+  * Default: "peegeeq_test"
   * Pattern: ^[a-zA-Z0-9_]+$
 
 ### Submit Button State
@@ -198,7 +198,7 @@ test.describe('Create Database Setup - Design Validation', () => {
 
     // Verify default values (from design)
     await expect(page.getByLabel('Port')).toHaveValue('5432')
-    await expect(page.getByLabel('Schema')).toHaveValue('public')
+    await expect(page.getByLabel('Schema')).toHaveValue('peegeeq_test')
 
     // Verify buttons (from design)
     await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible()

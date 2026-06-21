@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test'
 import type { Page, Route } from '@playwright/test'
+import { TEST_SCHEMA } from '../test-constants'
 
 /**
  * API Error-Path E2E Tests
@@ -187,7 +188,7 @@ async function openSetupCreateAndSubmit(page: Page): Promise<void> {
   await page.getByLabel(/database name/i).fill('testdb')
   await page.getByLabel(/username/i).fill('testuser')
   await page.getByLabel(/password/i).fill('testpass')
-  await page.getByLabel(/schema/i).fill('public')
+  await page.getByLabel(/schema/i).fill(TEST_SCHEMA)
 
   // Submit modal
   await page.locator('.ant-modal-footer .ant-btn-primary').click()

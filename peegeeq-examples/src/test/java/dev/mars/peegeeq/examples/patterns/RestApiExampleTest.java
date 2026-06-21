@@ -193,7 +193,7 @@ public class RestApiExampleTest {
                         .put("port", postgres.getFirstMappedPort())
                         .put("databaseName", postgres.getDatabaseName())
                         .put("username", postgres.getUsername())
-                        .put("schema", "public"))
+                        .put("schema", PostgreSQLTestConstants.TEST_SCHEMA))
                 .put("options", new JsonObject()
                         .put("createSchema", true)
                         .put("validateConnection", true));

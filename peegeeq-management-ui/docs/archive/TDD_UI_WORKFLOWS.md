@@ -49,7 +49,7 @@ As a user, I want to create a database setup so I can connect to PostgreSQL.
   - Database Name (text input, required)
   - Username (text input, required)
   - Password (password input, required)
-  - Schema (text input, optional, default: "public")
+  - Schema (text input, optional, default: "peegeeq_test")
 - Submit button: "Create Setup"
 - Success: Modal closes, success message, setup appears in table
 - Error: Modal stays open, error message shown
