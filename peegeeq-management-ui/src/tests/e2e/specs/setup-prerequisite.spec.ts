@@ -1,6 +1,6 @@
 import { test, expect } from '../page-objects'
 import * as fs from 'fs'
-import { SETUP_ID } from '../test-constants'
+import { SETUP_ID, TEST_SCHEMA } from '../test-constants'
 
 /**
  * Setup Prerequisite
@@ -30,7 +30,7 @@ test.describe('Setup Prerequisite', () => {
         databaseName: `e2e_test_db_${Date.now()}`,
         username: dbConfig.username,
         password: dbConfig.password,
-        schema: 'public'
+        schema: TEST_SCHEMA
       })
 
       // Verify setup was created

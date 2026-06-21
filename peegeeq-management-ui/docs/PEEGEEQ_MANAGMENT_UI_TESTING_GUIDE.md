@@ -145,7 +145,7 @@ test.describe('Database Setup', () => {
       databaseName: `e2e_test_db_${Date.now()}`,
       username: dbConfig.username,
       password: dbConfig.password,
-      schema: 'public'
+      schema: 'peegeeq_test'
     })
 
     // Verify setup was created

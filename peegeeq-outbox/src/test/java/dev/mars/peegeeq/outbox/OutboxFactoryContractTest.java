@@ -35,8 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Contract test: the outbox factory requires a resolvable
  * {@code PeeGeeQConfiguration}. PeeGeeQ has no default schema, so a factory whose
  * configuration cannot be resolved (neither passed explicitly nor available from the
- * {@code DatabaseService}) must fail at construction — never fall back to {@code "public"}
- * channels and SQL.
+ * {@code DatabaseService}) must fail at construction — never fall back to a default
+ * schema for channels and SQL.
  *
  * <p>No database is required: the stub service exists only to prove the factory throws
  * before using any of it.</p>

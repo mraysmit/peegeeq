@@ -6,7 +6,7 @@ $body = @{
         databaseName = "peegeeq"
         username = "peegeeq"
         password = "peegeeq"
-        schema = "public"
+        schema = "peegeeq_test"
     }
     queues = @(
         @{

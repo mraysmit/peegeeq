@@ -113,7 +113,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 .databaseName("test_app_db_" + System.currentTimeMillis())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .templateDatabase("template0")
                 .encoding("UTF8")
                 .build();
@@ -336,7 +336,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 .databaseName("minimal_db_" + System.currentTimeMillis())
                 .username(postgres.getUsername())
                 .password(postgres.getPassword())
-                .schema("public")
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .build();
 
         return new DatabaseSetupRequest(
