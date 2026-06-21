@@ -169,7 +169,7 @@ $env:PEEGEEQ_DATABASE_PORT = $DbConfig.port
 $env:PEEGEEQ_DATABASE_NAME = $DbConfig.database
 $env:PEEGEEQ_DATABASE_USERNAME = $DbConfig.username
 $env:PEEGEEQ_DATABASE_PASSWORD = $DbConfig.password
-$env:PEEGEEQ_DATABASE_SCHEMA = "public"
+$env:PEEGEEQ_DATABASE_SCHEMA = "peegeeq_test"
 
 Write-Host ""
 Write-Host "Starting PeeGeeQ REST API server..." -ForegroundColor Cyan
@@ -189,7 +189,7 @@ $MavenArgs = @(
     "-DPEEGEEQ_DATABASE_NAME=$($DbConfig.database)",
     "-DPEEGEEQ_DATABASE_USERNAME=$($DbConfig.username)",
     "-DPEEGEEQ_DATABASE_PASSWORD=$($DbConfig.password)",
-    "-DPEEGEEQ_DATABASE_SCHEMA=public"
+    "-DPEEGEEQ_DATABASE_SCHEMA=peegeeq_test"
 )
 
 & mvn $MavenArgs
@@ -301,7 +301,7 @@ export PEEGEEQ_DATABASE_PORT=$DB_PORT
 export PEEGEEQ_DATABASE_NAME="postgres"
 export PEEGEEQ_DATABASE_USERNAME="peegeeq"
 export PEEGEEQ_DATABASE_PASSWORD="peegeeq"
-export PEEGEEQ_DATABASE_SCHEMA="public"
+export PEEGEEQ_DATABASE_SCHEMA="peegeeq_test"
 
 echo ""
 echo "Starting PeeGeeQ REST API server..."
@@ -320,7 +320,7 @@ mvn exec:java \
     -DPEEGEEQ_DATABASE_NAME=postgres \
     -DPEEGEEQ_DATABASE_USERNAME=peegeeq \
     -DPEEGEEQ_DATABASE_PASSWORD=peegeeq \
-    -DPEEGEEQ_DATABASE_SCHEMA=public
+    -DPEEGEEQ_DATABASE_SCHEMA=peegeeq_test
 ```
 
 ### Phase 2: Refactor Playwright Global Setup (`global-setup-testcontainers.ts`)

@@ -1,6 +1,6 @@
 import { test, expect } from '../page-objects'
 import * as fs from 'fs'
-import { SETUP_ID } from '../test-constants'
+import { SETUP_ID, TEST_SCHEMA } from '../test-constants'
 
 /**
  * Database Setup Tests
@@ -49,7 +49,7 @@ test.describe('Database Setup', () => {
         databaseName: 'e2e_test_db',
         username: dbConfig.username,
         password: dbConfig.password,
-        schema: 'public'
+        schema: TEST_SCHEMA
       })
 
       // Verify setup was created
@@ -190,7 +190,7 @@ test.describe('Database Setup', () => {
             databaseName: `del_test_db_${Date.now()}`,
             username: dbConfig.username,
             password: dbConfig.password,
-            schema: 'public',
+            schema: TEST_SCHEMA,
             templateDatabase: 'template0',
             encoding: 'UTF8',
           },

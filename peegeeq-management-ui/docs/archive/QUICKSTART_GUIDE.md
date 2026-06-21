@@ -296,7 +296,7 @@ $env:PEEGEEQ_DATABASE_PORT="5432"
 $env:PEEGEEQ_DATABASE_NAME="postgres"
 $env:PEEGEEQ_DATABASE_USERNAME="peegeeq"
 $env:PEEGEEQ_DATABASE_PASSWORD="peegeeq"
-$env:PEEGEEQ_DATABASE_SCHEMA="public"
+$env:PEEGEEQ_DATABASE_SCHEMA="peegeeq_test"
 
 # Start backend (default port 8080)
 mvn exec:java -pl peegeeq-rest
@@ -313,7 +313,7 @@ export PEEGEEQ_DATABASE_PORT="5432"
 export PEEGEEQ_DATABASE_NAME="postgres"
 export PEEGEEQ_DATABASE_USERNAME="peegeeq"
 export PEEGEEQ_DATABASE_PASSWORD="peegeeq"
-export PEEGEEQ_DATABASE_SCHEMA="public"
+export PEEGEEQ_DATABASE_SCHEMA="peegeeq_test"
 
 # Start backend (default port 8080)
 mvn exec:java -pl peegeeq-rest

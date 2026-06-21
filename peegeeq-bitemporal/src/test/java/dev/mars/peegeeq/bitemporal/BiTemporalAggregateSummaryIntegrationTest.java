@@ -124,7 +124,7 @@ class BiTemporalAggregateSummaryIntegrationTest {
         // The schema is the instance anchor: it must reach the manager configuration
         // (search_path of every pool), not just the DDL placement below. Note: most of
         // the suite resolves the schema for DDL only and leaves the manager on the
-        // builder's "public" default — a latent gap under custom-schema runs.
+        // builder's default schema — a latent gap under custom-schema runs.
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(schema)

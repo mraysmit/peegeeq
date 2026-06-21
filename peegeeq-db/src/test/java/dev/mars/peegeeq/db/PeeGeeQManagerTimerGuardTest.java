@@ -516,9 +516,7 @@ public class PeeGeeQManagerTimerGuardTest {
             // Place the unqualified DDL below in the resolved schema so custom-schema
             // runs see the same tables the manager targets (suite-wide convention)
             String schema = PostgreSQLTestConstants.TEST_SCHEMA;
-            if (!"public".equals(schema)) {
-                stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
-            }
+            stmt.execute("CREATE SCHEMA IF NOT EXISTS " + schema);
             stmt.execute("SET search_path TO " + schema);
             stmt.execute("""
                 CREATE TABLE IF NOT EXISTS outbox (

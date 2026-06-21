@@ -167,7 +167,7 @@ class ConsumerGroupLoadBalancingDemoTest {
             .onSuccess(v -> {
                 var databaseService = new PgDatabaseService(manager);
                 // Pass the configuration so factory-created consumers derive their
-                // LISTEN channels from the configured schema (no "public" fallback)
+                // LISTEN channels from the configured schema (no default-schema fallback)
                 QueueFactoryProvider provider = new PgQueueFactoryProvider(config);
                 PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
                 queueFactory = provider.createFactory("native", databaseService);

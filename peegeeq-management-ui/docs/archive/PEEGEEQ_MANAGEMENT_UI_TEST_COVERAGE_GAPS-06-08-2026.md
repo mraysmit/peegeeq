@@ -35,7 +35,7 @@ This document provides a detailed breakdown of the features and user flows imple
 - [x] Overview: WS/SSE reconnecting banner (gold tags) (`overview-reconnecting-banner.spec.ts`)
 - [x] Database Setups: Delete confirmation modal shows affected queues/event stores
 - [x] Database Setups: Port range validation (values outside 1–65535) (`database-setup-form-defaults.spec.ts`)
-- [x] Database Setups: Form field default values (Host=localhost, Port=5432, Username=peegeeq, Schema=public) (`database-setup-form-defaults.spec.ts`)
+- [x] Database Setups: Form field default values (Host=localhost, Port=5432, Username=peegeeq, SCHEMA=peegeeq_test) (`database-setup-form-defaults.spec.ts`)
 - [x] Queues: Search box ("Search queues...") (`queues-filter-sort.spec.ts` test 01)
 - [x] Queues: Type / Status multi-select filters (`queues-filter-sort.spec.ts` tests 03–04)
 - [x] Queues: Column sorting (`queues-filter-sort.spec.ts` tests 05–07)

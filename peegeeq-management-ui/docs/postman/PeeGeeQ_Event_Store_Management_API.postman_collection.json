@@ -43,7 +43,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"setupId\": \"{{setupId}}\",\n  \"databaseConfig\": {\n    \"host\": \"localhost\",\n    \"port\": 5432,\n    \"databaseName\": \"peegeeq_production\",\n    \"username\": \"postgres\",\n    \"password\": \"postgres\",\n    \"schema\": \"public\",\n    \"templateDatabase\": \"template0\",\n    \"encoding\": \"UTF8\"\n  },\n  \"queues\": [],\n  \"eventStores\": [\n    {\n      \"eventStoreName\": \"{{eventStoreName}}\",\n      \"tableName\": \"order_events\",\n      \"biTemporalEnabled\": true,\n      \"retentionDays\": 365\n    }\n  ]\n}"
+              "raw": "{\n  \"setupId\": \"{{setupId}}\",\n  \"databaseConfig\": {\n    \"host\": \"localhost\",\n    \"port\": 5432,\n    \"databaseName\": \"peegeeq_production\",\n    \"username\": \"postgres\",\n    \"password\": \"postgres\",\n    \"schema\": \"peegeeq_test\",\n    \"templateDatabase\": \"template0\",\n    \"encoding\": \"UTF8\"\n  },\n  \"queues\": [],\n  \"eventStores\": [\n    {\n      \"eventStoreName\": \"{{eventStoreName}}\",\n      \"tableName\": \"order_events\",\n      \"biTemporalEnabled\": true,\n      \"retentionDays\": 365\n    }\n  ]\n}"
             },
             "description": "Creates a complete database setup with an event store configured for bitemporal event sourcing.\n\n**Key Parameters:**\n- `biTemporalEnabled: true` - Required for event posting functionality\n- `retentionDays: 365` - Events retained for 1 year\n\n**Response:** Returns setupId and event store configuration"
           },

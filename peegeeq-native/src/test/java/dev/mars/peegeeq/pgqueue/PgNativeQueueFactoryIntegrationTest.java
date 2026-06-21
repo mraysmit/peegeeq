@@ -88,7 +88,7 @@ class PgNativeQueueFactoryIntegrationTest {
                     databaseService = new PgDatabaseService(manager);
                     // Pass the configuration explicitly: the configuration-less constructor
                     // leaves the factory's schema-dependent paths (e.g. browser SQL) on a
-                    // "public" fallback instead of the configured schema
+                    // default-schema fallback instead of the configured schema
                     factory = new PgNativeQueueFactory(databaseService, config);
                     ctx.completeNow();
                 })
