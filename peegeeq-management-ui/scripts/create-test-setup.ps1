@@ -21,7 +21,7 @@ $setupBody = @{
         databaseName = $dbName
         username = "peegeeq"
         password = "peegeeq"
-        schema = "public"
+        schema = "peegeeq_test"
         templateDatabase = "template0"
         encoding = "UTF8"
     }

@@ -1,5 +1,5 @@
 import { test, expect } from '../page-objects'
-import { SETUP_ID } from '../test-constants'
+import { SETUP_ID, TEST_SCHEMA } from '../test-constants'
 import * as fs from 'fs'
 import { Locator } from '@playwright/test'
 import { selectAntOption } from '../utils/ant-helpers'
@@ -26,7 +26,7 @@ test.describe('Event Visualization', () => {
       await page.getByLabel(/database name/i).fill(`e2e_viz_${Date.now()}`)
       await page.getByLabel(/username/i).fill(dbConfig.username)
       await page.getByLabel(/password/i).fill(dbConfig.password)
-      await page.getByLabel(/schema/i).fill('public')
+      await page.getByLabel(/schema/i).fill(TEST_SCHEMA)
       await page.locator('.ant-modal .ant-btn-primary').click()
       // Setup creation includes DB creation + migrations, allow up to 60s
       await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 60000 })

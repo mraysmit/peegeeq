@@ -1,5 +1,5 @@
 import { test, expect } from '../page-objects'
-import { SETUP_ID } from '../test-constants'
+import { SETUP_ID, TEST_SCHEMA } from '../test-constants'
 import * as fs from 'fs'
 import { Locator } from '@playwright/test'
 import { selectAntOption } from '../utils/ant-helpers'
@@ -34,7 +34,7 @@ test.describe('Event Store Management', () => {
       await page.getByLabel(/database name/i).fill(`e2e_eventstore_test_${Date.now()}`)
       await page.getByLabel(/username/i).fill(dbConfig.username)
       await page.getByLabel(/password/i).fill(dbConfig.password)
-      await page.getByLabel(/schema/i).fill('public')
+      await page.getByLabel(/schema/i).fill(TEST_SCHEMA)
       
       // Submit
       await page.locator('.ant-modal .ant-btn-primary').click()

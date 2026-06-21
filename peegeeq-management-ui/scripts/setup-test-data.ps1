@@ -27,7 +27,7 @@ $dbConfig = @{
     databaseName = "peegeeq"
     username = "peegeeq"
     password = "peegeeq"
-    schema = "public"
+    schema = "peegeeq_test"
 }
 
 # Create test-setup with queues

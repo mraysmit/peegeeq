@@ -3,6 +3,7 @@ package dev.mars.peegeeq.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -35,7 +36,7 @@ class OutboxBlockingSafetyTest {
         props.setProperty("peegeeq.database.host", "localhost");
         props.setProperty("peegeeq.database.name", "test");
         props.setProperty("peegeeq.database.username", "test");
-        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.schema", PostgreSQLTestConstants.TEST_SCHEMA);
         return new PeeGeeQConfiguration("default", props);
     }
 

@@ -116,7 +116,7 @@ Frame 2: Create Setup Modal
   * Database Name (text input, required, placeholder: "mydb")
   * Username (text input, required)
   * Password (password input, required, show/hide toggle)
-  * Schema (text input, optional, default: "public")
+  * Schema (text input, optional, default: "peegeeq_test")
 - Buttons: "Cancel" (secondary), "Create Setup" (primary, disabled until valid)
 
 Frame 3: Success State
@@ -181,7 +181,7 @@ interface CreateSetupTestContract {
       databaseName: { label: 'Database Name', type: 'text', required: true }
       username: { label: 'Username', type: 'text', required: true }
       password: { label: 'Password', type: 'password', required: true }
-      schema: { label: 'Schema', type: 'text', required: false, default: 'public' }
+      schema: { label: 'Schema', type: 'text', required: false, default: 'peegeeq_test' }
     }
     buttons: {
       cancel: { role: 'button', name: 'Cancel' }
@@ -262,7 +262,7 @@ test.describe('Create Database Setup - Design Validation', () => {
 
     // Verify default values (from design)
     await expect(page.getByLabel('Port')).toHaveValue('5432')
-    await expect(page.getByLabel('Schema')).toHaveValue('public')
+    await expect(page.getByLabel('Schema')).toHaveValue('peegeeq_test')
   })
 
   test('should follow interaction spec for form validation', async ({ page }) => {
@@ -346,7 +346,7 @@ export function DatabaseSetupsPage() {
         title="Create Database Setup"
         onCancel={() => setIsModalOpen(false)}
       >
-        <Form onFinish={handleCreate} initialValues={{ port: 5432, schema: 'public' }}>
+        <Form onFinish={handleCreate} initialValues={{ port: 5432, schema: 'peegeeq_test' }}>
           <Form.Item label="Setup ID" name="setupId" required>
             <Input />
           </Form.Item>
@@ -677,7 +677,7 @@ test('create database setup', async ({ databaseSetupsPage }) => {
     databaseName: 'testdb',
     username: 'postgres',
     password: 'password',
-    schema: 'public'
+    schema: 'peegeeq_test'
   })
 })
 ```
@@ -991,7 +991,7 @@ test.describe('Database Setup', () => {
       databaseName: 'testdb',
       username: 'postgres',
       password: 'password',
-      schema: 'public'
+      schema: 'peegeeq_test'
     })
 
     // Verify setup was created

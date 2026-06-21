@@ -1,6 +1,6 @@
 import { test, expect } from '../page-objects'
 import type { Page } from '@playwright/test'
-import { SETUP_ID } from '../test-constants'
+import { SETUP_ID, TEST_SCHEMA } from '../test-constants'
 import { selectAntOption } from '../utils/ant-helpers'
 import * as fs from 'fs'
 
@@ -97,7 +97,7 @@ test.describe('Event Stores – Scope Selector Row Count', () => {
                 databaseName: `e2e_scope_db_${stamp}`,
                 username: dbConfig.username,
                 password: dbConfig.password,
-                schema: 'public'
+                schema: TEST_SCHEMA
             })
         }
 
