@@ -48,22 +48,34 @@ async function createEventStore(page: Page, name: string, setupId: string) {
 }
 
 /**
- * Raise the table page size so every matching row is rendered before asserting.
- * Self-contained (does not use selectAntOption): a previously-used Select — e.g. the
- * scope selector — leaves its dropdown mounted as .ant-select-dropdown-hidden, which
- * breaks the shared helper's ".last()" heuristic. Target the one OPEN dropdown via
- * :not(.ant-select-dropdown-hidden), and pick the largest page-size option (AntD lists
- * them ascending, so .last() is the largest).
+ * Raise the AntD table page size so every matching row is rendered before asserting —
+ * otherwise a row on page 2 reads as "not visible" and an absent row reads as "filtered out".
+ *
+ * NOTE: this deliberately does NOT use the shared `selectAntOption` helper. After the scope
+ * selector is used, its dropdown stays mounted as `.ant-select-dropdown-hidden`, and
+ * `selectAntOption`'s `filter({ hasNot: '.ant-select-dropdown-hidden' })` does NOT exclude it
+ * (filter({hasNot}) checks descendants, not the element's own class) — so its `.last()` lands
+ * on the hidden dropdown. A CSS `:not(.ant-select-dropdown-hidden)` selector excludes
+ * self-hidden elements correctly, which is required here.
  */
 async function showAllRows(page: Page) {
+    // Rows load asynchronously after navigation — page.waitForLoadState('load') does NOT wait
+    // for the API row fetch. Wait for the table to actually have rows first; otherwise the
+    // size-changer isn't mounted yet and the guard below would no-op.
+    await expect(page.locator('.ant-table-tbody tr.ant-table-row').first()).toBeVisible()
+
     const sizeChanger = page.locator('.ant-pagination-options .ant-select')
-    if (!(await sizeChanger.isVisible().catch(() => false))) return
+    if (!(await sizeChanger.isVisible().catch(() => false))) return // single page — nothing to do
 
     await sizeChanger.click()
+    // CSS :not() correctly excludes self-hidden dropdowns (a closed scope-selector dropdown).
     const openDropdown = page.locator('.ant-select-dropdown:not(.ant-select-dropdown-hidden)')
     await expect(openDropdown).toBeVisible()
-    await openDropdown.locator('.ant-select-item-option').last().click()
-    await expect(openDropdown).toBeHidden()
+    await openDropdown.getByText('100 / page', { exact: true }).click()
+
+    // Confirm the size actually applied. The selection-item holds ONLY the current value
+    // (asserting against the whole .ant-select would wrongly include every option label).
+    await expect(sizeChanger.locator('.ant-select-selection-item')).toHaveText('100 / page')
 }
 
 /** Clear any scope selection left over from a previous test. */
