@@ -38,8 +38,8 @@ prioritised. Each links to where it is tracked in detail.
    confirmed green; run them, then flip their §10.5 rows to resolved. *Tracked: §10.5.*
 6. **REST module guide doc pass.** `peegeeq-rest/docs/PEEGEEQ_REST_MODULE_GUIDE.md`'s implementation
    walkthrough (~lines 340–460, 745–760) still narrates the removed consuming SSE stream. *Tracked: §7.12 Phase 12.0 carve-out.*
-7. **Pending UI phases.** Phase 7 (Consumer Groups success toasts — verified not done) and 7a
-   (Notifications page — not started). *Tracked: §7.7, §7.7a.*
+7. ✅ **DONE (2026-06-23).** Phase 7 (Consumer Groups success toasts) and 7a (Notifications page
+   `/notifications`) both implemented and green. *Tracked: §7.7, §7.7a.*
 
 **Optional**
 8. **Phase 12.6 — WebSocket parity.** Wire `WebSocketHandler.handleQueueStream` (a non-consuming stub)
@@ -858,8 +858,8 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | 4a | Header title mapping (quick fix) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
 | 5 | Queue Details live messages (non-destructive browse-poll; WS consume approach rejected) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-17) |
 | 6 | Reconnection UI — E2E coverage + SSE parity *(UI already implemented)* | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
-| 7 | Consumer Groups success toasts *(other resource flows already done)* | `peegeeq-management-ui` | — |
-| 7a | Notifications page (`/notifications`) | `peegeeq-management-ui` | — |
+| 7 | Consumer Groups success toasts *(other resource flows already done)* | `peegeeq-management-ui` | — | ✅ Complete (2026-06-23) |
+| 7a | Notifications page (`/notifications`) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-23) |
 | 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 |
 | 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — |
 | 10 | Authentication layer | TBD — architecture decision required | — |
@@ -1154,11 +1154,17 @@ Check only: if the SSE service (`createSystemMetricsSSE`, `createSystemMonitorin
 
 ---
 
-### 7.7 Consumer Groups success toasts — ⏳ Pending (verified not done 2026-06-16)
+### 7.7 Consumer Groups success toasts — ✅ Complete (2026-06-23)
 
-> **Status — verified not yet implemented (2026-06-16).** `ConsumerGroups.tsx`
-> `handleCreateModalOk` and `handleDeleteGroup` have `message.error` on failure but no
-> `message.success` on success (only `handleBackfill` shows a success toast). Scope unchanged.
+> **Status — Complete 2026-06-23.** `ConsumerGroups.tsx` `handleCreateModalOk` and
+> `handleDeleteGroup` now fire `message.success(...)` on success (mirroring the
+> `DatabaseSetups`/`QueuesEnhanced`/`EventStores` pattern). E2E: the creation toast is
+> asserted in `consumer-groups-validation.spec.ts` test 03 (which was already titled
+> "...and shows success toast" but never asserted it), and the deletion toast in the
+> existing delete-via-UI test in `consumer-groups-scope-selectors.spec.ts`. Both green
+> (projects `13b` / `13`). No new spec file was needed — the doc's original
+> `consumer-groups.spec.ts` target does not exist; the assertions were added to the two
+> registered specs that already exercise these flows.
 
 **Source**: §2.3 and codebase review 2026-06-14. The codebase review confirmed that `DatabaseSetups.tsx`, `QueuesEnhanced.tsx`, and `EventStores.tsx` **already fire `message.success(...)`** on create and delete. The only resource type that does not is `ConsumerGroups.tsx`: both `handleCreateModalOk` and `handleDeleteGroup` close silently on success.
 
@@ -1183,10 +1189,19 @@ test('shows success toast after consumer group deletion')
 
 ---
 
-### 7.7a Notifications page (`/notifications`) — ⏳ Pending (verified not started 2026-06-16)
+### 7.7a Notifications page (`/notifications`) — ✅ Complete (2026-06-23)
 
-> **Status — verified not started (2026-06-16).** No `NotificationsPage.tsx`, no
-> `/notifications` route in `App.tsx`, no `nav-notifications` sidebar item. Scope unchanged.
+> **Status — Complete 2026-06-23.** New `NotificationsPage.tsx` reads the `managementStore`
+> notification feed and renders an Ant `Table` (Timestamp, Action, Resource, Status tag
+> New/Read) with **Mark All Read** (`markAllNotificationsRead()`) and **Clear All**
+> (`clearNotifications()` behind a `Modal.confirm`), plus an `<Empty>` state. `App.tsx`
+> gains the `/notifications` route and a `nav-notifications` sidebar item (`BellOutlined`)
+> after Message Browser; `Header.tsx` `pageTitle` gains `'/notifications': 'Notifications'`.
+> E2E `notification-page.spec.ts` (3 tests — history shows a "New" row after a UI
+> queue-create, Mark All Read clears the tags + resets the bell badge, Clear All empties
+> the list + badge 0), registered as project `15-notifications-page` (depends on
+> `3c-setup-prerequisite`). Type-check + lint clean; full project green. The feed remains
+> in-memory (resets on reload) until Phase 8 adds the backend `management_event` source.
 
 **Design**: the existing bell drawer (§1.4) is unchanged — it remains the quick-glance surface. The notifications page is a full history view, reachable from a new sidebar nav item. Both read from the same `managementStore` slice.
 

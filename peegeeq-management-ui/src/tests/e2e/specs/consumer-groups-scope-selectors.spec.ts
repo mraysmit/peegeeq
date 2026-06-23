@@ -509,6 +509,11 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
         await expect(confirmBtn).toBeVisible({ timeout: 3000 })
         await confirmBtn.click()
 
+        // A success toast must appear after deletion (Phase 7)
+        await expect(
+            page.locator('.ant-message-success').filter({ hasText: cgDelete }).first()
+        ).toBeVisible({ timeout: 10000 })
+
         await page.waitForTimeout(1000)
         expect(deleteRequests.length, 'DELETE request was not called').toBeGreaterThanOrEqual(1)
         expect(deleteRequests[0]).toContain(cgDelete)
