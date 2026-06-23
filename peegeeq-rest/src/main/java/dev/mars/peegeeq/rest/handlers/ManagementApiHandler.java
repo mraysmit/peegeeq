@@ -1099,6 +1099,7 @@ public class ManagementApiHandler {
                     })
                     .onSuccess(response -> {
                         publishQueueChanged(setupId, queueName, "QUEUE_CREATED");
+                        publishManagementEvent("queue", "creation", "completed", queueName, setupId);
                         ctx.response()
                             .setStatusCode(201)
                             .putHeader("content-type", "application/json")
@@ -1242,6 +1243,7 @@ public class ManagementApiHandler {
                     })
                     .onSuccess(response -> {
                         publishQueueChanged(setupId, queueName, "QUEUE_DELETED");
+                        publishManagementEvent("queue", "deletion", "completed", queueName, setupId);
                         ctx.response()
                             .setStatusCode(200)
                             .putHeader("content-type", "application/json")
@@ -1318,10 +1320,13 @@ public class ManagementApiHandler {
                                 .put("queueName", queueName)
                                 .put("timestamp", System.currentTimeMillis());
                     })
-                    .onSuccess(response -> ctx.response()
+                    .onSuccess(response -> {
+                        publishManagementEvent("consumer-group", "creation", "completed", groupName, setupId);
+                        ctx.response()
                             .setStatusCode(201)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode()))
+                            .end(response.encode());
+                    })
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
@@ -1378,10 +1383,13 @@ public class ManagementApiHandler {
                                 .put("groupName", groupName)
                                 .put("timestamp", System.currentTimeMillis());
                     })
-                    .onSuccess(response -> ctx.response()
+                    .onSuccess(response -> {
+                        publishManagementEvent("consumer-group", "deletion", "completed", groupName, setupId);
+                        ctx.response()
                             .setStatusCode(200)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode()))
+                            .end(response.encode());
+                    })
                     .onFailure(throwable -> {
                         if (throwable instanceof ResponseException re) {
                             sendError(ctx, re.statusCode, re.getMessage());
@@ -1616,10 +1624,13 @@ public class ManagementApiHandler {
                                 .put("partitionStrategy", eventStoreConfig.getPartitionStrategy())
                                 .put("timestamp", System.currentTimeMillis());
                     })
-                    .onSuccess(response -> ctx.response()
+                    .onSuccess(response -> {
+                        publishManagementEvent("event-store", "creation", "completed", eventStoreName, setupId);
+                        ctx.response()
                             .setStatusCode(201)
                             .putHeader("content-type", "application/json")
-                            .end(response.encode()))
+                            .end(response.encode());
+                    })
                     .onFailure(throwable -> {
                         logger.error("Error creating event store '{}' in setup '{}': {}", eventStoreName, setupId,
                                 throwable.getMessage());
@@ -1807,10 +1818,13 @@ public class ManagementApiHandler {
                             .put("note", "Event store and associated data have been removed")
                             .put("timestamp", System.currentTimeMillis());
                 })
-                .onSuccess(response -> ctx.response()
+                .onSuccess(response -> {
+                    publishManagementEvent("event-store", "deletion", "completed", storeName, setupId);
+                    ctx.response()
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
-                        .end(response.encode()))
+                        .end(response.encode());
+                })
                 .onFailure(throwable -> {
                     if (throwable instanceof ResponseException re) {
                         sendError(ctx, re.statusCode, re.getMessage());
@@ -2398,10 +2412,13 @@ public class ManagementApiHandler {
                                         .put("timestamp", System.currentTimeMillis()));
                             });
                 })
-                .onSuccess(response -> ctx.response()
+                .onSuccess(response -> {
+                    publishManagementEvent("queue", "deletion", "completed", queueName, setupId);
+                    ctx.response()
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
-                        .end(response.encode()))
+                        .end(response.encode());
+                })
                 .onFailure(throwable -> {
                     if (throwable instanceof ResponseException re) {
                         sendError(ctx, re.statusCode, re.getMessage());
@@ -2424,6 +2441,43 @@ public class ManagementApiHandler {
                 .put("event", event)
                 .put("setupId", setupId)
                 .put("queueName", queueName)
+                .put("timestamp", System.currentTimeMillis()));
+    }
+
+    /**
+     * Event-bus address carrying management lifecycle events. Single source of truth shared with
+     * the subscriber ({@code SystemMonitoringHandler}) so the publish and consume addresses cannot
+     * silently diverge.
+     */
+    public static final String MANAGEMENT_EVENTS_ADDRESS = "peegeeq.management.events";
+
+    /**
+     * Publishes a structured management lifecycle event onto the event bus.
+     * {@code SystemMonitoringHandler} forwards these to connected monitoring WebSockets as
+     * {@code management_event} frames; the UI composes the display label and drives the
+     * notification bell. Transient broadcast only — nothing is persisted.
+     *
+     * <p>Aligned with the PeeGeeQ Financial Services Event Catalogue naming convention
+     * {@code {entity}.{action}.{state}} (see {@code docs/PEEGEEQ_FINANCIAL_SERVICES_EVENT_CATALOGUE.md}).
+     * The composed {@code eventName} is emitted alongside the individual structured components so
+     * consumers can route/filter on the name (e.g. {@code queue.*.*}) or on the discrete fields,
+     * and new entities/actions/states slot in without a new shape. {@code entity} uses kebab-case
+     * because dots are the pattern delimiters (e.g. {@code event-store}, {@code consumer-group}).</p>
+     *
+     * @param entity  business object in kebab-case: {@code "queue"}, {@code "event-store"}, {@code "consumer-group"}
+     * @param action  business process: {@code "creation"} or {@code "deletion"}
+     * @param state   outcome: {@code "completed"} (only successful mutations publish)
+     * @param name    the affected resource's name
+     * @param setupId the owning setup id
+     */
+    private void publishManagementEvent(String entity, String action, String state, String name, String setupId) {
+        vertx.eventBus().publish(MANAGEMENT_EVENTS_ADDRESS, new JsonObject()
+                .put("eventName", entity + "." + action + "." + state)
+                .put("entity", entity)
+                .put("action", action)
+                .put("state", state)
+                .put("name", name)
+                .put("setupId", setupId)
                 .put("timestamp", System.currentTimeMillis()));
     }
 

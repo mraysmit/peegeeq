@@ -8,6 +8,8 @@ export interface ManagementNotification {
     timestamp: string
     resource: string
     action: string
+    /** Human-readable description shown in the bell drawer and notifications page. */
+    description: string
     read: boolean
 }
 
@@ -90,7 +92,7 @@ export interface ManagementState {
     setSSEStatus: (connected: boolean) => void
     setWsReconnecting: (reconnecting: boolean) => void
     setSseReconnecting: (reconnecting: boolean) => void
-    addNotification: (n: Omit<ManagementNotification, 'id' | 'timestamp' | 'read'>) => void
+    addNotification: (n: Omit<ManagementNotification, 'id' | 'timestamp' | 'read' | 'description'> & { description?: string }) => void
     markAllNotificationsRead: () => void
     clearNotifications: () => void
     setSystemStats: (stats: SystemStats) => void
@@ -229,6 +231,7 @@ export const useManagementStore = create<ManagementState>()(
                     ...n,
                     id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
                     timestamp: new Date().toISOString(),
+                    description: n.description ?? `${n.action} — ${n.resource}`,
                     read: false
                 }
                 const updated = [notification, ...state.notifications].slice(0, 50)

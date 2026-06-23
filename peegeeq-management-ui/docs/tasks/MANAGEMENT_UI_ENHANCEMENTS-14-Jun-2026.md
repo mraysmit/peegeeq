@@ -2465,7 +2465,7 @@ Async store actions (`fetchSystemData`, `fetchQueues`, `fetchConsumerGroups`) th
 | Layer | Tool | Version | Count |
 |---|---|---|---|
 | Playwright E2E | Playwright | 1.60.0 | 49 spec files / ~329 tests |
-| Documentation screenshots | Playwright (manual spec) | 1.60.0 | 70 serial tests / 69 PNGs on disk |
+| Documentation screenshots | Playwright (manual spec) | 1.60.0 | 72 serial tests / 70 PNGs (69 on disk pre-Phase-7a; `13-notifications.png` on next regen) |
 | Vitest unit tests | Vitest | 3.2.4 | 2 files / 31 tests |
 | Storybook stories | — | not configured | 0 |
 | Visual regression snapshots | — | not configured | 0 |
@@ -2549,7 +2549,7 @@ Workers: 1 (sequential — shared `SETUP_ID = 'default'` — see §4). TestConta
 - `setup-prerequisite.spec.ts` — creates default setup for dependent specs
 - `scope-selector-persistence.spec.ts` — setup/queue selection survives reload
 
-**Documentation screenshots (1 spec, 70 serial tests — manual run only)**
+**Documentation screenshots (1 spec, 72 serial tests — manual run only)**
 - `take-screenshots.spec.ts` — see §9.3
 
 ---
@@ -2562,7 +2562,7 @@ This is a standalone serial spec run manually (`npx playwright test take-screens
 
 **State persistence**: between tests via `screenshots-state.json` — allows individual tests to be re-run without recreating all data.
 
-**Coverage**: 70 tests capturing 69 PNG files currently on disk, including:
+**Coverage**: 72 tests capturing 70 PNG files (the new `13-notifications.png` is written on the next manual regeneration; 69 on disk before Phase 7a), including:
 
 | Range | Pages / states covered |
 |---|---|
@@ -2574,6 +2574,7 @@ This is a standalone serial spec run manually (`npx playwright test take-screens
 | 09–09d | Consumer Groups (list, setup+queue selected, create modal filled, validation errors) |
 | 10–10q | Message Browser (empty, queue selected, filters drawer empty/filled/time-range, messages table, controls bar, live mode, message detail modal and payload card, status/search/combined/clear filter states) |
 | 11–12b | Causation Tree (empty, store selected, tree traced), Aggregate Stream (with data) |
+| 13 | Notifications page (`13-notifications.png`) — history table populated with two "queue created" entries marked New, Mark All Read / Clear All controls, header bell badge (Phase 7a) |
 
 **Note**: `04g-queue-details-charts.png` captures the Charts tab stub banner ("Coming in Week 2"). This screenshot documents the current stub state and should be regenerated after Phase 7.5 (WS queue stream) is implemented, since the Charts tab would become meaningful at that point.
 

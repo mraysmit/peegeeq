@@ -1101,4 +1101,31 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.waitForTimeout(800)
     await shot(page, '12b-aggregate-stream.png')
   })
+
+  test('13 notifications page', async ({ page }) => {
+    // The notification feed is in-memory and emitted by UI resource actions. A full reload
+    // clears it, so load the Queues page ONCE, then create two queues via the modal so both
+    // "queue created" notifications accumulate; client-side nav to /notifications preserves them.
+    const submitQueue = async (name: string): Promise<void> => {
+      await page.getByTestId('create-queue-btn').click()
+      await expect(page.locator('.ant-modal')).toBeVisible()
+      await page.getByTestId('queue-name-input').fill(name)
+      await page.getByTestId('refresh-setups-btn').click()
+      await page.waitForTimeout(600)
+      await selectAntOption(page.getByTestId('queue-setup-select'), SETUP_ID)
+      await page.locator('.ant-modal .ant-btn-primary').click()
+      await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 15000 })
+    }
+
+    const ts = Date.now()
+    await page.goto('/queues')
+    await expect(page.getByTestId('create-queue-btn')).toBeVisible({ timeout: 15000 })
+    await submitQueue(`notif_demo_a_${ts}`)
+    await submitQueue(`notif_demo_b_${ts}`)
+
+    await page.getByTestId('nav-notifications').click()
+    await expect(page.getByTestId('notifications-table')).toBeVisible({ timeout: 10000 })
+    await page.waitForTimeout(400)
+    await shot(page, '13-notifications.png')
+  })
 })

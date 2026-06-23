@@ -39,14 +39,9 @@ const NotificationsPage: React.FC = () => {
             render: (ts: string) => dayjs(ts).format('YYYY-MM-DD HH:mm:ss'),
         },
         {
-            title: 'Action',
-            dataIndex: 'action',
-            key: 'action',
-        },
-        {
-            title: 'Resource',
-            dataIndex: 'resource',
-            key: 'resource',
+            title: 'Description',
+            dataIndex: 'description',
+            key: 'description',
         },
         {
             title: 'Status',

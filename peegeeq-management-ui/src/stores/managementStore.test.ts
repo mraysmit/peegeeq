@@ -93,6 +93,21 @@ describe('managementStore', () => {
             expect(unreadCount).toBe(1)
         })
 
+        it('defaults description to "{action} — {resource}" when none is provided', () => {
+            useManagementStore.getState().addNotification({ resource: 'orders', action: 'queue created' })
+            expect(useManagementStore.getState().notifications[0].description).toBe('queue created — orders')
+        })
+
+        it('uses an explicit description when one is provided', () => {
+            useManagementStore.getState().addNotification({
+                resource: 'orders',
+                action: 'queue created',
+                description: "Queue 'orders' created in setup 'default'",
+            })
+            expect(useManagementStore.getState().notifications[0].description)
+                .toBe("Queue 'orders' created in setup 'default'")
+        })
+
         it('prepends so newest notification is first', () => {
             useManagementStore.getState().addNotification({ resource: 'queue', action: 'created' })
             useManagementStore.getState().addNotification({ resource: 'setup', action: 'deleted' })
