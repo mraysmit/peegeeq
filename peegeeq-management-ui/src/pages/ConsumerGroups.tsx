@@ -178,6 +178,7 @@ const ConsumerGroups: React.FC = () => {
                     await axios.delete(getVersionedApiUrl(
                         `management/consumer-groups/${group.setupId}/${group.queueName}/${group.groupName}`
                     ))
+                    message.success(`Consumer group "${group.groupName}" deleted successfully`)
                     fetchConsumerGroups()
                 } catch (error) {
                     console.error('Failed to delete consumer group:', error)
@@ -195,6 +196,7 @@ const ConsumerGroups: React.FC = () => {
                     setup: values.setupId,
                     queueName: values.queueName,
                 })
+                message.success(`Consumer group "${values.groupName}" created successfully`)
                 setIsCreateModalVisible(false)
                 form.resetFields()
                 fetchConsumerGroups()

@@ -26,6 +26,7 @@ const pageTitle: Record<string, string> = {
   '/aggregate-stream': 'Aggregate Stream',
   '/messages': 'Message Browser',
   '/message-browser': 'Message Browser',
+  '/notifications': 'Notifications',
   '/database-setups': 'Database Setups',
   '/schema-registry': 'Schema Registry',
   '/developer-portal': 'Developer Portal',
