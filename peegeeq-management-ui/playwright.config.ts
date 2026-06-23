@@ -445,6 +445,13 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 16: Notification bell backend path (Phase 8) – API mutation increments the bell via /ws/monitoring
+    {
+      name: '16-notification-bell-backend',
+      testMatch: '**/notification-bell-backend.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Screenshots: regenerates documentation screenshots (run manually)
     {
       name: 'take-screenshots',
