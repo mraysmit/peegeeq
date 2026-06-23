@@ -106,7 +106,10 @@ test.describe('Consumer Groups – Create Modal Form Validation', () => {
 
         await modal.locator('.ant-btn-primary').click()
 
-        // Success: modal closes
+        // Success: a success toast appears (Phase 7) and the modal closes
+        await expect(
+            page.locator('.ant-message-success').filter({ hasText: groupName }).first()
+        ).toBeVisible({ timeout: 10000 })
         await expect(modal).not.toBeVisible({ timeout: 10000 })
 
         console.log(`Created consumer group "${groupName}"`)

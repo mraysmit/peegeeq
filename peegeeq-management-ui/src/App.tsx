@@ -9,7 +9,8 @@ import {
   SearchOutlined,
   SettingOutlined,
   BranchesOutlined,
-  FileTextOutlined
+  FileTextOutlined,
+  BellOutlined
 } from '@ant-design/icons'
 
 // Import page components
@@ -26,6 +27,7 @@ import EventsPage from './pages/EventsPage'
 import MessageBrowser from './pages/MessageBrowser'
 import DatabaseSetups from './pages/DatabaseSetups'
 import Settings from './pages/Settings'
+import NotificationsPage from './pages/NotificationsPage'
 import TestHarness from './pages/TestHarness'
 
 // Import layout components
@@ -84,6 +86,11 @@ function Navigation() {
       key: '/messages',
       icon: <SearchOutlined />,
       label: <Link to="/messages" data-testid="nav-messages">Message Browser</Link>,
+    },
+    {
+      key: '/notifications',
+      icon: <BellOutlined />,
+      label: <Link to="/notifications" data-testid="nav-notifications">Notifications</Link>,
     },
   ]
 
@@ -152,6 +159,7 @@ function AppContent() {
                 <Route path="/causation-tree" element={<CausationTreePage />} />
                 <Route path="/aggregate-stream" element={<AggregateStreamPage />} />
                 <Route path="/messages" element={<MessageBrowser />} />
+                <Route path="/notifications" element={<NotificationsPage />} />
                 <Route path="/settings" element={<Settings />} />
               </Routes>
             </ErrorBoundary>
