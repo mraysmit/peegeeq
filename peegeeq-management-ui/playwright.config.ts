@@ -21,7 +21,7 @@ export default defineConfig({
   /* Retry on CI; allow one local retry so transient infra failures (e.g. a headed
      single-worker browser dying mid-run → "browser.newContext: ...has been closed")
      self-heal on a fresh browser/context instead of failing the whole run. */
-  retries: process.env.CI ? 2 : 1,
+  retries: process.env.CI ? 2 : 0,
   /* Run with a single worker so spec files execute sequentially and do not race on shared state (e.g. setup ID creation). */
   workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */
@@ -51,8 +51,9 @@ export default defineConfig({
       slowMo: process.env.SLOW_MO ? parseInt(process.env.SLOW_MO) : 0,
     },
 
-    /* Collect trace when retrying the failed test. See https://playwright.dev/docs/trace-viewer */
-    trace: 'on-first-retry',
+    /* Capture a trace for the failing attempt itself (not just a passing retry) so the
+       Console/Network timeline of the failure is available for diagnosis. */
+    trace: 'retain-on-failure',
 
     /* Take screenshot on every test */
     screenshot: 'on',
@@ -436,6 +437,13 @@ export default defineConfig({
       name: 'header-page-title',
       testMatch: '**/header-page-title.spec.ts',
       use: chromeMaximized,
+    },
+    // Step 15: Notifications Page (Phase 7a) – /notifications history, mark-all-read, clear-all
+    {
+      name: '15-notifications-page',
+      testMatch: '**/notification-page.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
     },
     // Screenshots: regenerates documentation screenshots (run manually)
     {
