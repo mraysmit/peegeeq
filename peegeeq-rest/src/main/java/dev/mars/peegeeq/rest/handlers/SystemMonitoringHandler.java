@@ -83,6 +83,9 @@ public class SystemMonitoringHandler {
     private final AtomicInteger totalConnections = new AtomicInteger(0);
     private final AtomicLong connectionIdCounter = new AtomicLong(0);
 
+    /** Shared consumer that fans management events out to every monitoring WebSocket; unregistered in {@link #close()}. */
+    private io.vertx.core.eventbus.MessageConsumer<JsonObject> managementEventConsumer;
+
     // Metrics caching
     private final AtomicReference<CachedMetrics> cachedMetrics = new AtomicReference<>();
 
@@ -140,6 +143,12 @@ public class SystemMonitoringHandler {
         Gauge.builder("peegeeq.monitoring.connections.total", totalConnections, AtomicInteger::get)
                 .description("Total active monitoring connections (WS + SSE)")
                 .register(this.meterRegistry);
+
+        // Fan management lifecycle events (published by ManagementApiHandler) out to every
+        // connected monitoring WebSocket as a "management_event" frame for the notification
+        // bell. Transient broadcast — nothing is stored.
+        this.managementEventConsumer = vertx.eventBus().consumer(
+                ManagementApiHandler.MANAGEMENT_EVENTS_ADDRESS, msg -> broadcastManagementEvent(msg.body()));
     }
 
     /**
@@ -161,6 +170,11 @@ public class SystemMonitoringHandler {
     public void close() {
         log.info("Closing SystemMonitoringHandler: {} WS, {} SSE connections",
                 wsConnections.size(), sseConnections.size());
+
+        if (managementEventConsumer != null) {
+            managementEventConsumer.unregister();
+            managementEventConsumer = null;
+        }
 
         // Close all WebSocket connections
         wsConnections.values().forEach(conn -> {
@@ -195,6 +209,31 @@ public class SystemMonitoringHandler {
         connectionsByIp.clear();
         totalConnections.set(0);
         log.info("SystemMonitoringHandler closed successfully");
+    }
+
+    /**
+     * Forwards a management lifecycle event to every connected monitoring WebSocket as a
+     * {@code {"type":"management_event","data":{action,resource,timestamp}}} frame. The frame
+     * mirrors the client-side notification feed (the Overview listener forwards
+     * {@code data.action}/{@code data.resource} straight to the bell). Transient — no storage.
+     */
+    private void broadcastManagementEvent(JsonObject event) {
+        if (event == null || wsConnections.isEmpty()) {
+            return;
+        }
+        String frame = new JsonObject()
+                .put("type", "management_event")
+                .put("data", event)
+                .encode();
+        wsConnections.values().forEach(conn -> {
+            try {
+                if (!conn.webSocket.isClosed()) {
+                    conn.webSocket.writeTextMessage(frame);
+                }
+            } catch (Exception e) {
+                log.debug("Failed to forward management_event to {}: {}", conn.connectionId, e.getMessage());
+            }
+        });
     }
 
     /**
