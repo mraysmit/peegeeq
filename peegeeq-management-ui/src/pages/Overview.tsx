@@ -189,10 +189,23 @@ const Overview = () => {
                     updateChartData(stats)
                     useManagementStore.getState().setSystemStats(stats)
                 } else if (message.type === 'management_event') {
+                    // Catalogue-aligned backend event ({entity}.{action}.{state} eventName plus
+                    // discrete entity/action/state/name/setupId fields). Compose the display label
+                    // here so the bell reads like the client-side feed (e.g. "queue created — orders").
+                    // The structured fields stay available for richer UI/filtering later.
                     const d = message.data || {}
+                    const entityLabel = (d.entity || 'resource').replace(/-/g, ' ')
+                    const actionPast: Record<string, string> = { creation: 'created', deletion: 'deleted' }
+                    const verb = actionPast[d.action] || d.action || d.state || 'updated'
+                    const name = d.name || 'system'
+                    const capitalized = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1)
+                    const description = d.setupId
+                        ? `${capitalized} '${name}' ${verb} in setup '${d.setupId}'`
+                        : `${capitalized} '${name}' ${verb}`
                     useManagementStore.getState().addNotification({
-                        resource: d.resource || 'system',
-                        action: d.action || 'event'
+                        resource: name,
+                        action: `${entityLabel} ${verb}`,
+                        description,
                     })
                 }
             },

@@ -150,7 +150,7 @@ const Header: React.FC = () => {
                   renderItem={(n) => (
                     <List.Item>
                       <List.Item.Meta
-                        title={`${n.action} — ${n.resource}`}
+                        title={n.description}
                         description={new Date(n.timestamp).toLocaleString()}
                       />
                     </List.Item>
