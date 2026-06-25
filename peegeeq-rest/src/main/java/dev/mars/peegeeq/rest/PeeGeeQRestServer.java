@@ -318,7 +318,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         // Create handlers - all use DatabaseSetupService interface (no casts to
         // implementation types)
         DatabaseSetupHandler setupHandler = new DatabaseSetupHandler(setupService, objectMapper);
-        QueueHandler queueHandler = new QueueHandler(setupService, objectMapper);
+        QueueHandler queueHandler = new QueueHandler(setupService, objectMapper, vertx);
         EventStoreHandler eventStoreHandler = new EventStoreHandler(setupService, objectMapper, vertx);
 
         // Create SubscriptionManagerFactory for database-backed subscription
