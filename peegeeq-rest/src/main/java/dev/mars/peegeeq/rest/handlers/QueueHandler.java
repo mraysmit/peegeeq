@@ -55,10 +55,12 @@ public class QueueHandler {
     
     private final DatabaseSetupService setupService;
     private final ObjectMapper objectMapper;
-    
-    public QueueHandler(DatabaseSetupService setupService, ObjectMapper objectMapper) {
+    private final Vertx vertx;
+
+    public QueueHandler(DatabaseSetupService setupService, ObjectMapper objectMapper, Vertx vertx) {
         this.setupService = setupService;
         this.objectMapper = objectMapper;
+        this.vertx = vertx;
     }
     
     /**
@@ -134,10 +136,15 @@ public class QueueHandler {
                         queueName, setupId, messageId, detectedType);
                     return response;
                 })
-                .onSuccess(response -> ctx.response()
+                .onSuccess(response -> {
+                    // Notify the per-setup queue-updates SSE so the management UI refreshes the
+                    // live message count without waiting for its 30s poll (Phase 9).
+                    ManagementApiHandler.publishQueueChanged(vertx, setupId, queueName, "MESSAGE_SENT");
+                    ctx.response()
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
-                        .end(response.encode()))
+                        .end(response.encode());
+                })
                 .onFailure(throwable -> {
                     if (throwable instanceof ResponseException re) {
                         sendError(ctx, re.statusCode, re.getMessage());
@@ -251,6 +258,11 @@ public class QueueHandler {
                             .put("messageIds", messageIds);
                 })
                 .onSuccess(response -> {
+                    // Refresh the live message count via the queue-updates SSE when at least one
+                    // message was actually enqueued (Phase 9).
+                    if (response.getLong("successfulMessages") > 0) {
+                        ManagementApiHandler.publishQueueChanged(vertx, setupId, queueName, "MESSAGES_SENT");
+                    }
                     int statusCode = response.getLong("failedMessages") > 0 ? 207 : 200;
                     ctx.response()
                             .setStatusCode(statusCode)
