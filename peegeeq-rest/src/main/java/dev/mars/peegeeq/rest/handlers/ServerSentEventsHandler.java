@@ -191,7 +191,7 @@ public class ServerSentEventsHandler {
                 .put("setupId", setupId)
                 .put("timestamp", System.currentTimeMillis()));
 
-        String address = "peegeeq.queues.changed." + setupId;
+        String address = ManagementApiHandler.QUEUES_CHANGED_ADDRESS_PREFIX + setupId;
         io.vertx.core.eventbus.MessageConsumer<JsonObject> busConsumer =
                 vertx.eventBus().consumer(address, msg -> {
                     if (!response.closed()) {
