@@ -860,8 +860,8 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | 6 | Reconnection UI — E2E coverage + SSE parity *(UI already implemented)* | `peegeeq-management-ui` | — | ✅ Complete (2026-06-16) |
 | 7 | Consumer Groups success toasts *(other resource flows already done)* | `peegeeq-management-ui` | — | ✅ Complete (2026-06-23) |
 | 7a | Notifications page (`/notifications`) | `peegeeq-management-ui` | — | ✅ Complete (2026-06-23) |
-| 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 |
-| 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — |
+| 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 | ✅ Complete (2026-06-25) |
+| 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — | ✅ Backend complete (2026-06-25); FE e2e proof pending |
 | 10 | Authentication layer | TBD — architecture decision required | — |
 | 11 | Split `activeConnections` — meaningful connection metrics | `peegeeq-rest` + `peegeeq-management-ui` | — |
 | 12 | Non-destructive live message stream (LISTEN/NOTIFY → browse → push; replace the consuming SSE/WS reads) | `peegeeq-api` + `peegeeq-native` + `peegeeq-outbox` + `peegeeq-rest` + `peegeeq-management-ui` | — |
@@ -1252,7 +1252,40 @@ New file: `peegeeq-management-ui/src/pages/NotificationsPage.tsx`
 
 ---
 
-### 7.8 Backend management_event + notification bell end-to-end
+### 7.8 Backend management_event + notification bell end-to-end — ✅ Complete (2026-06-25)
+
+> **Status — Complete 2026-06-25.** Implemented end-to-end; the design evolved from the original
+> sketch below in two ways (both deliberate):
+>
+> 1. **Frame shape — structured + catalogue-aligned, nested under `data`.** The emitted WS frame is
+>    `{"type":"management_event","data":{eventName,entity,action,state,name,setupId,timestamp}}` where
+>    `eventName` follows the Financial Services Event Catalogue `{entity}.{action}.{state}` convention
+>    (kebab-case entities), e.g. `queue.creation.completed`, `event-store.deletion.completed`,
+>    `consumer-group.creation.completed`. This superseded the original flat `{action,resource,name}`
+>    sketch — structured fields are filterable/groupable and carry setup context; the UI composes the
+>    display label and a rich `description` ("Queue 'orders' created in setup 'default'").
+> 2. **Backend wiring.** `ManagementApiHandler.publishManagementEvent(entity, action, state, name, setupId)`
+>    publishes to event-bus address `ManagementApiHandler.MANAGEMENT_EVENTS_ADDRESS`
+>    (`peegeeq.management.events`, a single shared constant). `SystemMonitoringHandler` registers **one
+>    shared consumer** in its constructor that broadcasts each event to **all** `/ws/monitoring` clients
+>    and unregisters in `close()`. Seven emission call sites (queue create + delete on **both** the
+>    management and standard routes — `deleteQueueByName` was a found+fixed gap, the UI's actual delete
+>    path, which previously emitted nothing — plus event-store and consumer-group create/delete).
+>
+> **Frontend:** `Overview.tsx` listener maps the frame → `addNotification` (composes label + rich
+> description); `description` is now a first-class field on `ManagementNotification`; the bell drawer
+> and Notifications page render it.
+>
+> **Tests (all green):**
+> - **Backend** `ManagementEventPublishingIntegrationTest` (8 `@Tag(INTEGRATION)` TestContainers tests):
+>   all six emission paths, the negative case (message publish emits nothing), and broadcast-to-multiple
+>   clients. Full `peegeeq-rest` suite **329/0/0** (no regression from the shared-handler changes).
+> - **Frontend e2e** `notification-bell-backend.spec.ts` (project `16-notification-bell-backend`): an
+>   **API-triggered** mutation (bypassing the client-side `addNotification`) increments the bell via the
+>   WS — the true backend→UI proof. Green.
+>
+> Note: the client-side `addNotification` calls coexist (resource pages); the backend event is received
+> only where the monitoring WS is live (Overview), so there is no practical double-notification.
 
 **Source**: §6.5 ❌ and §2.1. `Overview.tsx:190` listens for `msg.type === 'management_event'` on `/ws/monitoring` and calls `addNotification`. The backend never emits it (`grep management_event` over `peegeeq-rest` = 0 hits).
 
@@ -1462,7 +1495,24 @@ test('management_event is emitted from backend WS')
 
 ---
 
-### 7.9 Live queue message count via SSE
+### 7.9 Live queue message count via SSE — ✅ Backend complete (2026-06-25)
+
+> **Status — backend complete & validated 2026-06-25.** `QueueHandler.sendMessage` (`MESSAGE_SENT`)
+> and `sendMessages` (`MESSAGES_SENT`, gated on ≥1 enqueued) now publish `queue-changed` on success,
+> and `ManagementApiHandler.purgeQueue` publishes `QUEUE_PURGED` — so the queues-list live message
+> count refreshes via the `/api/v1/sse/queues/:setupId` stream without waiting for the 30s poll.
+> `publishQueueChanged` was refactored into a **static** helper + a shared
+> `ManagementApiHandler.QUEUES_CHANGED_ADDRESS_PREFIX` constant (single source of truth; `QueueHandler`
+> and `ServerSentEventsHandler` both reference it). `QueueHandler` gained a `vertx` field
+> (`PeeGeeQRestServer` passes it). **Frontend unchanged** — `QueuesEnhanced.tsx:126` already
+> `refetch()`s on each `queue-changed`. Tests: new `QueueHandlerIntegrationTest` (2 `@Tag(INTEGRATION)`
+> TestContainers tests: send→`queue-changed`, purge→`queue-changed`) green; full `peegeeq-rest` suite
+> **331/0/0** (no regression). **Remaining:** the §7.9 Playwright proof below ("count updates within
+> 5s of an API publish") is not yet written — the frontend "front" of this phase.
+>
+> *Out-of-scope note:* the UI's queue-*delete* path (`deleteQueueByName`) emits the Phase 8
+> `management_event` but not `queue-changed`, so a UI delete doesn't auto-refresh the list via SSE —
+> pre-existing, tangential to the message-count goal, left untouched.
 
 **Source**: §2.2 / §6.4. `QueuesEnhanced.tsx:126` already calls `refetch()` on each SSE `queue-changed` event. The gap is on the backend: `QueueHandler.sendMessage` does not call `publishQueueChanged` after a successful send (confirmed by source — 0 calls in that method), so the SSE never fires on message publish.
 
