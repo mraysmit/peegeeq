@@ -11,6 +11,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Context;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -175,7 +176,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .compose(req -> {
                     // 3. Create PeeGeeQ configuration and manager (use setupId as profile)
                     PeeGeeQConfiguration config = createConfiguration(req.getDatabaseConfig(), req.getSetupId());
-                    PeeGeeQManager manager = new PeeGeeQManager(config);
+                    // Reuse this service's Vert.x (captured from the calling context) so the per-setup
+                    // manager does not create a fresh Vert.x on the event-loop thread (Phase F1). The
+                    // manager treats the Vert.x as external and never closes it; this service owns its
+                    // lifecycle. The fresh SimpleMeterRegistry mirrors the prior config-only constructor
+                    // (SimpleMeterRegistry.close() is a no-op, so manager-ownership of it is immaterial).
+                    PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry(), vertx);
                     // Start reactively - DO NOT block with .get()
                     return manager.start().map(v -> {
                         // Store manager for later steps

@@ -138,12 +138,10 @@ public class PeeGeeQManager {
     private final List<dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook> closeHooks = new CopyOnWriteArrayList<>();
 
 
-    // The no-arg constructor was removed deliberately: the profile is mandatory explicit
-    // configuration — no ambient resolution from peegeeq.profile / PEEGEEQ_PROFILE.
-
-    public PeeGeeQManager(String profile) {
-        this(new PeeGeeQConfiguration(profile, new java.util.Properties()));
-    }
+    // The no-arg and (String profile) convenience constructors were removed deliberately:
+    // configuration must be explicit and complete. A profile alone (with empty Properties) has
+    // no database/schema config and would fail at construction, so the minimal entry point is
+    // PeeGeeQManager(PeeGeeQConfiguration).
 
     public PeeGeeQManager(PeeGeeQConfiguration configuration) {
         this(configuration, new SimpleMeterRegistry(), null, true);
