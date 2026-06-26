@@ -1,5 +1,6 @@
 import { test, expect } from '../page-objects'
 import { SETUP_ID } from '../test-constants'
+import { selectAntOption } from '../utils/ant-helpers'
 
 /**
  * Queue Updates SSE – Direct API Tests
@@ -248,5 +249,45 @@ test.describe('Queue Updates SSE – Direct API', () => {
         expect(forQueue[1].event).toBe('QUEUE_DELETED')
 
         await closeQueueUpdatesSse(page)
+    })
+
+    /**
+     * Test 6 (Phase 9): the Queues page live message count refreshes in real time after a
+     * message is published via the REST API — no manual refresh. This is the end-to-end UI
+     * proof: publish → backend `MESSAGE_SENT` queue-changed → the page's own queue-updates SSE
+     * → `refetch()` → the Messages column updates. The page subscribes to the SSE only when a
+     * setup is selected (createQueueUpdatesSSE is gated on selectedSetupId), so the setup is
+     * scoped first.
+     */
+    test('06 publishing a message updates the queues-list count in real time (no manual refresh)', async ({ page }) => {
+        const queueName = `sse_upd_count_${Date.now()}`
+        await createQueue(page, queueName) // fresh queue → count 0
+
+        await page.getByTestId('nav-queues').click()
+        await page.waitForLoadState('load')
+
+        // Scope to the setup so the page subscribes to /api/v1/sse/queues/{setupId}
+        const setupSelector = page.getByTestId('setup-scope-selector')
+        if (!(await setupSelector.locator('.ant-select-selection-item').isVisible())) {
+            await selectAntOption(setupSelector, SETUP_ID)
+        }
+
+        // The new queue's row; its Messages cell (column index 1) starts at 0
+        const row = page.locator('.ant-table-row').filter({ hasText: queueName })
+        await expect(row).toBeVisible({ timeout: 15000 })
+        const messagesCell = row.locator('td.ant-table-cell').nth(1)
+        await expect(messagesCell).toContainText('0')
+
+        // Allow the per-setup SSE connection to establish before mutating
+        await page.waitForTimeout(1000)
+
+        // Publish via the REST API directly — not via the UI, and with no manual refresh click
+        const resp = await page.request.post(`/api/v1/queues/${SETUP_ID}/${queueName}/messages`, {
+            data: { payload: { test: true }, headers: {} },
+        })
+        if (!resp.ok()) throw new Error(`Publish message failed: ${resp.status()} ${await resp.text()}`)
+
+        // Count refreshes via SSE → refetch within a few seconds, without touching the refresh button
+        await expect(messagesCell).toContainText('1', { timeout: 8000 })
     })
 })

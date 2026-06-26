@@ -2240,10 +2240,13 @@ public class ManagementApiHandler {
                         .put("setupId", setupId)
                         .put("purgedCount", deletedCount)
                         .put("timestamp", System.currentTimeMillis()))
-                .onSuccess(response -> ctx.response()
+                .onSuccess(response -> {
+                    publishQueueChanged(setupId, queueName, "QUEUE_PURGED");
+                    ctx.response()
                         .setStatusCode(200)
                         .putHeader("content-type", "application/json")
-                        .end(response.encode()))
+                        .end(response.encode());
+                })
                 .onFailure(throwable -> {
                     if (throwable instanceof ResponseException re) {
                         sendError(ctx, re.statusCode, re.getMessage());
@@ -2436,12 +2439,30 @@ public class ManagementApiHandler {
         return throwable instanceof SetupNotFoundException;
     }
 
-    private void publishQueueChanged(String setupId, String queueName, String event) {
-        vertx.eventBus().publish("peegeeq.queues.changed." + setupId, new JsonObject()
+    /**
+     * Event-bus address prefix for per-setup "queue changed" events; suffixed with the setupId.
+     * Single source of truth shared with the SSE forwarder ({@code ServerSentEventsHandler}) and
+     * other publishers ({@code QueueHandler}) so the address cannot silently diverge.
+     */
+    public static final String QUEUES_CHANGED_ADDRESS_PREFIX = "peegeeq.queues.changed.";
+
+    /**
+     * Publishes a "queue changed" event to the per-setup event-bus address consumed by
+     * {@code ServerSentEventsHandler.handleQueueUpdates} and forwarded to the management UI as a
+     * {@code queue-changed} SSE (driving a queue-list refresh / live message count). Static so other
+     * handlers (e.g. {@code QueueHandler} on message send/batch) publish the identical address and
+     * payload shape without duplication. Transient broadcast — nothing is persisted.
+     */
+    public static void publishQueueChanged(Vertx vertx, String setupId, String queueName, String event) {
+        vertx.eventBus().publish(QUEUES_CHANGED_ADDRESS_PREFIX + setupId, new JsonObject()
                 .put("event", event)
                 .put("setupId", setupId)
                 .put("queueName", queueName)
                 .put("timestamp", System.currentTimeMillis()));
+    }
+
+    private void publishQueueChanged(String setupId, String queueName, String event) {
+        publishQueueChanged(vertx, setupId, queueName, event);
     }
 
     /**
