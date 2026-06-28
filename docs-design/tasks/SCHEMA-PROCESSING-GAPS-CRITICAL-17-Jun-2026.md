@@ -10,6 +10,8 @@ test (2026-06-16)" at the end.
 
 **Prior remediation (still valid):** Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.5 COMPLETE (13 Jun 2026). The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
 
+**Open production defect (not schema work):** the sweep surfaced **F1** — `PeeGeeQDatabaseSetupService` constructs `PeeGeeQManager` without its context Vert.x, so every `createCompleteSetup` spins up a new Vert.x + worker pool. Logged, unfixed, needs its own analysis + targeted run; detail in "Phase F — Testing discoveries: Vert.x lifecycle" below.
+
 ---
 
 ## Architecture correction (12 Jun 2026, evening) — the binding rules
@@ -506,3 +508,31 @@ principle / this sweep / a known bug / form defaults, where `public` is the nece
 (e.g. PHASE-A "search_path has no `, public` fallback" / "never `public`"; MANAGEMENT_UI_ENHANCEMENTS "the
 no-`public`-in-tests sweep"; AGGREGATE-STREAM "manager pinned to `public`"; COVERAGE_GAPS form-default description).
 The pervasive Java `public` keyword in code snippets is not a schema reference and is untouched.
+
+## Follow-up: test-resource `.properties` files (2026-06-26)
+
+A re-scan that **included resource files** — every prior sweep grep was scoped to
+`**/src/test/**/*.java` + frontend + docs `.md`, so `.properties`/`.yml` resources were never
+checked — found two test-resource files still carrying `peegeeq.database.schema=public`. Both
+converted to `peegeeq_test`:
+
+- `peegeeq-outbox/src/test/resources/peegeeq-test.properties:7`. Loaded only by
+  `OutboxConsumerIntegrationTest.testConstructorWithClientFactory_WithConfiguration` and three
+  `OutboxFactoryRegistrarTest` methods, all via `new PeeGeeQConfiguration("test", new Properties())` —
+  construction-only (`assertNotNull`/`assertInstanceOf`); none reads the schema, connects, or
+  provisions (the file's `host=test-host` is non-resolvable). Behavior-safe.
+- `peegeeq-bitemporal/src/test/resources/peegeeq-development.properties:11`, plus its stale header
+  comment `(overridden by system properties in tests)` → `(overridden by explicit PeeGeeQConfiguration
+  constructor args in tests)` (D2 abolished the system-property channel). Loaded only by
+  `VersionLineageIntegrationTest`, whose 7-arg constructor passes `PostgreSQLTestConstants.TEST_SCHEMA`
+  explicitly (verified at the line-125 site; S3 records all four sites converted), so the file value
+  was already overridden/dead. Behavior-safe.
+
+**Verified GREEN 2026-06-26** (owner-run): `peegeeq-outbox` integration + bitemporal
+`VersionLineageIntegrationTest`.
+
+**Methodology note:** completeness greps for the no-`public` rule must include `.properties`/`.yml`
+resources, not just `.java`/frontend/`.md`. This is the third scope-gap of the same kind (Phase E
+missed `.fill('public')`; the 2026-06-21 follow-up found modules never in the original sweep; this
+found resource files). Repo is now grep-clean for schema-`public` literals across `.java`, frontend,
+docs, **and** test resources.
