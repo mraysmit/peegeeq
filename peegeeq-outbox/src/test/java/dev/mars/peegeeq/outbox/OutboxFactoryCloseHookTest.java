@@ -6,17 +6,20 @@ import dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar;
 import dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
-import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -26,9 +29,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>These tests verify that the close hook registered with PeeGeeQManager
  * actually closes tracked resources during shutdown, instead of being a no-op.
  *
- * <p>All tests are CORE no database access, no TestContainers.
+ * <p>All tests are CORE — no database access, no TestContainers. Async close-hook
+ * completion is driven via {@link VertxTestContext}; the Vert.x instance is supplied
+ * by {@link VertxExtension}, so there is no manually-created, leaked {@code Vertx}.
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @DisplayName("OutboxFactory close hook lifecycle")
 class OutboxFactoryCloseHookTest {
 
@@ -36,8 +42,8 @@ class OutboxFactoryCloseHookTest {
 
     @Test
     @DisplayName("Close hook should be registered when DatabaseService is a LifecycleHookRegistrar")
-    void closeHookIsRegistered() {
-        var dbService = new HookCapturingDatabaseService();
+    void closeHookIsRegistered(Vertx vertx) {
+        var dbService = new HookCapturingDatabaseService(vertx);
         new OutboxFactory(dbService, minimalTestConfig());
 
         assertNotNull(dbService.getCapturedHook(), "Close hook should have been registered");
@@ -48,85 +54,85 @@ class OutboxFactoryCloseHookTest {
 
     @Test
     @DisplayName("Close hook closeReactive() should close tracked consumers")
-    void closeHookClosesConsumers() {
-        var dbService = new HookCapturingDatabaseService();
+    void closeHookClosesConsumers(Vertx vertx, VertxTestContext testContext) {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
-        // Create a consumer adds to createdResources
+        // Create a consumer — adds to createdResources
         MessageConsumer<String> consumer = factory.createConsumer("test-topic", String.class);
         assertNotNull(consumer);
 
         // Invoke the close hook (simulates PeeGeeQManager shutdown step 2)
-        Future<Void> result = dbService.getCapturedHook().closeReactive();
-        result.await();
-
-        assertTrue(result.succeeded(), "Close hook should complete successfully");
-
-        // Factory should now be closed verify by trying to create another resource
-        assertThrows(IllegalStateException.class, () ->
-                factory.createProducer("another-topic", String.class),
-                "Factory should reject operations after close hook fires");
+        dbService.getCapturedHook().closeReactive()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                // Factory should now be closed — verify by trying to create another resource
+                assertThrows(IllegalStateException.class, () ->
+                        factory.createProducer("another-topic", String.class),
+                        "Factory should reject operations after close hook fires");
+                testContext.completeNow();
+            })));
     }
 
     // -- Test 3: Close hook closes tracked consumer groups --
 
     @Test
     @DisplayName("Close hook closeReactive() should close tracked consumer groups")
-    void closeHookClosesConsumerGroups() {
-        var dbService = new HookCapturingDatabaseService();
+    void closeHookClosesConsumerGroups(Vertx vertx, VertxTestContext testContext) {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         ConsumerGroup<String> group = factory.createConsumerGroup("test-topic", "test-group", String.class);
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
         assertNotEquals(OutboxConsumerGroup.State.CLOSED, outboxGroup.getState());
 
-        Future<Void> result = dbService.getCapturedHook().closeReactive();
-        result.await();
-
-        assertTrue(result.succeeded(), "Close hook should complete successfully");
-        assertEquals(OutboxConsumerGroup.State.CLOSED, outboxGroup.getState(),
-                "Consumer group should be in CLOSED state after close hook fires");
+        dbService.getCapturedHook().closeReactive()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                assertEquals(OutboxConsumerGroup.State.CLOSED, outboxGroup.getState(),
+                        "Consumer group should be in CLOSED state after close hook fires");
+                testContext.completeNow();
+            })));
     }
 
     // -- Test 4: Close hook is idempotent --
 
     @Test
     @DisplayName("Close hook closeReactive() should be idempotent")
-    void closeHookIsIdempotent() {
-        var dbService = new HookCapturingDatabaseService();
+    void closeHookIsIdempotent(Vertx vertx, VertxTestContext testContext) {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         factory.createConsumer("test-topic", String.class);
 
-        // Call twice
-        dbService.getCapturedHook().closeReactive().await();
-        Future<Void> second = dbService.getCapturedHook().closeReactive();
-        second.await();
-
-        assertTrue(second.succeeded(), "Second close hook call should succeed without error");
+        // Call twice — the second close must also succeed (idempotent). Composing the two
+        // routes a failure of either call to failNow via succeeding().
+        dbService.getCapturedHook().closeReactive()
+            .compose(v -> dbService.getCapturedHook().closeReactive())
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     // -- Test 5: Factory rejects operations after close hook fires --
 
     @Test
     @DisplayName("Factory should reject createProducer after close hook fires")
-    void factoryRejectsOperationsAfterCloseHook() {
-        var dbService = new HookCapturingDatabaseService();
+    void factoryRejectsOperationsAfterCloseHook(Vertx vertx, VertxTestContext testContext) {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
-        dbService.getCapturedHook().closeReactive().await();
-
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
-                factory.createProducer("test-topic", String.class));
-        assertTrue(ex.getMessage().contains("closed"), "Exception should mention closed state");
+        dbService.getCapturedHook().closeReactive()
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                        factory.createProducer("test-topic", String.class));
+                assertTrue(ex.getMessage().contains("closed"), "Exception should mention closed state");
+                testContext.completeNow();
+            })));
     }
 
     // -- Test 6: Sync close() delegates to async path --
 
     @Test
     @DisplayName("Sync close() should close tracked resources (same as hook)")
-    void syncCloseClosesResources() throws Exception {
-        var dbService = new HookCapturingDatabaseService();
+    void syncCloseClosesResources(Vertx vertx) throws Exception {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         ConsumerGroup<String> group = factory.createConsumerGroup("test-topic", "test-group", String.class);
@@ -142,14 +148,23 @@ class OutboxFactoryCloseHookTest {
 
     @Test
     @DisplayName("Calling close hook then close() should not error")
-    void closeHookThenSyncClose() {
-        var dbService = new HookCapturingDatabaseService();
+    void closeHookThenSyncClose(Vertx vertx, VertxTestContext testContext) throws Exception {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         factory.createConsumer("test-topic", String.class);
 
-        // Hook fires first (manager shutdown), then explicit close() later
-        dbService.getCapturedHook().closeReactive().await();
+        // Hook fires first (manager shutdown); drive it to completion before the sync close.
+        dbService.getCapturedHook().closeReactive()
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+                "Close hook should complete");
+        if (testContext.failed()) {
+            throw new AssertionError(testContext.causeOfFailure());
+        }
+
+        // Then explicit close() later, on the JUnit worker thread — QueueFactory.close()
+        // is thread-affinity guarded and must not run on a Vert.x event-loop thread.
         assertDoesNotThrow(() -> factory.close(),
                 "close() after close hook should not throw");
     }
@@ -158,18 +173,16 @@ class OutboxFactoryCloseHookTest {
 
     @Test
     @DisplayName("Calling close() then close hook should not error")
-    void syncCloseThenCloseHook() throws Exception {
-        var dbService = new HookCapturingDatabaseService();
+    void syncCloseThenCloseHook(Vertx vertx, VertxTestContext testContext) throws Exception {
+        var dbService = new HookCapturingDatabaseService(vertx);
         OutboxFactory factory = new OutboxFactory(dbService, minimalTestConfig());
 
         factory.createConsumer("test-topic", String.class);
 
-        // Explicit close() first, then hook fires during manager shutdown
+        // Explicit close() first (on the JUnit worker thread), then the hook fires during shutdown.
         factory.close();
-        Future<Void> hookResult = dbService.getCapturedHook().closeReactive();
-        hookResult.await();
-        assertTrue(hookResult.succeeded(),
-                "Close hook after close() should succeed");
+        dbService.getCapturedHook().closeReactive()
+            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
     }
 
     // -- Test infrastructure --
@@ -187,9 +200,17 @@ class OutboxFactoryCloseHookTest {
      * DatabaseService that also implements LifecycleHookRegistrar,
      * so OutboxFactory's constructor registers the close hook.
      * Captures the hook for test invocation.
+     *
+     * <p>The Vert.x instance is supplied by the caller (the VertxExtension-managed
+     * instance) rather than created here, so there is no unmanaged Vert.x to leak.
      */
     private static class HookCapturingDatabaseService implements DatabaseService, LifecycleHookRegistrar {
+        private final Vertx vertx;
         private PeeGeeQCloseHook capturedHook;
+
+        HookCapturingDatabaseService(Vertx vertx) {
+            this.vertx = vertx;
+        }
 
         @Override
         public void registerCloseHook(PeeGeeQCloseHook hook) {
@@ -231,8 +252,6 @@ class OutboxFactoryCloseHookTest {
 
         @Override
         public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-
-        private final Vertx vertx = Vertx.vertx();
 
         @Override
         public io.vertx.core.Vertx getVertx() { return vertx; }

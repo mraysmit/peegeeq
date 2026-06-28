@@ -8,8 +8,8 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
-import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import dev.mars.peegeeq.pgqueue.PgNativeQueueConsumer;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -24,7 +24,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.LoggerFactory;
 
-import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -32,11 +31,9 @@ import java.util.Map;
 import java.util.Set;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
 @ExtendWith(VertxExtension.class)
@@ -220,7 +217,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
     @Test
     @DisplayName("Destroy setup should stop native listeners without reconnect noise")
-    void testDestroySetupStopsNativeListenersCleanly(Vertx vertx) throws Exception {
+    void testDestroySetupStopsNativeListenersCleanly(Vertx vertx, VertxTestContext testContext) {
         String setupId = generateSetupId();
         String queueName = "shutdown_queue";
         Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
@@ -228,92 +225,59 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
         rootLogger.addAppender(appender);
         appender.start();
 
-        try {
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            java.util.concurrent.atomic.AtomicReference<DatabaseSetupResult> resultRef = new java.util.concurrent.atomic.AtomicReference<>();
-            java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
-            setupService.createCompleteSetup(createSetupRequest(setupId, queueName))
-                    .onSuccess(r -> { resultRef.set(r); setupLatch.countDown(); })
-                    .onFailure(e -> { errorRef.set(e); setupLatch.countDown(); });
-            assertTrue(setupLatch.await(60, TimeUnit.SECONDS), "Setup creation timed out");
-            if (errorRef.get() != null) throw new RuntimeException("Setup failed", errorRef.get());
-            DatabaseSetupResult result = resultRef.get();
-            QueueFactory factory = result.getQueueFactories().get(queueName);
+        AtomicInteger logStartIndex = new AtomicInteger();
+        AtomicReference<PgNativeQueueConsumer<Object>> consumerRef = new AtomicReference<>();
 
-            assertNotNull(factory, "Queue factory should exist for shutdown regression test");
-
-            MessageConsumer<Object> consumer = factory.createConsumer(queueName, Object.class);
-            activeConsumers.add(consumer);
-
-            consumer.subscribe(msg -> Future.succeededFuture());
-
-            // Wait for subscriber to be ready using periodic check + CountDownLatch
-            CountDownLatch subscriberLatch = new CountDownLatch(1);
-            long subscriberTimer = vertx.setPeriodic(100, id -> {
-                try {
-                    if (getFieldValue(consumer, "subscriber") != null) {
-                        subscriberLatch.countDown();
-                    }
-                } catch (Exception e) {
-                    // ignore
+        setupService.createCompleteSetup(createSetupRequest(setupId, queueName))
+            .compose(result -> {
+                QueueFactory factory = result.getQueueFactories().get(queueName);
+                if (factory == null) {
+                    return Future.<Void>failedFuture(
+                            new AssertionError("Queue factory should exist for shutdown regression test"));
                 }
-            });
-            assertTrue(subscriberLatch.await(5, TimeUnit.SECONDS), "Subscriber not ready in time");
-            vertx.cancelTimer(subscriberTimer);
+                @SuppressWarnings("unchecked")
+                PgNativeQueueConsumer<Object> consumer =
+                        (PgNativeQueueConsumer<Object>) factory.createConsumer(queueName, Object.class);
+                consumerRef.set(consumer);
+                activeConsumers.add(consumer);
 
-            assertNotNull(getFieldValue(consumer, "subscriber"), "Subscribed native consumer should have a LISTEN connection");
-
-            int logStartIndex = appender.size();
-
-            CountDownLatch destroyLatch = new CountDownLatch(1);
-            setupService.destroySetup(setupId)
-                    .onSuccess(v -> destroyLatch.countDown())
-                    .onFailure(err -> { logger.warn("destroySetup failed for {}", setupId, err); destroyLatch.countDown(); });
-            assertTrue(destroyLatch.await(30, TimeUnit.SECONDS), "Destroy timed out");
-            activeConsumers.remove(consumer);
-
-            // Wait for consumer closed state using periodic check + CountDownLatch
-            CountDownLatch closedLatch = new CountDownLatch(1);
-            long closedTimer = vertx.setPeriodic(100, id -> {
-                try {
-                    if (getAtomicBooleanField(consumer, "closed")) {
-                        closedLatch.countDown();
-                    }
-                } catch (Exception e) {
-                    // ignore
-                }
-            });
-            assertTrue(closedLatch.await(5, TimeUnit.SECONDS), "Consumer not closed in time");
-            vertx.cancelTimer(closedTimer);
-
-            assertNull(getFieldValue(consumer, "subscriber"), "Destroyed setup must clear native LISTEN connection");
-            assertEquals(-1L, getLongField(consumer, "listenReconnectTimerId"),
-                    "Destroyed setup must not retain LISTEN reconnect timers");
-            assertTrue(getAtomicBooleanField(consumer, "closed"), "Destroyed setup must close native consumers");
-            assertFalse(getAtomicBooleanField(consumer, "subscribed"), "Destroyed setup must leave consumer unsubscribed");
-
-            assertNoShutdownReconnectLogs(appender.snapshotFrom(logStartIndex), queueName);
-        } finally {
-            rootLogger.detachAppender(appender);
-            appender.stop();
-
-            try {
-                CountDownLatch idsLatch = new CountDownLatch(1);
-                java.util.concurrent.atomic.AtomicReference<java.util.Set<String>> idsRef = new java.util.concurrent.atomic.AtomicReference<>();
-                setupService.getAllActiveSetupIds()
-                        .onSuccess(ids -> { idsRef.set(ids); idsLatch.countDown(); })
-                        .onFailure(e -> idsLatch.countDown());
-                if (idsLatch.await(5, TimeUnit.SECONDS) && idsRef.get() != null && idsRef.get().contains(setupId)) {
-                    CountDownLatch cleanLatch = new CountDownLatch(1);
-                    setupService.destroySetup(setupId)
-                            .onSuccess(v -> cleanLatch.countDown())
-                            .onFailure(err -> { logger.warn("Cleanup destroySetup failed for {}", setupId, err); cleanLatch.countDown(); });
-                    cleanLatch.await(10, TimeUnit.SECONDS);
-                }
-            } catch (Exception ignore) {
-                logger.warn("Cleanup of setup {} failed (best-effort only)", setupId, ignore);
-            }
-        }
+                // subscribe() completes once the native LISTEN is established — chain off it
+                // instead of polling for readiness (and so the send/subscribe Future is observed).
+                return consumer.subscribe(msg -> Future.succeededFuture())
+                    .compose(v -> {
+                        // Snapshot the log position, then destroy the setup.
+                        logStartIndex.set(appender.size());
+                        return setupService.destroySetup(setupId);
+                    })
+                    .compose(v -> {
+                        activeConsumers.remove(consumer);
+                        // The consumer observes shutdown asynchronously after destroySetup settles,
+                        // so poll its closed state reactively (no blocking, no reflection).
+                        return pollUntil(vertx, consumer::isClosed,
+                                System.currentTimeMillis() + 5_000, "consumer closed");
+                    });
+            })
+            // Detach the appender and best-effort-destroy the setup regardless of outcome.
+            .eventually(() -> {
+                rootLogger.detachAppender(appender);
+                appender.stop();
+                return setupService.getAllActiveSetupIds()
+                        .compose(ids -> ids.contains(setupId)
+                                ? setupService.destroySetup(setupId)
+                                : Future.<Void>succeededFuture())
+                        .transform(ar -> Future.<Void>succeededFuture());
+            })
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                PgNativeQueueConsumer<Object> consumer = consumerRef.get();
+                assertFalse(consumer.hasActiveListenConnection(),
+                        "Destroyed setup must clear native LISTEN connection");
+                assertFalse(consumer.hasPendingListenReconnect(),
+                        "Destroyed setup must not retain LISTEN reconnect timers");
+                assertTrue(consumer.isClosed(), "Destroyed setup must close native consumers");
+                assertFalse(consumer.isSubscribed(), "Destroyed setup must leave consumer unsubscribed");
+                assertNoShutdownReconnectLogs(appender.snapshotFrom(logStartIndex.get()), queueName);
+                testContext.completeNow();
+            })));
     }
 
     private DatabaseSetupRequest createSetupRequest(String setupId, String queueName) {
@@ -350,34 +314,19 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                 "Shutdown should not emit reconnect/error log events for queue " + queueName + ": " + forbiddenEvents);
     }
 
-    private static Object getFieldValue(Object target, String fieldName) throws Exception {
-        Field field = findField(target.getClass(), fieldName);
-        field.setAccessible(true);
-        return field.get(target);
-    }
-
-    private static long getLongField(Object target, String fieldName) throws Exception {
-        Field field = findField(target.getClass(), fieldName);
-        field.setAccessible(true);
-        return field.getLong(target);
-    }
-
-    private static boolean getAtomicBooleanField(Object target, String fieldName) throws Exception {
-        Field field = findField(target.getClass(), fieldName);
-        field.setAccessible(true);
-        return ((java.util.concurrent.atomic.AtomicBoolean) field.get(target)).get();
-    }
-
-    private static Field findField(Class<?> type, String fieldName) throws NoSuchFieldException {
-        Class<?> current = type;
-        while (current != null) {
-            try {
-                return current.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
+    /**
+     * Reactively waits until {@code condition} holds, re-checking every 100 ms via a Vert.x
+     * timer (no blocking, no reflection). Fails the returned Future if {@code deadline} passes first.
+     */
+    private static Future<Void> pollUntil(Vertx vertx, java.util.function.BooleanSupplier condition,
+                                          long deadline, String description) {
+        if (condition.getAsBoolean()) {
+            return Future.succeededFuture();
         }
-        throw new NoSuchFieldException(fieldName);
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(description + " — condition not met within timeout"));
+        }
+        return vertx.timer(100).compose(t -> pollUntil(vertx, condition, deadline, description));
     }
 
     private static final class ShutdownLogCaptureAppender extends AppenderBase<ILoggingEvent> {

@@ -40,6 +40,14 @@
             <version>${project.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Native queue impl — referenced directly by NativeConcurrencySmokeTest to observe
+             PgNativeQueueConsumer LISTEN lifecycle state in the shutdown regression test. -->
+        <dependency>
+            <groupId>dev.mars</groupId>
+            <artifactId>peegeeq-native</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
 
         <!-- Vert.x -->
         <dependency>
