@@ -128,6 +128,31 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 topic, consumerConfig != null ? consumerConfig.getMode() : "default", consumerThreads);
     }
 
+    // --- LISTEN lifecycle state accessors ---
+    // Read-only views of the consumer's native LISTEN/close lifecycle so shutdown and
+    // regression tests can observe it through a real API instead of reflection. The
+    // underlying state is set by subscribe()/stopListening()/scheduleListenReconnect()/close().
+
+    /** @return true while a dedicated native LISTEN connection is open for this consumer. */
+    public boolean hasActiveListenConnection() {
+        return subscriber != null;
+    }
+
+    /** @return true while a LISTEN reconnect timer is scheduled (backoff in progress). */
+    public boolean hasPendingListenReconnect() {
+        return listenReconnectTimerId != -1;
+    }
+
+    /** @return true once this consumer has been closed. */
+    public boolean isClosed() {
+        return closed.get();
+    }
+
+    /** @return true while this consumer holds an active subscription. */
+    public boolean isSubscribed() {
+        return subscribed.get();
+    }
+
     @Override
     public Future<Void> subscribe(MessageHandler<T> handler) {
         logger.info("Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(),
