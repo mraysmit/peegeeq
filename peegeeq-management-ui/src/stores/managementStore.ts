@@ -14,13 +14,24 @@ export interface ManagementNotification {
 }
 
 // Types for the management store
+export interface DbPoolStats {
+    active: number
+    idle: number
+    pending: number
+    total: number
+    perSetup: { setupId: string; active: number; idle: number; pending: number; total: number }[]
+}
+
 export interface SystemStats {
     totalQueues: number
     totalConsumerGroups: number
     totalEventStores: number
     totalMessages: number
     messagesPerSecond: number
-    activeConnections: number
+    // Phase 11: the old meaningless `activeConnections` composite is split into three dimensions.
+    monitoringSessions: number
+    activeSubscriptions: number
+    dbPool: DbPoolStats
     uptime: string
 }
 
@@ -49,7 +60,9 @@ export interface ThroughputDataPoint {
 
 export interface ConnectionDataPoint {
     time: string
-    connections: number
+    active: number
+    idle: number
+    pending: number
 }
 
 export interface ManagementState {
@@ -111,7 +124,9 @@ export const useManagementStore = create<ManagementState>()(
                 totalEventStores: 0,
                 totalMessages: 0,
                 messagesPerSecond: 0,
-                activeConnections: 0,
+                monitoringSessions: 0,
+                activeSubscriptions: 0,
+                dbPool: { active: 0, idle: 0, pending: 0, total: 0, perSetup: [] },
                 uptime: '0s'
             },
             queues: [],
@@ -144,7 +159,9 @@ export const useManagementStore = create<ManagementState>()(
                             totalEventStores: data.systemStats?.totalEventStores || 0,
                             totalMessages: data.systemStats?.totalMessages || 0,
                             messagesPerSecond: data.systemStats?.messagesPerSecond || 0,
-                            activeConnections: data.systemStats?.activeConnections || 0,
+                            monitoringSessions: data.systemStats?.monitoringSessions || 0,
+                            activeSubscriptions: data.systemStats?.activeSubscriptions || 0,
+                            dbPool: data.systemStats?.dbPool || { active: 0, idle: 0, pending: 0, total: 0, perSetup: [] },
                             uptime: data.systemStats?.uptime || '0s'
                         },
                         lastUpdated: new Date().toISOString(),
@@ -214,7 +231,12 @@ export const useManagementStore = create<ManagementState>()(
                     ],
                     connectionData: [
                         ...state.connectionData.slice(-19), // Keep last 19 points
-                        { time: timeLabel, connections: stats.activeConnections }
+                        {
+                            time: timeLabel,
+                            active: stats.dbPool?.active ?? 0,
+                            idle: stats.dbPool?.idle ?? 0,
+                            pending: stats.dbPool?.pending ?? 0,
+                        }
                     ]
                 }))
             },
