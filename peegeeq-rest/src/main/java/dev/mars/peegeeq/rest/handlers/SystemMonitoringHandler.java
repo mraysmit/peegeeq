@@ -30,6 +30,10 @@ import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -537,6 +541,7 @@ public class SystemMonitoringHandler {
                             .put("cancelledSubscriptions", 0)
                             .put("subscribedTopics", new JsonArray())
                             .put("activeBackfills", new JsonArray())
+                            .put("dbPoolPerSetup", new JsonArray())
                             .put("totalSetups", activeSetupIds.size()));
 
                     for (String setupId : activeSetupIds) {
@@ -555,8 +560,6 @@ public class SystemMonitoringHandler {
                     long intervalMs = now - prevTimestamp;
                     double messagesPerSecond = prevTimestamp > 0 && intervalMs > 0 && totalMessages >= prevMessages
                             ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
-                    int activeConnectionsTotal = totalConnections.get()
-                            + agg.getInteger("activeConsumerConnections", 0);
                     JsonArray topicsArray = agg.getJsonArray("subscribedTopics", new JsonArray());
 
                     return new JsonObject()
@@ -569,7 +572,16 @@ public class SystemMonitoringHandler {
                             .put("cpuCores", runtime.availableProcessors())
                             .put("threadsActive", Thread.activeCount())
                             .put("messagesPerSecond", messagesPerSecond)
-                            .put("activeConnections", activeConnectionsTotal)
+                            // Phase 11: the old composite "activeConnections" (browser sessions +
+                            // subscription count) was meaningless. Emit three distinct dimensions.
+                            .put("monitoringSessions", totalConnections.get())
+                            .put("activeSubscriptions", agg.getInteger("activeConsumerConnections", 0))
+                            .put("dbPool", new JsonObject()
+                                    .put("active", agg.getInteger("dbPoolActive", 0))
+                                    .put("idle", agg.getInteger("dbPoolIdle", 0))
+                                    .put("pending", agg.getInteger("dbPoolPending", 0))
+                                    .put("total", agg.getInteger("dbPoolTotal", 0))
+                                    .put("perSetup", agg.getJsonArray("dbPoolPerSetup", new JsonArray())))
                             .put("totalMessages", totalMessages)
                             .put("totalQueues", agg.getInteger("totalQueues", 0))
                             .put("totalConsumerGroups", totalConsumerGroups)
@@ -656,7 +668,10 @@ public class SystemMonitoringHandler {
                                     acc -> collectTopicSubscriptionMetrics(subService, topic, acc));
                         }
                         return topicAccumulator;
-                    });
+                    })
+                    // Phase 11: collect this setup's live DB connection breakdown (active/idle/pending)
+                    .compose(aggAfterSubs -> collectDbPoolForSetup(setupId)
+                            .map(pool -> mergeDbPool(aggAfterSubs, pool)));
                 })
                 .transform(ar -> {
                     if (ar.failed()) {
@@ -665,6 +680,68 @@ public class SystemMonitoringHandler {
                     }
                     return Future.succeededFuture(ar.result());
                 });
+    }
+
+    /**
+     * Collects the live PostgreSQL connection breakdown for a single setup by querying
+     * {@code pg_stat_activity} (scoped to that setup's database via {@code current_database()}).
+     * Mirrors the established temp-pool pattern in {@code ManagementApiHandler.getActiveConnectionsForSetup},
+     * extended with the active/idle/pending state split. Returns a zero breakdown on any failure so a
+     * single unreachable setup never breaks the aggregate.
+     */
+    private Future<JsonObject> collectDbPoolForSetup(String setupId) {
+        return setupService.getDatabaseConfig(setupId)
+                .compose(dbConfig -> {
+                    PgConnectOptions connectOptions = new PgConnectOptions()
+                            .setHost(dbConfig.getHost())
+                            .setPort(dbConfig.getPort())
+                            .setDatabase(dbConfig.getDatabaseName())
+                            .setUser(dbConfig.getUsername())
+                            .setPassword(dbConfig.getPassword());
+
+                    Pool tempPool = PgBuilder.pool()
+                            .with(new PoolOptions().setMaxSize(1))
+                            .connectingTo(connectOptions)
+                            .using(vertx)
+                            .build();
+
+                    return tempPool
+                            .preparedQuery("SELECT "
+                                    + "COUNT(*) FILTER (WHERE state = 'active')::int AS active, "
+                                    + "COUNT(*) FILTER (WHERE state = 'idle')::int   AS idle, "
+                                    + "COUNT(*) FILTER (WHERE state IS NULL)::int     AS pending, "
+                                    + "COUNT(*)::int                                  AS total "
+                                    + "FROM pg_stat_activity WHERE datname = current_database()")
+                            .execute()
+                            .map(rows -> {
+                                var row = rows.iterator().next();
+                                return new JsonObject()
+                                        .put("setupId", setupId)
+                                        .put("active", row.getInteger("active"))
+                                        .put("idle", row.getInteger("idle"))
+                                        .put("pending", row.getInteger("pending"))
+                                        .put("total", row.getInteger("total"));
+                            })
+                            .eventually(() -> tempPool.close());
+                })
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        log.debug("Failed to collect DB pool metrics for setup {}: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonObject()
+                                .put("setupId", setupId).put("active", 0).put("idle", 0).put("pending", 0).put("total", 0));
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
+    }
+
+    /** Merges a single setup's DB pool breakdown into the aggregate accumulator. */
+    private JsonObject mergeDbPool(JsonObject agg, JsonObject pool) {
+        agg.put("dbPoolActive", agg.getInteger("dbPoolActive", 0) + pool.getInteger("active", 0));
+        agg.put("dbPoolIdle", agg.getInteger("dbPoolIdle", 0) + pool.getInteger("idle", 0));
+        agg.put("dbPoolPending", agg.getInteger("dbPoolPending", 0) + pool.getInteger("pending", 0));
+        agg.put("dbPoolTotal", agg.getInteger("dbPoolTotal", 0) + pool.getInteger("total", 0));
+        agg.getJsonArray("dbPoolPerSetup", new JsonArray()).add(pool);
+        return agg;
     }
 
     /**

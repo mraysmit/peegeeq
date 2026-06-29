@@ -8,7 +8,9 @@ const baseState = {
         totalEventStores: 0,
         totalMessages: 0,
         messagesPerSecond: 0,
-        activeConnections: 0,
+        monitoringSessions: 0,
+        activeSubscriptions: 0,
+        dbPool: { active: 0, idle: 0, pending: 0, total: 0, perSetup: [] },
         uptime: '0s',
     },
     queues: [],
@@ -152,7 +154,10 @@ describe('managementStore', () => {
     describe('updateChartData', () => {
         const stats = {
             totalQueues: 3, totalConsumerGroups: 2, totalEventStores: 1,
-            totalMessages: 100, messagesPerSecond: 5.5, activeConnections: 4, uptime: '1m 30s',
+            totalMessages: 100, messagesPerSecond: 5.5,
+            monitoringSessions: 2, activeSubscriptions: 1,
+            dbPool: { active: 4, idle: 3, pending: 1, total: 8, perSetup: [] },
+            uptime: '1m 30s',
         }
 
         it('appends one point to throughputData and connectionData', () => {
@@ -161,13 +166,16 @@ describe('managementStore', () => {
             expect(throughputData).toHaveLength(1)
             expect(throughputData[0].messages).toBe(5.5)
             expect(connectionData).toHaveLength(1)
-            expect(connectionData[0].connections).toBe(4)
+            expect(connectionData[0].active).toBe(4)
+            expect(connectionData[0].idle).toBe(3)
+            expect(connectionData[0].pending).toBe(1)
         })
 
         it('caps both series at 20 points, keeping the most recent', () => {
             for (let i = 0; i < 25; i++) {
                 useManagementStore.getState().updateChartData({
-                    ...stats, messagesPerSecond: i, activeConnections: i,
+                    ...stats, messagesPerSecond: i,
+                    dbPool: { active: i, idle: 0, pending: 0, total: i, perSetup: [] },
                 })
             }
             const { throughputData, connectionData } = useManagementStore.getState()
@@ -175,7 +183,7 @@ describe('managementStore', () => {
             expect(connectionData).toHaveLength(20)
             // index 24 is the last appended value
             expect(throughputData[19].messages).toBe(24)
-            expect(connectionData[19].connections).toBe(24)
+            expect(connectionData[19].active).toBe(24)
         })
     })
 
@@ -186,7 +194,10 @@ describe('managementStore', () => {
             const before = useManagementStore.getState().lastUpdated
             const stats = {
                 totalQueues: 5, totalConsumerGroups: 3, totalEventStores: 2,
-                totalMessages: 200, messagesPerSecond: 10, activeConnections: 8, uptime: '5m',
+                totalMessages: 200, messagesPerSecond: 10,
+                monitoringSessions: 3, activeSubscriptions: 2,
+                dbPool: { active: 8, idle: 4, pending: 0, total: 12, perSetup: [] },
+                uptime: '5m',
             }
             useManagementStore.getState().setSystemStats(stats)
             const state = useManagementStore.getState()

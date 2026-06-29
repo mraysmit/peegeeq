@@ -189,6 +189,7 @@ export class SSEService {
     private onDisconnect?: () => void
     private onError?: (error: Event) => void
     private onReconnecting?: () => void
+    private namedEvents: string[]
 
     constructor(
         url: string,
@@ -196,7 +197,11 @@ export class SSEService {
         onConnect?: () => void,
         onDisconnect?: () => void,
         onError?: (error: Event) => void,
-        onReconnecting?: () => void
+        onReconnecting?: () => void,
+        // Named SSE events (e.g. `queue-changed`) to route to onMessage in addition to the
+        // default unnamed `message` event. A native EventSource.onmessage NEVER fires for a
+        // frame that carries an `event:` field, so any named event must be registered here.
+        namedEvents: string[] = []
     ) {
         this.url = url
         this.onMessage = onMessage
@@ -204,6 +209,16 @@ export class SSEService {
         this.onDisconnect = onDisconnect
         this.onError = onError
         this.onReconnecting = onReconnecting
+        this.namedEvents = namedEvents
+    }
+
+    private dispatchMessage(raw: string): void {
+        try {
+            const data = JSON.parse(raw)
+            this.onMessage?.(data)
+        } catch (error) {
+            console.error('Failed to parse SSE message:', error)
+        }
     }
 
     connect(): void {
@@ -214,13 +229,16 @@ export class SSEService {
         try {
             this.eventSource = new EventSource(this.url)
 
-            this.eventSource.onmessage = (event) => {
-                try {
-                    const data = JSON.parse(event.data)
-                    this.onMessage?.(data)
-                } catch (error) {
-                    console.error('Failed to parse SSE message:', error)
-                }
+            // Default (unnamed) SSE events — e.g. /sse/metrics sends `data:` frames with no
+            // `event:` field, which the native onmessage handler receives.
+            this.eventSource.onmessage = (event) => this.dispatchMessage(event.data)
+
+            // Named SSE events — e.g. /sse/queues/{setupId} emits `event: queue-changed`, which
+            // onmessage never receives. Register each requested named event and route it through
+            // the same parse + onMessage path.
+            for (const eventName of this.namedEvents) {
+                this.eventSource.addEventListener(eventName, (event) =>
+                    this.dispatchMessage((event as MessageEvent).data))
             }
 
             this.eventSource.onerror = (error) => {
@@ -292,7 +310,9 @@ export const createQueueUpdatesSSE = (
         onUpdate,
         onConnect,
         onDisconnect,
-        (error) => console.error('Queue updates SSE error:', error)
+        (error) => console.error('Queue updates SSE error:', error),
+        undefined,            // onReconnecting — not used for queue updates
+        ['queue-changed']     // backend pushes named `queue-changed` events; route them to onUpdate
     )
     service.connect()
     return service

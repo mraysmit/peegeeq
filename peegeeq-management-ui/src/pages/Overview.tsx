@@ -11,13 +11,14 @@ import {
     TeamOutlined,
     DatabaseOutlined,
     SendOutlined,
-
+    DesktopOutlined,
+    ApiOutlined,
     CheckCircleOutlined,
     ExclamationCircleOutlined,
     ReloadOutlined,
 } from '@ant-design/icons'
 // Real-time charts using recharts
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts'
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts'
 // WebSocket service for real-time updates
 import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
 
@@ -324,7 +325,7 @@ const Overview = () => {
                     description={
                         <Space direction="vertical" size={4} data-testid="system-status-info">
                             <Space wrap>
-                                <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.activeConnections} active connections`}</span>
+                                <span>{`PeeGeeQ has been running for ${stats.uptime} with ${stats.dbPool?.active ?? 0} active DB connections`}</span>
                                 <Tag
                                     color={wsConnected ? 'green' : wsReconnecting ? 'gold' : 'orange'}
                                     data-testid="websocket-status"
@@ -425,6 +426,45 @@ const Overview = () => {
                     </Col>
                 </Row>
 
+                {/* Connection metrics — Phase 11: the old meaningless `activeConnections` composite
+                    split into three distinct, meaningful dimensions. */}
+                <Row gutter={[16, 16]} data-testid="connection-metrics">
+                    <Col xs={24} sm={12} lg={8}>
+                        <Card>
+                            <Statistic
+                                title="Monitoring Sessions"
+                                value={stats.monitoringSessions}
+                                prefix={<DesktopOutlined style={{ color: '#13c2c2' }} />}
+                                valueStyle={{ color: '#13c2c2' }}
+                                data-testid="metric-monitoring-sessions"
+                            />
+                        </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={8}>
+                        <Card>
+                            <Statistic
+                                title="Active Subscriptions"
+                                value={stats.activeSubscriptions}
+                                prefix={<ApiOutlined style={{ color: '#52c41a' }} />}
+                                valueStyle={{ color: '#52c41a' }}
+                                data-testid="metric-active-subscriptions"
+                            />
+                        </Card>
+                    </Col>
+                    <Col xs={24} sm={12} lg={8}>
+                        <Card>
+                            <Statistic
+                                title="DB Connections"
+                                value={stats.dbPool?.active ?? 0}
+                                prefix={<DatabaseOutlined style={{ color: '#fa8c16' }} />}
+                                valueStyle={{ color: '#fa8c16' }}
+                                suffix={`/ ${stats.dbPool?.total ?? 0} total`}
+                                data-testid="metric-db-connections"
+                            />
+                        </Card>
+                    </Col>
+                </Row>
+
                 {/* Charts */}
                 <Row gutter={[16, 16]}>
                     <Col xs={24} lg={16}>
@@ -459,10 +499,10 @@ const Overview = () => {
                         </Card>
                     </Col>
                     <Col xs={24} lg={8}>
-                        <Card title="Active Connections">
+                        <Card title="DB Pool Connections" extra={<div className="realtime-indicator"><div className="realtime-dot"></div>Live</div>}>
                             <div style={{ height: 300 }}>
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={connectionData}>
+                                    <AreaChart data={connectionData}>
                                         <CartesianGrid strokeDasharray="3 3" />
                                         <XAxis
                                             dataKey="time"
@@ -471,20 +511,39 @@ const Overview = () => {
                                         />
                                         <YAxis
                                             tick={{ fontSize: 12 }}
+                                            allowDecimals={false}
                                             label={{ value: 'Connections', angle: -90, position: 'insideLeft' }}
                                         />
-                                        <Tooltip
-                                            labelFormatter={(value) => `Time: ${value}`}
-                                            formatter={(value) => [`${value}`, 'Active Connections']}
-                                        />
-                                        <Line
+                                        <Tooltip labelFormatter={(value) => `Time: ${value}`} />
+                                        <Legend />
+                                        <Area
                                             type="monotone"
-                                            dataKey="connections"
-                                            stroke="#52c41a"
-                                            strokeWidth={2}
-                                            dot={{ fill: '#52c41a', strokeWidth: 2, r: 4 }}
+                                            dataKey="active"
+                                            name="Active"
+                                            stackId="conn"
+                                            stroke="#fa8c16"
+                                            fill="#fa8c16"
+                                            fillOpacity={0.4}
                                         />
-                                    </LineChart>
+                                        <Area
+                                            type="monotone"
+                                            dataKey="idle"
+                                            name="Idle"
+                                            stackId="conn"
+                                            stroke="#1890ff"
+                                            fill="#1890ff"
+                                            fillOpacity={0.4}
+                                        />
+                                        <Area
+                                            type="monotone"
+                                            dataKey="pending"
+                                            name="Pending"
+                                            stackId="conn"
+                                            stroke="#ff4d4f"
+                                            fill="#ff4d4f"
+                                            fillOpacity={0.4}
+                                        />
+                                    </AreaChart>
                                 </ResponsiveContainer>
                             </div>
                         </Card>

@@ -66,7 +66,7 @@ test.describe('Queue Updates SSE – Direct API', () => {
             const es = new EventSource(sseUrl)
 
             es.addEventListener('connected', (event: Event) => {
-                ;(window as any).__sseConnected = true
+                (window as any).__sseConnected = true
                 ;(window as any).__sseConnectedData = JSON.parse((event as MessageEvent).data)
             })
 
@@ -78,7 +78,7 @@ test.describe('Queue Updates SSE – Direct API', () => {
             })
 
             es.onerror = () => {
-                ;(window as any).__sseError = 'EventSource error'
+                (window as any).__sseError = 'EventSource error'
             }
 
             ;(window as any).__sseQueueEs = es
@@ -93,7 +93,7 @@ test.describe('Queue Updates SSE – Direct API', () => {
 
     async function closeQueueUpdatesSse(page: PageArg) {
         await page.evaluate(() => {
-            ;(window as any).__sseQueueEs?.close()
+            (window as any).__sseQueueEs?.close()
             ;(window as any).__sseQueueEs = null
         })
     }

@@ -44,14 +44,14 @@ test.describe('System Metrics SSE – Direct API', () => {
             const es = new EventSource('/api/v1/sse/metrics')
 
             es.addEventListener('connected', (event: Event) => {
-                ;(window as any).__sseMetricsConnected = true
+                (window as any).__sseMetricsConnected = true
                 try {
-                    ;(window as any).__sseMetricsConnectedData = JSON.parse((event as MessageEvent).data)
+                    (window as any).__sseMetricsConnectedData = JSON.parse((event as MessageEvent).data)
                 } catch { /* ignore parse errors */ }
             })
 
             es.onerror = () => {
-                ;(window as any).__sseMetricsError = 'EventSource error — endpoint may be 404'
+                (window as any).__sseMetricsError = 'EventSource error — endpoint may be 404'
             }
 
             ;(window as any).__sseMetricsEs = es
@@ -88,7 +88,7 @@ test.describe('System Metrics SSE – Direct API', () => {
             const es = new EventSource('/api/v1/sse/metrics?interval=1')
 
             es.addEventListener('connected', () => {
-                ;(window as any).__sseMetricsConnected = true
+                (window as any).__sseMetricsConnected = true
             })
 
             es.addEventListener('metrics', (event: Event) => {
