@@ -40,7 +40,7 @@ test.describe('Overview - System Status', () => {
         await expect(sseStatus).toContainText('Connected', { timeout: 15000 })
     })
 
-    test('should show system uptime and active connections', async ({ page }) => {
+    test('should show system uptime and active DB connections', async ({ page }) => {
         await page.goto('/')
         await page.waitForLoadState('load')
 
@@ -49,8 +49,9 @@ test.describe('Overview - System Status', () => {
         // Should contain uptime information
         await expect(systemStatus).toContainText(/running for/)
 
-        // Should contain active connections count
-        await expect(systemStatus).toContainText(/active connections/)
+        // Should contain the active DB connections count (Phase 11: the old meaningless
+        // "active connections" composite was renamed to the live pg_stat_activity active count).
+        await expect(systemStatus).toContainText(/active DB connections/)
     })
 
     test('WebSocket and SSE status should be independent of REST API connection', async ({ page }) => {

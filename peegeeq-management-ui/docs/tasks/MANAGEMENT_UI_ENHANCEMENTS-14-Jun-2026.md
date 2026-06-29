@@ -863,7 +863,7 @@ Developer Portal, Schema Registry, Queue Designer, Monitoring — `<Empty>`-only
 | 8 | Backend `management_event` + bell end-to-end | `peegeeq-rest` + `peegeeq-management-ui` | 7 | ✅ Complete (2026-06-25) |
 | 9 | Live queue message count via SSE | `peegeeq-rest` + `peegeeq-management-ui` | — | ✅ Backend complete (2026-06-25); FE e2e proof pending |
 | 10 | Authentication layer | TBD — architecture decision required | — |
-| 11 | Split `activeConnections` — meaningful connection metrics | `peegeeq-rest` + `peegeeq-management-ui` | — |
+| 11 | Split `activeConnections` — meaningful connection metrics | `peegeeq-rest` + `peegeeq-management-ui` | — | ✅ Complete (2026-06-29) — backend + FE verified; see §7.11 STATUS for deviations |
 | 12 | Non-destructive live message stream (LISTEN/NOTIFY → browse → push; replace the consuming SSE/WS reads) | `peegeeq-api` + `peegeeq-native` + `peegeeq-outbox` + `peegeeq-rest` + `peegeeq-management-ui` | — |
 | 13 | Destructive-read safeguards (remove latent consuming clients; naming contract; guard test) | `peegeeq-management-ui` + `peegeeq-rest` | 12 |
 
@@ -1514,7 +1514,23 @@ test('management_event is emitted from backend WS')
 > `management_event` but not `queue-changed`, so a UI delete doesn't auto-refresh the list via SSE —
 > pre-existing, tangential to the message-count goal, left untouched.
 
-**Source**: §2.2 / §6.4. `QueuesEnhanced.tsx:126` already calls `refetch()` on each SSE `queue-changed` event. The gap is on the backend: `QueueHandler.sendMessage` does not call `publishQueueChanged` after a successful send (confirmed by source — 0 calls in that method), so the SSE never fires on message publish.
+> **FE PROOF UPDATE (2026-06-29): the "Frontend unchanged" claim above was WRONG — root-cause fixed.**
+> The frontend never actually received the events. `SSEService` (the client behind
+> `createQueueUpdatesSSE`) registered only `EventSource.onmessage`, which fires **only** for default
+> (unnamed) SSE frames. The backend emits a **named** event (`event: queue-changed`, verified at
+> `ServerSentEventsHandler.java:228`), which `onmessage` never delivers — so `refetch()` was never
+> triggered on publish and the live count never updated in the running app. Tests 01–05 in
+> `queue-updates-sse.spec.ts` passed only because they open the browser's *own* `EventSource` with
+> `addEventListener('queue-changed', …)` against the backend directly, **bypassing** `SSEService`;
+> only test 06 exercises the real app path (page → `SSEService` → `refetch()` → UI count).
+> **Fix:** `SSEService` now takes an optional `namedEvents: string[]` and registers an
+> `addEventListener` for each (routed through the same parse + `onMessage` path as `onmessage`);
+> `createQueueUpdatesSSE` passes `['queue-changed']`. The `/sse/metrics` path is unaffected (no named
+> events requested → default `onmessage` only). The legacy unused `useQueueUpdates` hook
+> (`useRealTimeUpdates.ts`) has the same latent gap but is not on any route — left untouched.
+> **Pending:** run Playwright project `14d-queue-updates-sse` (incl. test 06) to confirm green.
+
+**Source**: §2.2 / §6.4. The backend gap (this was the 2026-06-25 work): `QueueHandler.sendMessage` did not call `publishQueueChanged` after a successful send, so the SSE never fired on message publish — now fixed. The frontend gap (the 2026-06-29 work above): `SSEService` never delivered the *named* `queue-changed` event to its callback — now fixed.
 
 **Backend failing test (write first — JUnit)**
 
@@ -1701,6 +1717,14 @@ Raise a separate plan for the auth layer once these are resolved.
 ### 7.11 Split `activeConnections` — meaningful connection metrics
 
 **Source**: §8.3. The single `activeConnections` field in `system_stats` is a meaningless sum of management UI browser sessions and registered subscription count. PostgreSQL pool connections are entirely absent. All three must be tracked and surfaced separately.
+
+> **STATUS (2026-06-29): ✅ COMPLETE — backend + frontend verified.**
+> - **Backend — DONE & verified** (`peegeeq-rest` suite green, 333/0/0, incl. `SystemMonitoringHandlerConnectionMetricsTest`). `system_stats` now emits `monitoringSessions`, `activeSubscriptions`, and `dbPool` (`active`/`idle`/`pending`/`total` + `perSetup[]`); the old `activeConnections` key is removed. Both transports (WS `/ws/monitoring` and SSE `/sse/metrics`) share the one payload builder, so both carry the new fields.
+> - **Frontend — DONE & verified** (type-check, lint, `managementStore.test.ts` vitest, and Playwright projects `10h-overview-stats-values` + `10i-overview-connection-metrics` all green). `managementStore.ts` (type + `updateChartData`), `Overview.tsx` (three cards + stacked DB-pool `AreaChart` retitled "DB Pool Connections" + recent-activity text), `managementStore.test.ts`, and two Playwright specs (`overview-stats-values` reworked, new `overview-connection-metrics`).
+> - **Deviations from the spec below (intentional):**
+>   1. `dbPool.max` and the saturation `ReferenceLine` are **not** implemented — per-setup `PgPoolConfig` max is not exposed by the current setup facade. The UI surfaces `dbPool.total` instead (`DB Connections` card shows `active / total`); tests assert `active <= total` rather than `active <= max`. Tracked as a follow-up.
+>   2. DB-pool counts come from a per-setup `pg_stat_activity` temp-pool query (mirrors the existing `ManagementApiHandler.getActiveConnectionsForSetup` pattern), filtered by `datname = current_database()` rather than by `application_name`. Step 1's `application_name`/`PgConnectionManager` change and Step 2's `updateConnectionPoolMetrics()` Micrometer wiring were **not** done (would require `peegeeq-db` changes — out of this phase's scope).
+>   3. Card icons: `DesktopOutlined` (Monitoring Sessions) / `ApiOutlined` (Active Subscriptions) / `DatabaseOutlined` (DB Connections) — the spec's `MonitorOutlined`/`TeamOutlined` were adjusted to avoid icon collision with the existing Consumer Groups card.
 
 #### Backend changes (`peegeeq-rest` + `peegeeq-db`)
 
