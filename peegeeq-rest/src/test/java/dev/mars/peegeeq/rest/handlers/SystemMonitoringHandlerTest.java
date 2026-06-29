@@ -670,7 +670,7 @@ class SystemMonitoringHandlerTest {
     @Order(11)
     @Tag("regression")
     void testActiveConnectionCountNeverNegativeAcrossLifecycle(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 11 (§8.1): activeConnections must remain >= 1 while observer is open ===");
+        logger.info("=== Test 11 (§8.1): monitoringSessions must remain >= 1 while observer is open ===");
 
         // Root cause: cleanupWebSocketConnection() calls totalConnections.decrementAndGet()
         // UNCONDITIONALLY (line 739) — outside the null-check on wsConnections.remove().
@@ -682,7 +682,7 @@ class SystemMonitoringHandlerTest {
         // Fix: move totalConnections.decrementAndGet() inside the `if (connection != null)` block.
         //
         // Observable invariant: after N abrupt close cycles (connect → welcome → TCP-close),
-        // a fresh observer WS must see activeConnections >= 1 (itself, at minimum).
+        // a fresh observer WS must see monitoringSessions >= 1 (itself, at minimum).
         // With the bug N abrupt closes leave totalConnections at -N; the observer (+1) brings
         // it to 1-N which is negative for N >= 2, so the assertion below fails.
 
@@ -738,19 +738,19 @@ class SystemMonitoringHandlerTest {
                             testContext.verify(() -> {
                                 JsonObject msg = new JsonObject(message);
                                 if ("system_stats".equals(msg.getString("type"))) {
-                                    int activeConnections = msg.getJsonObject("data")
-                                            .getInteger("activeConnections", -999);
-                                    logger.info("§8.1 observer sees activeConnections={} (closedCount={})",
-                                            activeConnections, closedCount.get());
+                                    int monitoringSessions = msg.getJsonObject("data")
+                                            .getInteger("monitoringSessions", -999);
+                                    logger.info("§8.1 observer sees monitoringSessions={} (closedCount={})",
+                                            monitoringSessions, closedCount.get());
 
                                     // The observer WS is open → its own connection must be counted.
                                     // With the double-decrement bug each of the N abrupt closes
                                     // leaves totalConnections 1 lower than it should be, so after
                                     // N closes totalConnections = -N.  The observer (+1) brings it
                                     // to 1-N, which is ≤ -1 for N=5 → assertion fails.
-                                    assertTrue(activeConnections >= 1,
-                                            "§8.1 regression: activeConnections must be >= 1 while " +
-                                            "the observer WebSocket is open, but got " + activeConnections +
+                                    assertTrue(monitoringSessions >= 1,
+                                            "§8.1 regression: monitoringSessions must be >= 1 while " +
+                                            "the observer WebSocket is open, but got " + monitoringSessions +
                                             ". Indicates totalConnections.decrementAndGet() was called " +
                                             "more than once per connection (double-decrement in " +
                                             "cleanupWebSocketConnection, line 739).");
@@ -958,7 +958,7 @@ class SystemMonitoringHandlerTest {
     @Order(14)
     @Tag("regression")
     void testSseAbruptDisconnectKeepsConnectionCountNonNegative(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 14 (§8.1 SSE): activeConnections must stay >= 1 after abrupt SSE closes ===");
+        logger.info("=== Test 14 (§8.1 SSE): monitoringSessions must stay >= 1 after abrupt SSE closes ===");
 
         // cleanupSSEConnection() previously decremented totalConnections OUTSIDE the
         // `if (connection != null)` guard. SSE registers BOTH response.closeHandler and
@@ -966,13 +966,13 @@ class SystemMonitoringHandlerTest {
         // cleanupSSEConnection for the same id. A TCP RST fires more than one of them, so
         // the SHARED totalConnections counter was decremented multiple times per single
         // SSE connection, driving it negative. Because WebSocket monitoring reads the same
-        // counter, a later WS observer then sees activeConnections <= 0.
+        // counter, a later WS observer then sees monitoringSessions <= 0.
         //
         // Fix: the decrement and per-IP bookkeeping moved inside the null-guard, with
         // sseConnections.remove() as the idempotency gate (mirrors cleanupWebSocketConnection).
         //
         // Invariant: after N abrupt SSE RST closes, a fresh WS observer must see
-        // activeConnections >= 1 (itself). With the bug it sees 1 - k*N <= 0.
+        // monitoringSessions >= 1 (itself). With the bug it sees 1 - k*N <= 0.
 
         // Also capture the handler logger: an abrupt RST disconnect is ordinary client
         // behaviour and must NOT be logged at ERROR (with a SocketException stack trace).
@@ -1029,19 +1029,19 @@ class SystemMonitoringHandlerTest {
                         observerWs.textMessageHandler(message -> testContext.verify(() -> {
                             JsonObject msg = new JsonObject(message);
                             if ("system_stats".equals(msg.getString("type"))) {
-                                int activeConnections = msg.getJsonObject("data")
-                                        .getInteger("activeConnections", -999);
-                                logger.info("§8.1 SSE observer sees activeConnections={} (closedCount={})",
-                                        activeConnections, closedCount.get());
+                                int monitoringSessions = msg.getJsonObject("data")
+                                        .getInteger("monitoringSessions", -999);
+                                logger.info("§8.1 SSE observer sees monitoringSessions={} (closedCount={})",
+                                        monitoringSessions, closedCount.get());
                                 List<ILoggingEvent> errors = capture.list.stream()
                                         .filter(e -> e.getLevel().equals(Level.ERROR)).toList();
                                 boolean hasSseError = errors.stream().anyMatch(e ->
                                         e.getFormattedMessage().contains("SSE error for") ||
                                         e.getFormattedMessage().contains("Error sending SSE"));
                                 detach.run();
-                                assertTrue(activeConnections >= 1,
-                                        "§8.1 SSE regression: activeConnections must be >= 1 while the " +
-                                        "observer WebSocket is open, but got " + activeConnections +
+                                assertTrue(monitoringSessions >= 1,
+                                        "§8.1 SSE regression: monitoringSessions must be >= 1 while the " +
+                                        "observer WebSocket is open, but got " + monitoringSessions +
                                         ". Indicates cleanupSSEConnection decremented the shared " +
                                         "totalConnections counter more than once per SSE connection.");
                                 assertFalse(hasSseError,
@@ -1161,7 +1161,7 @@ class SystemMonitoringHandlerTest {
         logger.info("=== Test 16: N clean WS connect/close cycles must leave the counter at baseline ===");
 
         // Each clean lifecycle is connect → welcome → close. After N of them settle, a
-        // single fresh observer must see activeConnections == 1 (itself, exactly):
+        // single fresh observer must see monitoringSessions == 1 (itself, exactly):
         //   - if cleanup under-counts (leak), the observer sees > 1;
         //   - if cleanup over-counts (double-decrement regression), it sees <= 0.
         // Both failure modes are caught by the exact-equality assertion.
@@ -1190,13 +1190,13 @@ class SystemMonitoringHandlerTest {
                                         observerWs.writeTextMessage(new JsonObject()
                                                 .put("type", "configure").put("interval", 1).encode());
                                     } else if ("system_stats".equals(type) && asked.get()) {
-                                        int activeConnections = msg.getJsonObject("data")
-                                                .getInteger("activeConnections", -999);
-                                        logger.info("Test 16 observer sees activeConnections={} after {} churn cycles",
-                                                activeConnections, N);
-                                        assertEquals(1, activeConnections,
+                                        int monitoringSessions = msg.getJsonObject("data")
+                                                .getInteger("monitoringSessions", -999);
+                                        logger.info("Test 16 observer sees monitoringSessions={} after {} churn cycles",
+                                                monitoringSessions, N);
+                                        assertEquals(1, monitoringSessions,
                                                 "After " + N + " clean connect/close cycles the only open " +
-                                                "connection is the observer, so activeConnections must be exactly 1. " +
+                                                "connection is the observer, so monitoringSessions must be exactly 1. " +
                                                 "A value > 1 means a connection leaked; a value <= 0 means cleanup " +
                                                 "double-decremented the counter.");
                                         observerWs.close();
@@ -1288,11 +1288,11 @@ class SystemMonitoringHandlerTest {
                                             .put("type", "configure").put("interval", 1).encode());
                                 }
                             } else if ("system_stats".equals(type) && asked.get()) {
-                                int activeConnections = msg.getJsonObject("data")
-                                        .getInteger("activeConnections", -999);
-                                logger.info("Test 17 reconnect sees activeConnections={}", activeConnections);
-                                assertEquals(1, activeConnections,
-                                        "after reconnect only the new connection is open, so activeConnections " +
+                                int monitoringSessions = msg.getJsonObject("data")
+                                        .getInteger("monitoringSessions", -999);
+                                logger.info("Test 17 reconnect sees monitoringSessions={}", monitoringSessions);
+                                assertEquals(1, monitoringSessions,
+                                        "after reconnect only the new connection is open, so monitoringSessions " +
                                         "must be exactly 1; a higher value means the dropped connection leaked, " +
                                         "a value <= 0 means its cleanup double-decremented the counter");
                                 ws2.close();

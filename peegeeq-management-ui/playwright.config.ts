@@ -341,10 +341,16 @@ export default defineConfig({
       testMatch: '**/overview-sse-reconnecting-banner.spec.ts',
       use: chromeMaximized,
     },
-    // Step 10h: Overview live stats values – activeConnections (§8.1) and messagesPerSecond (§8.2) invariants
+    // Step 10h: Overview live stats values – monitoringSessions (§8.1 / Phase 11) and messagesPerSecond (§8.2) invariants
     {
       name: '10h-overview-stats-values',
       testMatch: '**/overview-stats-values.spec.ts',
+      use: chromeMaximized,
+    },
+    // Step 10i: Overview connection metrics (Phase 11) – the three split cards + DB-pool chart
+    {
+      name: '10i-overview-connection-metrics',
+      testMatch: '**/overview-connection-metrics.spec.ts',
       use: chromeMaximized,
     },
     // Step 11: Queues Scope Selector - Tests Setup selector on Queues page
