@@ -431,8 +431,8 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 
 Production-code (and related test-side) Vert.x lifecycle issues surfaced by the schema-sweep
 **verification runs**. These are **not** schema conversions and were **not** fixed as part of the sweep —
-each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: logged,
-not fixed. No code changed for any F item.**
+each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: F1 still
+logged / not-fixed; F2 being addressed one file at a time (owner-directed, 2026-06-27) — see F2 below.**
 
 ### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production)
 
@@ -462,14 +462,42 @@ Requires a targeted run of `DatabaseSetupServiceIntegrationTest` plus the setup-
 
 ### F2 — Related Vert.x test-side antipatterns flagged during the sweep (pre-existing)
 
-Surfaced while reading files for the conversions; all pre-existing, none touched by the sweep:
-- `OutboxFactoryCloseHookTest` (`peegeeq-outbox`, `@Tag(CORE)`) — uses banned `Future.await()` throughout
-  (lines 60, 83, 101–103, 116, 151, 168–169), and its `HookCapturingDatabaseService` stub creates an
-  unclosed `Vertx.vertx()` (line 234; stub `close()` is a no-op).
-- `NativeConcurrencySmokeTest` (`peegeeq-integration-tests`) — `CountDownLatch.await(...)` in test bodies,
-  `setTimer` readiness guard (line 123), and reflection-based field access (`getDeclaredField`).
-- `RestApiExampleTest` (`peegeeq-examples`) — `vertx.timer(500)` post-`deployVerticle` readiness delay (line 122),
-  the `setTimer`-as-readiness-guard antipattern.
+Surfaced while reading files for the conversions; all pre-existing. Owner directed these be fixed one
+file at a time (2026-06-27):
+
+- **`OutboxFactoryCloseHookTest`** (`peegeeq-outbox`, `@Tag(CORE)`) — **converted 2026-06-27, pending
+  owner verification.** Removed all seven banned `Future.await()` calls: the test now uses
+  `@ExtendWith(VertxExtension.class)` + `VertxTestContext` and drives async close-hook completion via
+  `.onComplete(testContext.succeeding(v -> testContext.verify(...)))` (mirrors the sibling CORE test
+  `OutboxBlockingSafetyTest`). The `HookCapturingDatabaseService` stub no longer creates its own
+  `Vertx.vertx()` — it takes the extension-managed instance via constructor (leak gone). The two tests
+  that mix the async hook with the blocking, thread-affinity-guarded `QueueFactory.close()` keep
+  `close()` on the JUnit worker thread (7b closes first; 7a drives the hook via the allowed
+  `awaitCompletion(...)`, then closes). Banned-pattern grep clean; does not trip
+  `OnSuccessExceptionSwallowingGuardTest`. Verify: `mvn test -pl :peegeeq-outbox -Dtest=OutboxFactoryCloseHookTest`.
+
+- **`NativeConcurrencySmokeTest`** (`peegeeq-integration-tests`) — **converted 2026-06-27, pending owner
+  verification.** Owner chose the observability-API route over a behavioral-only rewrite. Three coupled changes:
+  - **Production** (`PgNativeQueueConsumer`): added four read-only accessors — `hasActiveListenConnection()`,
+    `hasPendingListenReconnect()`, `isClosed()`, `isSubscribed()` — over the existing private LISTEN/close
+    state. Replaces the test's reflection (`getDeclaredField`/`setAccessible`), which was banned and
+    otherwise unavoidable: the consumer exposed no public API and the test is in a different module/package
+    (package-private would not reach it).
+  - **Build** (`peegeeq-integration-tests/pom.xml`): added an explicit `peegeeq-native` test dependency (the
+    module previously reached native only transitively — the reason reflection was originally used).
+  - **Test**: rewrote `testDestroySetupStopsNativeListenersCleanly` reactively — removed all six
+    `CountDownLatch.await`, both `setPeriodic` readiness polls, the four reflection helpers, and the
+    fire-and-forget `subscribe()`. LISTEN readiness now chains off `subscribe()`'s Future; the
+    post-`destroySetup` wait uses one recursive `vertx.timer` poll (`pollUntil`); the four state assertions
+    call the new accessors; appender-detach + best-effort setup cleanup run via `.eventually(...)`. Assertion
+    logic and order preserved.
+  - Verify (native changed → install first): `mvn -pl :peegeeq-native install -DskipTests`, then
+    `mvn test -pl :peegeeq-integration-tests -Pintegration-tests -Dtest=NativeConcurrencySmokeTest` (and
+    optionally `mvn test -pl :peegeeq-native` to confirm the accessor addition didn't disturb the module).
+
+- **`RestApiExampleTest`** (`peegeeq-examples`) — **still pending.** `vertx.timer(500)` post-`deployVerticle`
+  readiness delay (line 122), the `setTimer`-as-readiness-guard antipattern. The simple mechanical fix; next
+  in the queue.
 
 (Container hand-rolling — antipattern §2 — was also flagged in several files, but that is not a Vert.x issue and is
 noted inline in the phase rows above, not here.)
