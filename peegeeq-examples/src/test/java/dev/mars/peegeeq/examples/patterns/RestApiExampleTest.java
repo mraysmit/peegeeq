@@ -116,12 +116,8 @@ public class RestApiExampleTest {
         restServer = new PeeGeeQRestServer(restConfig, setupService);
 
         vertx.deployVerticle(restServer)
-                .compose(id -> {
+                .onSuccess(id -> {
                     logger.info("\u2713 REST server deployed with ID: {}", id);
-                    // Give server a moment to fully initialize
-                    return vertx.timer(500).mapEmpty();
-                })
-                .onSuccess(v -> {
                     logger.info(" REST API Example Test setup completed on port {}", REST_PORT);
                     testContext.completeNow();
                 })
