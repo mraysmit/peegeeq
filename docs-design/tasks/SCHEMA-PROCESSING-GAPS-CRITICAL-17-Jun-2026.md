@@ -432,7 +432,8 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 Production-code (and related test-side) Vert.x lifecycle issues surfaced by the schema-sweep
 **verification runs**. These are **not** schema conversions and were **not** fixed as part of the sweep —
 each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: F1 still
-logged / not-fixed; F2 being addressed one file at a time (owner-directed, 2026-06-27) — see F2 below.**
+logged / not-fixed; all three F2 files converted 2026-06-27 (owner-directed), pending owner verification —
+see F2 below.**
 
 ### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production)
 
@@ -495,9 +496,13 @@ file at a time (2026-06-27):
     `mvn test -pl :peegeeq-integration-tests -Pintegration-tests -Dtest=NativeConcurrencySmokeTest` (and
     optionally `mvn test -pl :peegeeq-native` to confirm the accessor addition didn't disturb the module).
 
-- **`RestApiExampleTest`** (`peegeeq-examples`) — **still pending.** `vertx.timer(500)` post-`deployVerticle`
-  readiness delay (line 122), the `setTimer`-as-readiness-guard antipattern. The simple mechanical fix; next
-  in the queue.
+- **`RestApiExampleTest`** (`peegeeq-examples`) — **converted 2026-06-27, pending owner verification.** Removed
+  the `vertx.timer(500).mapEmpty()` post-`deployVerticle` readiness delay; `setUp` now chains directly off
+  `deployVerticle(...).onSuccess(...)`. Confirmed by reading `PeeGeeQRestServer.start()` that `startPromise`
+  completes only after `HttpServer.listen()` succeeds — so `deployVerticle` success already implies the server
+  is listening and the timer was pure waste (no production change needed). (Pre-existing unused
+  `io.vertx.core.Future` import left in place — unrelated to the antipattern.) Verify:
+  `mvn test -pl :peegeeq-examples -Pintegration-tests -Dtest=RestApiExampleTest`.
 
 (Container hand-rolling — antipattern §2 — was also flagged in several files, but that is not a Vert.x issue and is
 noted inline in the phase rows above, not here.)
