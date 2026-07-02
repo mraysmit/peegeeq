@@ -47,8 +47,9 @@ The owner ruled, correcting the first remediation:
 **Verification matrix (all in explicit `peegeeq_test`):** test-support 47/47; peegeeq-db
 integration 727/727; bitemporal CORE 120/120 + INTEGRATION 341/341; native CORE 148/148 +
 INTEGRATION 185 run/0 fail (6 pre-existing skips); outbox CORE 80/80 + INTEGRATION 540 run
-with the only 4 errors being `SystemPropertiesConfigurationExampleTest` (Phase-11 leftover,
-owner decision pending: delete or invert); rest CORE 146/146 + INTEGRATION 331/331;
+with the only 4 errors being `SystemPropertiesConfigurationExampleTest` (Phase-11 leftover —
+this snapshot is 12 Jun; the pending decision was resolved the next day: **DELETED in D2.1/R5**, see
+below); rest CORE 146/146 + INTEGRATION 331/331;
 examples CORE 30/30 + INTEGRATION 143/143; examples-spring INTEGRATION 115/115.
 
 **Genuine defects exposed by moving off `public`** (each fixed, see module reports):
@@ -425,15 +426,26 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
   isolation** (`logs/sse-msgstream-rerun-20260619.txt`, 2/2 green), and the native variant passed in both runs. This
   points at a teardown / SSE-connection-close race under parallel execution (`test.parallel=methods`, 4 threads), not
   a defect in the streaming feature or the schema swap. Needs its own investigation — the test should not surface a
-  post-assertion connection close as an error. **Do not** fold this into the schema sweep. No code changed for it here.
+  post-assertion connection close as an error. **Do not** fold this into the schema sweep.
+
+  **Fixed 2026-06-27 — pending verification (full parallel run).** Root cause: the test set
+  `response.exceptionHandler(ctx::failNow)` on the SSE stream, then, once all 10 messages were verified,
+  called `sseClient.close()` **before** `ctx.completeNow()`. Closing the client tears down the still-open SSE
+  stream, tripping that handler with `HttpClosedException` → `ctx.failNow(...)`. In isolation the immediately
+  following `completeNow()` wins the race; under `test.parallel=methods` the teardown-close failure can land
+  first and fail the test. Fix (`SseMessageStreamDemoIntegrationTest`, test-only): added a `completed`
+  `AtomicBoolean` set just before the intentional close; the exception handler ignores errors once `completed`
+  is set (logging at debug) and only `failNow`s for genuine mid-stream errors. Verify with a full parallel run:
+  `mvn test -Pintegration-tests -pl :peegeeq-rest` (the flake only surfaces under parallel execution — an
+  isolated single-test run already passed and won't exercise the race).
 
 ## Phase F — Testing discoveries: Vert.x lifecycle (not schema-related)
 
 Production-code (and related test-side) Vert.x lifecycle issues surfaced by the schema-sweep
 **verification runs**. These are **not** schema conversions and were **not** fixed as part of the sweep —
-each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: F1 fix already
-present in code (found 2026-06-27 — the earlier "not fixed" was stale; runtime confirmation still pending); all
-three F2 files converted 2026-06-27 (owner-directed), pending owner verification — see below.**
+each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: Phase F COMPLETE
+2026-06-27. F1 fix (commit `8d03474e7`) verified GREEN after a clean rebuild — the earlier "not fixed" was stale;
+all three F2 files verified GREEN (owner-directed, owner-run). Details below.**
 
 ### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production)
 
@@ -446,15 +458,14 @@ nor closes the shared one. The two teardown risks flagged below are both satisfi
 the per-setup `workerExecutor` (Step 5, `PeeGeeQManager:467`) so there is no worker-pool leak, and it only closes
 the Vert.x `if (vertx != null && vertxOwnedByManager)` (`PeeGeeQManager:494`) so the shared Vert.x is not
 prematurely closed. The fix is committed as `8d03474e7` (2026-06-26); this section's earlier "not fixed" predated
-it (2026-06-21). **Runtime confirmation attempted 2026-06-27 — inconclusive (stale artifact), still pending.** A
-`-pl :peegeeq-examples` run of `DatabaseSetupServiceIntegrationTest` (8/8 pass) still logged the 7× "already on a
-Vert.x context" warnings — but it resolved `peegeeq-db` from the local `.m2`, which had not been rebuilt since the
-fix (only `peegeeq-native` was reinstalled for the F2 run). The only `Vertx.vertx()` reachable on the event loop
-during setup is `PeeGeeQManager:185`, which the committed code avoids by passing `vertx` at line 184 — so the
-warning is stale bytecode, not a live defect. Re-verify with `mvn -pl :peegeeq-db install -DskipTests` (or
-`mvn install -DskipTests -pl :peegeeq-examples -am`) **then** re-run the test; expect zero warnings. (This is a
-concrete instance of why the test-commands doc mandates a clean `-Pall-tests` after code changes — targeted `-pl`
-runs use stale installed dependencies.) The original finding is preserved below as history.
+it (2026-06-21). **✅ Runtime confirmed GREEN 2026-06-27.** The first check (a `-pl :peegeeq-examples` run) still logged the 7×
+"already on a Vert.x context" warnings, but that ran against a **stale installed `peegeeq-db`** (only
+`peegeeq-native` had been rebuilt). The only `Vertx.vertx()` reachable on the event loop during setup is
+`PeeGeeQManager:185`, which the committed code avoids by passing `vertx` at line 184. After
+`mvn -pl :peegeeq-db install -DskipTests` and re-running, the warnings were gone (8/8 pass, zero warnings),
+confirming the fix. (A concrete instance of why the test-commands doc mandates a clean `-Pall-tests` after code
+changes: targeted `-pl` runs silently use stale installed dependencies.) The original finding is preserved below
+as history.
 
 **Symptom.** The Phase D `peegeeq-examples` run logged the following **7×**, one per `createCompleteSetup`,
 all on `vert.x-eventloop-thread-0` during `DatabaseSetupServiceIntegrationTest`
@@ -485,8 +496,8 @@ Requires a targeted run of `DatabaseSetupServiceIntegrationTest` plus the setup-
 Surfaced while reading files for the conversions; all pre-existing. Owner directed these be fixed one
 file at a time (2026-06-27):
 
-- **`OutboxFactoryCloseHookTest`** (`peegeeq-outbox`, `@Tag(CORE)`) — **converted 2026-06-27, pending
-  owner verification.** Removed all seven banned `Future.await()` calls: the test now uses
+- **`OutboxFactoryCloseHookTest`** (`peegeeq-outbox`, `@Tag(CORE)`) — **verified GREEN 2026-06-27.** Removed
+  all seven banned `Future.await()` calls: the test now uses
   `@ExtendWith(VertxExtension.class)` + `VertxTestContext` and drives async close-hook completion via
   `.onComplete(testContext.succeeding(v -> testContext.verify(...)))` (mirrors the sibling CORE test
   `OutboxBlockingSafetyTest`). The `HookCapturingDatabaseService` stub no longer creates its own
@@ -496,8 +507,8 @@ file at a time (2026-06-27):
   `awaitCompletion(...)`, then closes). Banned-pattern grep clean; does not trip
   `OnSuccessExceptionSwallowingGuardTest`. Verify: `mvn test -pl :peegeeq-outbox -Dtest=OutboxFactoryCloseHookTest`.
 
-- **`NativeConcurrencySmokeTest`** (`peegeeq-integration-tests`) — **converted 2026-06-27, pending owner
-  verification.** Owner chose the observability-API route over a behavioral-only rewrite. Three coupled changes:
+- **`NativeConcurrencySmokeTest`** (`peegeeq-integration-tests`) — **verified GREEN 2026-06-27.** Owner chose
+  the observability-API route over a behavioral-only rewrite. Three coupled changes:
   - **Production** (`PgNativeQueueConsumer`): added four read-only accessors — `hasActiveListenConnection()`,
     `hasPendingListenReconnect()`, `isClosed()`, `isSubscribed()` — over the existing private LISTEN/close
     state. Replaces the test's reflection (`getDeclaredField`/`setAccessible`), which was banned and
@@ -515,7 +526,7 @@ file at a time (2026-06-27):
     `mvn test -pl :peegeeq-integration-tests -Pintegration-tests -Dtest=NativeConcurrencySmokeTest` (and
     optionally `mvn test -pl :peegeeq-native` to confirm the accessor addition didn't disturb the module).
 
-- **`RestApiExampleTest`** (`peegeeq-examples`) — **converted 2026-06-27, pending owner verification.** Removed
+- **`RestApiExampleTest`** (`peegeeq-examples`) — **verified GREEN 2026-06-27.** Removed
   the `vertx.timer(500).mapEmpty()` post-`deployVerticle` readiness delay; `setUp` now chains directly off
   `deployVerticle(...).onSuccess(...)`. Confirmed by reading `PeeGeeQRestServer.start()` that `startPromise`
   completes only after `HttpServer.listen()` succeeds — so `deployVerticle` success already implies the server
