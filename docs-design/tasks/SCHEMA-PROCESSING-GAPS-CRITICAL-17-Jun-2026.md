@@ -431,11 +431,30 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 
 Production-code (and related test-side) Vert.x lifecycle issues surfaced by the schema-sweep
 **verification runs**. These are **not** schema conversions and were **not** fixed as part of the sweep —
-each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: F1 still
-logged / not-fixed; all three F2 files converted 2026-06-27 (owner-directed), pending owner verification —
-see F2 below.**
+each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: F1 fix already
+present in code (found 2026-06-27 — the earlier "not fixed" was stale; runtime confirmation still pending); all
+three F2 files converted 2026-06-27 (owner-directed), pending owner verification — see below.**
 
 ### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production)
+
+**✅ RESOLVED IN CODE (verified by reading 2026-06-27).** The fix the "Fix sketch" below proposed is already
+implemented: `PeeGeeQDatabaseSetupService:184` now constructs
+`new PeeGeeQManager(config, new SimpleMeterRegistry(), vertx)` — passing the captured context Vert.x through the
+3-arg external-Vertx constructor, with an explicit "Phase F1" comment (lines 179–183). `PeeGeeQManager` then takes
+the `vertx != null` branch (line 180) → `vertxOwnedByManager = false`, so it neither creates a per-setup Vert.x
+nor closes the shared one. The two teardown risks flagged below are both satisfied: `closeReactive()` still closes
+the per-setup `workerExecutor` (Step 5, `PeeGeeQManager:467`) so there is no worker-pool leak, and it only closes
+the Vert.x `if (vertx != null && vertxOwnedByManager)` (`PeeGeeQManager:494`) so the shared Vert.x is not
+prematurely closed. The fix is committed as `8d03474e7` (2026-06-26); this section's earlier "not fixed" predated
+it (2026-06-21). **Runtime confirmation attempted 2026-06-27 — inconclusive (stale artifact), still pending.** A
+`-pl :peegeeq-examples` run of `DatabaseSetupServiceIntegrationTest` (8/8 pass) still logged the 7× "already on a
+Vert.x context" warnings — but it resolved `peegeeq-db` from the local `.m2`, which had not been rebuilt since the
+fix (only `peegeeq-native` was reinstalled for the F2 run). The only `Vertx.vertx()` reachable on the event loop
+during setup is `PeeGeeQManager:185`, which the committed code avoids by passing `vertx` at line 184 — so the
+warning is stale bytecode, not a live defect. Re-verify with `mvn -pl :peegeeq-db install -DskipTests` (or
+`mvn install -DskipTests -pl :peegeeq-examples -am`) **then** re-run the test; expect zero warnings. (This is a
+concrete instance of why the test-commands doc mandates a clean `-Pall-tests` after code changes — targeted `-pl`
+runs use stale installed dependencies.) The original finding is preserved below as history.
 
 **Symptom.** The Phase D `peegeeq-examples` run logged the following **7×**, one per `createCompleteSetup`,
 all on `vert.x-eventloop-thread-0` during `DatabaseSetupServiceIntegrationTest`
