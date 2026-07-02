@@ -135,6 +135,7 @@ class SseMessageStreamDemoIntegrationTest {
         Set<Integer> received = ConcurrentHashMap.newKeySet();
         AtomicBoolean produceStarted = new AtomicBoolean(false);
         AtomicBoolean verifyStarted = new AtomicBoolean(false);
+        AtomicBoolean completed = new AtomicBoolean(false);
         StringBuilder sseBuffer = new StringBuilder();
         HttpClient sseClient = vertx.createHttpClient();
 
@@ -174,10 +175,20 @@ class SseMessageStreamDemoIntegrationTest {
                         if (received.size() == MESSAGE_COUNT && verifyStarted.compareAndSet(false, true)) {
                             logger.info("SSE-CONSUMER[{}]: all {} messages received over SSE — verifying non-destructive",
                                     implementationType, MESSAGE_COUNT);
-                            verifyStillBrowsable(setupId, queueName, runId, implementationType, sseClient, ctx);
+                            verifyStillBrowsable(setupId, queueName, runId, implementationType, sseClient, completed, ctx);
                         }
                     });
-                    response.exceptionHandler(ctx::failNow);
+                    // After the assertions complete we intentionally close the SSE client, which trips
+                    // this handler with HttpClosedException. That post-completion close is expected
+                    // teardown, not a failure — only fail for genuine mid-stream errors.
+                    response.exceptionHandler(err -> {
+                        if (completed.get()) {
+                            logger.debug("SSE-CONSUMER[{}]: stream closed after completion (ignored): {}",
+                                    implementationType, err.getMessage());
+                        } else {
+                            ctx.failNow(err);
+                        }
+                    });
                 })
                 .onFailure(ctx::failNow);
     }
@@ -207,7 +218,7 @@ class SseMessageStreamDemoIntegrationTest {
 
     /** Proves the stream was non-destructive: a browse must still return all 10 messages. */
     private void verifyStillBrowsable(String setupId, String queueName, String runId, String type,
-            HttpClient sseClient, VertxTestContext ctx) {
+            HttpClient sseClient, AtomicBoolean completed, VertxTestContext ctx) {
         client.get(TEST_PORT, "localhost",
                         "/api/v1/queues/" + setupId + "/" + queueName + "/messages?limit=50")
                 .send()
@@ -220,6 +231,9 @@ class SseMessageStreamDemoIntegrationTest {
                     }
                     logger.info("NON-DESTRUCTIVE verified[{}]: all {} messages still browsable after streaming",
                             type, MESSAGE_COUNT);
+                    // Mark complete BEFORE closing so the guarded exceptionHandler ignores the
+                    // HttpClosedException this close triggers on the still-open SSE stream.
+                    completed.set(true);
                     sseClient.close();
                     ctx.completeNow();
                 }))
