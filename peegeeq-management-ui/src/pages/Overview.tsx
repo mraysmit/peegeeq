@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message, Typography, Descriptions } from 'antd'
+import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, message, Typography, Descriptions, Empty } from 'antd'
 import axios from 'axios'
 // import { useSystemMetrics, useSystemMonitoring } from '../hooks/useRealTimeUpdates'
 import { useManagementStore, QueueInfo } from '../stores/managementStore'
@@ -470,6 +470,7 @@ const Overview = () => {
                     <Col xs={24} lg={16}>
                         <Card title="Message Throughput (24h)" extra={<div className="realtime-indicator"><div className="realtime-dot"></div>Live</div>}>
                             <div style={{ height: 300 }}>
+                                {throughputData.length > 1 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={throughputData}>
                                         <CartesianGrid strokeDasharray="3 3" />
@@ -495,12 +496,18 @@ const Overview = () => {
                                         />
                                     </AreaChart>
                                 </ResponsiveContainer>
+                                ) : (
+                                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" />
+                                    </div>
+                                )}
                             </div>
                         </Card>
                     </Col>
                     <Col xs={24} lg={8}>
                         <Card title="DB Pool Connections" extra={<div className="realtime-indicator"><div className="realtime-dot"></div>Live</div>}>
                             <div style={{ height: 300 }}>
+                                {connectionData.length > 1 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={connectionData}>
                                         <CartesianGrid strokeDasharray="3 3" />
@@ -545,6 +552,11 @@ const Overview = () => {
                                         />
                                     </AreaChart>
                                 </ResponsiveContainer>
+                                ) : (
+                                    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" />
+                                    </div>
+                                )}
                             </div>
                         </Card>
                     </Col>
