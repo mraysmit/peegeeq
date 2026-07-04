@@ -176,12 +176,20 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .compose(req -> {
                     // 3. Create PeeGeeQ configuration and manager (use setupId as profile)
                     PeeGeeQConfiguration config = createConfiguration(req.getDatabaseConfig(), req.getSetupId());
-                    // Reuse this service's Vert.x (captured from the calling context) so the per-setup
-                    // manager does not create a fresh Vert.x on the event-loop thread (Phase F1). The
-                    // manager treats the Vert.x as external and never closes it; this service owns its
-                    // lifecycle. The fresh SimpleMeterRegistry mirrors the prior config-only constructor
-                    // (SimpleMeterRegistry.close() is a no-op, so manager-ownership of it is immaterial).
-                    PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry(), vertx);
+                    // A PeeGeeQ setup is an independent instance — its own database, schema, manager and
+                    // LISTEN/NOTIFY connections — so it owns its OWN Vert.x. That per-setup Vert.x IS the
+                    // isolation boundary, by design; do NOT share one Vert.x across setups. Thread/resource
+                    // cost is a SEPARATE concern and must not be bought by collapsing this isolation (use a
+                    // shared bounded worker pool or virtual threads instead). Phase F1 did exactly that —
+                    // shared the service Vert.x to drop the per-setup Vert.x and the "already on a Vert.x
+                    // context" warning — and it broke native LISTEN/NOTIFY for the SECOND setup: on a shared
+                    // Vert.x a second setup's dedicated LISTEN connection silently receives no notifications,
+                    // so its live SSE tail never delivers. (The required isolation is at the
+                    // Vert.x/event-loop-transport level; a fresh context on a shared Vert.x does NOT fix it.)
+                    // Reverted 2026-06-27; full analysis in
+                    // docs-design/tasks/SCHEMA-PROCESSING-GAPS-CRITICAL-17-Jun-2026.md (Phase F1). The fresh
+                    // SimpleMeterRegistry mirrors the prior config-only constructor.
+                    PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
                     // Start reactively - DO NOT block with .get()
                     return manager.start().map(v -> {
                         // Store manager for later steps
