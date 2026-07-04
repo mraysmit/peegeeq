@@ -625,7 +625,7 @@ is a normal production topology. Coverage plan to close that gap, by risk:
 | # | Scenario | Status |
 |---|----------|--------|
 | P1 | Two native setups on one service, each with a `LISTEN_NOTIFY_ONLY` consumer; a message produced to each must reach THAT setup's consumer over NOTIFY. | ✅ **Done & validated 2026-06-27.** `MultiSetupNativeListenIsolationTest` (`peegeeq-integration-tests`). Passes under per-setup Vert.x; **proven to fail (60 s timeout) when the shared Vert.x is re-applied** — a real regression lock, not a vacuous pass. Uses `LISTEN_NOTIFY_ONLY` on purpose: the default HYBRID consumer would deliver via the poll fallback and mask a dead LISTEN. Companion: `SseMessageStreamDemoIntegrationTest.secondNativeSetup_alsoStreamsOverSse` locks the SSE-observer path. |
-| P2 | Two bitemporal setups on one service — both receive their append notifications (the bitemporal `ReactiveNotificationHandler` is a separate LISTEN/NOTIFY implementation of the same pattern). | ⏳ Planned. |
+| P2 | Two bitemporal setups on one service — both receive their append notifications (the bitemporal `ReactiveNotificationHandler` is a separate LISTEN/NOTIFY implementation of the same pattern). | ✅ **Done 2026-06-27.** `MultiSetupBitemporalNotificationIsolationTest` (`peegeeq-integration-tests`): subscribes via each setup's `EventStore` (from `getEventStores()`), appends via REST, both subscribers receive. **Finding — the bitemporal path is IMMUNE to the F1 shared-Vertx defect.** In one run against a re-applied shared Vert.x, P2 passed (5 s) while P1 timed out (60 s) in the *same* run — so the shared db was demonstrably live and the divergence is real. F1 is therefore specific to the **native** queue's LISTEN path, even though both paths use `PgConnection.connect(vertx, opts)` with no poll fallback. P2's value is thus positive multi-setup coverage of the setup-service-provisioned bitemporal notification path (previously untested end-to-end — existing tests only appended/queried over REST, never subscribed), **not** an F1 regression lock. |
 | P3 | Cross-setup isolation: producing to setup A never surfaces in setup B's consumer/tail; `destroySetup(A)` does not disturb B's live consumer. | ⏳ Planned. |
 | P4 | Fast guard: two `createCompleteSetup` calls yield managers on **distinct** Vert.x instances (catches a future F1-style "share the Vert.x" change cheaply — needs a test-visible way to reach each setup's manager Vert.x). | ⏳ Planned. |
 
@@ -633,3 +633,89 @@ is a normal production topology. Coverage plan to close that gap, by risk:
 own Vert.x context; thread/resource optimization is a completely separate concern and must not be bought by
 sharing one Vert.x across setups. Encoded in the `PeeGeeQDatabaseSetupService` per-setup-Vert.x comment
 (Phase F1) so it is not re-litigated.
+
+### F1 root cause — proven by instrumented experiment (2026-06-27)
+
+Earlier notes (and this doc's Phase F1) described F1 as *"the second setup's LISTEN connection goes deaf."*
+**That characterization is wrong.** A run of P1 under a re-applied shared Vert.x, instrumented with
+`current_database()` on every connection, showed:
+
+- Both setups' **LISTEN connections are correct** — each `PgConnection.connect(vertx, opts)` (used by the
+  native consumer *and* the bitemporal handler) lands on its own database. The consumers are not deaf.
+- The **producer misroutes**: setup B's produce logged `configDb=<B>` but `actualDb=<A>` — setup B's
+  message was inserted into setup **A's** database. Both messages landed in A's DB, so A's consumer fired
+  twice and B's consumer (correctly listening on its own, now-empty DB) never fired → timeout. Which setup
+  "wins" is non-deterministic across runs.
+
+**Mechanism:** `PgConnectionManager.createReactivePool` builds the pool with `setShared(true)`
+(`poolConfig.isShared()`) and **no explicit pool name**, under a fixed service id `"peegeeq-main"`. Vert.x
+*shared* pools are keyed by **(Vertx instance, pool name)**; with no name they all share the default name.
+With a **per-setup Vert.x** each setup's shared pool is isolated (distinct Vertx key) — correct. With a
+**shared Vert.x** every setup collapses onto one underlying pool pinned to the **first** setup's connect
+options, so all later setups' *pooled* DB work (produce, and anything via the pool) hits the wrong database.
+The dedicated LISTEN connections are unaffected because they bypass the pool (`PgConnection.connect`).
+
+**Why bitemporal (P2) is immune — same run, verified:** `PgBiTemporalEventStore.getOrCreateReactivePool`
+sets `poolOptions.setShared(false)` **and** a unique per-table name
+(`"peegeeq-bitemporal-pool-" + tableName`) — with the code comment *"Disable sharing to ensure correct
+database connection."* The bitemporal path already hit and fixed this exact collision; the native
+`PgConnectionManager` never received that fix.
+
+### Landmine REMOVED + guarded (2026-07-04)
+
+The shared-pool collision has now been **fixed in production code** (sharing-preserving variant) and locked
+by a regression test.
+
+**Applied fix.** Both production sites that built a Vert.x *shared* pool with no name now name it by its full
+connection identity, so pools to distinct targets never collide while genuine same-target callers still share:
+- `PgConnectionManager.createReactivePool` (the live landmine) → `setShared(true)` **kept** +
+  `setName("peegeeq-pool-{host}:{port}/{database}?search_path={schema})`. The name includes the **schema**,
+  not just the database, because a shared pool bakes in `search_path` via `connectOptions` — two configs to
+  the same DB but different schemas would otherwise share one pool pinned to the first schema.
+- `VertxPerformanceOptimizer.createOptimizedPool` (currently *dead code* — no `src/main` caller, but the same
+  pattern) → named likewise, so it cannot become a future trap.
+
+A full `src/main` sweep confirmed these are the **only** two sites: the `.setShared(...)` decision appears in
+exactly three production files — these two plus `PgBiTemporalEventStore` (already safe: `setShared(false)` +
+unique name). Every other production pool (temp DDL/validation pools, `OutboxQueue`, `PgNativeQueue`) never
+calls `setShared`, so it defaults to `shared=false` — no collision.
+
+**Regression guard.** `PgConnectionManagerSharedPoolIsolationIntegrationTest` (`peegeeq-db`) forces the exact
+hazardous shape — two `shared(true)` pools, the same `"peegeeq-main"` service id, two different databases, one
+Vert.x — and asserts each connects to its own database via `current_database()`. **Proven a real lock:** it
+fails on pre-fix code (`expected <…iso_b> but was <…iso_a>` — B misrouted to A's DB) and passes with the fix.
+P1 + P2 remain green (the naming change is behaviour-preserving for the non-colliding case).
+
+### Broader sweep — is the fix enough to make cross-setup sharing safe? (2026-07-04)
+
+Two prongs: static enumeration of everything keyed by `(Vertx, name)` / Vertx-scoped, and empirical runs of
+the untested multi-setup paths under a re-applied shared Vert.x **with the pool fix in place**.
+
+**Static enumeration (production code):**
+- **Pools** — the three `setShared` sites are the *complete* set: `PgConnectionManager` and
+  `VertxPerformanceOptimizer` (both now named by connection identity) plus `PgBiTemporalEventStore` (already
+  safe). Every other production pool defaults to `shared=false` (no collision).
+- **Outbox** — `OutboxProducer`/`OutboxConsumer` get their pool via
+  `PgConnectionManager.getOrCreateReactivePool`, so the fix covers them; there is no separate outbox pool.
+- **Shared `SqlClient`** — only bitemporal's `pipelinedClient`, built from the same safe
+  (`shared=false` + named) options.
+- **Shared worker executors** (`peegeeq-worker-pool`, `peegeeq-setup-worker`) — benign: threads only, no DB
+  binding, ref-counted close; sharing across setups is harmless.
+- **Event bus** — `peegeeq.lifecycle` has **no consumer** (a broadcast to nobody); management addresses are
+  per-setup (`…PREFIX + setupId`); the bitemporal `DatabaseWorkerVerticle` operation address is
+  **table-name-only** and *would* collide for same-table setups on a shared Vert.x — **but**
+  `deployDatabaseWorkerVerticles` is never called anywhere, so that feature is dormant/dead. Latent note:
+  include schema/database in that address *if* the feature is ever activated.
+- No Vert.x shared-data maps / `LocalMap` / context-local puts exist in production code.
+
+**Empirical verification (shared Vert.x re-applied, pool fix in place):** native (P1), bitemporal (P2), **and
+the SSE observer (`SseMessageStreamDemoIntegrationTest`, 3/3, incl. `secondNativeSetup_alsoStreamsOverSse`)
+all pass.** The SSE-observer failure was the *original* F1 symptom; the pool naming fixes it too — confirming
+the shared-pool collision was the **single** root cause, not several separate bugs.
+
+**Bottom line.** For every exercised multi-setup hot path (native consume, bitemporal subscribe, SSE observe)
+the pool fix makes a shared Vert.x behave correctly. **Still not exercised:** the LISTEN reconnect path under
+sharing, and `destroySetup(A)` not disturbing a live B (coverage-plan P3). The dormant worker-verticle address
+is the one remaining latent (opt-in) item. The per-setup Vert.x still stands as the design; the pool fix is
+defense-in-depth. (This also corrects the earlier `vertx.runOnContext` hypothesis, disproven: the native
+lambda never fires for the "losing" setup only because its DB got no message — not a dispatch-context issue.)
