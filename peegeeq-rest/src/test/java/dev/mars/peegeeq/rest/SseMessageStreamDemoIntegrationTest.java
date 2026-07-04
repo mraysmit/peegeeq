@@ -124,6 +124,20 @@ class SseMessageStreamDemoIntegrationTest {
     }
 
     /**
+     * Regression lock for the multi-setup native LISTEN/NOTIFY bug (Phase F1 fallout, fixed
+     * 2026-06-27). A SECOND native setup on the same service must also stream over SSE. When the
+     * per-setup managers shared one Vert.x (F1), the second setup's dedicated LISTEN connection
+     * silently received no NOTIFYs and this timed out; with a per-setup Vert.x it delivers. Runs
+     * alongside {@link #tenMessages_streamOverSse_nativeQueue} — two independent native SSE tails
+     * (each its own setup/database) coexisting on one service.
+     */
+    @Test
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void secondNativeSetup_alsoStreamsOverSse(Vertx vertx, VertxTestContext ctx) {
+        runTenMessageStreamDemo("native", vertx, ctx);
+    }
+
+    /**
      * Produces {@link #MESSAGE_COUNT} messages and asserts they all stream back over SSE and remain
      * browsable, for a queue of the given implementation type ({@code native} or {@code outbox}).
      */
