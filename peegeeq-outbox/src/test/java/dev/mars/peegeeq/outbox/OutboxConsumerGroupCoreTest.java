@@ -1073,7 +1073,14 @@ class OutboxConsumerGroupCoreTest {
                     });
                 }
                 executor.shutdown();
-                assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS));
+                // start() is non-blocking/idempotent (CAS winner kicks off an async subscribe and
+                // returns), so the worker threads finish as soon as they are scheduled. Under a full
+                // `-Pall-tests` run the machine is CPU-saturated (native + performance suites in
+                // parallel) and these 10 threads can be starved well past a tight bound — this test
+                // flaked at the previous 30s ceiling while doing no real work. 60s is headroom for
+                // that saturation; a genuine deadlock (impossible here — lock-free CAS) would still fail.
+                assertTrue(executor.awaitTermination(60, TimeUnit.SECONDS),
+                        "concurrent start() worker threads should all complete under load");
                 assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
             } finally {
                 executor.shutdownNow();

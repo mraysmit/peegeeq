@@ -391,7 +391,7 @@ const EventStores = () => {
                         columns={eventStoreColumns}
                         dataSource={filteredEventStores}
                         pagination={{
-                            pageSize: 10,
+                            defaultPageSize: 10,
                             showSizeChanger: true,
                             showQuickJumper: true,
                             showTotal: (total, range) => `${range[0]}-${range[1]} of ${total} event stores`,

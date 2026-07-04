@@ -1,8 +1,8 @@
 {
   "host": "localhost",
-  "port": 33360,
+  "port": 33133,
   "database": "postgres",
   "username": "peegeeq",
   "password": "peegeeq",
-  "jdbcUrl": "postgres://peegeeq:peegeeq@localhost:33360/postgres"
+  "jdbcUrl": "postgres://peegeeq:peegeeq@localhost:33133/postgres"
 }

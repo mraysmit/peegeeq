@@ -82,6 +82,12 @@ public class VertxPerformanceOptimizer {
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(poolConfig.getMaxSize())
             .setShared(poolConfig.isShared()) // Share across verticles (checklist item #2)
+            // Name the shared pool by its connection identity so distinct databases never collide on
+            // one Vert.x. Without a name, Vert.x shared pools to different databases silently share one
+            // underlying pool pinned to the first (see PgConnectionManager.createReactivePool for the
+            // full rationale and the verified F1 root-cause analysis).
+            .setName("peegeeq-optimized-pool-" + connectionConfig.getHost() + ":" + connectionConfig.getPort()
+                    + "/" + connectionConfig.getDatabase())
             .setMaxWaitQueueSize(poolConfig.getMaxSize() * 4); // Prevent queue buildup
         
         Pool pool = PgBuilder.pool()
