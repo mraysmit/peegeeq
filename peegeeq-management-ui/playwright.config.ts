@@ -21,7 +21,7 @@ export default defineConfig({
   /* Retry on CI; allow one local retry so transient infra failures (e.g. a headed
      single-worker browser dying mid-run → "browser.newContext: ...has been closed")
      self-heal on a fresh browser/context instead of failing the whole run. */
-  retries: process.env.CI ? 2 : 0,
+  retries: 2,
   /* Run with a single worker so spec files execute sequentially and do not race on shared state (e.g. setup ID creation). */
   workers: 1,
   /* Reporter to use. See https://playwright.dev/docs/test-reporters */

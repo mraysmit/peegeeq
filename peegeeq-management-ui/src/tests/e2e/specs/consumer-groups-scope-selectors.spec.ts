@@ -218,10 +218,16 @@ test.describe('Consumer Groups - Setup + Queue Scope Selectors', () => {
 
         const groupName = `test-group-${Date.now()}`
         await page.locator('.ant-modal').getByLabel('Group Name').fill(groupName)
-        await page.locator('.ant-modal').getByLabel('Queue Name').fill(cgQueue)
 
         const modalSetupAncestor = page.locator('.ant-modal').getByTestId('create-group-setup-select')
         await selectAntOption(modalSetupAncestor, SETUP_ID)
+
+        // Fill the queue name LAST: the modal's async setup load / setup selection re-renders the
+        // form and clears a queue-name fill made before it (Group Name, filled once up-front, is not
+        // affected). Fill after the setup select has settled, and assert the value actually stuck.
+        const queueInput = page.getByTestId('create-group-queue-input')
+        await queueInput.fill(cgQueue)
+        await expect(queueInput).toHaveValue(cgQueue)
 
         await page.locator('.ant-modal .ant-btn-primary').click()
 
