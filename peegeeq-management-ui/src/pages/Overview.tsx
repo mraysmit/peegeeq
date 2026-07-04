@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons'
 // Real-time charts using recharts
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts'
+import ErrorBoundary from '../components/common/ErrorBoundary'
 // WebSocket service for real-time updates
 import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
 
@@ -471,6 +472,7 @@ const Overview = () => {
                         <Card title="Message Throughput (24h)" extra={<div className="realtime-indicator"><div className="realtime-dot"></div>Live</div>}>
                             <div style={{ height: 300 }}>
                                 {throughputData.length > 1 ? (
+                                <ErrorBoundary fallback={<div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" /></div>}>
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={throughputData}>
                                         <CartesianGrid strokeDasharray="3 3" />
@@ -489,6 +491,7 @@ const Overview = () => {
                                         />
                                         <Area
                                             type="monotone"
+                                            isAnimationActive={false}
                                             dataKey="messages"
                                             stroke="#1890ff"
                                             fill="#1890ff"
@@ -496,6 +499,7 @@ const Overview = () => {
                                         />
                                     </AreaChart>
                                 </ResponsiveContainer>
+                                </ErrorBoundary>
                                 ) : (
                                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" />
@@ -508,6 +512,7 @@ const Overview = () => {
                         <Card title="DB Pool Connections" extra={<div className="realtime-indicator"><div className="realtime-dot"></div>Live</div>}>
                             <div style={{ height: 300 }}>
                                 {connectionData.length > 1 ? (
+                                <ErrorBoundary fallback={<div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" /></div>}>
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={connectionData}>
                                         <CartesianGrid strokeDasharray="3 3" />
@@ -525,6 +530,7 @@ const Overview = () => {
                                         <Legend />
                                         <Area
                                             type="monotone"
+                                            isAnimationActive={false}
                                             dataKey="active"
                                             name="Active"
                                             stackId="conn"
@@ -534,6 +540,7 @@ const Overview = () => {
                                         />
                                         <Area
                                             type="monotone"
+                                            isAnimationActive={false}
                                             dataKey="idle"
                                             name="Idle"
                                             stackId="conn"
@@ -543,6 +550,7 @@ const Overview = () => {
                                         />
                                         <Area
                                             type="monotone"
+                                            isAnimationActive={false}
                                             dataKey="pending"
                                             name="Pending"
                                             stackId="conn"
@@ -552,6 +560,7 @@ const Overview = () => {
                                         />
                                     </AreaChart>
                                 </ResponsiveContainer>
+                                </ErrorBoundary>
                                 ) : (
                                     <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                         <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" />

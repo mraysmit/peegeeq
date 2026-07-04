@@ -13,7 +13,6 @@ peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerSurgicalCover
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxDeadLetterQueueTest.java,8
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxDirectExceptionHandlingTest.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxExceptionHandlingDemonstrationTest.java,4
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxFactoryCloseHookTest.java,7
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxOffsetWatermarkOrderingTest.java,9
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxOffsetWatermarkWiringTest.java,3
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxParallelProcessingTest.java,3

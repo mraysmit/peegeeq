@@ -295,7 +295,17 @@ public class PgConnectionManager {
             .setConnectionTimeoutUnit(java.util.concurrent.TimeUnit.SECONDS)
             .setIdleTimeout((int) poolConfig.getIdleTimeout().toSeconds())
             .setIdleTimeoutUnit(java.util.concurrent.TimeUnit.SECONDS)
-            .setShared(poolConfig.isShared());
+            .setShared(poolConfig.isShared())
+            // Vert.x shared pools are keyed by (Vert.x instance, pool name). A shared pool with NO
+            // name uses one default name, so every shared pool built on the same Vert.x collapses onto
+            // a single underlying pool pinned to the FIRST connectOptions it saw. If a Vert.x is ever
+            // shared across setups/databases, a second setup's pooled operations then silently execute
+            // against the FIRST setup's database (verified: SCHEMA-PROCESSING-GAPS-CRITICAL, "F1 root
+            // cause"). Name the pool by its full connection identity (host/port/database/search_path)
+            // so pools to distinct targets never collide, while genuine same-target callers still
+            // share connections as intended.
+            .setName("peegeeq-pool-" + connectionConfig.getHost() + ":" + connectionConfig.getPort()
+                    + "/" + connectionConfig.getDatabase() + "?search_path=" + normalized);
 
         Pool pool = PgBuilder.pool()
             .with(poolOptions)

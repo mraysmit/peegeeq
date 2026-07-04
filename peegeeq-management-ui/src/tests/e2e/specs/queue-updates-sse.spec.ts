@@ -274,7 +274,9 @@ test.describe('Queue Updates SSE – Direct API', () => {
 
         // The new queue's row; its Messages cell (column index 1) starts at 0
         const row = page.locator('.ant-table-row').filter({ hasText: queueName })
-        await expect(row).toBeVisible({ timeout: 15000 })
+        // 30s: late in the full suite the backend holds hundreds of accumulated queues, so the
+        // scoped queues-list fetch/render is slow — the row is correct, just slow to appear.
+        await expect(row).toBeVisible({ timeout: 30000 })
         const messagesCell = row.locator('td.ant-table-cell').nth(1)
         await expect(messagesCell).toContainText('0')
 
