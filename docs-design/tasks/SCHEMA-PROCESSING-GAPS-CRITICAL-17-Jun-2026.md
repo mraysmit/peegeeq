@@ -17,7 +17,7 @@ test (2026-06-16)" at the end.
 
 **Prior remediation (still valid):** Test-layer remediation (S1–S5) COMPLETE; production fail-fast D2.1–D2.5 COMPLETE (13 Jun 2026). The first remediation (S1–S3, system-property-driven) was architecturally WRONG and has been replaced by the explicit-schema remediation; see "Architecture correction" below.
 
-**F1 (production defect surfaced by the sweep) — RESOLVED, verified GREEN 2026-06-27.** `PeeGeeQDatabaseSetupService` was constructing `PeeGeeQManager` without its context Vert.x, spinning up a new Vert.x + worker pool per `createCompleteSetup`. The fix (pass the captured Vert.x) was already committed as `8d03474e7`; a clean rebuild confirmed the "already on a Vert.x context" warnings are gone. Detail in "Phase F — Testing discoveries: Vert.x lifecycle" below.
+**F1 (production defect surfaced by the sweep) — the F1 fix was REVERTED 2026-06-27 (it caused a worse regression).** F1 had shared the service's one Vert.x across all per-setup managers (commit `8d03474e7`) to avoid a per-setup Vert.x + the "already on a Vert.x context" warning. That broke native LISTEN/NOTIFY for any **second** setup: on a shared Vert.x, a second setup's dedicated LISTEN connection silently receives no notifications, so its live SSE tail never delivers — and production runs multiple setups per service. Reverted to **per-setup Vert.x** (Option B); verified GREEN including a new two-native-setup regression test. The warning returns (cosmetic, and cheaper still under Vert.x virtual threads). Detail in "Phase F — Testing discoveries: Vert.x lifecycle" below.
 
 ---
 
@@ -422,7 +422,7 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 | C | `peegeeq-db` / `peegeeq-integration-tests` / `peegeeq-runtime` / `peegeeq-rest-client` | ✅ **DONE — all GREEN.** ✅ `peegeeq-runtime` (`RuntimeDatabaseSetupServiceIntegrationTest:103` `.schema(...)`) + `peegeeq-rest-client` (`RestClientIntegrationTest:147` `.put("schema",…)`) converted to `PostgreSQLTestConstants.TEST_SCHEMA` and GREEN 2026-06-20 (`logs/schema-phaseC-runtime-restclient-20260620.txt`: runtime 38/0, rest-client 15/0). ✅ `peegeeq-db` **GREEN 2026-06-20** — 8 genuine schema-config literals across 2 files (`PeeGeeQDatabaseSetupServiceEnhancedTest` ×6 create-path, `EventDrivenLifecycleTest` ×2 positional) → `TEST_SCHEMA`; 3 occurrences deliberately LEFT (`PeeGeeQManagerTimerGuardTest:519` + `PeeGeeQManagerCloseLogLevelTest:287` `if (!"public".equals(schema))` sentinels where schema already = `TEST_SCHEMA`; `PostgreSqlIdentifierValidatorTest:238` validator fixture). Validated via `mvn test -Pintegration-tests -pl :peegeeq-db` (`logs/schema-phaseC-db-20260620.txt`): **727 tests, 0 failures**, both converted classes pass. Confirmed `EventDrivenLifecycleTest` (construction-only, schema not pre-provisioned) tolerates `TEST_SCHEMA`. ✅ `peegeeq-integration-tests` **GREEN 2026-06-21** — 10 create-path schema literals across 7 files (`SmokeTestBase` shared helper, `PeeGeeQCriticalPathSmokeTest`, `NativeConcurrencySmokeTest`, `BiTemporalEventStoreSmokeTest`, `EventVisualizationApiTest`, `EventStoreAdvancedAttributesSmokeTest`, `EventStoreManagementSmokeTest` ×4) → `TEST_SCHEMA` (+import added to the 5 that lacked it); grep-clean. **Mixed tags** (5 `@Tag(SMOKE)` + 2 `@Tag(INTEGRATION)`) verified via module-scoped all-tags `mvn test -pl :peegeeq-integration-tests -Pall-tests` (`logs/schema-phaseC-integtests-20260620.txt`): **97 tests, 0 failures**, all 7 converted classes pass. Flagged (not fixed): `PeeGeeQCriticalPathSmokeTest` hand-rolls its container (antipattern §2); `NativeConcurrencySmokeTest` uses `CountDownLatch.await`/`setTimer` readiness guards/reflection field access (pre-existing, unrelated to schema swap). **All Phase C conversions complete and GREEN.** Flagged (not fixed here): `RestClientIntegrationTest` hand-rolls its container instead of `PostgreSQLTestConstants.createStandardContainer()` (antipattern §2). |
 | D | `peegeeq-examples` / `peegeeq-native` / `peegeeq-outbox` test usages | ✅ **DONE — all GREEN.** **Owner ruling 2026-06-21:** cosmetic/non-config `"public"` defaults are CONVERTED too (not left); only documentation prose referencing `"public"` to explain the no-public rule stays (converting it would make the doc factually wrong). ✅ `peegeeq-native` **GREEN 2026-06-21** — `PeeGeeQExampleTest:258` dead `getString(key,"public")` log fallback → `TEST_SCHEMA`; 2 doc references left (`PgNativeQueueFactoryIntegrationTest:91` comment, `PgNativeQueueFactoryContractTest:38` Javadoc). `mvn test -Pintegration-tests -pl :peegeeq-native` (`logs/schema-phaseD-native-20260621.txt`): **190 tests, 0 failures** (6 pre-existing skips). ✅ `peegeeq-outbox` **GREEN 2026-06-21** — 2 genuine config literals → `TEST_SCHEMA` (`OutboxBlockingSafetyTest:38`, `OutboxFactoryCloseHookTest:181`; both `@Tag(CORE)`, no-DB construction-only configs) +imports; 1 Javadoc left (`OutboxFactoryContractTest:38`). `mvn test -pl :peegeeq-outbox` (`logs/schema-phaseD-outbox-20260621.txt`): **81 tests, 0 failures**. Flagged (not fixed): `OutboxFactoryCloseHookTest` uses banned `Future.await()` throughout (pre-existing). ✅ `peegeeq-examples` **GREEN 2026-06-21** — 3 genuine create-path literals → `TEST_SCHEMA` (`DatabaseSetupServiceIntegrationTest:116` & `:339`, `RestApiExampleTest:196`; both files already imported the constant); 1 comment left (`ConsumerGroupLoadBalancingDemoTest:170`, documents the "no public fallback" rule). `mvn test -Pintegration-tests -pl :peegeeq-examples -Dtest=DatabaseSetupServiceIntegrationTest,RestApiExampleTest` (`logs/schema-phaseD-examples-20260621.txt`): **13 tests, 0 failures** (DatabaseSetupServiceIntegrationTest 8/0, RestApiExampleTest 5/0). Flagged (not fixed): `DatabaseSetupServiceIntegrationTest` hand-rolls its container (§2); `RestApiExampleTest:122` post-`deployVerticle` `vertx.timer(500)` readiness delay (setTimer-guard antipattern). **Note (pre-existing, unrelated):** the run logged 7× `"already on a Vert.x context… create a new Vertx instance?"` warnings — root cause is `PeeGeeQDatabaseSetupService:178` constructing `new PeeGeeQManager(config)` without passing its context Vert.x, so `PeeGeeQManager:187` creates a fresh Vert.x on the event loop. Production-code lifecycle issue, not a schema-sweep concern; tracked separately below. |
 | E | Frontend e2e/TS (`peegeeq-management-ui`) create flows + fixtures | 🔄 **Converted 2026-06-21, pending e2e run.** Added `TEST_SCHEMA = 'peegeeq_test'` to `src/tests/e2e/test-constants.ts` (mirrors Java `PostgreSQLTestConstants.TEST_SCHEMA`). Converted **12 genuine schema literals across 10 spec files**: 4 `schema: 'public'` object-literals (`setup-prerequisite`, `database-setup` ×2, `event-stores-scope-filter`) + 8 `getByLabel(/schema/i).fill('public')` form-fills (`api-error-paths`, `event-store-management`, `event-store-workflow`, `event-visualization`, `queue-messaging-workflow`, `queue-management`, `take-screenshots` ×2; `take-screenshots` uses a local `TEST_SCHEMA` const to mirror its local-`SETUP_ID` idiom). Left intentionally: `database-cleanup.ts:61` system-schema *preserve* sentinel (`NOT IN (…, 'public')`), and the `test-constants.ts` doc comment. `npm run type-check` passes. **Partially verified GREEN 2026-06-22:** `event-stores-scope-filter` (one of the converted `schema:` create-path specs) passed via `npx playwright test --project=12b-event-stores-scope-filter` (the spec + its setup-prerequisite dependency chain — not the full suite), confirming the `TEST_SCHEMA` create-path + scope filtering work against the real backend. That run also required fixing the spec's own `showAllRows` pagination helper — a **pre-existing full-suite fragility, not a schema issue**: it ran before the async rows loaded, and a switch to `selectAntOption` regressed it because `filter({hasNot})` can't exclude a self-hidden leftover dropdown; restored the CSS `:not(.ant-select-dropdown-hidden)` selector + wait-for-rows + a selection-item verify. The other 9 converted specs are type-checked but not yet individually run. **Scope note:** my first grep caught only `schema: 'public'` object-literals and missed the `.fill('public')` form-fills — corrected (E is 10 files, not the 3 first reported). PS helper scripts + docs `public` references: **done** — see the "remove ALL public references" follow-up section below. |
-| F | **Testing discovery (not a schema conversion)** — Vert.x lifecycle issues surfaced during sweep verification runs | ✅ **COMPLETE 2026-06-27.** F1 (per-setup Vert.x) verified GREEN — fix already committed as `8d03474e7`; all three F2 test-side antipatterns (`OutboxFactoryCloseHookTest`, `NativeConcurrencySmokeTest`, `RestApiExampleTest`) converted and verified GREEN. Detail in "Phase F — Testing discoveries: Vert.x lifecycle" below. |
+| F | **Testing discovery (not a schema conversion)** — Vert.x lifecycle issues surfaced during sweep verification runs | ✅ **Resolved 2026-06-27.** F1: the shared-Vert.x fix (`8d03474e7`) broke multi-setup native LISTEN/NOTIFY and was **REVERTED to per-setup Vert.x** (Option B) — verified GREEN with a new two-native-setup regression test. All three F2 test-side antipatterns (`OutboxFactoryCloseHookTest`, `NativeConcurrencySmokeTest`, `RestApiExampleTest`) converted and verified GREEN. Detail in "Phase F — Testing discoveries: Vert.x lifecycle" below. |
 
 ### Open items surfaced during Phase B validation (not schema-related)
 
@@ -450,28 +450,37 @@ schema — on `ManagementApiIntegrationTest` before the mechanical sweep of the 
 
 Production-code (and related test-side) Vert.x lifecycle issues surfaced by the schema-sweep
 **verification runs**. These are **not** schema conversions and were **not** fixed as part of the sweep —
-each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: Phase F COMPLETE
-2026-06-27. F1 fix (commit `8d03474e7`) verified GREEN after a clean rebuild — the earlier "not fixed" was stale;
-all three F2 files verified GREEN (owner-directed, owner-run). Details below.**
+each needs its own analysis and targeted test run. Logged here so they are not lost. **Status: 2026-06-27. The F1
+fix (commit `8d03474e7`, shared Vert.x) was found to break multi-setup native LISTEN/NOTIFY and was REVERTED to
+per-setup Vert.x (Option B) — verified GREEN with a new two-native-setup regression test. All three F2 files
+verified GREEN (owner-directed, owner-run). Details below.**
 
 ### F1 — `PeeGeeQManager` creates a new Vert.x instance on the event loop, once per setup (production)
 
-**✅ RESOLVED IN CODE (verified by reading 2026-06-27).** The fix the "Fix sketch" below proposed is already
-implemented: `PeeGeeQDatabaseSetupService:184` now constructs
-`new PeeGeeQManager(config, new SimpleMeterRegistry(), vertx)` — passing the captured context Vert.x through the
-3-arg external-Vertx constructor, with an explicit "Phase F1" comment (lines 179–183). `PeeGeeQManager` then takes
-the `vertx != null` branch (line 180) → `vertxOwnedByManager = false`, so it neither creates a per-setup Vert.x
-nor closes the shared one. The two teardown risks flagged below are both satisfied: `closeReactive()` still closes
-the per-setup `workerExecutor` (Step 5, `PeeGeeQManager:467`) so there is no worker-pool leak, and it only closes
-the Vert.x `if (vertx != null && vertxOwnedByManager)` (`PeeGeeQManager:494`) so the shared Vert.x is not
-prematurely closed. The fix is committed as `8d03474e7` (2026-06-26); this section's earlier "not fixed" predated
-it (2026-06-21). **✅ Runtime confirmed GREEN 2026-06-27.** The first check (a `-pl :peegeeq-examples` run) still logged the 7×
-"already on a Vert.x context" warnings, but that ran against a **stale installed `peegeeq-db`** (only
-`peegeeq-native` had been rebuilt). The only `Vertx.vertx()` reachable on the event loop during setup is
-`PeeGeeQManager:185`, which the committed code avoids by passing `vertx` at line 184. After
-`mvn -pl :peegeeq-db install -DskipTests` and re-running, the warnings were gone (8/8 pass, zero warnings),
-confirming the fix. (A concrete instance of why the test-commands doc mandates a clean `-Pall-tests` after code
-changes: targeted `-pl` runs silently use stale installed dependencies.) The original finding is preserved below
+**⛔ F1 FIX REVERTED 2026-06-27 — it caused a worse regression.** The F1 fix (share the service's one Vert.x
+across all per-setup managers; committed `8d03474e7`, `PeeGeeQDatabaseSetupService:184` passing `vertx` to the
+3-arg constructor) silenced the warning and passed a *single-setup* runtime check — but it broke native
+**LISTEN/NOTIFY for any second setup**. On a shared Vert.x, a second setup's dedicated LISTEN connection
+(`PgNativeQueueObserver` → `VertxPoolAdapter.connectDedicated` → `PgConnection.connect`) establishes fine but its
+notification handler silently never fires, so its live SSE tail (`GET …/messages/stream`) delivers nothing and
+times out. Confirmed by experiment: `SseMessageStreamDemoIntegrationTest.tenMessages_streamOverSse_nativeQueue`
+passes in isolation (10/10 NOTIFYs) but fails (0 NOTIFYs) once another setup exists; reverting the shared-Vert.x
+line makes it pass.
+
+**Root cause:** the isolation native LISTEN needs is at the **Vert.x / event-loop-transport** level (pre-F1 each
+setup had its own Vert.x). Ruled out by diagnosis (2026-06-27): not the context type (plain `ContextImpl` in both
+the working and failing runs), not the event-loop thread (a fresh event-loop context, on a different thread, did
+not help — still 0 NOTIFYs), not the database or channel (the dedicated connection has the correct DB/host/port and
+LISTENs on the exact channel the producer NOTIFYs). Only a per-setup Vert.x fixes it.
+
+**Resolution — Option B (owner-agreed 2026-06-27):** reverted `PeeGeeQDatabaseSetupService:184` to
+`new PeeGeeQManager(config, new SimpleMeterRegistry())` (per-setup Vert.x). Verified GREEN: the SSE demo class
+passes native + outbox + a new **two-native-setup regression test**
+(`SseMessageStreamDemoIntegrationTest.secondNativeSetup_alsoStreamsOverSse`) that times out under a shared Vert.x
+and passes under per-setup. Trade-off accepted: the per-setup Vert.x and the cosmetic "already on a Vert.x context"
+warning return — far cheaper than a silent multi-setup native-SSE break in production, and cheaper still once
+Vert.x virtual threads are in use. (F1's resource optimization can be revisited separately *without* sharing the
+Vert.x — e.g. a shared bounded worker pool handed to per-setup managers.) The original finding is preserved below
 as history.
 
 **Symptom.** The Phase D `peegeeq-examples` run logged the following **7×**, one per `createCompleteSetup`,
@@ -606,3 +615,21 @@ resources, not just `.java`/frontend/`.md`. This is the third scope-gap of the s
 missed `.fill('public')`; the 2026-06-21 follow-up found modules never in the original sweep; this
 found resource files). Repo is now grep-clean for schema-`public` literals across `.java`, frontend,
 docs, **and** test resources.
+
+## Follow-up: multi-setup / Vert.x-sharing test coverage (2026-06-27)
+
+The F1 regression (a second setup's native LISTEN going deaf under a shared Vert.x) hid because **every
+test used a single setup** — "multiple setups per service" was an entirely untested dimension, though it
+is a normal production topology. Coverage plan to close that gap, by risk:
+
+| # | Scenario | Status |
+|---|----------|--------|
+| P1 | Two native setups on one service, each with a `LISTEN_NOTIFY_ONLY` consumer; a message produced to each must reach THAT setup's consumer over NOTIFY. | ✅ **Done & validated 2026-06-27.** `MultiSetupNativeListenIsolationTest` (`peegeeq-integration-tests`). Passes under per-setup Vert.x; **proven to fail (60 s timeout) when the shared Vert.x is re-applied** — a real regression lock, not a vacuous pass. Uses `LISTEN_NOTIFY_ONLY` on purpose: the default HYBRID consumer would deliver via the poll fallback and mask a dead LISTEN. Companion: `SseMessageStreamDemoIntegrationTest.secondNativeSetup_alsoStreamsOverSse` locks the SSE-observer path. |
+| P2 | Two bitemporal setups on one service — both receive their append notifications (the bitemporal `ReactiveNotificationHandler` is a separate LISTEN/NOTIFY implementation of the same pattern). | ⏳ Planned. |
+| P3 | Cross-setup isolation: producing to setup A never surfaces in setup B's consumer/tail; `destroySetup(A)` does not disturb B's live consumer. | ⏳ Planned. |
+| P4 | Fast guard: two `createCompleteSetup` calls yield managers on **distinct** Vert.x instances (catches a future F1-style "share the Vert.x" change cheaply — needs a test-visible way to reach each setup's manager Vert.x). | ⏳ Planned. |
+
+**Principle (owner, 2026-06-27):** a PeeGeeQ setup is an independent instance and legitimately owns its
+own Vert.x context; thread/resource optimization is a completely separate concern and must not be bought by
+sharing one Vert.x across setups. Encoded in the `PeeGeeQDatabaseSetupService` per-setup-Vert.x comment
+(Phase F1) so it is not re-litigated.
