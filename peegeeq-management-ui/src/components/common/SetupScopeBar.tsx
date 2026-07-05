@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import axios from 'axios'
-import { Select, Row, Col, Typography } from 'antd'
+import { Select, Row, Col, Typography, message } from 'antd'
 import { getVersionedApiUrl } from '../../services/configService'
 import { useManagementStore } from '../../stores/managementStore'
 
@@ -33,8 +33,10 @@ const SetupScopeBar = ({ mode = 'setup', extra }: SetupScopeBarProps) => {
                 } else {
                     setSetupIds([])
                 }
-            } catch {
+            } catch (err) {
                 setSetupIds([])
+                message.error('Failed to load setups')
+                console.error('Failed to load setups', err)
             } finally {
                 setLoading(false)
             }
@@ -63,8 +65,10 @@ const SetupScopeBar = ({ mode = 'setup', extra }: SetupScopeBarProps) => {
                 if (names.length === 1 && !selectedQueueName) {
                     setSelectedQueue(names[0])
                 }
-            } catch {
+            } catch (err) {
                 setQueueNames([])
+                message.error('Failed to load queues for setup')
+                console.error('Failed to load queues for setup', err)
             } finally {
                 setQueuesLoading(false)
             }
@@ -84,6 +88,8 @@ const SetupScopeBar = ({ mode = 'setup', extra }: SetupScopeBarProps) => {
                     value={selectedSetupId || undefined}
                     onChange={(value) => setSelectedSetup(value ?? null)}
                     allowClear
+                    showSearch
+                    optionFilterProp="children"
                     loading={loading}
                 >
                     {setupIds.map(id => (
@@ -104,6 +110,8 @@ const SetupScopeBar = ({ mode = 'setup', extra }: SetupScopeBarProps) => {
                         value={selectedQueueName || undefined}
                         onChange={(value) => setSelectedQueue(value ?? null)}
                         allowClear
+                        showSearch
+                        optionFilterProp="children"
                         disabled={!selectedSetupId}
                         loading={queuesLoading}
                     >

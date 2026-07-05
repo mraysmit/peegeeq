@@ -18,7 +18,7 @@ import {
     ReloadOutlined,
 } from '@ant-design/icons'
 // Real-time charts using recharts
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, Legend } from 'recharts'
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, LineChart, Line, Legend } from 'recharts'
 import ErrorBoundary from '../components/common/ErrorBoundary'
 // WebSocket service for real-time updates
 import { createSystemMonitoringService, createSystemMetricsSSE } from '../services/websocketService'
@@ -514,7 +514,12 @@ const Overview = () => {
                                 {connectionData.length > 1 ? (
                                 <ErrorBoundary fallback={<div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Waiting for live data" /></div>}>
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={connectionData}>
+                                    {/* Non-stacked lines, not a stacked AreaChart: recharts 3.1.2's
+                                        stacked-area path (Curve.getPath, the Array.isArray(baseLine)
+                                        branch) throws "Cannot read properties of undefined" on this
+                                        chart's all-zero/low DB-pool data. Three lines show active/idle/
+                                        pending trends without the buggy stacked baseline. */}
+                                    <LineChart data={connectionData}>
                                         <CartesianGrid strokeDasharray="3 3" />
                                         <XAxis
                                             dataKey="time"
@@ -528,37 +533,34 @@ const Overview = () => {
                                         />
                                         <Tooltip labelFormatter={(value) => `Time: ${value}`} />
                                         <Legend />
-                                        <Area
+                                        <Line
                                             type="monotone"
                                             isAnimationActive={false}
                                             dataKey="active"
                                             name="Active"
-                                            stackId="conn"
                                             stroke="#fa8c16"
-                                            fill="#fa8c16"
-                                            fillOpacity={0.4}
+                                            strokeWidth={2}
+                                            dot={false}
                                         />
-                                        <Area
+                                        <Line
                                             type="monotone"
                                             isAnimationActive={false}
                                             dataKey="idle"
                                             name="Idle"
-                                            stackId="conn"
                                             stroke="#1890ff"
-                                            fill="#1890ff"
-                                            fillOpacity={0.4}
+                                            strokeWidth={2}
+                                            dot={false}
                                         />
-                                        <Area
+                                        <Line
                                             type="monotone"
                                             isAnimationActive={false}
                                             dataKey="pending"
                                             name="Pending"
-                                            stackId="conn"
                                             stroke="#ff4d4f"
-                                            fill="#ff4d4f"
-                                            fillOpacity={0.4}
+                                            strokeWidth={2}
+                                            dot={false}
                                         />
-                                    </AreaChart>
+                                    </LineChart>
                                 </ResponsiveContainer>
                                 </ErrorBoundary>
                                 ) : (

@@ -41,7 +41,19 @@ test.describe('Queue Updates SSE – Direct API', () => {
             data: { setupId: SETUP_ID, name, type: 'native' },
         })
         if (!resp.ok()) throw new Error(`Create queue failed: ${resp.status()} ${await resp.text()}`)
-        await page.waitForTimeout(400)
+        // The POST returns before the queue is registered in the setup's queueFactories.
+        // Callers navigate to a fresh page whose queue-list fetch (and page SSE, subscribed
+        // only after nav — so it misses this QUEUE_CREATED) would otherwise race that
+        // registration and not show the row. Poll the source of truth instead of a fixed delay.
+        await expect(async () => {
+            const listResp = await page.request.get(`/api/v1/setups/${SETUP_ID}`)
+            expect(listResp.ok()).toBeTruthy()
+            const factories = (await listResp.json())?.queueFactories
+            const names: string[] = Array.isArray(factories)
+                ? factories
+                : (factories && typeof factories === 'object' ? Object.keys(factories) : [])
+            expect(names).toContain(name)
+        }).toPass({ timeout: 15000 })
     }
 
     async function deleteQueue(page: PageArg, name: string) {
@@ -273,9 +285,11 @@ test.describe('Queue Updates SSE – Direct API', () => {
         }
 
         // The new queue's row; its Messages cell (column index 1) starts at 0
+        // Late in the full suite the setup holds many queues, so the new one paginates off page 1.
+        // Filter the list to it (the search box filters live on input) so its row is on the page.
+        await page.getByPlaceholder('Search queues...').fill(queueName)
+
         const row = page.locator('.ant-table-row').filter({ hasText: queueName })
-        // 30s: late in the full suite the backend holds hundreds of accumulated queues, so the
-        // scoped queues-list fetch/render is slow — the row is correct, just slow to appear.
         await expect(row).toBeVisible({ timeout: 30000 })
         const messagesCell = row.locator('td.ant-table-cell').nth(1)
         await expect(messagesCell).toContainText('0')
