@@ -1,313 +1,217 @@
-import { useEffect } from 'react'
-import type { ReactNode } from 'react'
-import { Row, Col, Card, Statistic, Table, Tag, Alert, Space, Button, Typography } from 'antd'
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import {
-    InboxOutlined,
-    TeamOutlined,
-    DatabaseOutlined,
-    SendOutlined,
-    CheckCircleOutlined,
-    ExclamationCircleOutlined,
-    ReloadOutlined,
-} from '@ant-design/icons'
-import {
-    LineChart,
-    Line,
-    XAxis,
-    YAxis,
-    CartesianGrid,
-    Tooltip,
-    ResponsiveContainer,
-    AreaChart,
-    Area,
-} from 'recharts'
-import { useUtilitiesStore, QueueInfo, SetupSummary } from '../stores/utilitiesStore'
+    Card,
+    Table,
+    Button,
+    Space,
+    Typography,
+    Alert,
+    Empty,
+    List,
+} from 'antd'
+import { ReloadOutlined, PlusOutlined, DatabaseOutlined } from '@ant-design/icons'
+import { useUtilitiesStore, SetupSummary } from '../stores/utilitiesStore'
 
-const { Title } = Typography
-
-const queueColumns = [
-    {
-        title: 'Queue Name',
-        dataIndex: 'name',
-        key: 'name',
-        render: (text: string, record: QueueInfo) => (
-            <Space>
-                <strong>{text}</strong>
-                <Tag color="blue">{record.setup}</Tag>
-            </Space>
-        ),
-    },
-    {
-        title: 'Messages',
-        dataIndex: 'messages',
-        key: 'messages',
-        render: (value: number) => (value ?? 0).toLocaleString(),
-    },
-    {
-        title: 'Consumers',
-        dataIndex: 'consumers',
-        key: 'consumers',
-    },
-    {
-        title: 'Rate (msg/s)',
-        dataIndex: 'messageRate',
-        key: 'messageRate',
-        render: (value: number) => (value ?? 0).toFixed(1),
-    },
-    {
-        title: 'Status',
-        dataIndex: 'status',
-        key: 'status',
-        render: (status: string) => {
-            const safeStatus = String(status || 'unknown')
-            const colors: Record<string, string> = { active: 'green', idle: 'orange', error: 'red' }
-            const icons: Record<string, ReactNode> = {
-                active: <CheckCircleOutlined />,
-                idle: <ExclamationCircleOutlined />,
-                error: <ExclamationCircleOutlined />,
-            }
-            return (
-                <Tag color={colors[safeStatus]} icon={icons[safeStatus]}>
-                    {safeStatus.toUpperCase()}
-                </Tag>
-            )
-        },
-    },
-]
+const { Title, Text } = Typography
 
 export default function Overview() {
+    const navigate = useNavigate()
     const {
-        systemStats: stats,
         setups,
-        queues,
-        throughputData,
-        connectionData,
         loading,
         error,
-        lastUpdated,
         fetchSystemData,
-        fetchQueues,
-        refreshAll,
     } = useUtilitiesStore()
+
+    const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null)
 
     useEffect(() => {
         fetchSystemData()
-        fetchQueues()
-
-        const interval = setInterval(() => {
-            fetchSystemData()
-            fetchQueues()
-        }, 30000)
-
+        const interval = setInterval(fetchSystemData, 30000)
         return () => clearInterval(interval)
-    }, [fetchSystemData, fetchQueues])
+    }, [fetchSystemData])
+
+    // Keep a valid selection: default to the first setup; drop it if it disappears.
+    useEffect(() => {
+        if (setups.length === 0) {
+            setSelectedSetupId(null)
+            return
+        }
+        setSelectedSetupId((current) =>
+            current && setups.some((s) => s.setupId === current) ? current : setups[0].setupId
+        )
+    }, [setups])
+
+    const selectedSetup = setups.find((s) => s.setupId === selectedSetupId) ?? null
+
+    const columns = [
+        {
+            title: 'Setup ID',
+            dataIndex: 'setupId',
+            key: 'setupId',
+            render: (id: string) => (
+                <Space>
+                    <DatabaseOutlined />
+                    <strong>{id}</strong>
+                </Space>
+            ),
+        },
+        {
+            title: 'Status',
+            dataIndex: 'status',
+            key: 'status',
+            render: (status: string) => <Text type="secondary">{String(status ?? 'active').toUpperCase()}</Text>,
+        },
+        {
+            title: 'Queues',
+            dataIndex: 'totalQueues',
+            key: 'totalQueues',
+        },
+    ]
 
     return (
-        <div>
-            <Title level={1}>System Overview</Title>
+        <div data-testid="overview-page">
+            <Title level={2}>System Overview</Title>
+
             <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                {error && (
+                    <Alert
+                        data-testid="overview-error"
+                        type="error"
+                        message="Backend unreachable"
+                        description={error}
+                        showIcon
+                    />
+                )}
 
-                {/* System Health Alert */}
-                <Alert
-                    data-testid="system-status-alert"
-                    message={
-                        error
-                            ? 'System Status: Backend unreachable'
-                            : lastUpdated === null
-                            ? 'System Status: Checking...'
-                            : 'System Status: All services operational'
+                <Card
+                    title="Setups"
+                    extra={
+                        <Space>
+                            <Button
+                                icon={<ReloadOutlined />}
+                                onClick={fetchSystemData}
+                                loading={loading}
+                                data-testid="refresh-button"
+                            >
+                                Refresh
+                            </Button>
+                            <Button
+                                type="primary"
+                                icon={<PlusOutlined />}
+                                onClick={() => navigate('/generator/setup/new')}
+                                data-testid="create-setup-button"
+                            >
+                                Create Setup
+                            </Button>
+                        </Space>
                     }
-                    description={
-                        <span data-testid="system-status-info">
-                            {error
-                                ? error
-                                : `Uptime: ${stats.uptime} · ${stats.totalSetups} setup${stats.totalSetups !== 1 ? 's' : ''} · ${stats.totalQueues} queue${stats.totalQueues !== 1 ? 's' : ''} · ${stats.totalConsumerGroups} consumer group${stats.totalConsumerGroups !== 1 ? 's' : ''} · ${stats.totalMessages.toLocaleString()} messages · ${stats.messagesPerSecond.toFixed(1)} msg/s`}
-                        </span>
-                    }
-                    type={
-                        error
-                            ? 'error'
-                            : lastUpdated === null
-                            ? 'info'
-                            : 'success'
-                    }
-                    showIcon
-                    action={
-                        <Button
-                            size="small"
-                            icon={<ReloadOutlined />}
-                            loading={loading}
-                            onClick={() => refreshAll()}
-                        >
-                            Refresh
-                        </Button>
-                    }
-                />
-
-                {/* Key Metrics */}
-                <Row gutter={[16, 16]}>
-                    <Col xs={24} sm={12} lg={6}>
-                        <Card>
-                            <Statistic
-                                title="Setups"
-                                value={stats.totalSetups}
-                                prefix={<DatabaseOutlined style={{ color: '#13c2c2' }} />}
-                                valueStyle={{ color: '#13c2c2' }}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                        <Card>
-                            <Statistic
-                                title="Total Queues"
-                                value={stats.totalQueues}
-                                prefix={<InboxOutlined style={{ color: '#1890ff' }} />}
-                                valueStyle={{ color: '#1890ff' }}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                        <Card>
-                            <Statistic
-                                title="Consumer Groups"
-                                value={stats.totalConsumerGroups}
-                                prefix={<TeamOutlined style={{ color: '#52c41a' }} />}
-                                valueStyle={{ color: '#52c41a' }}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={24} sm={12} lg={6}>
-                        <Card>
-                            <Statistic
-                                title="Messages/sec"
-                                value={stats.messagesPerSecond}
-                                prefix={<SendOutlined style={{ color: '#fa8c16' }} />}
-                                valueStyle={{ color: '#fa8c16' }}
-                                suffix="msg/s"
-                            />
-                        </Card>
-                    </Col>
-                </Row>
-
-                {/* Per-Setup Breakdown */}
-                <Row gutter={[16, 16]}>
-                    <Col xs={24}>
-                        <Card title="Setups" loading={loading}>
-                            {setups.length === 0 ? (
-                                <Typography.Text type="secondary">
-                                    No active setups. Use the Queue Message Generator page to create a setup.
-                                </Typography.Text>
-                            ) : (
-                                <Table
-                                    dataSource={setups.map(s => ({ ...s, key: s.setupId }))}
-                                    pagination={false}
-                                    size="small"
-                                    expandable={{
-                                        expandedRowRender: (setup: SetupSummary) => (
-                                            <Table
-                                                dataSource={setup.queues}
-                                                columns={queueColumns}
-                                                pagination={false}
-                                                size="small"
-                                                rowKey="key"
-                                            />
-                                        ),
-                                        rowExpandable: (setup: SetupSummary) => setup.totalQueues > 0,
-                                    }}
-                                    columns={[
-                                        { title: 'Setup ID', dataIndex: 'setupId', key: 'setupId', render: (v: string) => <strong>{v}</strong> },
-                                        { title: 'Status', dataIndex: 'status', key: 'status', render: (v: string) => <Tag color={v === 'ACTIVE' ? 'green' : 'red'}>{v}</Tag> },
-                                        { title: 'Queues', dataIndex: 'totalQueues', key: 'totalQueues' },
-                                        { title: 'Consumer Groups', dataIndex: 'totalConsumerGroups', key: 'totalConsumerGroups' },
-                                        { title: 'Event Stores', dataIndex: 'totalEventStores', key: 'totalEventStores' },
-                                        { title: 'Messages', dataIndex: 'totalMessages', key: 'totalMessages', render: (v: number) => v.toLocaleString() },
-                                        { title: 'msg/s', dataIndex: 'messagesPerSecond', key: 'messagesPerSecond', render: (v: number) => v.toFixed(1) },
-                                    ]}
-                                />
-                            )}
-                        </Card>
-                    </Col>
-                </Row>
-
-                {/* Charts */}
-                <Row gutter={[16, 16]}>
-                    <Col xs={24} lg={16}>
-                        <Card title="Message Throughput (live)">
-                            <div style={{ height: 300 }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={throughputData}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="time" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
-                                        <YAxis
-                                            tick={{ fontSize: 12 }}
-                                            label={{ value: 'Messages/sec', angle: -90, position: 'insideLeft' }}
-                                        />
-                                        <Tooltip
-                                            labelFormatter={(v) => `Time: ${v}`}
-                                            formatter={(v) => [`${v} msg/s`, 'Throughput']}
-                                        />
-                                        <Area
-                                            type="monotone"
-                                            dataKey="messages"
-                                            stroke="#1890ff"
-                                            fill="#1890ff"
-                                            fillOpacity={0.3}
-                                        />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
-                    </Col>
-                    <Col xs={24} lg={8}>
-                        <Card title="Active Connections">
-                            <div style={{ height: 300 }}>
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={connectionData}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis dataKey="time" tick={{ fontSize: 12 }} interval="preserveStartEnd" />
-                                        <YAxis
-                                            tick={{ fontSize: 12 }}
-                                            label={{ value: 'Connections', angle: -90, position: 'insideLeft' }}
-                                        />
-                                        <Tooltip
-                                            labelFormatter={(v) => `Time: ${v}`}
-                                            formatter={(v) => [`${v}`, 'Active Connections']}
-                                        />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="connections"
-                                            stroke="#52c41a"
-                                            strokeWidth={2}
-                                            dot={{ fill: '#52c41a', strokeWidth: 2, r: 4 }}
-                                        />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
-                    </Col>
-                </Row>
-
-                {/* Queue table */}
-                <Row gutter={[16, 16]}>
-                    <Col xs={24}>
-                        <Card title="Queue Overview">
+                >
+                    {setups.length === 0 && !loading ? (
+                        <Alert
+                            data-testid="no-setups"
+                            type="info"
+                            message="No setups found"
+                            description="Create a setup to get started, then add queues to it."
+                            showIcon
+                        />
+                    ) : (
+                        <div data-testid="setups-list">
                             <Table
-                                columns={queueColumns}
-                                dataSource={queues}
+                                columns={columns}
+                                dataSource={setups}
+                                rowKey="setupId"
+                                loading={loading && setups.length === 0}
                                 pagination={false}
                                 size="small"
-                                loading={loading}
-                                locale={{
-                                    emptyText: loading
-                                        ? 'Loading...'
-                                        : 'No queues found. Check that the backend service is running.',
-                                }}
+                                onRow={(record) => ({
+                                    onClick: () => setSelectedSetupId(record.setupId),
+                                    style: {
+                                        cursor: 'pointer',
+                                        background:
+                                            record.setupId === selectedSetupId ? '#e6f4ff' : undefined,
+                                    },
+                                })}
                             />
-                        </Card>
-                    </Col>
-                </Row>
+                        </div>
+                    )}
+                </Card>
 
+                {selectedSetup && (
+                    <Card
+                        data-testid="setup-detail"
+                        title={
+                            <Space>
+                                <DatabaseOutlined />
+                                {selectedSetup.setupId}
+                            </Space>
+                        }
+                    >
+                        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+                            <SetupQueues setup={selectedSetup} />
+
+                            <div data-testid="setup-detail-event-stores">
+                                <Title level={5}>Event stores</Title>
+                                {selectedSetup.eventStores && selectedSetup.eventStores.length > 0 ? (
+                                    <List
+                                        size="small"
+                                        bordered
+                                        dataSource={selectedSetup.eventStores}
+                                        renderItem={(name) => <List.Item>{name}</List.Item>}
+                                    />
+                                ) : (
+                                    <Empty
+                                        image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                        description="No event stores in this setup"
+                                    />
+                                )}
+                            </div>
+                        </Space>
+                    </Card>
+                )}
             </Space>
+        </div>
+    )
+}
+
+/** Queues of a setup, each with its own message stats and consumer groups. */
+function SetupQueues({ setup }: { setup: SetupSummary }) {
+    return (
+        <div data-testid="setup-detail-queues">
+            <Title level={5}>Queues ({setup.queues.length})</Title>
+            {setup.queues.length > 0 ? (
+                <List
+                    size="small"
+                    bordered
+                    dataSource={setup.queues}
+                    renderItem={(queue) => {
+                        const groups = setup.consumerGroups.filter((g) => g.queueName === queue.name)
+                        return (
+                            <List.Item>
+                                <Space direction="vertical" size={2} style={{ width: '100%' }}>
+                                    <Space>
+                                        <strong>{queue.name}</strong>
+                                        {queue.type && <Text type="secondary">{queue.type}</Text>}
+                                        <Text type="secondary">
+                                            {(queue.messages ?? 0).toLocaleString()} msgs ·{' '}
+                                            {(queue.messageRate ?? 0).toFixed(1)} msg/s
+                                        </Text>
+                                    </Space>
+                                    {groups.length > 0 && (
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                            Consumer groups:{' '}
+                                            {groups.map((g) => `${g.groupName} (${g.status})`).join(' · ')}
+                                        </Text>
+                                    )}
+                                </Space>
+                            </List.Item>
+                        )
+                    }}
+                />
+            ) : (
+                <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="No queues in this setup" />
+            )}
         </div>
     )
 }

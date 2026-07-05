@@ -24,12 +24,14 @@ export interface SetupSummary {
     messagesPerSecond: number
     queues: QueueInfo[]
     consumerGroups: ConsumerGroupInfo[]
+    eventStores: string[]
 }
 
 export interface QueueInfo {
     key: string
     name: string
     setup: string
+    type?: string
     messages: number
     consumers: number
     status: 'active' | 'idle' | 'error'
@@ -134,6 +136,7 @@ export const useUtilitiesStore = create<UtilitiesState>()(
                             key: `${s.setupId}-${idx}`,
                             name: q.name,
                             setup: s.setupId,
+                            type: q.type || q.implementationType,
                             messages: q.messages || 0,
                             consumers: q.consumers || 0,
                             status: q.status,
@@ -146,6 +149,9 @@ export const useUtilitiesStore = create<UtilitiesState>()(
                             members: g.members || 0,
                             status: g.status || 'ACTIVE',
                         })),
+                        eventStores: (s.eventStores || []).map((es: any) =>
+                            typeof es === 'string' ? es : es.name
+                        ),
                     }))
 
                     // Flat queues list derived from all setups (used by queue table)
