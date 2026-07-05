@@ -89,7 +89,11 @@ export const QueueSchema = z.object({
   createdAt: z.union([z.number(), z.string()]).transform(val =>
     typeof val === 'number' ? new Date(val).toISOString() : val
   ),
-  updatedAt: z.string(),
+  // Freshly-created queues may not have an updatedAt yet — tolerate its absence rather
+  // than failing validation (which previously blanked the whole list, see below).
+  updatedAt: z.union([z.number(), z.string()]).optional().default('').transform(val =>
+    typeof val === 'number' ? new Date(val).toISOString() : val
+  ),
 });
 
 // Queue list response schema
@@ -122,18 +126,37 @@ export const GetMessagesResponseSchema = z.object({
  * Returns validated data with defaults for missing fields
  */
 export function validateQueueListResponse(data: unknown) {
-  try {
-    return QueueListResponseSchema.parse(data);
-  } catch (error) {
-    console.error('Queue list response validation failed:', error);
-    // Return safe default instead of crashing
-    return {
-      queues: [],
-      total: 0,
-      page: 1,
-      pageSize: 10,
-    };
+  // Validate the envelope loosely and each queue INDIVIDUALLY, so a single malformed
+  // queue (e.g. a brand-new one in a transient state, in the shared setup) does not blank
+  // out the ENTIRE list. Previously any bad item made QueueListResponseSchema.parse throw
+  // and this returned { queues: [] }, intermittently hiding freshly-created queues.
+  const meta = z.object({
+    queueCount: z.number().optional(),
+    total: z.number().optional(),
+    page: z.number().optional(),
+    pageSize: z.number().optional(),
+  }).safeParse(data).data ?? {};
+
+  const rawQueues: unknown[] =
+    data && typeof data === 'object' && Array.isArray((data as { queues?: unknown }).queues)
+      ? (data as { queues: unknown[] }).queues
+      : [];
+
+  const queues = rawQueues.flatMap(q => {
+    const parsed = QueueSchema.safeParse(q);
+    return parsed.success ? [parsed.data] : [];
+  });
+
+  if (queues.length !== rawQueues.length) {
+    console.warn(`Queue list: skipped ${rawQueues.length - queues.length} malformed queue item(s)`);
   }
+
+  return {
+    queues,
+    total: meta.total ?? meta.queueCount ?? queues.length,
+    page: meta.page ?? 1,
+    pageSize: meta.pageSize ?? (queues.length || 10),
+  };
 }
 
 /**
