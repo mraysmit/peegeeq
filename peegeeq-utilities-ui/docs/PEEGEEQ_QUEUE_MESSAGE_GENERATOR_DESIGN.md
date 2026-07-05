@@ -234,6 +234,203 @@ underlying JSON array transparently.
 
 ## 6. UI Pages and Components
 
+### 6.0 Page mockups (visual reference)
+
+One ASCII mockup per page, so the intended layout of every screen is visible at a glance.
+These reflect the current design decisions and **supersede any older inline wireframe below where
+they differ**: the Overview is a master-detail setup browser (no global aggregates or charts), and
+queue implementation type is shown as **plain text, not a coloured badge**.
+
+A fixed left sidebar is present on every page (not repeated in each mockup):
+
+```
+┌────────────────────┐
+│ PeeGeeQ Utilities  │
+│  ▸ Overview        │
+│  ▸ Tools           │
+│  ▸ Setups          │
+│  ▸ Message Generator
+│      Templates     │
+│      Value Lists   │
+└────────────────────┘
+```
+
+#### Overview — route `/` (built)
+
+```
+System Overview
+
+┌─ Setups ─────────────────────────────────── [⟳ Refresh]  [+ Create Setup] ┐
+│  Setup ID          Status      Queues                                      │
+│ ▸ demo-setup       ACTIVE      2            ← click a row to select        │
+│   staging-tenant   ACTIVE      1                                           │
+│   dev-local        ACTIVE      0                                           │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ demo-setup ──────────────────────────────────────────────────────────────┐
+│  Queues (2)                                                                │
+│  ┌──────────────────────────────────────────────────────────────────────┐ │
+│  │ orders   native            120 msgs · 4.2 msg/s                       │ │
+│  │    Consumer groups: payment-proc (active) · archiver (paused)         │ │
+│  │──────────────────────────────────────────────────────────────────────│ │
+│  │ events   outbox             30 msgs · 0.0 msg/s                       │ │
+│  │    Consumer groups: audit-writer (active)                             │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+│  Event stores                                                              │
+│  ┌──────────────────────────────────────────────────────────────────────┐ │
+│  │ (No event stores in this setup)                                       │ │
+│  └──────────────────────────────────────────────────────────────────────┘ │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Message Generator — route `/generator` (Zones A–E; unbuilt)
+
+```
+Queue Message Generator
+
+[A] Target
+    Setup: [ demo-setup ▾ ]   Queue: [ orders (native) ▾ ]   [Manage queues →]
+
+[B] Rate, Duration & Guards
+    Rate (msg/s): [ 10 ]   Duration (s): [ 60 ]   Total: 600  (read-only)
+    Max batch: [ 10 ]      Warn above (msg/s): [ 500 ]
+    Auto-stop after N consecutive errors: [ 10 ]   (0 = disabled)
+
+[C] Template
+    Template: [ order.created ▾ ]   [New] [Edit] [Save] [Export]
+    ┌ Payload (JSON with {{placeholders}}) ──────────────────────────────┐
+    │ {                                                                   │
+    │   "orderId": "ORD-{{messageId}}",                                   │
+    │   "customerId": "CUST-{{random:9000}}",                            │
+    │   "country": "{{list:countries}}",                                  │
+    │   "timestamp": "{{timestamp}}"                                      │
+    │ }                                                                   │
+    └─────────────────────────────────────────────────────────────────────┘
+    Message Type: [ order.created ]  Priority: [5]  Delay: [0]  Group: [    ]
+    Headers:  [+ Add header]     key:[        ] value:[        ] [x]
+    ▸ Placeholder reference
+
+[D] Actions
+    Preview message #: [ 1 ]     [Preview]     [Start]     [Stop]
+
+[E] Progress & Results
+    Sent: 0 / 600   Elapsed: 0s / 60s   Rate: 0 msg/s   Errors: 0
+    [████████░░░░░░░░░░░░░░░] 40%    Status: RUNNING
+    ▸ Recent errors (hidden when 0)
+```
+
+#### Template Manager — route `/generator/templates` (unbuilt)
+
+```
+Template Manager                                    [+ New Template]  [Import]
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Name           Message Type     Description         Updated   Actions       │
+│ order.created  order.created    Creates an order…   3m ago    Edit·Dup·Del·Export
+│ payment.v2     payment.settled  Settlement event    1h ago    Edit·Dup·Del·Export
+└────────────────────────────────────────────────────────────────────────────┘
+  (Name is a link → opens the template in the generator editor)
+  (Import validates each entry; duplicate IDs are rejected with a named warning)
+```
+
+#### Value List Manager — route `/generator/value-lists` (unbuilt)
+
+```
+Value List Manager                                 [+ New List]  [Import JSON]
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Name          Values (preview)            Count   Actions                   │
+│ first_names   Mark, Dave, Janet, …         10     Edit · Export · Delete     │
+│ countries     GB, US, DE, FR, …             4     Edit · Export · Delete     │
+└────────────────────────────────────────────────────────────────────────────┘
+
+┌─ Edit: first_names ───────────────────────────────────────── Count: 10 ────┐
+│  Values (one per line):                                                     │
+│  ┌──────────────────────────────┐                                          │
+│  │ Mark                         │                                          │
+│  │ Dave                         │                                          │
+│  │ Janet                        │                                          │
+│  │ …                            │                                          │
+│  └──────────────────────────────┘                                          │
+│  List name: [ first_names ]                            [Cancel]   [Save]    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Setups list — route `/setups` (built)
+
+```
+Setups
+
+┌─ Database Setups ────────────────────────── [⟳ Refresh]  [+ Create Setup] ┐
+│  Setup ID       Queues   Event Stores   Status     Actions                 │
+│  demo-setup     2        0              ACTIVE     Details · Delete         │
+│  staging        1        0              ACTIVE     Details · Delete         │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Setup Detail — route `/setups/:setupId` (built)
+
+```
+← Back to setups
+🗄 demo-setup
+
+┌─ Setup details ────────────────────────────── [⟳ Refresh]  [Delete] ┐
+│  Setup ID        demo-setup                                          │
+│  Status          ACTIVE                                              │
+│  Queue count     2                                                   │
+│  Event stores    0                                                   │
+│                                                                      │
+│  Queues                                            [+ Create queue]  │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ orders   native                                          [🗑]   │ │
+│  │ events   outbox                                          [🗑]   │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+│  Event stores                                                        │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │ (No event stores in this setup)                                │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+#### Create Setup — route `/generator/setup/new` (built)
+
+```
+← Back
+Create Setup
+
+┌──────────────────────────────────────────────────────────┐
+│ ⚠ Creating a setup creates a new PostgreSQL database      │
+│   (the DB user needs CREATEDB).                           │
+│                                                           │
+│  Setup name *        [ my-test-setup                 ]    │
+│  Database name *     [ peegeeq_dev                    ]    │
+│  Database password * [ **********                     ]    │
+│                                                           │
+│  ▸ Connection details   (host · port · username · schema) │
+│                                                           │
+│                            [Cancel]     [Create setup]    │
+└──────────────────────────────────────────────────────────┘
+```
+
+#### Create Queue — route `/setups/:setupId/queues/new` (built)
+
+```
+← Back
+Create Queue in demo-setup
+
+┌──────────────────────────────────────────────────────────┐
+│  Queue name *           [ orders                     ]    │
+│  Implementation type *  [ native ▾ ]                      │
+│                                                           │
+│  ▸ Advanced  (maxRetries · visibilityTimeout · batchSize  │
+│                · deadLetterEnabled · fifoEnabled)         │
+│                                                           │
+│                            [Cancel]     [Create queue]    │
+└──────────────────────────────────────────────────────────┘
+```
+
+---
+
 ### 6.1 Page: `/generator` — Message Generator
 
 The main page. Five zones stacked vertically inside an Ant Design `Space` with `size="large"`.
@@ -1211,7 +1408,7 @@ persistent state. The `generatorStore` owns all state; the engine only calls bac
 ```
 peegeeq-utilities-ui/
   docs/
-    QUEUE_MESSAGE_GENERATOR_DESIGN.md    (this document)
+    PEEGEEQ_QUEUE_MESSAGE_GENERATOR_DESIGN.md    (this document)
   src/
     pages/
       Overview.tsx                        (existing)
@@ -1581,6 +1778,238 @@ Phase 1 (Quick Setup Wizard)
               └── Phase 5 (Value List Manager)  <- parallel with Phases 3 & 4
                     └── Phase 6 (Tests)
 ```
+
+---
+
+## 19. Generation Tool Suite
+
+These are the utilities-ui's legitimate additional tools. All are **generation-side** — they
+produce controlled message load — and therefore sit on the correct side of the boundary with
+`peegeeq-management-ui` (utilities-ui *writes load in*; management-ui *reads and operates* what is
+there). None duplicate a management-ui screen; where a run needs to be inspected afterwards, that
+inspection happens in management-ui (MessageBrowser, CausationTree, Events, Monitoring).
+
+**Shared foundation.** Every tool below is built on the pieces this document already defines — the
+`publicationEngine` (§7, §13), `publishService` batch/single publish (§12), `RunConfig`/`RunState`
+(§10), templates (§5), and value lists (§5.5). They extend the generator rather than replacing it.
+Because `MessageRequest` already carries `delaySeconds`, `priority`, and `messageGroup`, and the
+template system already provides `{{correlationId}}`/`{{runId}}`, most tools need **little or no new
+backend work** — they are new *drivers* over the existing engine.
+
+**Telemetry.** What instrumentation these tools require from PeeGeeQ — what the client meters itself,
+what the backend already exposes, and the gaps to close — is specified in
+[PEEGEEQ_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_TELEMETRY_REQUIREMENTS.md). Only two tools carry a real backend
+dependency: Native-vs-Outbox comparison (§19.2) and rich breaking-point attribution (§19.1).
+
+**Presentation.** These surface as **modes of the Message Generator** (a mode selector: Flat rate ·
+Ramp · Compare · Profile), not as separate management-style pages. If a landing is wanted, the
+otherwise-dead `/tools` route is repurposed as the launcher for this suite (never as a duplicate of
+Overview).
+
+### 19.0 Mode mockups (visual reference)
+
+All modes share the generator frame (Zone A target, Zone C template, Zone D actions). Only the
+control block (Zone B) and the results block (Zone E) change per mode. A mode selector sits at the
+top; a Scenario bar (§19.4) is available in every mode.
+
+```
+Queue Message Generator
+Mode:  ( • Flat rate ) ( Ramp ) ( Compare ) ( Profile ) ( Delay/Prio/FIFO ) ( Trace seed )
+Scenario: [ nightly-soak ▾ ]   [Load]  [Save as…]  [Export]  [Import]
+```
+
+#### 19.1 — Ramp (breaking-point) mode
+
+```
+Mode:  ( Flat ) ( • Ramp ) ( Compare ) ( Profile ) ( Delay/Prio/FIFO ) ( Trace )
+
+[A] Target    Setup: [ demo-setup ▾ ]    Queue: [ orders  native ▾ ]
+
+[B] Ramp settings
+    Start rate: [ 10 ] msg/s    Step: [ +50 ] msg/s    Step every: [ 10 ] s
+    Stop when:  ( • error rate > [ 5 ]% )  ( acked-rate plateau )  ( latency rise )
+    Max rate cap (optional): [ 5000 ]
+
+[D]  [Preview]   [Start ramp]   [Stop]
+
+[E] Ramp progress                         Step 6   Requested 260/s   Acked 244/s
+    msg/s ┤                    ....•••••  ← knee
+          ┤            ..••••••
+          ┤     ..•••••
+          ┤ ..••
+          └──────────────────────────────── requested rate →
+    ► Saturation point ≈ 300 msg/s   (acked plateaued at ~290, errors began climbing)
+```
+
+#### 19.2 — Compare (native vs outbox) mode
+
+```
+Mode:  ( Flat ) ( Ramp ) ( • Compare ) ( Profile ) ( Delay/Prio/FIFO ) ( Trace )
+
+[A] Targets
+    Native queue:  [ demo-setup ▾ ] / [ orders  native ▾ ]
+    Outbox queue:  [ demo-setup ▾ ] / [ events  outbox ▾ ]
+[B] Shared load   Rate: [ 200 ] msg/s   Duration: [ 60 ] s   Template: [ order.created ▾ ]
+
+[D]  [Start comparison]   [Stop]
+
+[E] Results
+    ┌─────────────────┬─────────────────┐
+    │ native          │ outbox          │
+    │ sent    12,000  │ sent    12,000  │
+    │ acked   11,980  │ acked   11,400  │
+    │ rate    199/s   │ rate    190/s   │
+    │ errors  0       │ errors  12      │
+    │ p95     4 ms    │ p95     28 ms   │
+    └─────────────────┴─────────────────┘
+    ► native sustained 200 msg/s better (lower p95, no errors)
+```
+
+#### 19.3 — Profile (traffic shape) mode
+
+```
+Mode:  ( Flat ) ( Ramp ) ( Compare ) ( • Profile ) ( Delay/Prio/FIFO ) ( Trace )
+
+[A] Target    Setup: [ demo-setup ▾ ]    Queue: [ orders  native ▾ ]
+[B] Phases                                                   [+ Add phase]
+    #  Phase     Rate (msg/s)   Duration (s)
+    1  burst     [ 500 ]        [ 10 ]        [x]
+    2  steady    [ 100 ]        [ 60 ]        [x]
+    3  spike     [ 800 ]        [ 5  ]        [x]
+    4  idle      [ 0   ]        [ 15 ]        [x]
+
+[D]  [Start profile]   [Stop]
+
+[E] Achieved vs requested
+    msg/s ┤ █                █
+          ┤ █    ▁▁▁▁▁▁▁▁    █
+          ┤ █▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁
+          └──────────────────────────── time →   requested ░  achieved █
+    Per phase:  burst 4,980/5,000 · steady 6,000/6,000 · spike 3,900/4,000 · idle 0/0
+```
+
+#### 19.4 — Saved scenarios (manager)
+
+```
+Scenario bar (every mode):  Scenario: [ nightly-soak ▾ ]  [Load] [Save as…] [Export] [Import]
+
+┌─ Scenarios ──────────────────────────────────────────── [+ New]  [Import] ┐
+│  Name          Target          Mode     Rate / Profile    Updated          │
+│  nightly-soak  demo / orders    Flat     100/s · 1h        2d ago   Load·Export·Del
+│  spike-repro   demo / orders    Profile  4 phases          1h ago   Load·Export·Del
+│  native-vs-ob  demo / o + e     Compare  200/s · 60s       5m ago   Load·Export·Del
+└─────────────────────────────────────────────────────────────────────────────┘
+   (A scenario is a saved RunConfig (+profile); Load populates the generator, Run replays it.)
+```
+
+#### 19.5 — Delay / Priority / FIFO exerciser mode
+
+```
+Mode:  ( … ) ( • Delay/Prio/FIFO ) ( … )
+
+[A] Target    Setup: [ demo-setup ▾ ]    Queue: [ orders  native ▾ ]
+[B] Ordering & scheduling
+    Delay:     ( fixed [ 5 ]s )  ( random 0–[ 10 ]s )  ( per-index ramp )
+    Priority:  ( fixed [ 5 ] )   ( round-robin 1–10 )
+    Group:     ( single [ orders ] )  ( round-robin [ 4 ] groups )  ( per-key {{customerId}} )
+[B] Rate: [ 50 ] msg/s    Duration: [ 30 ] s
+
+[D]  [Start]   [Stop]   [Download manifest]
+
+[E] Sent manifest   (id → group · priority · delay)
+    00000001   grp-0   p5   d5s
+    00000002   grp-1   p6   d0s
+    00000003   grp-2   p3   d8s     …
+    ► Verify ordering downstream in management-ui → MessageBrowser
+```
+
+#### 19.6 — Correlation / trace seed mode
+
+```
+Mode:  ( … ) ( • Trace seed ) ( … )
+
+[A] Target    Setup: [ demo-setup ▾ ]    Queue: [ orders  native ▾ ]
+[B] Correlation strategy
+    correlationId:  ( one per run )  ( per batch )  ( every [ 100 ] msgs )
+    Seed causation chains: [✓]   parent → child   ([ 3 ] children per parent)
+[B] Rate: [ 50 ] msg/s    Duration: [ 30 ] s    Template: [ order.created ▾ ]
+
+[D]  [Start]   [Stop]   [Copy ids]
+
+[E] Emitted ids   (paste into management-ui → CausationTree / Events)
+    runId:          5f2c…e9
+    correlationIds: a1b2… (root) → c3d4…, e5f6…, 07a8…
+    ► 1,200 messages under 12 correlation ids / 3 causation chains
+```
+
+---
+
+### 19.1 Breaking-point / ramp load test
+
+Auto-increases the publish rate in steps until errors or backpressure appear, then reports the
+saturation point. Directly serves the "load and breaking-point testing" goal in §2.
+
+- **Controls:** start rate, step size, step duration, stop condition (error-rate threshold, or
+  observed acked-rate plateau / latency rise).
+- **Mechanics:** wraps `publicationEngine` in a stepper that raises `RunConfig.rate` each interval;
+  monitors `RunState` (acked rate, errors, consecutive errors) to detect the knee.
+- **Output:** a rate-vs-throughput/error curve and the reported max sustained rate.
+
+### 19.2 Native-vs-Outbox comparison run
+
+Fires identical load at one `native` and one `outbox` queue at the same time and compares
+throughput and latency. PeeGeeQ-specific (two implementation types); nothing in management-ui does
+this.
+
+- **Controls:** two targets (native queue + outbox queue), shared rate/duration/template.
+- **Mechanics:** two engine instances driven from one config; per-target `RunState` collected side
+  by side.
+- **Output:** side-by-side sent/acked-rate/error/latency, and a summary of which implementation
+  sustained the load better.
+
+### 19.3 Traffic-profile / scenario runner
+
+Sequences generation phases (e.g. burst → steady → spike → idle) to reproduce a realistic traffic
+shape instead of one flat rate.
+
+- **Controls:** an ordered list of phases, each `{ rate, durationSecs }` (optionally per-phase
+  template).
+- **Mechanics:** runs phases back to back against one target, reconfiguring the engine per phase;
+  one continuous `RunState` timeline.
+- **Output:** the achieved rate timeline vs the requested profile, plus per-phase totals/errors.
+
+### 19.4 Saved scenarios
+
+Persists a full run config (target + rate/duration/guards + template ref + profile) as a named
+scenario and re-runs it. The generation-side companion to templates (§5) and value lists (§5.5).
+
+- **Storage:** `localStorage` (key e.g. `peegeeq_scenarios`), same pattern/service shape as
+  `templateService`/`valueListService`; export/import as `.json`.
+- **Mechanics:** a scenario is a serialised `RunConfig` (+ profile for §19.3); loading one populates
+  the generator; running one replays it.
+
+### 19.5 Delay / Priority / FIFO exerciser
+
+Deliberately drives `delaySeconds`, `priority`, and `messageGroup` to test scheduling and ordering,
+then the result is verified in management-ui's browser.
+
+- **Controls:** per-message or per-batch delay/priority; a `messageGroup` strategy (single group,
+  round-robin N groups, or per-key) to exercise FIFO ordering.
+- **Mechanics:** sets the corresponding `MessageRequest` fields at build time — no backend change.
+- **Output:** a manifest of what was sent (id → group/priority/delay) so ordering can be checked
+  downstream.
+
+### 19.6 Correlation / trace seed generator
+
+Emits messages carrying structured `correlationId`/`runId` patterns so a run can be traced
+afterwards in management-ui's CausationTree/Events views.
+
+- **Controls:** correlation strategy (one id per run, per batch, or per N messages), and whether to
+  seed causation chains (parent → child ids).
+- **Mechanics:** reuses the `{{correlationId}}`/`{{runId}}` tokens (§5.3) plus a small id-scheme
+  option; purely template/header population.
+- **Output:** the list of correlation/run ids emitted, ready to paste into management-ui's trace
+  search.
 
 ---
 

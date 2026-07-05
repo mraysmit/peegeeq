@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "utilities-ui-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "peegeeq-utilities-ui", "run", "dev"],
+      "port": 3001
+    }
+  ]
+}
