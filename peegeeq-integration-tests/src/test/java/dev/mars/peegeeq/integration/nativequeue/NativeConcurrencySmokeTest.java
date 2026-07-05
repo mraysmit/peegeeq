@@ -217,7 +217,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
     @Test
     @DisplayName("Destroy setup should stop native listeners without reconnect noise")
-    void testDestroySetupStopsNativeListenersCleanly(Vertx vertx, VertxTestContext testContext) {
+    void testDestroySetupStopsNativeListenersCleanly(VertxTestContext testContext) {
         String setupId = generateSetupId();
         String queueName = "shutdown_queue";
         Logger rootLogger = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
@@ -247,14 +247,27 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     .compose(v -> {
                         // Snapshot the log position, then destroy the setup.
                         logStartIndex.set(appender.size());
-                        return setupService.destroySetup(setupId);
-                    })
-                    .compose(v -> {
                         activeConsumers.remove(consumer);
-                        // The consumer observes shutdown asynchronously after destroySetup settles,
-                        // so poll its closed state reactively (no blocking, no reflection).
-                        return pollUntil(vertx, consumer::isClosed,
-                                System.currentTimeMillis() + 5_000, "consumer closed");
+
+                        // destroySetup tears down the per-setup, manager-owned Vert.x (each setup
+                        // owns its Vert.x). Its returned Future completes on that dying context, so
+                        // a continuation *chained on it* is dispatched to a dead event loop and
+                        // dropped — the test would hang. So do NOT chain on it: fire it (surfacing
+                        // failure best-effort), and instead observe its effect by polling the
+                        // consumer teardown on the infrastructure Vert.x (the shared field). The
+                        // first pollUntil tick runs here while the per-setup context is still alive;
+                        // vertx.timer() then moves the recursion onto the infra event loop before
+                        // the per-setup Vert.x is closed, so the poll and everything after it survive.
+                        // destroySetup closes the consumer synchronously (isClosed() is already true),
+                        // but the native LISTEN connection is torn down asynchronously by
+                        // stopListening(), so poll the full teardown state the verify block asserts.
+                        setupService.destroySetup(setupId).onFailure(testContext::failNow);
+                        return pollUntil(vertx,
+                                () -> consumer.isClosed()
+                                        && !consumer.hasActiveListenConnection()
+                                        && !consumer.hasPendingListenReconnect()
+                                        && !consumer.isSubscribed(),
+                                System.currentTimeMillis() + 10_000, "native consumer fully torn down");
                     });
             })
             // Detach the appender and best-effort-destroy the setup regardless of outcome.

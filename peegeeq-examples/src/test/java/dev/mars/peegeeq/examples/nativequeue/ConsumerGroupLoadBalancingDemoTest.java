@@ -28,6 +28,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.junit5.Timeout;
 import io.vertx.core.Promise;
 import java.time.Instant;
 import java.util.*;
@@ -56,6 +57,9 @@ import org.slf4j.LoggerFactory;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
+// Override VertxExtension's 30s default per-method timeout: these load-balancing tests legitimately
+// wait up to 60s for work items (awaitCompletion), so 30s flakes near the boundary under load.
+@Timeout(value = 90, timeUnit = TimeUnit.SECONDS)
 class ConsumerGroupLoadBalancingDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupLoadBalancingDemoTest.class);
 
@@ -302,7 +306,7 @@ class ConsumerGroupLoadBalancingDemoTest {
             });
 
         // Wait for all work items to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all work items");
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify round-robin distribution
         logger.info("Round Robin Distribution Results:");

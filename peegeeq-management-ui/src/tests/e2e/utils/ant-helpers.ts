@@ -19,6 +19,18 @@ export async function selectAntOption(select: Locator, optionText: string | RegE
 
   await expect(openDropdown).toBeVisible();
 
+  // Step 1b: if the Select is searchable (showSearch), type the option text to filter.
+  // With long option lists antd virtualizes the dropdown and only renders the visible
+  // slice, so a specific far-down option is never in the DOM and toBeVisible() times out.
+  // Filtering brings the target into the rendered set. No-op (guarded) for non-searchable
+  // selects, whose search input is not editable, so existing callers are unaffected.
+  if (typeof optionText === 'string') {
+    const searchInput = select.locator('.ant-select-selection-search-input');
+    if (await searchInput.isEditable().catch(() => false)) {
+      await searchInput.fill(optionText);
+    }
+  }
+
   // Step 2: wait for the specific option to appear inside the open dropdown.
   // Use a generous timeout (15s) to allow async option loading to complete.
   const targetOption = openDropdown
