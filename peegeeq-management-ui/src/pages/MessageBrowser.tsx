@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import axios from 'axios'
 import { getVersionedApiUrl } from '../services/configService'
-// import { useMessageStream } from '../hooks/useRealTimeUpdates'
 import {
     Card,
     Table,
@@ -163,22 +162,6 @@ const MessageBrowser = () => {
     }, [selectedSetupId, selectedQueueName])
     const [isRealTimeEnabled, setIsRealTimeEnabled] = useState(false)
     const [dateRange, setDateRange] = useState<[dayjs.Dayjs, dayjs.Dayjs] | null>(null)
-
-    // Real-time message streaming (disabled for now)
-    // const {
-    //   messages: liveMessages,
-    //   messageCount: liveMessageCount,
-    //   isConnected: streamConnected,
-    //   clearMessages: clearLiveMessages
-    // } = useMessageStream(selectedSetup, selectedQueue, isRealTimeEnabled)
-
-    // Merge live messages with fetched messages when real-time is enabled (disabled for now)
-    // useEffect(() => {
-    //   if (isRealTimeEnabled && liveMessages.length > 0) {
-    //     const mergedMessages = [...liveMessages, ...messages].slice(0, 100) // Keep latest 100
-    //     setFilteredMessages(mergedMessages)
-    //   }
-    // }, [liveMessages, isRealTimeEnabled, messages])
 
     // Live mode = NON-DESTRUCTIVE live observe. The management UI is an admin tool and must never
     // consume messages to display them. It subscribes to the server-side non-destructive message

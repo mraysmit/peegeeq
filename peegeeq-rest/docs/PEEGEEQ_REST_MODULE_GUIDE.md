@@ -146,6 +146,7 @@ private Router createRouter() {
 | GET | `/api/v1/queues/:setupId/:queueName/stats` | `getQueueStats` | Get queue statistics |
 | GET | `/api/v1/queues/:setupId/:queueName` | `getQueueDetails` | Get queue details |
 | POST | `/api/v1/queues/:setupId/:queueName/purge` | `purgeQueue` | Purge queue messages |
+| GET | `/api/v1/queues/:setupId/:queueName/messages/stream` | `handleQueueMessageStream` | Live **non-destructive** message observe (SSE, backed by `QueueBrowser.tail()`) |
 
 ### 4.3 Consumer Group Routes
 
@@ -335,20 +336,32 @@ public void appendCorrection(RoutingContext ctx)
 
 ### 5.3 ServerSentEventsHandler
 
-Provides real-time message streaming via Server-Sent Events (SSE).
+Provides real-time, **non-destructive** message streaming via Server-Sent Events (SSE). The
+admin/observability UI must never *consume* messages to display them, so this stream observes
+without subscribing: `handleQueueMessageStream` resolves the setup → queue factory →
+`createBrowser().tail(...)` — a plain `SELECT` that never acks, deletes, or changes message
+status — and pushes each newly-observed message to the client. The earlier consuming `/stream`
+endpoint (which ran `createConsumer().subscribe()` and stole messages from real consumers) was
+removed.
+
+**Endpoint naming contract**
+
+- `…/messages` — point-in-time browse (non-destructive).
+- `…/messages/stream` — live observe (non-destructive, this handler).
+- A genuinely message-*consuming* endpoint would be named `…/consume` and is **never** called by
+  the admin UI. No such endpoint currently exists. This contract is enforced statically by
+  `AdminConsumingReadGuardTest` (`peegeeq-rest`) and the `adminNonDestructiveRead.guard` vitest
+  (`peegeeq-management-ui`), which fail the build if a consuming queue read is (re)introduced.
 
 **SSE Connection URL:**
 ```
-GET /api/v1/queues/:setupId/:queueName/stream
+GET /api/v1/queues/:setupId/:queueName/messages/stream
 ```
 
 **Query Parameters:**
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
-| `consumerGroup` | Consumer group name | None |
-| `batchSize` | Messages per batch | 1 |
-| `maxWait` | Max wait time (ms) | 5000 |
 | `messageType` | Filter by message type | None |
 | `header.*` | Filter by header value | None |
 
@@ -356,16 +369,16 @@ GET /api/v1/queues/:setupId/:queueName/stream
 
 | Event Type | Description |
 |------------|-------------|
-| `connection` | Initial connection confirmation |
-| `configured` | Subscription configuration applied |
-| `message` | Single message delivery |
-| `batch` | Batch of messages |
+| `subscribed` | Readiness signal — the non-destructive tail observer is established |
+| `message` | A newly-observed message (still present in the queue and browsable) |
 | `heartbeat` | Keep-alive heartbeat |
 | `error` | Error notification |
 
-**SSE Reconnection Support:**
-- Uses `Last-Event-ID` header for reconnection
-- Messages include `id:` field for resume point tracking
+**Lifecycle & reconnection:**
+- The browser/tail observer is torn down (`browser.close()`) when the client disconnects.
+- Uses `Last-Event-ID` / `id:` fields for reconnect resume.
+- Related non-consuming SSE channels: `GET /api/v1/sse/queues/:setupId` (queue lifecycle updates)
+  and `GET /api/v1/sse/metrics` (system metrics).
 
 ### 5.4 WebSocketHandler
 
@@ -393,6 +406,11 @@ ws://host:port/ws/queues/:setupId/:queueName
 | `pong` | Response to ping |
 | `message` | Queue message delivery |
 | `error` | Error notification |
+
+> **Note:** the admin UI does **not** use the WebSocket queue stream for live message
+> observation — it uses the non-destructive SSE `…/messages/stream` (§5.3). The WS queue-stream
+> handler is a non-consuming stub; WebSocket parity with the non-destructive `tail()` is deferred
+> (optional) and no consuming WS client ships in the management UI.
 
 ### 5.5 DeadLetterHandler
 
@@ -442,16 +460,18 @@ Provides health monitoring endpoints for setup components.
 
 ### 6.1 Server-Sent Events (SSE)
 
-SSE provides one-way server-to-client streaming over HTTP:
+SSE provides one-way, **non-destructive** server-to-client streaming over HTTP. The queue message
+stream observes via `QueueBrowser.tail()` — it never consumes, so streamed messages remain in the
+queue:
 
 ```
 Client                                    Server
   |                                         |
-  |  GET /api/v1/queues/.../stream          |
+  |  GET /api/v1/queues/.../messages/stream |
   | --------------------------------------> |
   |                                         |
-  |  event: connection                      |
-  |  data: {"connectionId":"sse-1",...}     |
+  |  event: subscribed                      |
+  |  data: {"status":"subscribed",...}      |
   | <-------------------------------------- |
   |                                         |
   |  event: message                         |
@@ -465,10 +485,9 @@ Client                                    Server
 ```
 
 **Features:**
+- Non-destructive observe — streamed messages remain in the queue and browsable
 - Automatic reconnection with `Last-Event-ID`
-- Message batching with configurable batch size
 - Message filtering by type and headers
-- Consumer group integration
 - Heartbeat keep-alive
 
 ### 6.2 WebSocket
@@ -743,18 +762,18 @@ setupService.getSetupResult(setupId)
 
 ### Connection Management Pattern
 
-Streaming handlers maintain connection state:
+The non-destructive message-stream handler establishes a browser-backed `tail()` observer per
+connection and tears it down when the client disconnects — it never creates a consumer:
 
 ```java
-private final Map<String, SSEConnection> activeConnections = new ConcurrentHashMap<>();
-private final AtomicLong connectionIdCounter = new AtomicLong(0);
-
-public void handleQueueStream(RoutingContext ctx) {
-    String connectionId = "sse-" + connectionIdCounter.incrementAndGet();
-    SSEConnection connection = new SSEConnection(connectionId, response, setupId, queueName);
-    activeConnections.put(connectionId, connection);
-
-    ctx.request().connection().closeHandler(v -> handleConnectionClose(connection));
+public void handleQueueMessageStream(RoutingContext ctx) {
+    // resolve setup -> queue factory -> non-destructive browser
+    QueueBrowser browser = queueFactory.createBrowser(...);
+    browser.tail(message -> {                 // plain SELECT of new rows; never acks/removes
+        writeSseEvent(ctx.response(), "message", message);
+        return Future.succeededFuture();
+    });
+    ctx.request().connection().closeHandler(v -> browser.close());  // stop observing on disconnect
 }
 ```
 
@@ -766,4 +785,5 @@ public void handleQueueStream(RoutingContext ctx) {
 | 2.0 | 2025-07-19 | Added SSE, WebSocket, consumer groups |
 | 2.1 | 2025-11-22 | Added webhook subscriptions |
 | 2.2 | 2025-12-05 | Added dead letter, subscription lifecycle, health APIs |
+| 2.3 | 2026-06-18 | Replaced the consuming queue `/stream` with the non-destructive `/messages/stream` (observe via `QueueBrowser.tail()`); documented the `…/messages` / `…/messages/stream` vs `…/consume` naming contract |
 
