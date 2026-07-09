@@ -1,0 +1,22 @@
+# Baseline for AdminConsumingReadGuardTest (Phase 13.3 — destructive-read safeguards).
+#
+# Records the EXISTING, intentional queue-consuming call sites (createConsumer( / .subscribe()
+# in peegeeq-rest MAIN sources. These are explicitly-named, gated destructive paths that the
+# admin UI never reaches as a read/view/stream:
+#   - ConsumerGroupHandler / ManagementApiHandler.createConsumerGroup — consumer-group CRUD
+#   - WebhookSubscriptionHandler                                       — webhook delivery
+#   - SubscriptionHandler                                             — subscription management
+#   - EventStoreHandler                                               — event-store subscribe (events are immutable)
+#
+# The guard fails the build if any file's count RISES above its baseline (a new consuming read),
+# or if a file was remediated but its row here was not lowered/removed (stale).
+#
+# Admin read/view/stream handlers (QueueHandler, ServerSentEventsHandler, and the queue-read
+# methods of ManagementApiHandler) are intentionally NOT given headroom — a new consume there
+# takes the file above its baseline and fails the build.
+path,count
+peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ConsumerGroupHandler.java,2
+peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/EventStoreHandler.java,1
+peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java,1
+peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/SubscriptionHandler.java,1
+peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/WebhookSubscriptionHandler.java,2
