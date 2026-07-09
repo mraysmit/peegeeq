@@ -11,7 +11,6 @@ import { useEffect, useRef, useState } from 'react'
 import {
     SSEService,
     WebSocketMessage,
-    createMessageStreamService,
     createSystemMonitoringService,
     createSystemMetricsSSE
 } from '../services/websocketService'
@@ -181,38 +180,6 @@ export const useQueueUpdates = (setupId: string, enabled = true) => {
     return {
         queueData,
         isConnected
-    }
-}
-
-export const useMessageStream = (setupId: string, queueName?: string, enabled = true) => {
-    const [messages, setMessages] = useState<any[]>([])
-    const [messageCount, setMessageCount] = useState(0)
-    const [isConnected, setIsConnected] = useState(false)
-
-    useEffect(() => {
-        if (!enabled || !setupId) return
-
-        const service = createMessageStreamService(setupId, queueName)
-        service.connect()
-        setIsConnected(true)
-
-        // Add message handling to service if it supports it, 
-        // or update createMessageStreamService to accept options.
-        // For now, let's keep it simple as we are unifying connectivity first.
-
-        return () => service.disconnect()
-    }, [setupId, queueName, enabled])
-
-    const clearMessages = () => {
-        setMessages([])
-        setMessageCount(0)
-    }
-
-    return {
-        messages,
-        messageCount,
-        isConnected,
-        clearMessages
     }
 }
 

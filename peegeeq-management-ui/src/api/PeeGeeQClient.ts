@@ -13,7 +13,6 @@ import {
     CONSUMER_GROUP_ENDPOINTS,
     QUEUE_ENDPOINTS,
     WEBHOOK_ENDPOINTS,
-    SSE_ENDPOINTS,
 } from './endpoints';
 import { getVersionedApiUrl } from '../services/configService';
 
@@ -571,33 +570,6 @@ export class PeeGeeQClient {
             try {
                 const data = JSON.parse(event.data) as BiTemporalEvent<T>;
                 onEvent(data);
-            } catch (error) {
-                onError?.(error instanceof Error ? error : new Error(String(error)));
-            }
-        };
-
-        eventSource.onerror = () => {
-            onError?.(new Error('SSE connection error'));
-        };
-
-        return () => {
-            eventSource.close();
-        };
-    }
-
-    streamMessages<T>(
-        setupId: string,
-        queueName: string,
-        onMessage: (message: QueueMessage<T>) => void,
-        onError?: (error: Error) => void
-    ): () => void {
-        const url = `${this.config.baseUrl}${SSE_ENDPOINTS.QUEUE_MESSAGES(setupId, queueName)}`;
-        const eventSource = new EventSource(url);
-
-        eventSource.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data) as QueueMessage<T>;
-                onMessage(data);
             } catch (error) {
                 onError?.(error instanceof Error ? error : new Error(String(error)));
             }
