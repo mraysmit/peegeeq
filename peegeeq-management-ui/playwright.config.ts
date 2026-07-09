@@ -425,6 +425,14 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['3c-setup-prerequisite'],
     },
+    // Step 14c3: Message Browser Live mode failure & recovery – terminal SSE disconnect surfaces
+    // message.error; toggling Live off/on re-establishes the non-destructive stream
+    {
+      name: '14c3-message-browser-live-failure',
+      testMatch: '**/message-browser-live-failure.spec.ts',
+      use: chromeMaximized,
+      dependencies: ['3c-setup-prerequisite'],
+    },
     // Step 14d: Queue Updates SSE – Direct API tests for GET /api/v1/sse/queues/:setupId
     {
       name: '14d-queue-updates-sse',

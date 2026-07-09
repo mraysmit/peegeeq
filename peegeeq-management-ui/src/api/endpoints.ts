@@ -233,8 +233,5 @@ export const SSE_ENDPOINTS = {
     SYSTEM_METRICS: `${API_V1_PREFIX}/sse/metrics`,
     /** GET - Stream all queue updates */
     ALL_QUEUES: `${API_V1_PREFIX}/sse/queues`,
-    /** GET - Stream queue messages */
-    QUEUE_MESSAGES: (setupId: string, queueName: string) =>
-        `${API_V1_PREFIX}/queues/${setupId}/${queueName}/stream`,
 } as const;
 

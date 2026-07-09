@@ -139,29 +139,6 @@ export class WebSocketService {
     }
 }
 
-// WebSocket service instances for different endpoints
-export const createMessageStreamService = (setupId: string, queueName?: string) => {
-    const baseUrl = getApiUrl('').replace('http://', 'ws://').replace('https://', 'wss://')
-    // WS endpoints usually don't have /api/v1 prefix in this backend, 
-    // but they follow the /ws root.
-    const url = queueName
-        ? `${baseUrl}/ws/queues/${setupId}/${queueName}`
-        : `${baseUrl}/ws/queues/${setupId}`
-
-    return new WebSocketService({
-        url,
-        onMessage: (message) => {
-            console.log('Message stream update:', message)
-        },
-        onConnect: () => {
-            console.log('Message stream connected')
-        },
-        onDisconnect: () => {
-            console.log('Message stream disconnected')
-        }
-    })
-}
-
 export const createSystemMonitoringService = (
     onMessage?: (message: any) => void,
     onConnect?: () => void,

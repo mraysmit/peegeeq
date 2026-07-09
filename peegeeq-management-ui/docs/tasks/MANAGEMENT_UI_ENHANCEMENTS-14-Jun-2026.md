@@ -23,21 +23,29 @@ prioritised. Each links to where it is tracked in detail.
    `docs-design/dev/non-destructive-queue-observer-design-18-Jun-2026.md` §11.*
 
 **Medium**
-3. **SSE message-stream failure/reconnect coverage.** The deleted `message-browser-sse-failure.spec.ts`
-   covered EventSource dropout/recovery; with the new non-destructive `/messages/stream` that coverage is
-   valid again and currently absent end-to-end (the backend observer reconnect *is* tested; the UI
-   Live-mode dropout → `message.error` → auto-reconnect path is not). *Source: commit `c609bd4d` deletion + §7.12 Phase 12.5.*
-4. **Phase 13 — remove latent destructive clients.** Delete `PeeGeeQClient.streamMessages`,
-   `createMessageStreamService` + `useMessageStream`, and the dead `endpoints.ts QUEUE.STREAM` URL (the
-   Phase 12.0 carve-out) so a consuming read cannot be wired into an admin view by accident; then the
-   §13.2 naming contract. *Tracked: §7.13.*
+3. ✅ **DONE (2026-07-09) — spec written; pending E2E run.** New `message-browser-live-failure.spec.ts`
+   (project `14c3-message-browser-live-failure`, dep `3c-setup-prerequisite`) covers the UI Live-mode
+   dropout path: a terminal `/messages/stream` disconnect (forced via a non `text/event-stream` response →
+   EventSource `CLOSED`) surfaces `message.error('Live message stream disconnected…')`, and the documented
+   recovery (toggle Live off/on) re-establishes the non-destructive stream so a freshly published message
+   surfaces over the live push. Mirrors the compliant `message-browser-nondestructive-live` pattern.
+   *Run: `npx playwright test --project=14c3-message-browser-live-failure`.*
+4. ✅ **DONE (2026-07-09) — Phase 13 complete.** Removed `PeeGeeQClient.streamMessages`,
+   `createMessageStreamService`, `useMessageStream`, and the dead `endpoints.ts QUEUE_MESSAGES` `/stream`
+   URL (13.1, UI build green); documented the `…/messages` / `…/messages/stream` vs `…/consume` naming
+   contract in the REST module guide (13.2); added two static guards that fail the build on any new
+   consuming queue read — `AdminConsumingReadGuardTest` (`peegeeq-rest`, `@Tag(CORE)`, baseline-ratchet +
+   self-test, green) and the `adminNonDestructiveRead.guard` vitest (`peegeeq-management-ui`, + self-test,
+   green) (13.3). *Tracked: §7.13.*
 
 **Low**
 5. **Confirm + close the last two backend-coverage tests.** `testUpdateQueueEndpoint` (`@Order 23`) and
    `testGetQueueBindingsEndpoint` (`@Order 24`) in `ManagementApiIntegrationTest` were written but not
    confirmed green; run them, then flip their §10.5 rows to resolved. *Tracked: §10.5.*
-6. **REST module guide doc pass.** `peegeeq-rest/docs/PEEGEEQ_REST_MODULE_GUIDE.md`'s implementation
-   walkthrough (~lines 340–460, 745–760) still narrates the removed consuming SSE stream. *Tracked: §7.12 Phase 12.0 carve-out.*
+6. ✅ **DONE (2026-07-09).** REST module guide doc pass — `peegeeq-rest/docs/PEEGEEQ_REST_MODULE_GUIDE.md`
+   §5.3/§5.4/§6.1/§11 rewritten around the non-destructive `/messages/stream` (`QueueBrowser.tail()`); the
+   stale consuming `/stream` / `handleQueueStream` / `SSEConnection` narration removed and the naming
+   contract documented. *Tracked: §7.12 Phase 12.0 carve-out; §7.13 Phase 13.2.*
 7. ✅ **DONE (2026-06-23).** Phase 7 (Consumer Groups success toasts) and 7a (Notifications page
    `/notifications`) both implemented and green. *Tracked: §7.7, §7.7a.*
 
@@ -2251,7 +2259,19 @@ stays green and the user runs the tests at each gate.
 
 ---
 
-### 7.13 Destructive-read safeguards — Phase 13
+### 7.13 Destructive-read safeguards — Phase 13  ✅ Complete (2026-07-09)
+
+> **Status — Complete 2026-07-09.** 13.1 removed the latent consuming clients
+> (`PeeGeeQClient.streamMessages`, `createMessageStreamService`, `useMessageStream`) and the dead
+> `endpoints.ts QUEUE_MESSAGES` `/stream` URL — UI build green. 13.2 documented the naming contract in
+> the REST module guide (§5.3). 13.3 added two static guards, both green with detector self-tests:
+> `AdminConsumingReadGuardTest` (`peegeeq-rest`, `@Tag(CORE)`, per-file baseline-ratchet over
+> `createConsumer(`/`.subscribe(` — clean admin handlers `QueueHandler`/`ServerSentEventsHandler` at
+> baseline 0) and the `adminNonDestructiveRead.guard` vitest (`peegeeq-management-ui`, bound to the Maven
+> `test` phase via frontend-maven-plugin). **Known limitation (accepted):** the ratchet is per-file, so a
+> *swap* inside the mixed `ManagementApiHandler` (remove the gated consumer-group `subscribe`, add an
+> illicit queue-read one) nets the same count and would not be caught — closing it needs method-level
+> scoping or splitting the read methods into their own handler.
 
 *Runs after Phase 12.5 (the non-destructive stream must exist before the latent consuming
 clients are deleted and the guard is locked in).*
@@ -2264,29 +2284,43 @@ by accident.
 - ✅ Safe (browse): `GET management/messages` (`ManagementApiHandler:1022`),
   `GET /queues/{s}/{q}/messages` (`:2125`) — both `createBrowser().browse()`.
 - ✅ Destructive view: **removed** 2026-06-17 (the consuming `/stream`).
-- ⚠️ **Latent destructive clients, no guard** (defined, currently unused — one keystroke from a
-  view): `PeeGeeQClient.streamMessages()` (`PeeGeeQClient.ts:588`),
-  `createMessageStreamService()` (`websocketService.ts:143`) + `useMessageStream()`
-  (`useRealTimeUpdates.ts:187`).
+- ✅ **Latent destructive clients — removed 2026-07-09 (Phase 13.1).** `PeeGeeQClient.streamMessages()`,
+  `createMessageStreamService()` + `useMessageStream()` deleted (and the dead `endpoints.ts`
+  `QUEUE_MESSAGES` `/stream` URL); a consuming read can no longer be wired into an admin view, and the two
+  Phase 13.3 guards fail the build on any reintroduction.
 - ✅ Intentional destructive **actions** (keep, already gated): queue Purge/Delete (confirm
   dialogs), consumer-group CRUD, webhook subscription. Event-store `subscribe`/`streamEvents` is
   non-destructive (events are immutable).
 
-#### Phase 13.1 — Remove latent destructive clients
+#### Phase 13.1 — Remove latent destructive clients  ✅ Done (2026-07-09)
 - Delete `streamMessages` (`PeeGeeQClient`), `createMessageStreamService` + `useMessageStream`
   (dead code), so a consuming read cannot be wired into an admin view by accident.
-- **Exit:** no admin-reachable consuming client remains; build green.
+- **Exit:** no admin-reachable consuming client remains; build green. ✅ Met — all three deleted plus the
+  dead `endpoints.ts QUEUE_MESSAGES` `/stream` URL and the commented `MessageBrowser` references; UI build green.
 
-#### Phase 13.2 — Naming contract
+#### Phase 13.2 — Naming contract  ✅ Done (2026-07-09)
 - Non-destructive endpoints are `…/messages` (browse) or `…/messages/stream` (observe, §7.12);
   any genuinely-consuming endpoint is named `…/consume` and is **never** called by the admin UI.
-- **Exit:** routes/clients renamed to match; documented.
+- **Exit:** routes/clients renamed to match; documented. ✅ Met — no consuming queue endpoint exists (the
+  consuming `/stream` was removed in Phase 12.0); the contract is written up in the REST module guide §5.3
+  and enforced by the Phase 13.3 guards.
 
-#### Phase 13.3 — Guard test
+#### Phase 13.3 — Guard test  ✅ Done (2026-07-09)
 - Static check (mirroring `OnSuccessExceptionSwallowingGuardTest`, `@Tag(CORE)`, no DB) that
   admin-facing read/view/stream handlers and the UI never use `createConsumer`/`.subscribe(` for
   a queue; destructive consumption only via explicitly-named, confirmed paths.
-- **Exit:** guard runs in the default profile and fails the build on any regression.
+- **Exit:** guard runs in the default profile and fails the build on any regression. ✅ Met — two guards,
+  each with a detector self-test:
+  - **Backend** `AdminConsumingReadGuardTest` (`peegeeq-rest/.../quality/`, `@Tag(CORE)`) scans
+    `peegeeq-rest/src/main/java` (comment/string-masked) for `createConsumer(`/`.subscribe(`, ratcheted
+    against `rest-consuming-read-baseline.csv` (gated sites baselined; `QueueHandler`/`ServerSentEventsHandler`
+    at 0). Green — `peegeeq-rest` core `Tests run: 2, Failures: 0`.
+  - **Frontend** `adminNonDestructiveRead.guard.test.ts` (`peegeeq-management-ui/src/tests/quality/`) scans
+    `src/` for the removed clients + `/ws/queues/` + a consuming `/queues/${}/${}/stream` URL; bound to the
+    Maven `test` phase. Green.
+  - **Chosen approach** (per owner): baseline-ratchet, not method-level scoping; separate UI-side guard,
+    not a Java test scanning TS. Known ratchet swap-gap on `ManagementApiHandler` recorded in the status
+    note above.
 
 ---
 
@@ -2830,15 +2864,15 @@ The following backend scenarios have no dedicated test coverage (identified duri
 | `SystemMonitoringHandler` — negative `totalConnections` | ✅ RESOLVED 2026-06-16 — decrement guarded by the null-check in both WS and SSE cleanup (§8.1); covered by `testActiveConnectionCountNeverNegativeAcrossLifecycle` (WS) + `testSseAbruptDisconnectKeepsConnectionCountNonNegative` (SSE) |
 | `SystemMonitoringHandler` — lifetime-average `messagesPerSecond` | ✅ RESOLVED 2026-06-16 — per-connection delta rate, WS/SSE reconciled (§8.2); covered by `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` |
 | `PeeGeeQMetrics.updateConnectionPoolMetrics()` | Method exists (lines 357–367) but is never called — no test covers pool metric propagation to Micrometer |
-| `ConsumerAlertHandler` | No dedicated test class |
+| `ConsumerAlertHandler` | ✅ RESOLVED 2026-07-09 (pending run) — `ConsumerAlertHandlerIntegrationTest` (`@Tag(INTEGRATION)`, TestContainers) covers all three routes (`/consumer-alerts/dead`, `/summary`, `/blocked`) end-to-end + the unknown-setup 404. |
 | Auth / RBAC | No tests — not yet implemented |
 | `peegeeq-integration-tests` module | Reserved for cross-module smoke tests; currently empty |
 | `ManagementApiHandler.getQueueConsumers` — `GET /api/v1/queues/:setupId/:queueName/consumers` | ✅ RESOLVED 2026-06-16 — covered by `ManagementApiIntegrationTest.testGetQueueConsumersEndpoint` (`@Order(21)`): subscribes a group, then asserts it appears in the consumers response with the documented fields. Backs the Phase 2 Consumers tab (§7.2). |
-| `ManagementApiHandler.getQueueBindings` — `GET /api/v1/queues/:setupId/:queueName/bindings` | **No JUnit integration test** (2026-06-16). Returns an empty array by design (PeeGeeQ has no binding concept), but the handler is untested. |
+| `ManagementApiHandler.getQueueBindings` — `GET /api/v1/queues/:setupId/:queueName/bindings` | ✅ RESOLVED — covered by `ManagementApiIntegrationTest.testGetQueueBindingsEndpoint` (`@Order 24`): asserts 200 + empty `bindings` array + `bindingCount == 0`. (Pending the §7 run to confirm green — Open Items #5.) |
 | `ManagementApiHandler.getQueueDetails` — `GET /api/v1/queues/:setupId/:queueName` | ✅ RESOLVED 2026-06-16 — covered by `ManagementApiIntegrationTest.testGetQueueDetailsEndpoint` (`@Order(22)`): asserts the per-queue details contract (name/setup/implementationType/status + nested `statistics` and `config`) the Queue Details Overview tab uses. |
-| `ManagementApiHandler.updateQueue` — `PUT /api/v1/management/queues/:setupId/:queueName` | **Only the 404 error path is covered** (`ManagementApiHandlerErrorTest.updateQueue_queueNotFound_returns404`); no happy-path config-update integration test (2026-06-16). |
+| `ManagementApiHandler.updateQueue` — `PUT /api/v1/management/queues/:setupId/:queueName` | ✅ RESOLVED — happy-path now covered by `ManagementApiIntegrationTest.testUpdateQueueEndpoint` (`@Order 23`), alongside the existing 404 path (`ManagementApiHandlerErrorTest.updateQueue_queueNotFound_returns404`). (Pending the §7 run to confirm green — Open Items #5.) |
 
-The §8.1 and §8.2 bugs (negative connections, flat throughput) were the highest-priority backend fixes; both are **fixed (2026-06-16)** with `@Tag("regression")` tests in `SystemMonitoringHandlerTest.java` (see §8.1 / §8.2). The remaining gaps above (`updateConnectionPoolMetrics`, `ConsumerAlertHandler`, auth) are still open.
+The §8.1 and §8.2 bugs (negative connections, flat throughput) were the highest-priority backend fixes; both are **fixed (2026-06-16)** with `@Tag("regression")` tests in `SystemMonitoringHandlerTest.java` (see §8.1 / §8.2). The remaining gaps above are `updateConnectionPoolMetrics` (dead code; wiring deferred with Phase 11) and auth (not yet implemented). `ConsumerAlertHandler` was closed 2026-07-09 (`ConsumerAlertHandlerIntegrationTest`).
 
 **Management-endpoint coverage audit (2026-06-16):** the management API surface is otherwise well covered — `ManagementApiIntegrationTest` (~28 tests incl. purge via `testQueuePurge_E2E`, full consumer-group lifecycle, messages, metrics, browsing), `SetupManagementIntegrationTest` (setup CRUD + `getSetupDetails`), `SSEQueueUpdatesIntegrationTest`, `SystemMonitoringHandlerTest`. The four queue-endpoint rows above are the only UI-consumed management endpoints with no (or error-path-only) JUnit integration coverage. Method note: path-grep audit — `getQueueConsumers`/`getQueueBindings` are definitively uncovered; `getQueueDetails`/`updateQueue` happy-path are "no direct test found".
 
@@ -2898,4 +2932,4 @@ mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -F
 
 **Remaining open gaps** (§10.5):
 - `PeeGeeQMetrics.updateConnectionPoolMetrics()` is dead code — wire it and add a Micrometer gauge test (blocked on §8.3 / Phase 7.11 implementation)
-- No `ConsumerAlertHandler` test class
+- ✅ `ConsumerAlertHandler` test class added 2026-07-09 (`ConsumerAlertHandlerIntegrationTest`, pending run)
