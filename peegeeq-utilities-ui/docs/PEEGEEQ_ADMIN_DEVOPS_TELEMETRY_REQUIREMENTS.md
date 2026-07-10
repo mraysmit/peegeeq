@@ -2,7 +2,7 @@
 
 What instrumentation, metering, and telemetry PeeGeeQ must provide for the utilities-ui tools —
 the Message Generator (§6.1, §7) and the Generation Tool Suite (§19) in
-[PEEGEEQ_QUEUE_MESSAGE_GENERATOR_DESIGN.md](PEEGEEQ_QUEUE_MESSAGE_GENERATOR_DESIGN.md).
+[PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md](PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md).
 
 > **Verified vs. to-confirm.** The "available today" facts in §3 were probed against a running
 > `peegeeq-rest` backend on 2026-07-05. Items marked *(to confirm)* are inferred from endpoint
@@ -102,11 +102,17 @@ Notably this frame **already carries `dbPool` utilisation (active/idle/pending/t
 i.e. connection-pool saturation is streamed, even though the REST `/management/metrics` omits it.
 
 ### Other SSE endpoints *(to confirm)*
-`sse/queues`, `sse/queues/{setup}/{queue}`, and `queues/{setup}/{queue}/stream` exist (per
-management-ui's `endpoints.ts`). `sse/queues` emitted **no frames** in a 6 s probe window — likely
-change-driven rather than periodic; its trigger, cadence, and payload must be verified before use.
-A WebSocket transport also exists (`/ws`, proxied by the dev server); its telemetry payload is
-unverified here.
+`sse/queues` and `sse/queues/{setup}/{queue}` exist (per management-ui's `endpoints.ts`).
+`sse/queues` emitted **no frames** in a 6 s probe window — likely change-driven rather than periodic;
+its trigger, cadence, and payload must be verified before use.
+
+> **The per-message SSE stream `queues/{setup}/{queue}/stream` was removed** (commit `8e1ef00d`,
+> 2026-07-09) because it was a **queue-*consuming* read** — a CI guard (`AdminConsumingReadGuardTest`
+> + a baseline CSV) now fails the build if admin views introduce new consuming reads. Live message
+> streaming/browsing was re-implemented **non-destructively via `QueueBrowser` over WebSocket**
+> (`/ws`, commit `ee24a612`). So the transport for *message* streaming is now WebSocket + QueueBrowser
+> (peek, not consume); for *telemetry* (metrics) use the interval-based `/sse/metrics` (§3), never a
+> per-message stream.
 
 ---
 
@@ -221,8 +227,9 @@ the right transport and format — it is the cadence and scoping that fall short
   Confirm the server honours `Last-Event-ID`.
 - **Stream backpressure.** A high-rate run must not drown the browser tab. The client throttles
   render to ~2–4 Hz (coalescing frames); the stream itself should stay bounded (fixed cadence, not
-  per-message) — `/sse/metrics`'s fixed interval is correct; a per-*message* stream
-  (`queues/{setup}/{queue}/stream`) is **not** appropriate for load telemetry.
+  per-message) — `/sse/metrics`'s fixed interval is correct. A per-*message* stream is **not**
+  appropriate for load telemetry anyway; note the consuming per-message SSE endpoint was since
+  removed (see §3) and message browsing is now non-destructive WebSocket/`QueueBrowser`.
 - **Two transports.** SSE (`/sse/*`) is the primary, and the natural fit (one-way, auto-reconnect).
   A WebSocket (`/ws`) also exists; SSE is preferred unless bidirectional control is needed.
 
