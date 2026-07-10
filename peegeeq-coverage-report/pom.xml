@@ -13,10 +13,6 @@
     <artifactId>peegeeq-coverage-report</artifactId>
     <packaging>pom</packaging>
 
-    <properties>
-        <jacoco.skip>true</jacoco.skip>
-    </properties>
-
     <name>PeeGeeQ Coverage Report</name>
     <description>Aggregated JaCoCo code coverage report for all PeeGeeQ modules</description>
 
@@ -117,7 +113,7 @@
                             <goal>report-aggregate</goal>
                         </goals>
                         <configuration>
-                            <skip>false</skip>
+                            <skip>${jacoco.skip}</skip>
                             <title>PeeGeeQ Code Coverage</title>
                             <footer>PeeGeeQ - PostgreSQL Message Queue</footer>
                             <outputDirectory>${project.reporting.outputDirectory}/jacoco-aggregate</outputDirectory>

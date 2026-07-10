@@ -23,7 +23,7 @@ prioritised. Each links to where it is tracked in detail.
    `docs-design/dev/non-destructive-queue-observer-design-18-Jun-2026.md` §11.*
 
 **Medium**
-3. ✅ **DONE (2026-07-09) — spec written; pending E2E run.** New `message-browser-live-failure.spec.ts`
+3. ✅ **DONE (2026-07-09) — green.** New `message-browser-live-failure.spec.ts`
    (project `14c3-message-browser-live-failure`, dep `3c-setup-prerequisite`) covers the UI Live-mode
    dropout path: a terminal `/messages/stream` disconnect (forced via a non `text/event-stream` response →
    EventSource `CLOSED`) surfaces `message.error('Live message stream disconnected…')`, and the documented
@@ -39,9 +39,9 @@ prioritised. Each links to where it is tracked in detail.
    green) (13.3). *Tracked: §7.13.*
 
 **Low**
-5. **Confirm + close the last two backend-coverage tests.** `testUpdateQueueEndpoint` (`@Order 23`) and
-   `testGetQueueBindingsEndpoint` (`@Order 24`) in `ManagementApiIntegrationTest` were written but not
-   confirmed green; run them, then flip their §10.5 rows to resolved. *Tracked: §10.5.*
+5. ✅ **DONE (2026-07-09) — green.** `testUpdateQueueEndpoint` (`@Order 23`) and
+   `testGetQueueBindingsEndpoint` (`@Order 24`) in `ManagementApiIntegrationTest` confirmed green; the
+   §10.5 rows are resolved. *Tracked: §10.5.*
 6. ✅ **DONE (2026-07-09).** REST module guide doc pass — `peegeeq-rest/docs/PEEGEEQ_REST_MODULE_GUIDE.md`
    §5.3/§5.4/§6.1/§11 rewritten around the non-destructive `/messages/stream` (`QueueBrowser.tail()`); the
    stale consuming `/stream` / `handleQueueStream` / `SSEConnection` narration removed and the naming
@@ -50,8 +50,11 @@ prioritised. Each links to where it is tracked in detail.
    `/notifications`) both implemented and green. *Tracked: §7.7, §7.7a.*
 
 **Optional**
-8. **Phase 12.6 — WebSocket parity.** Wire `WebSocketHandler.handleQueueStream` (a non-consuming stub)
-   to `tail()` so WS clients get the same non-destructive push. Defer unless a WS consumer is needed.
+8. ✅ **DONE (2026-07-09) — pending run.** Phase 12.6 WebSocket parity: `WebSocketHandler.startMessageStreaming`
+   now wires `createBrowser().tail()` (non-destructive; never `createConsumer`/`subscribe`), sends
+   `welcome`→`subscribed`→`data` frames, and closes the browser on disconnect (`WebSocketConnection.cleanup`).
+   New `WebSocketMessageStreamIntegrationTest` (native + outbox) proves 10 messages stream over WS and remain
+   browsable. *Tracked: §7.12 Phase 12.6.*
 
 ---
 
@@ -2250,9 +2253,15 @@ LISTEN/reconnect logic. The first native `tail()` attempt did this and was disca
   `playwright.config.ts`.
 - **Exit:** live push works non-destructively end-to-end; E2E green.
 
-#### Phase 12.6 — WebSocket parity (optional)
+#### Phase 12.6 — WebSocket parity (optional)  ✅ DONE (2026-07-09, pending run)
 - Wire `WebSocketHandler.handleQueueStream` (currently a non-consuming stub) to the same
   `tail()` so WS clients get the same non-destructive push. Defer unless a WS consumer is needed.
+- **Done:** `WebSocketHandler.startMessageStreaming` resolves setup→factory→`createBrowser().tail(...)`
+  and pushes each new message as a `data` frame after a `subscribed` readiness frame; the browser is
+  stored on `WebSocketConnection` and closed in `cleanup()` on disconnect. No `createConsumer`/`subscribe`
+  (guard stays green). **Tests:** `WebSocketMessageStreamIntegrationTest` (`@Tag(INTEGRATION)`, native +
+  outbox) — 10 messages stream over WS and all remain browsable (observe-not-consume), mirroring
+  `SseMessageStreamDemoIntegrationTest`.
 
 **Sequencing:** 12.0 → 12.1 → 12.2 → 12.3 → 12.4 → 12.5 → (12.6). One phase at a time; the tree
 stays green and the user runs the tests at each gate.
@@ -2864,13 +2873,13 @@ The following backend scenarios have no dedicated test coverage (identified duri
 | `SystemMonitoringHandler` — negative `totalConnections` | ✅ RESOLVED 2026-06-16 — decrement guarded by the null-check in both WS and SSE cleanup (§8.1); covered by `testActiveConnectionCountNeverNegativeAcrossLifecycle` (WS) + `testSseAbruptDisconnectKeepsConnectionCountNonNegative` (SSE) |
 | `SystemMonitoringHandler` — lifetime-average `messagesPerSecond` | ✅ RESOLVED 2026-06-16 — per-connection delta rate, WS/SSE reconciled (§8.2); covered by `testMessagesPerSecondIsZeroWhenPendingCountUnchangedBetweenTicks` |
 | `PeeGeeQMetrics.updateConnectionPoolMetrics()` | Method exists (lines 357–367) but is never called — no test covers pool metric propagation to Micrometer |
-| `ConsumerAlertHandler` | ✅ RESOLVED 2026-07-09 (pending run) — `ConsumerAlertHandlerIntegrationTest` (`@Tag(INTEGRATION)`, TestContainers) covers all three routes (`/consumer-alerts/dead`, `/summary`, `/blocked`) end-to-end + the unknown-setup 404. |
+| `ConsumerAlertHandler` | ✅ RESOLVED 2026-07-09 (green) — `ConsumerAlertHandlerIntegrationTest` (`@Tag(INTEGRATION)`, TestContainers) covers all three routes (`/consumer-alerts/dead`, `/summary`, `/blocked`) end-to-end + the unknown-setup 404. |
 | Auth / RBAC | No tests — not yet implemented |
 | `peegeeq-integration-tests` module | Reserved for cross-module smoke tests; currently empty |
 | `ManagementApiHandler.getQueueConsumers` — `GET /api/v1/queues/:setupId/:queueName/consumers` | ✅ RESOLVED 2026-06-16 — covered by `ManagementApiIntegrationTest.testGetQueueConsumersEndpoint` (`@Order(21)`): subscribes a group, then asserts it appears in the consumers response with the documented fields. Backs the Phase 2 Consumers tab (§7.2). |
-| `ManagementApiHandler.getQueueBindings` — `GET /api/v1/queues/:setupId/:queueName/bindings` | ✅ RESOLVED — covered by `ManagementApiIntegrationTest.testGetQueueBindingsEndpoint` (`@Order 24`): asserts 200 + empty `bindings` array + `bindingCount == 0`. (Pending the §7 run to confirm green — Open Items #5.) |
+| `ManagementApiHandler.getQueueBindings` — `GET /api/v1/queues/:setupId/:queueName/bindings` | ✅ RESOLVED — covered by `ManagementApiIntegrationTest.testGetQueueBindingsEndpoint` (`@Order 24`): asserts 200 + empty `bindings` array + `bindingCount == 0`. (Confirmed green 2026-07-09 — Open Items #5.) |
 | `ManagementApiHandler.getQueueDetails` — `GET /api/v1/queues/:setupId/:queueName` | ✅ RESOLVED 2026-06-16 — covered by `ManagementApiIntegrationTest.testGetQueueDetailsEndpoint` (`@Order(22)`): asserts the per-queue details contract (name/setup/implementationType/status + nested `statistics` and `config`) the Queue Details Overview tab uses. |
-| `ManagementApiHandler.updateQueue` — `PUT /api/v1/management/queues/:setupId/:queueName` | ✅ RESOLVED — happy-path now covered by `ManagementApiIntegrationTest.testUpdateQueueEndpoint` (`@Order 23`), alongside the existing 404 path (`ManagementApiHandlerErrorTest.updateQueue_queueNotFound_returns404`). (Pending the §7 run to confirm green — Open Items #5.) |
+| `ManagementApiHandler.updateQueue` — `PUT /api/v1/management/queues/:setupId/:queueName` | ✅ RESOLVED — happy-path now covered by `ManagementApiIntegrationTest.testUpdateQueueEndpoint` (`@Order 23`), alongside the existing 404 path (`ManagementApiHandlerErrorTest.updateQueue_queueNotFound_returns404`). (Confirmed green 2026-07-09 — Open Items #5.) |
 
 The §8.1 and §8.2 bugs (negative connections, flat throughput) were the highest-priority backend fixes; both are **fixed (2026-06-16)** with `@Tag("regression")` tests in `SystemMonitoringHandlerTest.java` (see §8.1 / §8.2). The remaining gaps above are `updateConnectionPoolMetrics` (dead code; wiring deferred with Phase 11) and auth (not yet implemented). `ConsumerAlertHandler` was closed 2026-07-09 (`ConsumerAlertHandlerIntegrationTest`).
 
@@ -2932,4 +2941,4 @@ mvn test -Pintegration-tests -pl :peegeeq-integration-tests 2>&1 | Tee-Object -F
 
 **Remaining open gaps** (§10.5):
 - `PeeGeeQMetrics.updateConnectionPoolMetrics()` is dead code — wire it and add a Micrometer gauge test (blocked on §8.3 / Phase 7.11 implementation)
-- ✅ `ConsumerAlertHandler` test class added 2026-07-09 (`ConsumerAlertHandlerIntegrationTest`, pending run)
+- ✅ `ConsumerAlertHandler` test class added 2026-07-09 (`ConsumerAlertHandlerIntegrationTest`, green)

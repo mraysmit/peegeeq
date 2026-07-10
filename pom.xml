@@ -73,10 +73,11 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <maven.compiler.release>21</maven.compiler.release>
-        <jacoco.skip>false</jacoco.skip>
+        <maven.compiler.source>25</maven.compiler.source>
+        <maven.compiler.target>25</maven.compiler.target>
+        <maven.compiler.release>25</maven.compiler.release>
+        <!-- JaCoCo coverage is OFF by default; opt in with -Pcoverage (or -Djacoco.skip=false) -->
+        <jacoco.skip>true</jacoco.skip>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <vertx.version>5.0.4</vertx.version>
         <postgresql.version>42.7.4</postgresql.version>
@@ -366,7 +367,7 @@
                     <configuration>
                         <toolchains>
                             <jdk>
-                                <version>21</version>
+                                <version>25</version>
                             </jdk>
                         </toolchains>
                     </configuration>
@@ -400,7 +401,7 @@
                 <plugin>
                     <groupId>org.jacoco</groupId>
                     <artifactId>jacoco-maven-plugin</artifactId>
-                    <version>0.8.12</version>
+                    <version>0.8.14</version>
                     <configuration>
                         <skip>${jacoco.skip}</skip>
                     </configuration>
@@ -461,7 +462,7 @@
                         </execution>
                     </executions>
                     <configuration>
-                        <source>21</source>
+                        <source>25</source>
                         <detectJavaApiLink>false</detectJavaApiLink>
                         <quiet>true</quiet>
                         <doclint>none</doclint>
@@ -512,6 +513,14 @@
             mvn test -Pall-tests        -> runs EVERY test (tagged and untagged, every module)
             mvn test -Puntagged-tests   -> safety net: runs only tests with NO known tag
         -->
+
+        <!-- Code Coverage - JaCoCo is OFF by default (jacoco.skip=true); enable with -Pcoverage -->
+        <profile>
+            <id>coverage</id>
+            <properties>
+                <jacoco.skip>false</jacoco.skip>
+            </properties>
+        </profile>
 
         <!-- Integration Tests - With real infrastructure (Testcontainers) -->
         <profile>
