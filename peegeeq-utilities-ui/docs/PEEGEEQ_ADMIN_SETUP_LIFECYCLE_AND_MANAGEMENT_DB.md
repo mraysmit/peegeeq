@@ -253,7 +253,8 @@ credentials, so it can ship before the encryption work lands.**
   per-server setup view surfaces the estate (§8).
 - **Port — peegeeq-utilities-ui:** per the copy-management-ui directive, mirror the reference UI once it
   exists — `setupService.connectExisting(req)` → `POST /api/v1/database-setup/connect`, and a
-  **"Connect to existing setup"** form alongside the current (destructive) Create Setup page.
+  **"Connect to existing setup"** form **replacing** the Create Setup / Create Queue pages —
+  provisioning is **admin-tool-only** (decided 2026-07-10); the utilities UI only targets setups.
 
 ---
 
