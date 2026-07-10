@@ -392,7 +392,7 @@ Setups
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Create Setup — route `/generator/setup/new` (built)
+#### Create Setup — route `/generator/setup/new` (built — **to be removed in Phase S**: provisioning is admin-tool-only; replaced by "Connect to existing setup")
 
 ```
 ← Back
@@ -412,7 +412,7 @@ Create Setup
 └──────────────────────────────────────────────────────────┘
 ```
 
-#### Create Queue — route `/setups/:setupId/queues/new` (built)
+#### Create Queue — route `/setups/:setupId/queues/new` (built — **to be removed in Phase S**: provisioning is admin-tool-only; queues are created in the admin tool)
 
 ```
 ← Back
@@ -632,7 +632,17 @@ Manages the named value lists used by `{{list:name}}` placeholder tokens.
 
 ---
 
-### 6.4 Create Setup page
+> ## ⚠ SCOPE DECISION (2026-07-10) — provisioning is admin-tool-only
+>
+> **Setup and queue provisioning belong to the admin tool (`peegeeq-management-ui`), not this
+> utilities UI.** The generator only *targets* setups; it never creates them. §6.4 (Create Setup)
+> and §6.5 (Queue Management / Create Queue) below are therefore **superseded**: the pages exist in
+> the code today but are scheduled for **removal in Phase S**, replaced by a **"Connect to existing
+> setup"** flow (see PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md). Empty states point the
+> user at connect-to-existing and at the admin tool for provisioning. The sections are retained
+> unedited below for historical context only.
+
+### 6.4 Create Setup page *(superseded — see scope decision above)*
 
 #### Purpose and scope
 
@@ -745,7 +755,7 @@ is rare in dev/test environments.
 
 ---
 
-### 6.5 Queue Management page
+### 6.5 Queue Management page *(superseded — provisioning is admin-tool-only; see scope decision above §6.4)*
 
 #### Purpose and scope
 
