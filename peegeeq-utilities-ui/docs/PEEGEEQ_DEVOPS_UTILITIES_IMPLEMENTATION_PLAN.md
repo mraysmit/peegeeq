@@ -3,10 +3,9 @@
 This plan sequences the **remaining** work for `peegeeq-utilities-ui`. It is derived from two
 documents and should be read alongside them:
 
-- [PEEGEEQ_QUEUE_MESSAGE_GENERATOR_DESIGN.md](PEEGEEQ_QUEUE_MESSAGE_GENERATOR_DESIGN.md) — the feature design
-  (what to build; section references below, e.g. "§6.1", point into it).
-- [PEEGEEQ_TECHNICAL_DESIGN.md](PEEGEEQ_TECHNICAL_DESIGN.md) — the as-built technical design (what exists today;
-  "TD §12" references point into it).
+- [PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md](PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md) — the design document:
+  **Part I** is the functional/feature design ("§6.1" references point into it); **Part II** is the
+  technical design / as-built state ("TD §12" references point into it).
 
 The feature design's own §18 plan is written as build-from-scratch (Phases 1, 1B, 2, 3, 4, 5, 6).
 Phases 1, 1B, and 2 are **already implemented** in the codebase. This plan therefore starts from
@@ -78,7 +77,51 @@ Setup connect / reconnect track (backend-led; independent of the generator track
 Phase S (Setup connect: manual attach)         ── the connectToExistingSetup primitive + UI
       └── Phase R (Durable registry + auto-reload) ── after S; persists bindings, reconnects on boot
              └── Phase M (Management DB: estate control plane) ── after R; org-wide + single-owner leases
+
+Cross-track edges & newly-surfaced prerequisites (details in the next section):
+  M enables ─► T.7 estate telemetry fan-out · G estate target routing · E/A.2 server-aware setup UI
+  Pre-1  Backend connection settings (utilities-ui)     ── reach a chosen backend
+  Pre-2  API-layer re-architecture (copy management-ui) ── gates A, B, C, D, S.5
+  Pre-3  S.2 reconstitution enumeration spike           ── gates S
+  Pre-4  Credential key provisioning (env/KMS)          ── gates R, M
 ```
+
+---
+
+## Cross-track dependencies & newly-surfaced prerequisites
+
+Design work on the setup lifecycle, the management database, and telemetry created dependency edges
+and prerequisites beyond the per-phase lists. Captured here until each is worked into a phase.
+
+### Cross-track edges
+
+- **T ↔ M (telemetry × estate).** The telemetry design assumes a **single backend** (`/sse/metrics`
+  per process, `dbPool` per process). Under the estate model, setups live on **different servers**,
+  so DB-level telemetry (**T.7**, `pg_stat_*` per setup DB) and per-setup stats must **fan out to
+  each setup's own server** — the connections **M** manages. → **T.7 at estate scale depends on M**,
+  and cross-backend telemetry aggregation becomes a new concern.
+- **G ↔ M (generation × estate).** Publishing to a **single-owned** setup routes through its owning
+  backend. Phase **G** target selection assumes one backend → **G at estate scale depends on M** for
+  target/ownership routing.
+- **E/A.2 ↔ M (setup UI × estate).** Overview and `TargetSelector` have no notion of *which
+  server/backend* a setup lives on. Phase **E** (done) and **A.2** predate the estate model →
+  **M implies revisiting** the utilities-ui setup listing to be server-aware.
+
+### Prerequisites (promote to phases when scheduled)
+
+- **Pre-1 — Backend connection settings (utilities-ui).** A backend-URL Settings control (copied from
+  management-ui's `configService.testRestConnection` + Settings page + `ConnectionStatus`) so the UI
+  can target a chosen backend. Needed by connect-to-existing and by the multi-server estate.
+  Independent utilities-ui work; prerequisite for reaching any non-default backend.
+- **Pre-2 — API-layer re-architecture (copy management-ui).** The "Backend integration architecture"
+  section below is a *principle*, not a sequenced phase; A.1 does one slice (createQueue), but the
+  full `endpoints.ts` + `PeeGeeQClient` + RTK adoption is unscheduled — yet **A, B, C, D, and S.5 all
+  sit on that layer**. Decide prerequisite-once vs incremental, and sequence it early.
+- **Pre-3 — S.2 reconstitution spike.** The setup spec flags *"exact enumeration path to confirm."*
+  Phase **S** cannot be built until we confirm **how queues/event-stores are enumerable from the
+  schema**. A prerequisite investigation gating S.
+- **Pre-4 — Credential key provisioning (R/M).** Encryption-at-rest needs a key supplied at backend
+  startup (env / KMS). A deployment/config prerequisite for **R** and **M**, not a code step.
 
 ---
 
@@ -328,7 +371,7 @@ existing global-setup; no extra work is needed for the Playwright steps themselv
 
 *Prerequisite: Phase B. Telemetry-heavy steps additionally require **Phase T** (below).* The
 telemetry each tool needs, and which side measures it, is specified in
-[PEEGEEQ_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_TELEMETRY_REQUIREMENTS.md); the "Telemetry" column
+[PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md); the "Telemetry" column
 tracks that dependency.
 
 | Step | Tool | Telemetry | Reference |
@@ -355,7 +398,7 @@ they need no backend change. G.1b and G.2 land only after Phase T delivers their
 Java change** (like Phase 1B), so validate with `mvn clean test -Pall-tests`. Read
 `docs-design/dev/pgq-coding-principles.md` and the testing-antipatterns doc first; reactive-only, no
 banned patterns; TestContainers integration tests. Full rationale and verified baseline in
-[PEEGEEQ_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_TELEMETRY_REQUIREMENTS.md).
+[PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md).
 
 *Gates:* G.1b (rich breaking-point) and G.2 (native-vs-outbox). **No other phase depends on it** —
 everything in Phases A–G except those two is client-side or uses telemetry that already exists.
@@ -382,9 +425,8 @@ new field against the running backend **before** the UI consumes it (verify-by-r
 # Setup connect / reconnect track (backend-led)
 
 A separate, backend-led track — independent of the generator work above — that closes the
-"connect to an existing setup" gap and builds toward the estate control plane. Specs:
-[PEEGEEQ_CONNECT_EXISTING_SETUP_SPEC.md](PEEGEEQ_CONNECT_EXISTING_SETUP_SPEC.md) and
-[PEEGEEQ_MANAGEMENT_DATABASE_ARCHITECTURE.md](PEEGEEQ_MANAGEMENT_DATABASE_ARCHITECTURE.md). All three
+"connect to an existing setup" gap and builds toward the estate control plane. Spec:
+[PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md](PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md). All three
 phases are multi-module Java changes → the same pre-work + `mvn clean test -Pall-tests` gate as Phase T.
 Ship in order; each is independently useful.
 
@@ -393,15 +435,15 @@ Ship in order; each is independently useful.
 **Goal:** a non-destructive `connectToExistingSetup` primitive so an operator can attach a backend to a
 setup whose database already exists, plus the reference + port UI. No persisted credentials.
 
-*Prerequisite: none (independent backend work).* Spec: connect §4, §5, §7, §8.
+*Prerequisite: none (independent backend work).* Spec: setup-db §4, §5, §12.
 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
-| S.1 | peegeeq-api | Add `DatabaseSetupService.connectToExistingSetup(request)` (same DTO as create) | connect §4 |
-| S.2 | peegeeq-db | Refactor `createCompleteSetup` steps 3–5 into a shared tail; `connect` = **skip destructive steps 1–2**, `validateDatabaseInfrastructure` first, **reconstitute queues/event-stores from the schema**, then the tail | connect §4 |
-| S.3 | peegeeq-rest | `POST /api/v1/database-setup/connect` → `connectToExistingSetup`; delegate in `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` | connect §4/§5 |
-| S.4 | peegeeq-management-ui (reference) | "Connect to Existing" button + modal (same fields), post to `database-setup/connect`, reworded copy | connect §7 |
-| S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form | connect §8 |
+| S.1 | peegeeq-api | Add `DatabaseSetupService.connectToExistingSetup(request)` (same DTO as create) | setup-db §4 |
+| S.2 | peegeeq-db | Refactor `createCompleteSetup` steps 3–5 into a shared tail; `connect` = **skip destructive steps 1–2**, `validateDatabaseInfrastructure` first, **reconstitute queues/event-stores from the schema**, then the tail | setup-db §4 |
+| S.3 | peegeeq-rest | `POST /api/v1/database-setup/connect` → `connectToExistingSetup`; delegate in `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` | setup-db §4/§5 |
+| S.4 | peegeeq-management-ui (reference) | "Connect to Existing" button + modal (same fields), post to `database-setup/connect`, reworded copy | setup-db §12 |
+| S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form | setup-db §12 |
 
 **Verification:** non-destructiveness (publish rows, connect from a fresh instance, assert rows survive);
 reconstitution (pre-existing queues enumerated, not re-supplied); schema-absent → clear `400`.
@@ -410,14 +452,14 @@ reconstitution (pre-existing queues enumerated, not re-supplied); schema-absent 
 
 **Goal:** persist the binding so setups survive a restart and re-establish automatically.
 
-*Prerequisite: Phase S (auto-reload drives `connectToExistingSetup`).* Spec: connect §6; architecture §3, §6.
+*Prerequisite: Phase S (auto-reload drives `connectToExistingSetup`).* Spec: setup-db §6, §8, §11.
 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
-| R.1 | peegeeq-db/rest | Registry store: bindings table (`setupId → server/db/schema/credential`); **credential encrypted at rest**, key supplied at startup | connect §6; arch §6 |
-| R.2 | provision/connect | On `create` **and** `connect`, opt-in persist the binding | connect §6 |
-| R.3 | startup | Read registry → `connectToExistingSetup` per entry; **skip-and-log** failures, never abort startup | connect §6 |
-| R.4 | UI (reference + port) | "Remember this setup" checkbox (sets the persist flag) in the connect modal/form | connect §7 |
+| R.1 | peegeeq-db/rest | Registry store: bindings table (`setupId → server/db/schema/credential`); **credential encrypted at rest**, key supplied at startup | setup-db §6, §11 |
+| R.2 | provision/connect | On `create` **and** `connect`, opt-in persist the binding | setup-db §6 |
+| R.3 | startup | Read registry → `connectToExistingSetup` per entry; **skip-and-log** failures, never abort startup | setup-db §6 |
+| R.4 | UI (reference + port) | "Remember this setup" checkbox (sets the persist flag) in the connect modal/form | setup-db §12 |
 
 **Verification:** persist a binding → restart → setup comes back active with no manual step; a bad entry
 is skipped; credentials are encrypted at rest (no plaintext in the table).
@@ -428,15 +470,15 @@ is skipped; credentials are encrypted at rest (no plaintext in the table).
 servers, with **single-owner** leases and failover.
 
 *Prerequisite: Phase R (generalises the registry to the standalone central DB).* Spec:
-[PEEGEEQ_MANAGEMENT_DATABASE_ARCHITECTURE.md](PEEGEEQ_MANAGEMENT_DATABASE_ARCHITECTURE.md).
+[PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md](PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md).
 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
-| M.1 | schema | Standalone management DB: `servers`, `setups`, `setup_ownership`, `backends` tables | arch §3 |
-| M.2 | bootstrap | Backend connects to the management DB at startup (well-known config) and discovers the estate | arch §2, §4 |
-| M.3 | ownership | **Single-owner** lease: atomic claim / renew / heartbeat; takeover on TTL expiry | arch §5 |
-| M.4 | reconnect fan-out | Auto-reload reads the central registry and connects out to **each setup's own server** | arch §4 |
-| M.5 | peegeeq-management-ui | Server inventory + per-server setup listing; each setup shows its server/host | arch §2 |
+| M.1 | schema | Standalone management DB: `servers`, `setups`, `setup_ownership`, `backends` tables | setup-db §8 |
+| M.2 | bootstrap | Backend connects to the management DB at startup (well-known config) and discovers the estate | setup-db §7, §9 |
+| M.3 | ownership | **Single-owner** lease: atomic claim / renew / heartbeat; takeover on TTL expiry | setup-db §10 |
+| M.4 | reconnect fan-out | Auto-reload reads the central registry and connects out to **each setup's own server** | setup-db §9 |
+| M.5 | peegeeq-management-ui | Server inventory + per-server setup listing; each setup shows its server/host | setup-db §7 |
 
 **Verification:** cross-server reconnect (two separate PG containers, restart, both return active);
 lease takeover on owner death with **no duplicate maintenance jobs** running; `mvn clean test -Pall-tests`.
