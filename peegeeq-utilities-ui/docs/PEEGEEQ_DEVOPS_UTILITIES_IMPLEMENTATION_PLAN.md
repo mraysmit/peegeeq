@@ -22,7 +22,7 @@ the current baseline and covers only what is left, plus the divergences recorded
 | Publication engine (tick loop, auto-stop) | ✅ done, **not UI-wired** | TD §3.1, §7 |
 | Services (setup, queue, publish, template, valueList, config) | ✅ done | TD §3.1, §5 |
 | Stores (generator, template, valueList, utilities) | ✅ done | TD §3.1 |
-| Create Setup / Create Queue pages | ✅ done | TD §3.2 |
+| Create Setup / Create Queue pages | ✅ built — **to be removed in Phase S** (provisioning is admin-tool-only, decided 2026-07-10) | TD §3.2; S.6 |
 | Setups list + Setup detail (queue CRUD, badges) | ✅ done | TD §3.2 |
 | TargetSelector (Zone A) | ✅ done | TD §3.2 |
 | Generator Zones B–E | ❌ stub only | feature §6.1 |
@@ -64,19 +64,20 @@ Provide the commands; the user runs them.
 
 ```
 Phase A (divergence fixes & hardening)     ── independent, ship first
-Phase B (Generator UI: Zones B–E)          ── wires engine + generatorStore
-      ├── Phase C (Template Manager)        ── parallelisable with B
-      └── Phase D (Value List Manager)      ── parallelisable with B, C
-Phase E (Overview redesign)                ── independent
+Phase S (Setup connect: manual attach)     ── backend-led; the connectToExistingSetup primitive + UI
+      │                                       (DECIDED: S lands BEFORE B — setups are provisioned by
+      │                                        the admin tool, NOT by the generator; connecting to an
+      │                                        existing setup is the generator's only path to a target)
+      ├── Phase B (Generator UI: Zones B–E)  ── after S; wires engine + generatorStore
+      │     ├── Phase C (Template Manager)    ── parallelisable with B
+      │     └── Phase D (Value List Manager)  ── parallelisable with B, C
+      └── Phase R (Durable registry + auto-reload) ── after S; persists bindings, reconnects on boot
+             └── Phase M (Management DB: estate control plane) ── after R; org-wide + single-owner leases
+Phase E (Overview redesign)                ── independent (done)
 Phase F (Integration + E2E + screenshots)  ── after B/C/D/E land
 Phase G (Generation tool suite, §19)       ── after B; most tools client-only, no backend
 Phase T (Backend telemetry, peegeeq-db/rest) ── gates only the two telemetry-heavy G tools:
       └─ required by  G.2 (native-vs-outbox)  and  G.1b (rich breaking-point)
-
-Setup connect / reconnect track (backend-led; independent of the generator track):
-Phase S (Setup connect: manual attach)         ── the connectToExistingSetup primitive + UI
-      └── Phase R (Durable registry + auto-reload) ── after S; persists bindings, reconnects on boot
-             └── Phase M (Management DB: estate control plane) ── after R; org-wide + single-owner leases
 
 Cross-track edges & newly-surfaced prerequisites (details in the next section):
   M enables ─► T.7 estate telemetry fan-out · G estate target routing · E/A.2 server-aware setup UI
@@ -235,7 +236,7 @@ foundation the new UI leans on is correct.
 
 | Step | File | Change | Reference |
 |---|---|---|---|
-| A.1 | [queueService.ts](../src/services/queueService.ts) | **createQueue contract mismatch.** utilities-ui posts `POST /setups/{id}/queues {queueName, implementationType}` — a bespoke contract. Replace with management-ui's **verified** contract `POST /management/queues {setup, name, type, ...config}` (field mapping: `name` not `queueName`, `setup` in body not path, `type` not `implementationType`). `deleteQueue` already matches management-ui — leave it, and correct feature §16 + TD §5/§12.3 docs instead. | Backend integration architecture above; TD §12.3 |
+| A.1 | docs only | **Re-scoped (2026-07-10).** The createQueue contract mismatch is **moot**: provisioning is admin-tool-only, so `createSetup`/`createQueue` and their pages are **removed in Phase S (S.6)** rather than fixed. A.1 is now doc-correction only: fix feature §16's wrong delete-queue path (the code's `DELETE /management/queues/...` is the verified-correct one). Do **not** invest in the creation path. | Backend integration architecture above; TD §12.3; S.6 |
 | A.2 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | Switch the Queue dropdown from `getQueues` (names) to `listQueueDetails`, and render a per-queue `native`/`outbox` badge in each option (green/orange, matching `SetupDetailPage`). | feature §6.1; TD §12.4 |
 | A.3 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | Distinguish "queue fetch failed" from "no queues": surface a failure (e.g. `<Alert type="error">` with retry) instead of silently rendering the empty state. | TD §12.6 |
 | A.4 | [generatorStore.ts](../src/stores/generatorStore.ts) + [publicationEngine.ts](../src/engine/publicationEngine.ts) | Decide `currentRate`: either implement a true rolling 1-second window (design intent) or update feature §6.1/§10 to state it is a cumulative average. Keep store and engine consistent. | TD §12.5 |
@@ -254,6 +255,11 @@ badge in the dropdown.
 **Goal:** assemble the full generator so a user can configure a run, preview a message, start and
 stop it, and watch live progress. This is the phase that finally **wires the engine into the UI**
 (TD §7 "Not yet wired"). Corresponds to feature §18 Phase 3.
+
+*Prerequisite: **Phase S** (decided). Setup provisioning belongs to the **admin tool**, not the
+generator — the generator only *targets* setups. Connecting to an existing setup
+(`connectToExistingSetup`) is therefore the generator's only path to a target, so S must land
+before B for Zone A's target list to be real.*
 
 Build in the order below (each is its own component under `src/pages/generator/`), then assemble.
 
@@ -424,8 +430,11 @@ new field against the running backend **before** the UI consumes it (verify-by-r
 
 # Setup connect / reconnect track (backend-led)
 
-A separate, backend-led track — independent of the generator work above — that closes the
-"connect to an existing setup" gap and builds toward the estate control plane. Spec:
+A backend-led track that closes the "connect to an existing setup" gap and builds toward the estate
+control plane. **Phase S is a prerequisite for Phase B** (decided): setup provisioning belongs to
+the admin tool, not the generator — the generator only *targets* setups, so connect-to-existing is
+its only path to a target and S sits on the generator track's critical path. R and M follow S but
+do not block B. Spec:
 [PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md](PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md). All three
 phases are multi-module Java changes → the same pre-work + `mvn clean test -Pall-tests` gate as Phase T.
 Ship in order; each is independently useful.
@@ -443,10 +452,12 @@ setup whose database already exists, plus the reference + port UI. No persisted 
 | S.2 | peegeeq-db | Refactor `createCompleteSetup` steps 3–5 into a shared tail; `connect` = **skip destructive steps 1–2**, `validateDatabaseInfrastructure` first, **reconstitute queues/event-stores from the schema**, then the tail | setup-db §4 |
 | S.3 | peegeeq-rest | `POST /api/v1/database-setup/connect` → `connectToExistingSetup`; delegate in `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` | setup-db §4/§5 |
 | S.4 | peegeeq-management-ui (reference) | "Connect to Existing" button + modal (same fields), post to `database-setup/connect`, reworded copy | setup-db §12 |
-| S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form | setup-db §12 |
+| S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form — **replacing** the Create Setup page, not alongside it | setup-db §12 |
+| S.6 | peegeeq-utilities-ui (removal) | **Provisioning is admin-tool-only (decided 2026-07-10):** remove `CreateSetupPage`, `CreateQueuePage`, their routes, and `setupService.createSetup` / `queueService.createQueue`; remove SetupDetailPage's "Create queue" button; repoint all create CTAs / empty states (TargetSelector, Overview, SetupsPage, SetupDetailPage) at "Connect to existing setup" + a pointer to the admin tool for provisioning; update affected unit/e2e tests and screenshots | design §6.4/§6.5 scope decision |
 
 **Verification:** non-destructiveness (publish rows, connect from a fresh instance, assert rows survive);
-reconstitution (pre-existing queues enumerated, not re-supplied); schema-absent → clear `400`.
+reconstitution (pre-existing queues enumerated, not re-supplied); schema-absent → clear `400`;
+after S.6, no create-setup/create-queue route or service function remains in utilities-ui.
 
 ## Phase R — Durable registry + auto-reload (single backend)
 
