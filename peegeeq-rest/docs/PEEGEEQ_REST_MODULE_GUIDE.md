@@ -407,10 +407,12 @@ ws://host:port/ws/queues/:setupId/:queueName
 | `message` | Queue message delivery |
 | `error` | Error notification |
 
-> **Note:** the admin UI does **not** use the WebSocket queue stream for live message
-> observation — it uses the non-destructive SSE `…/messages/stream` (§5.3). The WS queue-stream
-> handler is a non-consuming stub; WebSocket parity with the non-destructive `tail()` is deferred
-> (optional) and no consuming WS client ships in the management UI.
+> **Note:** `WS /ws/queues/{setupId}/{queueName}` streams messages **non-destructively** — like the
+> SSE stream it observes via `QueueBrowser.tail()` (LISTEN/NOTIFY + browse → plain SELECT) and never
+> `createConsumer`/`subscribe`s. On connect it sends `welcome`, then `subscribed` once the tail is
+> live, then a `data` frame per newly observed message. The management UI itself uses the SSE
+> `…/messages/stream` (§5.3) for live observation; the WS stream provides the same non-destructive
+> push for WS clients (Phase 12.6 parity).
 
 ### 5.5 DeadLetterHandler
 
