@@ -68,15 +68,6 @@
 
     <build>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
-                <configuration>
-                    <release>21</release>
-                </configuration>
-            </plugin>
-
             <!-- Maven Surefire Plugin 3.2.5 for JUnit 5 test execution with tag-based categorization -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
