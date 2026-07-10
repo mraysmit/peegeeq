@@ -1,10 +1,12 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import io.vertx.core.Future;
 import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
@@ -253,35 +255,58 @@ public class WebSocketHandler {
      * Starts streaming messages to the WebSocket connection.
      */
     private void startMessageStreaming(WebSocketConnection connection) {
-        logger.info("Starting message streaming for WebSocket connection: {}", connection.getConnectionId());
+        logger.info("Starting non-destructive message streaming for WebSocket connection: {}",
+                connection.getConnectionId());
 
+        // NON-DESTRUCTIVE by design. The management UI is an admin/observability tool and must never
+        // consume/ack messages just to display them — doing so would steal them from the application's
+        // real consumers. This mirrors the SSE stream (ServerSentEventsHandler.handleQueueMessageStream):
+        // it opens a QueueBrowser.tail() (LISTEN/NOTIFY + browse → plain SELECT) and pushes each newly
+        // observed message. It NEVER calls createConsumer/subscribe.
         setupService.getSetupResult(connection.getSetupId())
-                .onSuccess(setupResult -> {
+                .compose(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
-                        sendErrorMessage(connection, "Setup " + connection.getSetupId() + " is not active");
-                        return;
+                        return Future.<QueueBrowser<Object>>failedFuture(
+                                new IllegalStateException("Setup " + connection.getSetupId() + " is not active"));
                     }
-
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(connection.getQueueName());
                     if (queueFactory == null) {
-                        sendErrorMessage(connection, "Queue " + connection.getQueueName() + " not found in setup "
-                                + connection.getSetupId());
-                        return;
+                        return Future.<QueueBrowser<Object>>failedFuture(new IllegalArgumentException(
+                                "Queue " + connection.getQueueName() + " not found in setup " + connection.getSetupId()));
                     }
-
-                    // Intentionally NON-CONSUMING. The management UI is an admin/observability tool
-                    // and must never consume/ack messages just to display them — doing so would steal
-                    // them from the application's real consumers. So NO consumer is created here. Admin
-                    // live views use the non-destructive browse endpoint
-                    // (GET /queues/{s}/{q}/messages → createBrowser().browse()), browse-polled by the
-                    // client (see QueueDetailsEnhanced.tsx / MessageBrowser.tsx). A future real-time
-                    // non-destructive tail must be built on LISTEN/NOTIFY + browse — never
-                    // createConsumer/subscribe.
-                    logger.info("WebSocket queue stream connected (non-consuming) for {} on {}/{}",
-                            connection.getConnectionId(), connection.getSetupId(), connection.getQueueName());
+                    return queueFactory.createBrowser(connection.getQueueName(), Object.class);
+                })
+                .compose(browser -> {
+                    // If the client already disconnected, release the browser and stop.
+                    if (connection.getWebSocket().isClosed()) {
+                        try { browser.close(); }
+                        catch (Exception e) {
+                            logger.warn("Error closing tail browser for {}: {}",
+                                    connection.getConnectionId(), e.getMessage());
+                        }
+                        return Future.<Void>succeededFuture();
+                    }
+                    connection.setBrowser(browser);  // closed by WebSocketConnection.cleanup() on disconnect
+                    // Live observe: tail pushes each new message; it never consumes/acks.
+                    return browser.tail(message -> {
+                        connection.sendDataMessage(
+                                message.getPayload(), String.valueOf(message.getId()), null, null);
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> {
+                    connection.setSubscribed(true);
+                    logger.info("WebSocket queue stream {} observing queue '{}' (non-destructive tail established)",
+                            connection.getConnectionId(), connection.getQueueName());
+                    JsonObject subscribed = new JsonObject()
+                            .put("type", "subscribed")
+                            .put("connectionId", connection.getConnectionId())
+                            .put("queueName", connection.getQueueName())
+                            .put("timestamp", System.currentTimeMillis());
+                    connection.getWebSocket().writeTextMessage(subscribed.encode());
                 })
                 .onFailure(throwable -> {
-                    logger.error("Error setting up message streaming for connection {}: {}",
+                    logger.error("Error setting up non-destructive message streaming for connection {}: {}",
                             connection.getConnectionId(), throwable.getMessage(), throwable);
                     sendErrorMessage(connection, "Failed to setup message streaming: " + throwable.getMessage());
                 });

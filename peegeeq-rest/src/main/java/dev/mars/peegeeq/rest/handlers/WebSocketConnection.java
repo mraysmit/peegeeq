@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.rest.handlers;
 
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.QueueBrowser;
 import io.vertx.core.http.ServerWebSocket;
 import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
@@ -36,8 +37,11 @@ public class WebSocketConnection {
     private int batchSize = 1;
     private long maxWaitTime = 5000L; // 5 seconds default
     
-    // Message consumer
+    // Message consumer (legacy — not used by the non-destructive tail path)
     private MessageConsumer<Object> consumer;
+
+    // Non-destructive live observer (QueueBrowser.tail()). Never consumes/acks messages.
+    private QueueBrowser<Object> browser;
     
     // Statistics
     private volatile long messagesReceived = 0;
@@ -217,6 +221,17 @@ public class WebSocketConnection {
             }
             consumer = null;
         }
+
+        // Close the non-destructive tail observer if it exists (stops observing; consumes nothing)
+        if (browser != null) {
+            try {
+                browser.close();
+                logger.debug("Closed tail browser for connection: {}", connectionId);
+            } catch (Exception e) {
+                logger.warn("Error closing tail browser for connection {}: {}", connectionId, e.getMessage());
+            }
+            browser = null;
+        }
         
         // Close WebSocket if still open
         if (!webSocket.isClosed()) {
@@ -321,9 +336,17 @@ public class WebSocketConnection {
     public MessageConsumer<Object> getConsumer() {
         return consumer;
     }
-    
+
     public void setConsumer(MessageConsumer<Object> consumer) {
         this.consumer = consumer;
+    }
+
+    public QueueBrowser<Object> getBrowser() {
+        return browser;
+    }
+
+    public void setBrowser(QueueBrowser<Object> browser) {
+        this.browser = browser;
     }
     
     public long getMessagesReceived() {
