@@ -72,7 +72,7 @@ describe('generatorStore', () => {
     expect(useGeneratorStore.getState().runState.status).toBe('idle')
   })
 
-  it('tickUpdate refreshes counters and computes currentRate', () => {
+  it('tickUpdate refreshes counters and computes currentRate (cumulative fallback on first tick)', () => {
     useGeneratorStore.getState().setConfig(makeConfig())
     useGeneratorStore.getState().startRun()
 
@@ -84,6 +84,34 @@ describe('generatorStore', () => {
     expect(runState.elapsedMs).toBe(2000)
     expect(runState.consecErrors).toBe(0)
     expect(runState.currentRate).toBeCloseTo(10, 5)
+  })
+
+  it('currentRate is a rolling window, not a cumulative average (§6.1 Zone E)', () => {
+    useGeneratorStore.getState().setConfig(makeConfig())
+    useGeneratorStore.getState().startRun()
+
+    // Slow first 2 s (20 msgs), then a fast 0.5 s burst (20 more msgs).
+    useGeneratorStore.getState().tickUpdate(20, [], 0, 2000)
+    useGeneratorStore.getState().tickUpdate(40, [], 0, 2500)
+
+    // Rolling window: (40 - 20) msgs over 500 ms = 40 msg/s.
+    // A cumulative average would report 40 / 2.5 = 16 msg/s.
+    expect(useGeneratorStore.getState().runState.currentRate).toBeCloseTo(40, 5)
+  })
+
+  it('rolling-rate samples reset between runs', () => {
+    useGeneratorStore.getState().setConfig(makeConfig())
+    useGeneratorStore.getState().startRun()
+    useGeneratorStore.getState().tickUpdate(20, [], 0, 2000)
+    useGeneratorStore.getState().resetRun()
+
+    useGeneratorStore.getState().setConfig(makeConfig())
+    useGeneratorStore.getState().startRun()
+    useGeneratorStore.getState().tickUpdate(5, [], 0, 1000)
+
+    // First tick of the new run falls back to its own cumulative average (5 msg/s);
+    // a stale sample from the previous run would distort this.
+    expect(useGeneratorStore.getState().runState.currentRate).toBeCloseTo(5, 5)
   })
 
   it('transitionTo sets a terminal status and optional autoStopReason', () => {
