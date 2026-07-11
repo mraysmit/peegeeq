@@ -2,9 +2,10 @@
  * Tests for TargetSelector component.
  *
  * Covers: loading, empty state (no setups), no-queues state, populated dropdowns,
- * Create Setup navigation, error display, and onTargetSelected callback.
+ * Create Setup navigation, error display (setups and queues), and the
+ * onTargetSelected callback.
  *
- * Network calls (getSetups, getQueues) are intercepted via vi.mock.
+ * Network calls (getSetups, listQueueDetails) are intercepted via vi.mock.
  * useNavigate is mocked — navigation is verified by checking the mock was called.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -16,7 +17,10 @@ import TargetSelector from '../../components/TargetSelector'
 
 vi.mock('../../services/setupService', () => ({
   getSetups: vi.fn(),
-  getQueues: vi.fn(),
+}))
+
+vi.mock('../../services/queueService', () => ({
+  listQueueDetails: vi.fn(),
 }))
 
 const mockNavigate = vi.fn()
@@ -25,9 +29,10 @@ vi.mock('react-router-dom', async (importOriginal) => {
   return { ...actual, useNavigate: () => mockNavigate }
 })
 
-import { getSetups, getQueues } from '../../services/setupService'
+import { getSetups } from '../../services/setupService'
+import { listQueueDetails } from '../../services/queueService'
 const mockedGetSetups = vi.mocked(getSetups)
-const mockedGetQueues = vi.mocked(getQueues)
+const mockedListQueueDetails = vi.mocked(listQueueDetails)
 
 function renderSelector(
   onTargetSelected = vi.fn<(setupId: string, queueName: string) => void>()
@@ -76,7 +81,7 @@ describe('TargetSelector', () => {
 
   it('shows no-queues alert with Setups page link when setup exists but has no queues', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce([])
+    mockedListQueueDetails.mockResolvedValueOnce([])
     renderSelector()
     await waitFor(() => {
       expect(screen.getByText(/No queues found for this setup/i)).toBeTruthy()
@@ -86,7 +91,7 @@ describe('TargetSelector', () => {
 
   it('does not show dropdowns in no-queues state', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce([])
+    mockedListQueueDetails.mockResolvedValueOnce([])
     renderSelector()
     await waitFor(() => screen.getByText(/No queues found for this setup/i))
     expect(screen.queryByRole('combobox')).toBeNull()
@@ -96,25 +101,43 @@ describe('TargetSelector', () => {
 
   it('shows setup and queue dropdowns when setups and queues exist', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce(['orders'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
     renderSelector()
     await waitFor(() => {
       expect(screen.getAllByRole('combobox').length).toBe(2)
     })
   })
 
-  it('auto-selects first setup and loads its queues', async () => {
+  it('auto-selects first setup and loads its queue details', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
-    mockedGetQueues.mockResolvedValueOnce(['orders'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
     renderSelector()
     await waitFor(() => {
-      expect(mockedGetQueues).toHaveBeenCalledWith('setup-a')
+      expect(mockedListQueueDetails).toHaveBeenCalledWith('setup-a')
+    })
+  })
+
+  it('shows the queue implementation type as plain text in the selected queue label', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
+    renderSelector()
+    await waitFor(() => {
+      expect(screen.getByText('orders (native)')).toBeTruthy()
+    })
+  })
+
+  it('shows the bare queue name when the implementation type is unknown', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: null }])
+    renderSelector()
+    await waitFor(() => {
+      expect(screen.getByText('orders')).toBeTruthy()
     })
   })
 
   it('shows "Manage queues →" link in normal state', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce(['orders'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
     renderSelector()
     await waitFor(() => {
       expect(screen.getByText(/Manage queues/i)).toBeTruthy()
@@ -123,13 +146,13 @@ describe('TargetSelector', () => {
 
   it('does not show a "+ New queue" button', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce(['orders'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
     renderSelector()
     await waitFor(() => screen.getAllByRole('combobox'))
     expect(screen.queryByText(/\+ New queue/i)).toBeNull()
   })
 
-  // ── Error state ───────────────────────────────────────────────────────────
+  // ── Error states ──────────────────────────────────────────────────────────
 
   it('shows error alert when getSetups fails', async () => {
     mockedGetSetups.mockRejectedValueOnce(new Error('network error'))
@@ -137,6 +160,33 @@ describe('TargetSelector', () => {
     await waitFor(() => {
       expect(screen.getByText(/Failed to load setups/i)).toBeTruthy()
     })
+  })
+
+  it('shows a queue-load error alert (not the no-queues state) when listQueueDetails fails', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockRejectedValueOnce(new Error('queues unavailable'))
+    renderSelector()
+    await waitFor(() => {
+      expect(screen.getByTestId('queue-load-error')).toBeTruthy()
+    })
+    expect(screen.getByText(/Failed to load queues for this setup/i)).toBeTruthy()
+    expect(screen.queryByText(/No queues found for this setup/i)).toBeNull()
+  })
+
+  it('retries queue loading from the queue-load error alert', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails
+      .mockRejectedValueOnce(new Error('queues unavailable'))
+      .mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
+    renderSelector()
+    await waitFor(() => screen.getByTestId('queue-load-error'))
+
+    await userEvent.click(screen.getByRole('button', { name: /Retry/i }))
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('combobox').length).toBe(2)
+    })
+    expect(mockedListQueueDetails).toHaveBeenCalledTimes(2)
   })
 
   // ── Create Setup navigation ───────────────────────────────────────────────
@@ -151,9 +201,9 @@ describe('TargetSelector', () => {
 
   // ── onTargetSelected callback ─────────────────────────────────────────────
 
-  it('calls onTargetSelected when both setup and queue are selected', async () => {
+  it('calls onTargetSelected with the queue NAME (not the display label)', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce(['orders'])
+    mockedListQueueDetails.mockResolvedValueOnce([{ name: 'orders', implementationType: 'native' }])
     const onTargetSelected = vi.fn()
     renderSelector(onTargetSelected)
 
@@ -164,19 +214,9 @@ describe('TargetSelector', () => {
 
   // ── Resilience ───────────────────────────────────────────────────────────────
 
-  it('shows no-queues state when getQueues rejects rather than showing an error banner', async () => {
-    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockRejectedValueOnce(new Error('queues unavailable'))
-    renderSelector()
-    await waitFor(() => {
-      expect(screen.getByText(/No queues found for this setup/i)).toBeTruthy()
-    })
-    expect(screen.queryByText(/queues unavailable/i)).toBeNull()
-  })
-
   it('no-queues alert link href points to the selected setup', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce([])
+    mockedListQueueDetails.mockResolvedValueOnce([])
     renderSelector()
     await waitFor(() => screen.getByRole('link', { name: /Setups page/i }))
     const link = screen.getByRole('link', { name: /Setups page/i })
@@ -185,10 +225,19 @@ describe('TargetSelector', () => {
 
   it('does not call onTargetSelected when the selected setup has no queues', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
-    mockedGetQueues.mockResolvedValueOnce([])
+    mockedListQueueDetails.mockResolvedValueOnce([])
     const onTargetSelected = vi.fn()
     renderSelector(onTargetSelected)
     await waitFor(() => screen.getByText(/No queues found for this setup/i))
+    expect(onTargetSelected).not.toHaveBeenCalled()
+  })
+
+  it('does not call onTargetSelected when queue loading fails', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockRejectedValueOnce(new Error('queues unavailable'))
+    const onTargetSelected = vi.fn()
+    renderSelector(onTargetSelected)
+    await waitFor(() => screen.getByTestId('queue-load-error'))
     expect(onTargetSelected).not.toHaveBeenCalled()
   })
 })

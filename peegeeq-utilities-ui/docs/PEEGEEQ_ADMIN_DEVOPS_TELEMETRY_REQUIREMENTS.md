@@ -1,5 +1,9 @@
 # peegeeq-utilities-ui — Telemetry Requirements
 
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Created**: 2026-07-05  
+**Version**: 1.0  
+
 What instrumentation, metering, and telemetry PeeGeeQ must provide for the utilities-ui tools —
 the Message Generator (§6.1, §7) and the Generation Tool Suite (§19) in
 [PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md](PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md).

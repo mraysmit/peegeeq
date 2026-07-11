@@ -1,7 +1,9 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Alert, Button, Select, Spin, Space, Typography } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
-import { getSetups, getQueues } from '../services/setupService'
+import { getSetups } from '../services/setupService'
+import { listQueueDetails } from '../services/queueService'
+import type { QueueSummary } from '../types/queue'
 
 const { Text } = Typography
 
@@ -16,8 +18,9 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
 
   const [setups, setSetups] = useState<string[]>([])
   const [selectedSetup, setSelectedSetup] = useState<string | null>(null)
-  const [queues, setQueues] = useState<string[]>([])
+  const [queues, setQueues] = useState<QueueSummary[]>([])
   const [selectedQueue, setSelectedQueue] = useState<string | null>(null)
+  const [queueLoadError, setQueueLoadError] = useState<string | null>(null)
 
   const loadSetups = useCallback(async () => {
     setLoading(true)
@@ -42,17 +45,21 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
   }, [loadSetups])
 
   const loadQueues = useCallback(async (setupId: string) => {
+    setQueueLoadError(null)
     try {
-      const names = await getQueues(setupId)
-      setQueues(names)
-      if (names.length > 0) {
-        setSelectedQueue(names[0])
+      const summaries = await listQueueDetails(setupId)
+      setQueues(summaries)
+      if (summaries.length > 0) {
+        setSelectedQueue(summaries[0].name)
       } else {
         setSelectedQueue(null)
       }
     } catch {
+      // Surface the failure — an unreachable backend must not masquerade as an
+      // empty setup (no-error-swallowing rule).
       setQueues([])
       setSelectedQueue(null)
+      setQueueLoadError('Failed to load queues for this setup. Please check your connection.')
     }
   }, [])
 
@@ -62,6 +69,7 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
     } else {
       setQueues([])
       setSelectedQueue(null)
+      setQueueLoadError(null)
     }
   }, [selectedSetup, loadQueues])
 
@@ -121,6 +129,23 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
     )
   }
 
+  // Queue-load failure — distinct from a legitimately empty setup
+  if (queueLoadError) {
+    return (
+      <Alert
+        type="error"
+        message={queueLoadError}
+        showIcon
+        data-testid="queue-load-error"
+        action={
+          <Button size="small" onClick={() => selectedSetup && loadQueues(selectedSetup)}>
+            Retry
+          </Button>
+        }
+      />
+    )
+  }
+
   // No-queues state — setup selected but no queues yet
   if (queues.length === 0) {
     return (
@@ -163,7 +188,10 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
           aria-label="Queue"
           value={selectedQueue ?? undefined}
           onChange={handleQueueChange}
-          options={queues.map((q) => ({ value: q, label: q }))}
+          options={queues.map((q) => ({
+            value: q.name,
+            label: q.implementationType ? `${q.name} (${q.implementationType})` : q.name,
+          }))}
           style={{ minWidth: 160 }}
         />
         <Link to={selectedSetup ? `/setups/${selectedSetup}` : '/setups'}>Manage queues →</Link>
