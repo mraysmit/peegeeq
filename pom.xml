@@ -486,12 +486,12 @@
         </pluginManagement>
 
         <plugins>
-            <!-- Use Java 21 toolchain for all builds -->
+            <!-- Use Java 25 toolchain for all builds -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-toolchains-plugin</artifactId>
             </plugin>
-            <!-- Enforce Java 21 for all builds -->
+            <!-- Enforce Java 25 for all builds -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>

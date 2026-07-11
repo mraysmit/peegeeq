@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
 import { Layout, Menu, Typography, Space } from 'antd'
 import { ToolOutlined, HomeOutlined, ThunderboltOutlined, FileTextOutlined, UnorderedListOutlined, DatabaseOutlined } from '@ant-design/icons'
@@ -15,11 +15,23 @@ const { Content, Sider } = Layout
 function MessageGeneratorPage() {
   const [target, setTarget] = useState<{ setupId: string; queueName: string } | null>(null)
 
+  // Stable identity + reference-preserving update. An inline callback here has a
+  // new identity every render; TargetSelector's notify-effect depends on it, so an
+  // inline version re-fires the effect after every setTarget → infinite re-render
+  // loop ("Maximum update depth exceeded") once a target is selected.
+  const handleTargetSelected = useCallback((setupId: string, queueName: string) => {
+    setTarget((prev) =>
+      prev && prev.setupId === setupId && prev.queueName === queueName
+        ? prev
+        : { setupId, queueName }
+    )
+  }, [])
+
   return (
     <Space direction="vertical" style={{ width: '100%' }} data-testid="generator-page">
       <Title level={3}>Queue Message Generator</Title>
       <div data-testid="zone-a">
-        <TargetSelector onTargetSelected={(setupId, queueName) => setTarget({ setupId, queueName })} />
+        <TargetSelector onTargetSelected={handleTargetSelected} />
       </div>
       {target && (
         <div data-testid="generator-workspace">
