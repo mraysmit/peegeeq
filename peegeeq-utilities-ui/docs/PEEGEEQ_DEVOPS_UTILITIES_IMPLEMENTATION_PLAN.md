@@ -1,5 +1,9 @@
 # peegeeq-utilities-ui — Implementation Plan
 
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Created**: 2026-07-05  
+**Version**: 1.0  
+
 This plan sequences the **remaining** work for `peegeeq-utilities-ui`. It is derived from two
 documents and should be read alongside them:
 
@@ -22,7 +26,7 @@ the current baseline and covers only what is left, plus the divergences recorded
 | Publication engine (tick loop, auto-stop) | ✅ done, **not UI-wired** | TD §3.1, §7 |
 | Services (setup, queue, publish, template, valueList, config) | ✅ done | TD §3.1, §5 |
 | Stores (generator, template, valueList, utilities) | ✅ done | TD §3.1 |
-| Create Setup / Create Queue pages | ✅ built — **to be removed in Phase S** (provisioning is admin-tool-only, decided 2026-07-10) | TD §3.2; S.6 |
+| Create Setup / Create Queue pages | ✅ built — **to be removed in Phase S** (provisioning is admin-tool-only) | TD §3.2; S.6 |
 | Setups list + Setup detail (queue CRUD, badges) | ✅ done | TD §3.2 |
 | TargetSelector (Zone A) | ✅ done | TD §3.2 |
 | Generator Zones B–E | ❌ stub only | feature §6.1 |
@@ -118,11 +122,25 @@ and prerequisites beyond the per-phase lists. Captured here until each is worked
   section below is a *principle*, not a sequenced phase; A.1 does one slice (createQueue), but the
   full `endpoints.ts` + `PeeGeeQClient` + RTK adoption is unscheduled — yet **A, B, C, D, and S.5 all
   sit on that layer**. Decide prerequisite-once vs incremental, and sequence it early.
-- **Pre-3 — S.2 reconstitution spike.** The setup spec flags *"exact enumeration path to confirm."*
-  Phase **S** cannot be built until we confirm **how queues/event-stores are enumerable from the
-  schema**. A prerequisite investigation gating S.
-- **Pre-4 — Credential key provisioning (R/M).** Encryption-at-rest needs a key supplied at backend
-  startup (env / KMS). A deployment/config prerequisite for **R** and **M**, not a code step.
+- **Pre-3 — S.2 reconstitution spike. DONE — findings (see setup-db §2, §4):** a queue's artifact is a
+  per-queue table `"{queueName}" (LIKE queue_template INCLUDING ALL)`, but that table is an **inert
+  marker** — native/outbox route through the shared `queue_messages` / `outbox` tables by `topic`, so a
+  native and an outbox queue produce **byte-identical DDL** and **neither `implementationType` nor the
+  full `QueueConfig` is recoverable** from the schema; `setupId` is likewise in-memory only.
+  **Consequence for S.2:** two per-schema tables written transactionally at creation —
+  `peegeeq_object_registry` (`object_name`, `kind`, `config`, `created_at`) and single-row
+  `peegeeq_setup_metadata` (`setup_id`, `schema_name`, `schema_version`, `created_at`) — after which
+  `connectToExistingSetup` reconstitutes from the tables (exact `kind` + config), not by inferring from
+  schema shapes. *(Supersedes the earlier single `peegeeq_queue_registry` sketch.)*
+- **Pre-4 — Credential handling (R/M).** PeeGeeQ stores **no password** — the registry holds connection
+  coordinates + an opaque `credential_ref`; resolution is a pluggable `CredentialProvider` (core default =
+  supplied-at-connect; adopters bring their own store). Open-source: no vault bundled or assumed. No
+  encryption key to provision. Spec: setup-db §11.
+- **Pre-5 — Correctness/safety bugs (prerequisites).** Defects found during the spike, each static-only
+  and to be **runtime-reproduced before fixing** (see setup-db Appendix A, W-P): destructive `create` on
+  name collision (§13/W-G, **critical**); silent partial setup (`createQueueFactories` continues on a
+  factory failure → setup ACTIVE with queues missing); `pg_notify` failure swallowed; no polling fallback
+  in `LISTEN_NOTIFY_ONLY`. Should clear ahead of feature work.
 
 ---
 
@@ -213,7 +231,7 @@ management-ui's proven layer, copied file-for-file with only path/origin edits:
 | `src/api/types.ts` | Request/response DTOs matching the backend |
 | `src/store/api/*.ts` (RTK Query) | `dynamicBaseQuery` + `transformResponse` (maps backend field names → UI shape) + response validation |
 
-### Verified backend contracts (probed against the live backend 2026-07-05)
+### Verified backend contracts (probed against the live backend)
 
 | Operation | Method + path | Body / notes |
 |---|---|---|
@@ -236,7 +254,7 @@ foundation the new UI leans on is correct.
 
 | Step | File | Change | Reference |
 |---|---|---|---|
-| A.1 | docs only | **Re-scoped (2026-07-10).** The createQueue contract mismatch is **moot**: provisioning is admin-tool-only, so `createSetup`/`createQueue` and their pages are **removed in Phase S (S.6)** rather than fixed. A.1 is now doc-correction only: fix feature §16's wrong delete-queue path (the code's `DELETE /management/queues/...` is the verified-correct one). Do **not** invest in the creation path. | Backend integration architecture above; TD §12.3; S.6 |
+| A.1 | docs only | **Re-scoped.** The createQueue contract mismatch is **moot**: provisioning is admin-tool-only, so `createSetup`/`createQueue` and their pages are **removed in Phase S (S.6)** rather than fixed. A.1 is now doc-correction only: fix feature §16's wrong delete-queue path (the code's `DELETE /management/queues/...` is the verified-correct one). Do **not** invest in the creation path. | Backend integration architecture above; TD §12.3; S.6 |
 | A.2 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | Switch the Queue dropdown from `getQueues` (names) to `listQueueDetails`, and render a per-queue `native`/`outbox` badge in each option (green/orange, matching `SetupDetailPage`). | feature §6.1; TD §12.4 |
 | A.3 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | Distinguish "queue fetch failed" from "no queues": surface a failure (e.g. `<Alert type="error">` with retry) instead of silently rendering the empty state. | TD §12.6 |
 | A.4 | [generatorStore.ts](../src/stores/generatorStore.ts) + [publicationEngine.ts](../src/engine/publicationEngine.ts) | Decide `currentRate`: either implement a true rolling 1-second window (design intent) or update feature §6.1/§10 to state it is a cumulative average. Keep store and engine consistent. | TD §12.5 |
@@ -444,19 +462,22 @@ Ship in order; each is independently useful.
 **Goal:** a non-destructive `connectToExistingSetup` primitive so an operator can attach a backend to a
 setup whose database already exists, plus the reference + port UI. No persisted credentials.
 
-*Prerequisite: none (independent backend work).* Spec: setup-db §4, §5, §12.
+*Prerequisite: none (independent backend work).* Spec: setup-db §4, §5, §12, §13.
 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
+| S.0 | peegeeq-api/db/rest | **Non-destructive `create` guard (P0/W-G):** add `overwrite` flag (default `false`); refuse + `409` **before any drop** when the DB exists; force-drop only under `overwrite` (WARN, not INFO) | setup-db §13 |
 | S.1 | peegeeq-api | Add `DatabaseSetupService.connectToExistingSetup(request)` (same DTO as create) | setup-db §4 |
-| S.2 | peegeeq-db | Refactor `createCompleteSetup` steps 3–5 into a shared tail; `connect` = **skip destructive steps 1–2**, `validateDatabaseInfrastructure` first, **reconstitute queues/event-stores from the schema**, then the tail | setup-db §4 |
+| S.2a | peegeeq-db | Create per-schema `peegeeq_object_registry` + `peegeeq_setup_metadata`; write them transactionally on provisioning + `addQueue` / `addEventStore` (self-describing setup) | setup-db §4 |
+| S.2 | peegeeq-db | Refactor `createCompleteSetup` steps 3–5 into a shared tail; `connect` = **skip destructive steps 1–2**, `validateDatabaseInfrastructure` first, **reconstitute queues/event-stores from the registry tables (S.2a)** — exact `kind` + config, not inferred from schema — then the tail | setup-db §4 |
 | S.3 | peegeeq-rest | `POST /api/v1/database-setup/connect` → `connectToExistingSetup`; delegate in `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` | setup-db §4/§5 |
 | S.4 | peegeeq-management-ui (reference) | "Connect to Existing" button + modal (same fields), post to `database-setup/connect`, reworded copy | setup-db §12 |
 | S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form — **replacing** the Create Setup page, not alongside it | setup-db §12 |
-| S.6 | peegeeq-utilities-ui (removal) | **Provisioning is admin-tool-only (decided 2026-07-10):** remove `CreateSetupPage`, `CreateQueuePage`, their routes, and `setupService.createSetup` / `queueService.createQueue`; remove SetupDetailPage's "Create queue" button; repoint all create CTAs / empty states (TargetSelector, Overview, SetupsPage, SetupDetailPage) at "Connect to existing setup" + a pointer to the admin tool for provisioning; update affected unit/e2e tests and screenshots | design §6.4/§6.5 scope decision |
+| S.6 | peegeeq-utilities-ui (removal) | **Provisioning is admin-tool-only:** remove `CreateSetupPage`, `CreateQueuePage`, their routes, and `setupService.createSetup` / `queueService.createQueue`; remove SetupDetailPage's "Create queue" button; repoint all create CTAs / empty states (TargetSelector, Overview, SetupsPage, SetupDetailPage) at "Connect to existing setup" + a pointer to the admin tool for provisioning; update affected unit/e2e tests and screenshots | design §6.4/§6.5 scope decision |
 
 **Verification:** non-destructiveness (publish rows, connect from a fresh instance, assert rows survive);
-reconstitution (pre-existing queues enumerated, not re-supplied); schema-absent → clear `400`;
+reconstitution (pre-existing queues enumerated with correct `kind` + config, not re-supplied);
+schema-absent → clear `400`; **`create` on an existing DB → `409`, data intact unless `overwrite=true`**;
 after S.6, no create-setup/create-queue route or service function remains in utilities-ui.
 
 ## Phase R — Durable registry + auto-reload (single backend)
@@ -467,13 +488,13 @@ after S.6, no create-setup/create-queue route or service function remains in uti
 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
-| R.1 | peegeeq-db/rest | Registry store: bindings table (`setupId → server/db/schema/credential`); **credential encrypted at rest**, key supplied at startup | setup-db §6, §11 |
+| R.1 | peegeeq-db/rest | Registry store: bindings table (`setupId → server/db/schema/username/credential_ref`); **no password stored** — resolution via `CredentialProvider` (Pre-4) | setup-db §6, §11 |
 | R.2 | provision/connect | On `create` **and** `connect`, opt-in persist the binding | setup-db §6 |
 | R.3 | startup | Read registry → `connectToExistingSetup` per entry; **skip-and-log** failures, never abort startup | setup-db §6 |
 | R.4 | UI (reference + port) | "Remember this setup" checkbox (sets the persist flag) in the connect modal/form | setup-db §12 |
 
 **Verification:** persist a binding → restart → setup comes back active with no manual step; a bad entry
-is skipped; credentials are encrypted at rest (no plaintext in the table).
+is skipped; **no password is stored** — the registry holds coordinates + `credential_ref` only.
 
 ## Phase M — Management database (estate control plane)
 

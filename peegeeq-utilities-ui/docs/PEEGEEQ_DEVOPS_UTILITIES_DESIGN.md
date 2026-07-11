@@ -1,5 +1,9 @@
 # Queue Message Generator — Feature Design
 
+**Author**: Mark Andrew Ray-Smith Cityline Ltd  
+**Created**: 2026-05-31  
+**Version**: 1.0  
+
 ## 1. Overview
 
 The Queue Message Generator is the first major feature of `peegeeq-utilities-ui`. It provides
@@ -1482,7 +1486,7 @@ Two new sidebar entries added to `App.tsx`:
 | List queues for setup  | GET    | `/api/v1/setups/{setupId}/queues`  *(enriched with `queueDetails[]` — §6.5)* |
 | Create setup           | POST   | `/api/v1/database-setup/create`  *(Create Setup page — §6.4)*    |
 | Create queue           | POST   | `/api/v1/setups/{setupId}/queues`  *(Queue Management — §6.5; carries `implementationType`)* |
-| Delete queue           | DELETE | `/api/v1/setups/{setupId}/queues/{queueName}`  *(Queue Management — §6.5)* |
+| Delete queue           | DELETE | `/api/v1/management/queues/{setupId}/{queueName}`  *(verified against the live backend 2026-07-05 — the previously documented `/setups/{setupId}/queues/{queueName}` returns 404)* |
 | Publish single message | POST   | `/api/v1/queues/{setupId}/{queueName}/messages`                   |
 | Publish batch          | POST   | `/api/v1/queues/{setupId}/{queueName}/messages/batch`             |
 
@@ -2515,19 +2519,22 @@ this section records them so they are not lost.
    directive to copy management-ui precisely, createQueue should be switched to the management-ui
    contract (see IMPLEMENTATION_PLAN "Backend integration architecture").
 
-4. **Queue dropdown lacks a type badge.** Design §6.1 wants the generator's Queue dropdown to
-   show each queue's `native`/`outbox` badge. [TargetSelector](../src/components/TargetSelector.tsx)
-   uses `getQueues` (names only) and renders plain labels. The richer `listQueueDetails`
-   (with `queueDetails[]`) exists but is only consumed by `SetupDetailPage`.
+4. **Queue dropdown type — RESOLVED (2026-07-10, Phase A.2).**
+   [TargetSelector](../src/components/TargetSelector.tsx) now loads the queue dropdown via
+   `listQueueDetails` and shows each queue's implementation type as **plain text** in the option
+   label (`orders (native)`) — plain text, not a badge, per the no-badges decision. The
+   `onTargetSelected` callback still passes the bare queue name.
 
-5. **`currentRate` is a cumulative average, not a rolling window.** Design §6.1/§10 call it a
-   "rolling 1-second window"; both [generatorStore.tickUpdate](../src/stores/generatorStore.ts)
-   and the engine's `buildSummary` compute `sent / elapsedSeconds`.
+5. **`currentRate` — RESOLVED (2026-07-10, Phase A.4).**
+   [generatorStore.tickUpdate](../src/stores/generatorStore.ts) now computes a true rolling
+   1-second window (per-run tick samples held in the store closure; cumulative-average fallback on
+   the first tick), matching design §6.1/§10. The engine's `buildSummary.avgRate` remains a
+   cumulative average by design — it is the *average* rate of the summary.
 
-6. **Silent error path in queue loading.** [TargetSelector.loadQueues](../src/components/TargetSelector.tsx)
-   catches a fetch failure and resets to an empty queue list with no surfaced message, so a real
-   failure is indistinguishable from a legitimately empty setup. Given the project's
-   no-error-swallowing rule this is a smell worth revisiting.
+6. **Silent queue-load error — RESOLVED (2026-07-10, Phase A.3).**
+   [TargetSelector.loadQueues](../src/components/TargetSelector.tsx) now surfaces a fetch failure
+   as an error `Alert` with a Retry action (`data-testid="queue-load-error"`), distinct from the
+   legitimate no-queues empty state.
 
 ---
 
