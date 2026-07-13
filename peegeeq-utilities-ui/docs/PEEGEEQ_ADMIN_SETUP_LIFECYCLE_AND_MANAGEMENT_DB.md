@@ -181,6 +181,29 @@ to recover the `setupId` and `peegeeq_object_registry` to rebuild the queue/even
 their exact type + config — rather than inferring anything from table shapes, and repopulating the
 in-memory maps from the database instead of losing them on restart.
 
+**Keeping the object registry in sync (the write is not just at provisioning).** Because
+`peegeeq_object_registry` is the **source of truth for reconnection**, every object lifecycle event must
+maintain it, not only creation:
+
+- **Create** — insert the row **in the same transaction** that creates the object (`addQueue`,
+  `addEventStore`, and the bulk provisioning loop). Already covered by W-B.
+- **Delete** — remove the row **in the same transaction** as the object teardown. This is the missing
+  half (verified from source): the queue-delete path
+  ([ManagementApiHandler.deleteQueue:1200](../../peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ManagementApiHandler.java))
+  is **in-memory only today** — it closes the factory and removes it from the `getQueueFactories()` map,
+  dropping neither the per-queue table nor any registry row — so once the registry exists it must gain a
+  transactional registry-row delete. The event-store-delete path
+  ([removeEventStore:725](../../peegeeq-db/src/main/java/dev/mars/peegeeq/db/setup/PeeGeeQDatabaseSetupService.java))
+  already drops the tables and only needs the registry-row delete added to that same transaction.
+  **Without this, a delete followed by a reconnect resurrects the deleted object** from its stale row.
+
+**Why a local transactional write is sufficient — no distributed sync.** Single-owner leasing (§10)
+guarantees exactly one backend mutates a given active setup at a time, so there is **no cross-backend
+race** on that setup's `peegeeq_object_registry`. The registry row and the object it describes are
+written/removed together in one transaction against the setup's own database; nothing else needs to
+reconcile them. The estate `setups` registry (§6/§8) is **not** touched by object create/delete — it
+records the setup's *binding* (coordinates), not its object inventory — so it needs no per-object sync.
+
 ---
 
 ## 5. Manual attach
@@ -629,6 +652,7 @@ registry was never told about (reconnect works from the registry, not by scannin
 | B5 | Write the `setup_metadata` row once at provisioning | §4 | ☐ |
 | B6 | `connectToExistingSetup` reads both tables to rebuild queue/event-store factories (exact `kind` + config) and recover `setupId` | §4 | ☐ |
 | B7 | Back-compat for setups provisioned before these tables exist (graceful absence / backfill) | §4 | ☐ |
+| B8 | **Maintain the registry on delete** (not just create): remove the `peegeeq_object_registry` row **in the same transaction** as the object teardown — in the queue-delete path (`ManagementApiHandler.deleteQueue:1200`, **in-memory only today**, so it gains a DB write) and the event-store-delete path (`removeEventStore:725`, already drops tables). Without it, delete → reconnect resurrects the deleted object | §4 | ☐ |
 
 ### W-G — Non-destructive provisioning guard (§13) — *the create/connect/recreate fix*
 
