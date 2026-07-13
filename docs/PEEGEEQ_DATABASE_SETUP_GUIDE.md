@@ -135,31 +135,33 @@ PeeGeeQManager manager = new PeeGeeQManager(config);
 **Properties File**
 
 ```properties
-# application.properties
-peegeeq.db.schema=myapp_messaging
-peegeeq.db.host=localhost
-peegeeq.db.port=5432
-peegeeq.db.database=myapp_db
-peegeeq.db.username=dbuser
-peegeeq.db.password=password
+# application.properties (property keys are peegeeq.database.*)
+peegeeq.database.schema=myapp_messaging
+peegeeq.database.host=localhost
+peegeeq.database.port=5432
+peegeeq.database.name=myapp_db
+peegeeq.database.username=dbuser
+peegeeq.database.password=password
 ```
 
 **Environment Variables**
 
 ```bash
-export PEEGEEQ_DB_SCHEMA="myapp_messaging"
-export PEEGEEQ_DB_HOST="localhost"
-export PEEGEEQ_DB_PORT="5432"
-export PEEGEEQ_DB_DATABASE="myapp_db"
-export PEEGEEQ_DB_USERNAME="dbuser"
-export PEEGEEQ_DB_PASSWORD="password"
+# Env vars are mapped by lowercasing and replacing '_' with '.', so
+# PEEGEEQ_DATABASE_SCHEMA -> peegeeq.database.schema (PEEGEEQ_DB_* would NOT match).
+export PEEGEEQ_DATABASE_SCHEMA="myapp_messaging"
+export PEEGEEQ_DATABASE_HOST="localhost"
+export PEEGEEQ_DATABASE_PORT="5432"
+export PEEGEEQ_DATABASE_NAME="myapp_db"
+export PEEGEEQ_DATABASE_USERNAME="dbuser"
+export PEEGEEQ_DATABASE_PASSWORD="password"
 ```
 
 #### Integration Tests
 
 ```java
 @BeforeAll
-void setupDatabase() throws Exception {
+void setupDatabase(Vertx vertx, VertxTestContext testContext) {
     setupService = new PeeGeeQDatabaseSetupService();
     
     // Custom schema in test
@@ -179,7 +181,9 @@ void setupDatabase() throws Exception {
         .eventStores(eventStoreConfigs)
         .build();
     
-    setupResult = setupService.createCompleteSetup(request).get();
+    setupService.createCompleteSetup(request)
+        .onSuccess(result -> { setupResult = result; testContext.completeNow(); })
+        .onFailure(testContext::failNow);
 }
 ```
 
@@ -205,7 +209,7 @@ myapp.event_store_template
 **Configuration**:
 ```properties
 flyway.schemas=myapp
-peegeeq.db.schema=myapp
+peegeeq.database.schema=myapp
 ```
 
 #### Example 2: Separate Schemas for Queue and Events
@@ -228,7 +232,7 @@ acme_events.event_store_template
 **Configuration**:
 ```properties
 flyway.schemas=acme_queue,acme_events
-peegeeq.db.schema=acme_queue
+peegeeq.database.schema=acme_queue
 # Event store uses acme_events automatically
 ```
 
@@ -458,25 +462,28 @@ PeeGeeQ maintains schema definitions in **three distinct locations**, each servi
 
 1. FLYWAY MIGRATIONS (Production Foundation)
    Location: peegeeq-migrations/src/main/resources/db/migration/
-   Files:
-   ├── V001__Create_Base_Tables.sql (576 lines)
-   │   └── Creates: outbox, queue_messages, dead_letter_queue,
-   │                bitemporal_event_log, message_processing, etc.
-   └── V010__Create_Consumer_Group_Fanout_Tables.sql (442 lines)
-       └── Adds: outbox_topics, outbox_topic_subscriptions, fanout columns
+   Files: V001 through V018 (11 migrations)
+   ├── V001__Create_Base_Tables.sql (616 lines)
+   │   └── Creates: schema_version, outbox, outbox_consumer_groups, queue_messages,
+   │                message_processing, dead_letter_queue, queue_metrics,
+   │                connection_pool_metrics, bitemporal_event_log; plus views,
+   │                functions and triggers. Does NOT create the template tables.
+   └── V010–V018
+       └── Consumer-group fanout, durable subscriptions, lineage/version
+           constraints, flapping protection, offset watermarks, etc.
 
 2. SQL TEMPLATES (Dynamic Queue/EventStore Creation)
    Location: peegeeq-db/src/main/resources/db/templates/
    Structure:
-   ├── base/        (36 files) - Schemas, extensions, template tables
+   ├── base/        (37 files, per .manifest) - Schemas, extensions, core + template tables
    │   ├── 05-queue-template.sql        (queue_template table)
    │   └── 06-event-store-template.sql  (event_store_template table)
-   ├── queue/       (8 files)  - Per-queue table creation
+   ├── queue/       (10 files) - Per-queue table creation
    │   ├── 01-table.sql         (LIKE queue_template INCLUDING ALL)
    │   ├── 02a-index-topic.sql
    │   ├── 02b-index-lock.sql
    │   └── ...
-   └── eventstore/  (11 files) - Per-event-store table creation
+   └── eventstore/  (13 files, per .manifest) - Per-event-store table creation
        ├── 01-table.sql         (LIKE event_store_template INCLUDING ALL)
        ├── 02a-index-validtime.sql
        └── ...
@@ -484,7 +491,7 @@ PeeGeeQ maintains schema definitions in **three distinct locations**, each servi
 3. JAVA EMBEDDED SQL (Unit Test Fast Path)
    Location: peegeeq-test-support/src/main/java/.../PeeGeeQTestSchemaInitializer.java
    Purpose: Unit tests that don't need full integration test isolation
-   Content: 747 lines of embedded CREATE TABLE statements
+   Content: embedded CREATE TABLE statements (PeeGeeQTestSchemaInitializer, 325 lines)
 ```
 
 ### Why Three Sources?
@@ -496,14 +503,15 @@ PeeGeeQ maintains schema definitions in **three distinct locations**, each servi
 **What It Creates**:
 - Base tables that all queues share: `outbox`, `queue_messages`, `dead_letter_queue`
 - Bitemporal event log infrastructure: `bitemporal_event_log`
-- Consumer group fanout tables: `outbox_topics`, `outbox_topic_subscriptions`
-- Template tables: `queue_template`, `event_store_template` (for PostgreSQL LIKE)
-- Extensions: `uuid-ossp`, `pg_stat_statements`
-- Schemas: `peegeeq`, `bitemporal`
+- Consumer group fanout tables (V010+): `outbox_topics`, `outbox_topic_subscriptions`, `outbox_consumer_groups`
+- Monitoring tables: `queue_metrics`, `connection_pool_metrics`
+- Views, notification/maintenance functions and triggers
 
 **What It Does NOT Create**:
 - Individual queue tables (e.g., `orders_queue`, `payments_queue`)
 - Individual event store tables (e.g., `order_events`, `payment_events`)
+- The **template tables** `queue_template` / `event_store_template` — these are created by the
+  **base template** (`db/templates/base/05`/`06`), not by any Flyway migration
 
 **Used By**:
 - Production deployments (CI/CD pipelines)
@@ -526,12 +534,9 @@ CREATE TABLE IF NOT EXISTS queue_messages (
     -- ... all columns
 );
 
--- Template table for dynamic queue creation
-CREATE TABLE peegeeq.queue_template (
-    id BIGSERIAL PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    -- ... same columns as queue_messages
-);
+-- NOTE: queue_template is NOT defined here. The template tables
+-- (queue_template / event_store_template) are created by the base template,
+-- db/templates/base/05-queue-template.sql and 06-event-store-template.sql.
 ```
 
 #### 2. SQL Templates: Dynamic Table Creation Engine
@@ -632,25 +637,34 @@ Result: Production has priority column, tests don't → bugs!
 
 #### Alignment Mechanisms
 
-##### 1. Template Inheritance from Flyway (Automatic)
+##### 1. Template Table as the Shared Column Source (`LIKE ... INCLUDING ALL`)
 
-Templates use `LIKE ... INCLUDING ALL` to inherit from template tables created by Flyway:
+Per-queue tables are created with `LIKE ... INCLUDING ALL`, which **copies** the columns, defaults,
+constraints, and indexes of `queue_template` at creation time:
 
 ```sql
--- Flyway V001 creates template table
-CREATE TABLE peegeeq.queue_template (
+-- The base template (peegeeq-db db/templates/base/05-queue-template.sql) creates queue_template
+CREATE TABLE {schema}.queue_template (
     id BIGSERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL,
-    -- ... 15 columns
+    -- ... full column set (see 05-queue-template.sql)
 );
 
--- Template inherits ALL columns automatically
-CREATE TABLE {schema}.{queueName} (
-    LIKE peegeeq.queue_template INCLUDING ALL  -- ✅ Automatic sync!
+-- Each per-queue table copies queue_template's structure at creation
+CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    LIKE {schema}.queue_template INCLUDING ALL
 );
 ```
 
-**Result**: When Flyway adds column to `queue_template`, ALL dynamically created queues get it automatically!
+**Important — this is `LIKE`, not `INHERITS`.** `LIKE ... INCLUDING ALL` takes a one-time **snapshot**
+of `queue_template` when the queue table is created. It is **not** PostgreSQL table inheritance:
+altering `queue_template` later does **not** propagate to queues that already exist. Only queues created
+**after** a template change pick up the change; pre-existing per-queue tables must be migrated
+explicitly. Do not rely on `LIKE` for retroactive column propagation.
+
+Note also that `queue_template` (and `event_store_template`) are created by the **base template**
+(`db/templates/base/05-queue-template.sql` / `06-event-store-template.sql`), **not** by the Flyway
+migrations — no `V0xx` migration creates the template tables.
 
 ##### 2. Contract Tests (Automated Validation)
 
@@ -825,7 +839,7 @@ All three sources track schema versions differently:
 1. **Flyway Migrations = Foundation**: Creates schemas, extensions, base tables, and template tables
 2. **SQL Templates = Dynamic Creation**: Creates tenant/feature-specific queues and event stores at runtime
 3. **Unit Test SQL = Fast Path**: Minimal setup for unit tests without full integration test overhead
-4. **Template Inheritance = Automatic Sync**: Dynamic queues inherit from template tables (no manual sync needed)
+4. **Template Copy at Creation (`LIKE ... INCLUDING ALL`)**: Dynamic queues **copy** `queue_template`'s structure when created. This is a one-time snapshot, **not** inheritance — changing `queue_template` later does **not** update queues that already exist
 5. **Contract Tests = Validation**: Automated tests catch schema drift
 6. **Manual Sync Required**: `PeeGeeQTestSchemaInitializer.java` must be updated when base tables change
 7. **Quarterly Audits**: Manual schema drift analysis ensures long-term alignment
@@ -845,7 +859,9 @@ A: Unit tests will fail with "column does not exist" errors. Contract tests may 
 A: Use the decision matrix above: Shared tables → Flyway + Unit Test SQL. Per-queue tables → Templates only.
 
 **Q: Are template tables used in production?**  
-A: Yes! Flyway creates `queue_template` and `event_store_template` tables. Runtime code uses `LIKE queue_template` to create tenant queues.
+A: Yes. The **base template** (`db/templates/base/05`/`06`) creates `queue_template` and
+`event_store_template` — not Flyway. Runtime code uses `LIKE queue_template INCLUDING ALL` to create
+tenant queues.
 
 ---
 
@@ -885,11 +901,13 @@ QueueConfig config = new QueueConfig.Builder()
     .maxRetries(3)
     .build();
 
-// PeeGeeQ uses templates to create:
-//   - peegeeq.tenant_acme_orders table
-//   - 5 dedicated indexes
-//   - notification trigger
-setupService.addQueue(setupId, config).get();
+// PeeGeeQ uses templates to create (per queue):
+//   - peegeeq.tenant_acme_orders table (LIKE queue_template INCLUDING ALL)
+//   - 8 dedicated indexes
+//   - a per-queue notify function + AFTER INSERT/UPDATE/DELETE trigger
+setupService.addQueue(setupId, config)
+    .onSuccess(v -> logger.info("queue created"))
+    .onFailure(err -> logger.error("queue creation failed", err));
 ```
 
 #### Secondary Benefit: Test Validation
@@ -911,14 +929,14 @@ Integration tests need to **validate this core production feature** by:
 Static Migration (Production)          Template (Integration Tests)
 ─────────────────────────────          ────────────────────────────
 
-CREATE TABLE orders_queue (            CREATE TABLE {queueName} (
-    id BIGSERIAL PRIMARY KEY,              id BIGSERIAL PRIMARY KEY,
-    topic VARCHAR(255),                    topic VARCHAR(255),
-    ...                                    ...
-);                                     ) INHERITS ({schema}.queue_template);
+CREATE TABLE orders_queue (            CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    id BIGSERIAL PRIMARY KEY,              LIKE {schema}.queue_template
+    topic VARCHAR(255),                        INCLUDING ALL
+    ...                                );
+);
 
 CREATE INDEX idx_orders_topic          CREATE INDEX idx_{queueName}_topic
-    ON orders_queue(topic);                ON {queueName}(topic);
+    ON orders_queue(topic);                ON {schema}."{queueName}"(topic, visible_at, status);
 ```
 
 **At runtime (production or test), templates are processed:**
@@ -982,7 +1000,7 @@ Map<String, String> params = Map.of(
 │  │         .maxRetries(3)                                   │   │
 │  │         .build();                                        │   │
 │  │                                                          │   │
-│  │     setupService.addQueue(setupId, config).get();       │   │
+│  │     setupService.addQueue(setupId, config); // → Future       │   │
 │  │                                                          │   │
 │  │     // Test: Validate dynamic creation capability       │   │
 │  │     QueueConfig testConfig = new QueueConfig.Builder()  │   │
@@ -1063,25 +1081,27 @@ public class OrderController {
     private TenantQueueService tenantQueueService;
     
     @PostMapping("/orders")
-    public CompletableFuture<OrderResponse> createOrder(
+    public CompletableFuture<Void> createOrder(
             @RequestHeader("X-Tenant-Id") String tenantId,
             @RequestBody Order order) {
         
-        // Get or create tenant-specific queue (uses templates)
-        return tenantQueueService.getOrCreateTenantQueue(tenantId)
-            .thenCompose(queue -> queue.send(order))
-            .thenApply(msg -> new OrderResponse(msg.getId()));
+        // Spring MVC async controller: return a NON-BLOCKING CompletableFuture.
+        // toCompletionStage()/toCompletableFuture() only bridge a Vert.x Future to Spring's
+        // CompletableFuture at the controller boundary — this is not a blocking .get().
+        return tenantQueueService.getOrCreateTenantProducer(tenantId)
+            .thenCompose(producer -> producer.send(order).toCompletionStage())  // send() → Future<Void>
+            .toCompletableFuture();
     }
 }
 
 @Service
 public class TenantQueueService {
     
-    private final Map<String, Queue<Order>> tenantQueues = new ConcurrentHashMap<>();
+    private final Map<String, MessageProducer<Order>> tenantProducers = new ConcurrentHashMap<>();
     
-    public CompletableFuture<Queue<Order>> getOrCreateTenantQueue(String tenantId) {
-        if (tenantQueues.containsKey(tenantId)) {
-            return CompletableFuture.completedFuture(tenantQueues.get(tenantId));
+    public CompletableFuture<MessageProducer<Order>> getOrCreateTenantProducer(String tenantId) {
+        if (tenantProducers.containsKey(tenantId)) {
+            return CompletableFuture.completedFuture(tenantProducers.get(tenantId));
         }
         
         // Use templates to create tenant-specific queue
@@ -1092,16 +1112,16 @@ public class TenantQueueService {
         
         return setupService.addQueue(setupId, config)
             .thenApply(v -> {
-                // Templates created:
-                //   - peegeeq.tenant_acme_orders table
-                //   - 5 dedicated indexes (only for this tenant)
-                //   - notification trigger
-                Queue<Order> queue = queueFactory.createQueue(
-                    "tenant_" + tenantId + "_orders", 
+                // Templates created (per queue):
+                //   - peegeeq.tenant_acme_orders table (LIKE queue_template INCLUDING ALL)
+                //   - 8 dedicated indexes (only for this tenant)
+                //   - a per-queue notify function + AFTER INSERT/UPDATE/DELETE trigger
+                MessageProducer<Order> producer = queueFactory.createProducer(
+                    "tenant_" + tenantId + "_orders",
                     Order.class
                 );
-                tenantQueues.put(tenantId, queue);
-                return queue;
+                tenantProducers.put(tenantId, producer);
+                return producer;
             });
     }
 }
@@ -1121,65 +1141,60 @@ Integration tests verify that dynamic queue creation works correctly:
 
 ```java
 @Test
-void testDynamicQueueCreation_ValidatesProductionCapability() {
+void testDynamicQueueCreation_ValidatesProductionCapability(Vertx vertx, VertxTestContext testContext) {
     // This test validates the production feature of creating queues dynamically
     
-    // Create first queue (simulates first tenant onboarding)
-    QueueConfig config1 = new QueueConfig.Builder()
-        .queueName("tenant_1_orders")
-        .build();
-    setupService.addQueue(setupId, config1).get();
-    
-    // Create second queue (simulates second tenant onboarding)
-    QueueConfig config2 = new QueueConfig.Builder()
-        .queueName("tenant_2_orders")
-        .build();
-    setupService.addQueue(setupId, config2).get();
-    
-    // Verify both queues exist independently
-    verifyTableExists("peegeeq", "tenant_1_orders");
-    verifyTableExists("peegeeq", "tenant_2_orders");
-    
-    // Verify each has dedicated indexes
-    verifyIndexExists("idx_tenant_1_orders_topic");
-    verifyIndexExists("idx_tenant_2_orders_topic");
-    
-    // This proves the production capability works!
+    // Create two queues (simulates onboarding two tenants), composed — no blocking .get()
+    QueueConfig config1 = new QueueConfig.Builder().queueName("tenant_1_orders").build();
+    QueueConfig config2 = new QueueConfig.Builder().queueName("tenant_2_orders").build();
+
+    setupService.addQueue(setupId, config1)
+        .compose(v -> setupService.addQueue(setupId, config2))
+        .onSuccess(v -> testContext.verify(() -> {
+            // Both queues exist independently, each with its dedicated indexes
+            verifyTableExists("peegeeq", "tenant_1_orders");
+            verifyTableExists("peegeeq", "tenant_2_orders");
+            verifyIndexExists("idx_tenant_1_orders_topic_visible");
+            verifyIndexExists("idx_tenant_2_orders_topic_visible");
+            testContext.completeNow();  // proves the production capability works
+        }))
+        .onFailure(testContext::failNow);
 }
 ```
 ```
 
-### Template Inheritance and Table Templates
+### Template Tables and `LIKE ... INCLUDING ALL`
 
-**Advanced Feature: PostgreSQL Table Inheritance**
+**Mechanism: structure copy, not inheritance**
 
-Templates use PostgreSQL's table inheritance to ensure consistency:
+Per-queue tables copy the template table's structure with `LIKE ... INCLUDING ALL`:
 
 ```sql
--- Step 1: Create template table (base/03a-table-queue-template.sql)
-CREATE TABLE peegeeq.queue_template (
+-- Step 1: Create the template table (base/05-queue-template.sql)
+CREATE TABLE {schema}.queue_template (
     id BIGSERIAL PRIMARY KEY,
     topic VARCHAR(255) NOT NULL,
     payload JSONB NOT NULL,
-    status VARCHAR(50) DEFAULT 'AVAILABLE',
+    status VARCHAR(50) DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE','LOCKED','PROCESSED','FAILED','DEAD_LETTER')),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    -- ... all standard queue columns
+    -- ... full column set incl. idempotency_key (see 05-queue-template.sql)
 );
 
--- Step 2: Create specific queue (queue/01-create-table.sql)
-CREATE TABLE {schema}.{queueName} (
-    -- Inherits ALL columns from queue_template
-) INHERITS ({schema}.queue_template);
+-- Step 2: Create a specific queue (queue/01-table.sql)
+CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    LIKE {schema}.queue_template INCLUDING ALL   -- copies columns, defaults, constraints, indexes
+);
 
--- Result: orders_queue has exact same structure as queue_template
--- Benefit: Schema consistency enforced at database level
+-- Result: the queue table has queue_template's structure AS OF creation time
 ```
 
-**Why This Matters**:
-1. **Schema Consistency**: All queues have identical structure
-2. **Centralized Updates**: Change template once, all queues benefit
-3. **Type Safety**: Database enforces column types
-4. **Performance**: Inherited indexes and constraints
+**Why This Matters (and its one caveat)**:
+1. **Schema Consistency at creation**: every new queue copies the current template structure.
+2. **NOT centralized updates**: `LIKE` is a one-time copy. Altering `queue_template` afterwards does
+   **not** change queues that already exist — this is the key difference from `INHERITS`. Pre-existing
+   per-queue tables must be migrated explicitly.
+3. **Independent objects**: each queue table, its indexes, and its trigger are standalone (dropping the
+   template does not affect existing queues, and vice versa).
 
 ---
 
@@ -1192,39 +1207,42 @@ Templates are organized as **directories** containing numbered SQL files and a `
 ```
 src/main/resources/db/templates/
 │
-├── base/                           # Base schema (extensions, schemas, templates)
-│   ├── .manifest                   # Execution order manifest
+├── base/                           # Base schema (extensions, schemas, core + template tables)
+│   ├── .manifest                   # Execution order manifest (37 entries)
 │   ├── 01a-extension-uuid.sql      # One statement per file
 │   ├── 01b-extension-pgstat.sql
-│   ├── 02a-schema-peegeeq.sql
-│   ├── 02b-schema-bitemporal.sql
-│   ├── 03a-table-queue-template.sql
-│   ├── 03b-table-eventstore-template.sql
-│   ├── 04a-table-queue-messages.sql
-│   ├── 04b-table-outbox.sql
-│   ├── 04c-table-dlq.sql
-│   ├── 05a-index-queue-topic.sql
-│   ├── ... (31 files total)
-│   └── 09e-consumer-index-topic.sql
+│   ├── 03-schemas.sql
+│   ├── 04-search-path.sql
+│   ├── 04a-core-table-outbox.sql
+│   ├── 04b-core-table-queue-messages.sql
+│   ├── 04c-core-table-dead-letter.sql
+│   ├── 05-queue-template.sql
+│   ├── 06-event-store-template.sql
+│   ├── 07a..07q-*-index-*.sql      # queue + eventstore base indexes
+│   ├── 08a..08f-consumer-table-*.sql
+│   └── 09a..09e-consumer-index-*.sql   # (37 files total per .manifest; 38 on disk)
 │
 ├── queue/                          # Per-queue tables (parameterized)
 │   ├── .manifest
-│   ├── 01-create-table.sql         # CREATE TABLE {queueName}
-│   ├── 02a-index-topic.sql         # CREATE INDEX idx_{queueName}_topic
-│   ├── 02b-index-visible.sql
+│   ├── 01-table.sql                # CREATE TABLE {schema}."{queueName}" (LIKE queue_template INCLUDING ALL)
+│   ├── 02a-index-topic.sql         # CREATE INDEX idx_{queueName}_topic_visible
+│   ├── 02b-index-lock.sql
 │   ├── 02c-index-status.sql
-│   ├── 03-function-notify.sql
-│   ├── 04-create-trigger.sql
-│   └── ... (8 files total)
+│   ├── 02d-index-correlation.sql
+│   ├── 02e-index-priority.sql
+│   ├── 02f-index-headers.sql
+│   ├── 02g-index-idempotency.sql   # two indexes (unique + lookup)
+│   ├── 03-function.sql             # per-queue notify_{queueName}_changes()
+│   └── 04-trigger.sql              # (10 files total)
 │
 └── eventstore/                     # Per-event-store tables (parameterized)
     ├── .manifest
-    ├── 01-create-table.sql         # CREATE TABLE {tableName}
-    ├── 02a-index-event-id.sql      # CREATE INDEX idx_{tableName}_event_id
-    ├── 02b-index-valid-time.sql
-    ├── 02c-index-transaction-time.sql
-    ├── ... (13 files total)
-    └── 04-create-trigger.sql
+    ├── 01-table.sql                # CREATE TABLE {schema}."{tableName}" (LIKE event_store_template INCLUDING ALL)
+    ├── 02a-index-validtime.sql
+    ├── 02b-index-txtime.sql
+    ├── 02c..02j-index-*.sql        # eventid, eventtype, aggregate, correlation, version, corrections, payload, headers
+    ├── 03-function.sql             # per-store notify_{tableName}_events()
+    └── 04-trigger.sql              # (13 files total per .manifest; 14 on disk)
 ```
 
 ### Why Directories Instead of Single Files?
@@ -1325,16 +1343,10 @@ CREATE SCHEMA IF NOT EXISTS bitemporal;
 **Example 1: Queue Template**
 
 ```sql
--- queue/01-create-table.sql (BEFORE substitution)
-CREATE TABLE {schema}.{queueName} (
-    id BIGSERIAL PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    payload JSONB NOT NULL,
-    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status VARCHAR(50) DEFAULT 'AVAILABLE',
-    -- ... more columns
-) INHERITS ({schema}.queue_template);
+-- queue/01-table.sql (BEFORE substitution)
+CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    LIKE {schema}.queue_template INCLUDING ALL
+);
 ```
 
 ```java
@@ -1344,20 +1356,14 @@ Map<String, String> params = Map.of(
     "queueName", "orders_queue"
 );
 
-templateProcessor.applyTemplateReactive(connection, "queue", params);
+templateProcessor.applyTemplate(connection, "queue", params);
 ```
 
 ```sql
 -- Result (AFTER substitution)
-CREATE TABLE peegeeq.orders_queue (
-    id BIGSERIAL PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    payload JSONB NOT NULL,
-    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    status VARCHAR(50) DEFAULT 'AVAILABLE',
-    -- ... more columns
-) INHERITS (peegeeq.queue_template);
+CREATE TABLE IF NOT EXISTS peegeeq."orders_queue" (
+    LIKE peegeeq.queue_template INCLUDING ALL
+);
 ```
 
 **Example 2: Queue Index Template**
@@ -1377,22 +1383,18 @@ CREATE INDEX idx_orders_queue_topic
 **Example 3: Event Store Template**
 
 ```sql
--- eventstore/01-create-table.sql (BEFORE)
-CREATE TABLE {schema}.{tableName} (
-    id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(255) NOT NULL,
-    event_type VARCHAR(255) NOT NULL,
-    valid_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    transaction_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    payload JSONB NOT NULL,
-    -- ... more columns
-) INHERITS ({schema}.event_store_template);
+-- eventstore/01-table.sql (BEFORE)
+CREATE TABLE IF NOT EXISTS {schema}."{tableName}" (
+    LIKE {schema}.event_store_template INCLUDING ALL
+);
 
--- Notification trigger (uses parameter)
-CREATE TRIGGER {tableName}_notify_trigger
-    AFTER INSERT ON {schema}.{tableName}
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_event_insert('{notificationPrefix}');
+-- eventstore/03-function.sql + 04-trigger.sql (per-store, parameterized)
+CREATE OR REPLACE FUNCTION {schema}."notify_{tableName}_events"() RETURNS TRIGGER AS $$ ... $$;
+CREATE TRIGGER "trigger_{tableName}_notify"
+    AFTER INSERT ON {schema}."{tableName}"
+    FOR EACH ROW EXECUTE FUNCTION {schema}."notify_{tableName}_events"();
+-- Note: {notificationPrefix} is a template parameter but is intentionally NOT used by the
+-- bitemporal trigger; LISTEN channels are derived as {schema}_bitemporal_events_{tableName}.
 ```
 
 ```java
@@ -1403,25 +1405,19 @@ Map<String, String> params = Map.of(
     "notificationPrefix", "order_event_"
 );
 
-templateProcessor.applyTemplateReactive(connection, "eventstore", params);
+templateProcessor.applyTemplate(connection, "eventstore", params);
 ```
 
 ```sql
 -- Result (AFTER substitution)
-CREATE TABLE bitemporal.order_event_log (
-    id BIGSERIAL PRIMARY KEY,
-    event_id VARCHAR(255) NOT NULL,
-    event_type VARCHAR(255) NOT NULL,
-    valid_time TIMESTAMP WITH TIME ZONE NOT NULL,
-    transaction_time TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    payload JSONB NOT NULL,
-    -- ... more columns
-) INHERITS (bitemporal.event_store_template);
+CREATE TABLE IF NOT EXISTS bitemporal."order_event_log" (
+    LIKE bitemporal.event_store_template INCLUDING ALL
+);
 
-CREATE TRIGGER order_event_log_notify_trigger
-    AFTER INSERT ON bitemporal.order_event_log
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_event_insert('order_event_');
+CREATE OR REPLACE FUNCTION bitemporal."notify_order_event_log_events"() RETURNS TRIGGER AS $$ ... $$;
+CREATE TRIGGER "trigger_order_event_log_notify"
+    AFTER INSERT ON bitemporal."order_event_log"
+    FOR EACH ROW EXECUTE FUNCTION bitemporal."notify_order_event_log_events"();
 ```
 
 ### SqlTemplateProcessor Implementation
@@ -1438,7 +1434,7 @@ public class SqlTemplateProcessor {
      * the FIRST statement in multi-statement SQL. Templates are organized as 
      * directories with numbered files to work around this limitation.
      */
-    public Future<Void> applyTemplateReactive(
+    public Future<Void> applyTemplate(
             SqlConnection connection, 
             String templateDir,
             Map<String, String> parameters) {
@@ -1522,8 +1518,10 @@ DatabaseSetupRequest request = new DatabaseSetupRequest.Builder()
     .queues(List.of(queueConfig))
     .build();
 
-// Step 2: Setup service creates database and applies templates
-setupService.createCompleteSetup(request).get();
+// Step 2: Setup service creates database and applies templates (compose, don't block)
+setupService.createCompleteSetup(request)
+    .onSuccess(result -> { /* setup ready — use result */ })
+    .onFailure(Throwable::printStackTrace);
 ```
 
 **Behind the Scenes**:
@@ -1539,23 +1537,23 @@ setupService.createCompleteSetup(request).get();
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  2. Apply Base Template (31 files)                      │
+│  2. Apply Base Template (37 files)                      │
 │                                                          │
-│     SqlTemplateProcessor.applyTemplateReactive(         │
+│     SqlTemplateProcessor.applyTemplate(         │
 │         connection, "base", Map.of()                    │
 │     )                                                    │
 │                                                          │
 │     Executes:                                            │
 │     • 01a-extension-uuid.sql                            │
 │     • 01b-extension-pgstat.sql                          │
-│     • 02a-schema-peegeeq.sql                            │
-│     • ... (31 files sequentially)                       │
+│     • 03-schemas.sql                                    │
+│     • ... (37 files sequentially)                       │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
-│  3. Apply Queue Template (8 files, parameterized)       │
+│  3. Apply Queue Template (10 files, parameterized)      │
 │                                                          │
-│     SqlTemplateProcessor.applyTemplateReactive(         │
+│     SqlTemplateProcessor.applyTemplate(         │
 │         connection,                                      │
 │         "queue",                                         │
 │         Map.of(                                          │
@@ -1565,10 +1563,10 @@ setupService.createCompleteSetup(request).get();
 │     )                                                    │
 │                                                          │
 │     Executes (after parameter substitution):            │
-│     • CREATE TABLE peegeeq.orders_queue (...)           │
-│     • CREATE INDEX idx_orders_queue_topic (...)         │
-│     • CREATE INDEX idx_orders_queue_visible (...)       │
-│     • ... (8 files sequentially)                        │
+│     • CREATE TABLE peegeeq."orders_queue" (...)         │
+│     • CREATE INDEX idx_orders_queue_topic_visible (...) │
+│     • CREATE INDEX idx_orders_queue_lock (...)          │
+│     • ... (10 files sequentially)                       │
 └─────────────────────────────────────────────────────────┘
                           ↓
 ┌─────────────────────────────────────────────────────────┐
@@ -1583,7 +1581,7 @@ setupService.createCompleteSetup(request).get();
 
 #### 1. One Statement Per File
 ```sql
--- ✅ GOOD: 01-create-table.sql
+-- ✅ GOOD: 01-table.sql
 CREATE TABLE {schema}.{queueName} (...);
 
 -- ✅ GOOD: 02-create-index.sql
@@ -1641,14 +1639,14 @@ setup.sql
 
 #### 5. Document Parameters in Comments
 ```sql
--- queue/01-create-table.sql
+-- queue/01-table.sql
 -- Parameters:
 --   {schema} - Schema name (e.g., "peegeeq")
 --   {queueName} - Queue table name (e.g., "orders_queue")
 
-CREATE TABLE {schema}.{queueName} (
-    ...
-) INHERITS ({schema}.queue_template);
+CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    LIKE {schema}.queue_template INCLUDING ALL
+);
 ```
 
 ---
@@ -1660,7 +1658,7 @@ CREATE TABLE {schema}.{queueName} (
 #### 1. Flyway Migrations (Production & Development)
 - **Module**: `peegeeq-migrations`
 - **Method**: SQL migration scripts with version tracking
-- **Files**: `V001__Create_Base_Tables.sql` (576 lines, complete schema)
+- **Files**: `V001__Create_Base_Tables.sql` (616 lines, complete schema)
 - **Usage**: CI/CD pipelines, docker-compose, Maven commands
 - **Advantages**: 
   - Version control for schema changes
@@ -1669,9 +1667,9 @@ CREATE TABLE {schema}.{queueName} (
   - Industry standard
 
 #### 2. Template-Based Setup (Integration Tests)
-- **Class**: `PeeGeeQDatabaseSetupService` (825 lines)
+- **Class**: `PeeGeeQDatabaseSetupService` (1148 lines)
 - **Method**: SQL templates with parameter substitution
-- **Files**: 52 SQL files in 3 directories (`base/`, `queue/`, `eventstore/`)
+- **Files**: 60 SQL files applied across 3 directories (`base/` 37, `queue/` 10, `eventstore/` 13)
 - **Usage**: Integration tests creating dynamic test databases
 - **Advantages**:
   - Dynamic database creation
@@ -1680,7 +1678,7 @@ CREATE TABLE {schema}.{queueName} (
   - Per-test database cleanup
 
 #### 3. Direct SQL Injection (Unit Tests)
-- **Class**: `PeeGeeQTestSchemaInitializer` (747 lines)
+- **Class**: `PeeGeeQTestSchemaInitializer` (325 lines)
 - **Method**: JDBC Statement execution of SQL scripts
 - **Files**: Inline SQL strings for each schema component
 - **Usage**: Unit tests requiring minimal schema setup
@@ -1723,7 +1721,7 @@ Production databases are initialized using **Flyway migrations** from the `peege
 │  │  • bitemporal_event_log (event sourcing)       │   │
 │  │  • dead_letter_queue (error handling)          │   │
 │  │  • queue_metrics (monitoring)                   │   │
-│  │  • 30+ indexes, 2 triggers, 2 functions        │   │
+│  │  • 30+ indexes, 5 triggers, 9 functions        │   │
 │  └────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -1851,14 +1849,15 @@ When migrations complete successfully, the following components exist:
 - GIN indexes for JSONB payload/header queries
 - Unique indexes for constraint enforcement
 
-#### Functions & Triggers (4 objects)
-- Trigger functions for automatic timestamp updates
-- Notification triggers for real-time event streaming
+#### Functions & Triggers (V001: 9 functions, 5 triggers)
+- Notification functions/triggers (`notify_message_inserted`, `notify_bitemporal_event`, per-table notify triggers)
+- Maintenance/consumer-group functions (timestamp updates, cleanup, consumer-group registration)
 
-#### Views (3 views)
+#### Views (4 views)
 - `bitemporal_current_state` - Current event state
 - `bitemporal_latest_events` - Most recent events
 - `bitemporal_event_stats` - Event statistics
+- `bitemporal_event_type_stats` - Per-event-type statistics
 
 ### Production Configuration
 
@@ -2109,9 +2108,9 @@ Test environments use **programmatic setup** instead of Flyway migrations. This 
 │  │  PeeGeeQDatabaseSetupService                    │   │
 │  │                                                 │   │
 │  │  1. Create test database (dynamic name)        │   │
-│  │  2. Apply SQL templates (52 files)             │   │
-│  │     • base/ (31 files: extensions, schemas)    │   │
-│  │     • queue/ (8 files: queue tables)           │   │
+│  │  2. Apply SQL templates (60 files)             │   │
+│  │     • base/ (37 files: extensions, schemas)    │   │
+│  │     • queue/ (10 files: queue tables)          │   │
 │  │     • eventstore/ (13 files: event tables)     │   │
 │  │  3. Create PeeGeeQManager                      │   │
 │  │  4. Return DatabaseSetupResult                 │   │
@@ -2141,6 +2140,7 @@ Test environments use **programmatic setup** instead of Flyway migrations. This 
 #### Example Test Class
 
 ```java
+@ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class QueueIntegrationTest {
     
@@ -2154,7 +2154,7 @@ public class QueueIntegrationTest {
     private DatabaseSetupResult setupResult;
     
     @BeforeAll
-    void setupDatabase() throws Exception {
+    void setupDatabase(Vertx vertx, VertxTestContext testContext) {
         setupService = new PeeGeeQDatabaseSetupService();
         
         // Create dynamic test database
@@ -2192,23 +2192,36 @@ public class QueueIntegrationTest {
             .eventStores(eventStores)
             .build();
         
-        setupResult = setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
-        
-        // Verify setup successful
-        assertEquals(DatabaseSetupStatus.READY, setupResult.getStatus());
+        // Reactive: compose on the Vert.x Future; never block with .get().
+        setupService.createCompleteSetup(request)
+            .onSuccess(result -> {
+                setupResult = result;
+                testContext.verify(() ->
+                    // status enum: CREATING, ACTIVE, DESTROYING, DESTROYED, FAILED
+                    assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus()));
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterAll
-    void cleanupDatabase() throws Exception {
-        if (setupResult != null) {
-            setupService.destroySetup(setupResult.getSetupId()).get(10, TimeUnit.SECONDS);
+    void cleanupDatabase(VertxTestContext testContext) {
+        if (setupResult == null) {
+            testContext.completeNow();
+            return;
         }
+        setupService.destroySetup(setupResult.getSetupId())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testQueueOperations() {
-        // Use setupResult.getQueueFactories() to get queue instances
-        // Test queue send/receive operations
+    void testQueueOperations(VertxTestContext testContext) {
+        // Use setupResult.getQueueFactories() to get producers/consumers, e.g.:
+        //   producer.send(payload)
+        //       .onSuccess(v -> testContext.completeNow())
+        //       .onFailure(testContext::failNow);
+        testContext.completeNow();
     }
 }
 ```
@@ -2223,25 +2236,25 @@ src/main/resources/db/templates/
 │   ├── .manifest                    # Lists files in order
 │   ├── 01a-extension-uuid.sql       # CREATE EXTENSION "uuid-ossp"
 │   ├── 01b-extension-pgstat.sql     # CREATE EXTENSION "pg_stat_statements"
-│   ├── 02a-schema-peegeeq.sql       # CREATE SCHEMA peegeeq
-│   ├── 02b-schema-bitemporal.sql    # CREATE SCHEMA bitemporal
-│   ├── 03a-table-queue-template.sql # CREATE TABLE peegeeq.queue_template
-│   ├── ... (31 files total)
+│   ├── 03-schemas.sql               # CREATE SCHEMA peegeeq / bitemporal
+│   ├── 05-queue-template.sql        # CREATE TABLE {schema}.queue_template
+│   ├── 06-event-store-template.sql  # CREATE TABLE {schema}.event_store_template
+│   ├── ... (37 files total)
 │   └── 09e-consumer-index-topic.sql
 │
 ├── queue/
 │   ├── .manifest
-│   ├── 01-create-table.sql          # CREATE TABLE {schema}.{queueName}
-│   ├── 02a-index-topic.sql          # CREATE INDEX idx_{queueName}_topic
-│   ├── ... (8 files total)
-│   └── 04-create-trigger.sql
+│   ├── 01-table.sql                 # CREATE TABLE {schema}."{queueName}" (LIKE queue_template INCLUDING ALL)
+│   ├── 02a-index-topic.sql          # CREATE INDEX idx_{queueName}_topic_visible
+│   ├── ... (10 files total)
+│   └── 04-trigger.sql
 │
 └── eventstore/
     ├── .manifest
-    ├── 01-create-table.sql          # CREATE TABLE {schema}.{tableName}
-    ├── 02a-index-event-id.sql       # CREATE INDEX idx_{tableName}_event_id
+    ├── 01-table.sql                 # CREATE TABLE {schema}."{tableName}" (LIKE event_store_template INCLUDING ALL)
+    ├── 02a-index-validtime.sql      # CREATE INDEX idx_{tableName}_...
     ├── ... (13 files total)
-    └── 04-create-trigger.sql
+    └── 04-trigger.sql
 ```
 
 #### Template Parameters
@@ -2249,23 +2262,20 @@ src/main/resources/db/templates/
 Templates support parameter substitution:
 
 ```sql
--- queue/01-create-table.sql
-CREATE TABLE {schema}.{queueName} (
-    id BIGSERIAL PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    payload JSONB NOT NULL,
-    -- ... columns
-) INHERITS ({schema}.queue_template);
+-- queue/01-table.sql
+CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    LIKE {schema}.queue_template INCLUDING ALL
+);
 
 -- Usage in code:
 Map<String, String> params = Map.of(
     "schema", "peegeeq",
     "queueName", "orders_queue"
 );
-templateProcessor.applyTemplateReactive(connection, "queue", params);
+templateProcessor.applyTemplate(connection, "queue", params);
 
 -- Results in:
-CREATE TABLE peegeeq.orders_queue (...) INHERITS (peegeeq.queue_template);
+CREATE TABLE IF NOT EXISTS peegeeq."orders_queue" (LIKE peegeeq.queue_template INCLUDING ALL);
 ```
 
 ### Unit Tests Architecture
@@ -2316,6 +2326,7 @@ public class OutboxServiceTest {
         // Initialize only what we need for this test
         PeeGeeQTestSchemaInitializer.initializeSchema(
             postgres,
+            "peegeeq",
             SchemaComponent.OUTBOX,
             SchemaComponent.DEAD_LETTER_QUEUE
         );
@@ -2326,6 +2337,7 @@ public class OutboxServiceTest {
         // Clean test data but keep schema
         PeeGeeQTestSchemaInitializer.cleanupTestData(
             postgres,
+            "peegeeq",
             SchemaComponent.OUTBOX
         );
     }
@@ -2364,11 +2376,15 @@ String dbName = "test_" + getClass().getSimpleName() + "_" + UUID.randomUUID();
 #### 2. Resource Cleanup
 ```java
 @AfterAll
-void cleanup() {
-    // Always cleanup in @AfterAll
-    if (setupResult != null) {
-        setupService.destroySetup(setupResult.getSetupId()).get();
+void cleanup(VertxTestContext testContext) {
+    // Always cleanup in @AfterAll — compose on the Future, don't block.
+    if (setupResult == null) {
+        testContext.completeNow();
+        return;
     }
+    setupService.destroySetup(setupResult.getSetupId())
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
 }
 ```
 
@@ -2397,37 +2413,36 @@ Apply the Consumer Group Fanout schema **AFTER** the REST API creates the databa
 
 ```java
 @BeforeAll
-void setupDatabase() throws Exception {
-    // Step 1: Start REST server
+void setupDatabase(Vertx vertx, VertxTestContext testContext) {
+    // Step 1 + 2: deploy the REST server, then create the database via REST — all composed (no .get()).
     vertx.deployVerticle(new PeeGeeQRestServer(port, setupService))
-        .toCompletionStage().toCompletableFuture().get();
-
-    // Step 2: Create database via REST API
-    JsonObject createRequest = new JsonObject()
-        .put("setupId", setupId)
-        .put("databaseConfig", new JsonObject()
-            .put("host", postgres.getHost())
-            .put("port", postgres.getFirstMappedPort())
-            .put("databaseName", testDbName)
-            .put("username", postgres.getUsername())
-            .put("password", postgres.getPassword()))
-        .put("queues", new JsonArray().add(new JsonObject()
-            .put("queueName", "test_queue")));
-
-    webClient.post(port, "localhost", "/api/v1/database-setup/create")
-        .sendJsonObject(createRequest)
-        .toCompletionStage().toCompletableFuture().get();
-
-    // Step 3: AFTER REST API creates database, apply fanout schema
-    PeeGeeQTestSchemaInitializer.initializeSchema(
-        postgres.getHost(),
-        postgres.getFirstMappedPort(),
-        testDbName,  // The database created by REST API
-        postgres.getUsername(),
-        postgres.getPassword(),
-        SchemaComponent.OUTBOX,
-        SchemaComponent.CONSUMER_GROUP_FANOUT  // Apply fanout schema NOW
-    );
+        .compose(id -> {
+            JsonObject createRequest = new JsonObject()
+                .put("setupId", setupId)
+                .put("databaseConfig", new JsonObject()
+                    .put("host", postgres.getHost())
+                    .put("port", postgres.getFirstMappedPort())
+                    .put("databaseName", testDbName)
+                    .put("username", postgres.getUsername())
+                    .put("password", postgres.getPassword()))
+                .put("queues", new JsonArray().add(new JsonObject()
+                    .put("queueName", "test_queue")));
+            return webClient.post(port, "localhost", "/api/v1/database-setup/create")
+                .sendJsonObject(createRequest);
+        })
+        .onSuccess(resp -> {
+            // Step 3: AFTER the REST API creates the database, apply the fanout schema.
+            // initializeSchema is synchronous JDBC, so it runs inline in the success handler.
+            PeeGeeQTestSchemaInitializer.initializeSchema(
+                "jdbc:postgresql://" + postgres.getHost() + ":" + postgres.getFirstMappedPort() + "/" + testDbName,
+                postgres.getUsername(),
+                postgres.getPassword(),
+                "peegeeq",   // schema (required)
+                SchemaComponent.OUTBOX,
+                SchemaComponent.CONSUMER_GROUP_FANOUT);  // Apply fanout schema NOW
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
 }
 ```
 
@@ -2476,6 +2491,7 @@ assertEquals(200, response.statusCode(),
 #### Complete Integration Test Pattern
 
 ```java
+@ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class SubscriptionLifecycleIntegrationTest {
 
@@ -2484,38 +2500,39 @@ public class SubscriptionLifecycleIntegrationTest {
     private String testDbName;
 
     @BeforeAll
-    void setup() throws Exception {
+    void setup(Vertx vertx, VertxTestContext testContext) {
         setupService = new PeeGeeQDatabaseSetupService();
         setupId = "subscription-test-" + System.nanoTime();
         testDbName = "sub_db_" + System.nanoTime();
 
-        // 1. Deploy REST server
-        vertx.deployVerticle(new PeeGeeQRestServer(port, setupService)).toCompletionStage().toCompletableFuture().get();
-
-        // 2. Create database via REST API
-        createDatabaseViaRestApi();
-
-        // 3. Apply fanout schema AFTER database creation
-        PeeGeeQTestSchemaInitializer.initializeSchema(
-            postgres.getHost(), postgres.getFirstMappedPort(), testDbName,
-            postgres.getUsername(), postgres.getPassword(),
-            SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT
-        );
-
-        // 4. Create subscription record using SubscriptionService
-        createSubscription(vertx).toCompletionStage().toCompletableFuture().get();
+        // Deploy REST server, create the DB via REST, then create the subscription — all composed.
+        // (createDatabaseViaRestApi() and createSubscription(vertx) each return Future<Void>.)
+        vertx.deployVerticle(new PeeGeeQRestServer(port, setupService))
+            .compose(id -> createDatabaseViaRestApi())
+            .compose(v -> {
+                // Apply fanout schema AFTER database creation (synchronous JDBC, inline).
+                PeeGeeQTestSchemaInitializer.initializeSchema(
+                    "jdbc:postgresql://" + postgres.getHost() + ":" + postgres.getFirstMappedPort() + "/" + testDbName,
+                    postgres.getUsername(), postgres.getPassword(), "peegeeq",
+                    SchemaComponent.OUTBOX, SchemaComponent.CONSUMER_GROUP_FANOUT);
+                return createSubscription(vertx);
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testPauseSubscription() throws Exception {
-        HttpResponse<Buffer> response = webClient
+    void testPauseSubscription(VertxTestContext testContext) {
+        webClient
             .post(port, "localhost",
                 "/api/v1/setups/" + setupId + "/subscriptions/" + TOPIC_NAME + "/" + GROUP_NAME + "/pause")
             .send()
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(200, response.statusCode(),
-            "Expected 200, got: " + response.statusCode() + " - " + response.bodyAsString());
+            .onSuccess(response -> testContext.verify(() -> {
+                assertEquals(200, response.statusCode(),
+                    "Expected 200, got: " + response.statusCode() + " - " + response.bodyAsString());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }
 ```
@@ -2550,14 +2567,14 @@ PeeGeeQ supports **dynamic queue creation at runtime** - the ability to create n
 │  │         .maxRetries(3)                               │   │
 │  │         .build();                                    │   │
 │  │                                                      │   │
-│  │     setupService.addQueue(setupId, config).get();   │   │
+│  │     setupService.addQueue(setupId, config); // → Future   │   │
 │  └────────────────────────────────────────────────────┘   │
 │                          ↓                                   │
 │  ┌────────────────────────────────────────────────────┐   │
 │  │  2. PeeGeeQDatabaseSetupService.addQueue()         │   │
 │  │                                                      │   │
 │  │     • Validates queue doesn't already exist         │   │
-│  │     • Loads queue template (8 SQL files)            │   │
+│  │     • Loads queue template (10 SQL files)           │   │
 │  │     • Substitutes parameters {queueName}            │   │
 │  │     • Executes SQL via SqlTemplateProcessor         │   │
 │  └────────────────────────────────────────────────────┘   │
@@ -2565,10 +2582,10 @@ PeeGeeQ supports **dynamic queue creation at runtime** - the ability to create n
 │  ┌────────────────────────────────────────────────────┐   │
 │  │  3. Queue Table Created                             │   │
 │  │                                                      │   │
-│  │     CREATE TABLE peegeeq.new_orders_queue (...)     │   │
-│  │     CREATE INDEX idx_new_orders_queue_topic (...)   │   │
-│  │     CREATE INDEX idx_new_orders_queue_visible (...) │   │
-│  │     CREATE TRIGGER new_orders_queue_notify (...)    │   │
+│  │     CREATE TABLE peegeeq."new_orders_queue"         │   │
+│  │        (LIKE queue_template INCLUDING ALL)          │   │
+│  │     CREATE INDEX idx_new_orders_queue_topic_visible │   │
+│  │     CREATE TRIGGER trigger_new_orders_queue_notify  │   │
 │  └────────────────────────────────────────────────────┘   │
 │                          ↓                                   │
 │  ┌────────────────────────────────────────────────────┐   │
@@ -2578,15 +2595,17 @@ PeeGeeQ supports **dynamic queue creation at runtime** - the ability to create n
 │  │         .getQueueFactoryProvider()                   │   │
 │  │         .createFactory("native", databaseService);   │   │
 │  │                                                      │   │
-│  │     Queue<Order> queue = factory.createQueue(       │   │
-│  │         "new_orders_queue", Order.class);           │   │
+│  │     MessageProducer<Order> producer =               │   │
+│  │         factory.createProducer(                     │   │
+│  │             "new_orders_queue", Order.class);       │   │
 │  └────────────────────────────────────────────────────┘   │
 │                          ↓                                   │
 │  ┌────────────────────────────────────────────────────┐   │
 │  │  5. Queue Ready for Use                             │   │
 │  │                                                      │   │
-│  │     queue.send(new Order(...));                     │   │
-│  │     queue.receive().thenAccept(msg -> ...);         │   │
+│  │     producer.send(new Order(...));                  │   │
+│  │     factory.createConsumer("new_orders_queue",      │   │
+│  │         Order.class).subscribe(msg -> ...);         │   │
 │  └────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -2603,15 +2622,16 @@ public class TenantQueueService {
     
     private final PeeGeeQDatabaseSetupService setupService;
     private final String setupId;
-    private final Map<String, QueueFactory> tenantQueues = new ConcurrentHashMap<>();
+    private final Map<String, QueueFactory> tenantFactories = new ConcurrentHashMap<>();
     
-    public CompletableFuture<Queue<Order>> getOrCreateTenantQueue(String tenantId) {
+    // Returns a producer for the tenant's topic (create a consumer the same way via createConsumer).
+    public CompletableFuture<MessageProducer<Order>> getOrCreateTenantProducer(String tenantId) {
         String queueName = "tenant_" + tenantId + "_orders";
         
-        // Check if queue already exists
-        if (tenantQueues.containsKey(queueName)) {
+        // Reuse the factory if the queue already exists
+        if (tenantFactories.containsKey(queueName)) {
             return CompletableFuture.completedFuture(
-                tenantQueues.get(queueName).createQueue(queueName, Order.class)
+                tenantFactories.get(queueName).createProducer(queueName, Order.class)
             );
         }
         
@@ -2624,12 +2644,12 @@ public class TenantQueueService {
         
         return setupService.addQueue(setupId, config)
             .thenApply(v -> {
-                // Create queue factory
+                // Create the queue factory (native/outbox) for this tenant
                 QueueFactory factory = createQueueFactory();
-                tenantQueues.put(queueName, factory);
+                tenantFactories.put(queueName, factory);
                 
                 logger.info("Created dynamic queue for tenant: {}", tenantId);
-                return factory.createQueue(queueName, Order.class);
+                return factory.createProducer(queueName, Order.class);
             });
     }
 }
@@ -2708,10 +2728,10 @@ public class FeatureQueueManager {
  */
 public class WorkflowQueueService {
     
-    public CompletableFuture<Void> createWorkflowQueues(Workflow workflow) {
-        List<CompletableFuture<Void>> queueCreations = new ArrayList<>();
+    public Future<Void> createWorkflowQueues(Workflow workflow) {
+        List<Future<Void>> queueCreations = new ArrayList<>();
         
-        // Create a queue for each step in the workflow
+        // Create a queue for each step in the workflow (addQueue returns Vert.x Future<Void>)
         for (WorkflowStep step : workflow.getSteps()) {
             String queueName = String.format("workflow_%s_step_%s", 
                 workflow.getId(), step.getName());
@@ -2721,17 +2741,14 @@ public class WorkflowQueueService {
                 .maxRetries(step.getMaxRetries())
                 .build();
             
-            CompletableFuture<Void> future = setupService.addQueue(setupId, config);
-            queueCreations.add(future);
+            queueCreations.add(setupService.addQueue(setupId, config));
         }
         
-        // Wait for all queues to be created
-        return CompletableFuture.allOf(
-            queueCreations.toArray(new CompletableFuture[0])
-        ).thenRun(() -> {
-            logger.info("Created {} queues for workflow: {}", 
-                queueCreations.size(), workflow.getId());
-        });
+        // Wait for all queues to be created (Vert.x composite future — no blocking)
+        return Future.all(queueCreations)
+            .onSuccess(cf -> logger.info("Created {} queues for workflow: {}",
+                queueCreations.size(), workflow.getId()))
+            .mapEmpty();
     }
 }
 ```
@@ -2769,103 +2786,82 @@ Dynamic queue creation is extensively used in integration tests:
 
 ```java
 @Test
-void testDynamicQueueCreation() throws Exception {
+void testDynamicQueueCreation(Vertx vertx, VertxTestContext testContext) {
     // Start with no queues
     DatabaseSetupRequest request = new DatabaseSetupRequest.Builder()
         .setupId("test_dynamic")
         .databaseConfig(dbConfig)
         .queues(List.of())  // No initial queues
         .build();
-    
-    DatabaseSetupResult result = setupService.createCompleteSetup(request).get();
-    
-    // Later, add queue dynamically
-    QueueConfig queueConfig = new QueueConfig.Builder()
-        .queueName("dynamic_test_queue")
-        .maxRetries(3)
-        .build();
-    
-    setupService.addQueue("test_dynamic", queueConfig).get();
-    
-    // Verify queue exists and works
-    DatabaseConfig dbConfig = result.getDatabaseConfig();
-    try (Connection conn = DriverManager.getConnection(
-            dbConfig.getJdbcUrl(), 
-            dbConfig.getUsername(), 
-            dbConfig.getPassword())) {
-        
-        ResultSet rs = conn.createStatement().executeQuery(
-            "SELECT COUNT(*) FROM information_schema.tables " +
-            "WHERE table_schema = 'peegeeq' " +
-            "AND table_name = 'dynamic_test_queue'"
-        );
-        
-        rs.next();
-        assertEquals(1, rs.getInt(1), "Queue table should exist");
-    }
+
+    // Compose: create setup, then add a queue dynamically, then verify — no blocking .get().
+    setupService.createCompleteSetup(request)
+        .compose(result -> {
+            QueueConfig queueConfig = new QueueConfig.Builder()
+                .queueName("dynamic_test_queue")
+                .maxRetries(3)
+                .build();
+            // addQueue returns Future<Void>; carry `result` forward with map(...)
+            return setupService.addQueue("test_dynamic", queueConfig).map(result);
+        })
+        .onSuccess(result -> {
+            // Verify the queue table exists (synchronous JDBC assertion).
+            // DatabaseSetupResult exposes getConnectionUrl(); credentials come from the container.
+            try (Connection conn = DriverManager.getConnection(
+                    result.getConnectionUrl(), postgres.getUsername(), postgres.getPassword())) {
+                ResultSet rs = conn.createStatement().executeQuery(
+                    "SELECT COUNT(*) FROM information_schema.tables " +
+                    "WHERE table_schema = 'peegeeq' AND table_name = 'dynamic_test_queue'");
+                rs.next();
+                int count = rs.getInt(1);
+                testContext.verify(() -> assertEquals(1, count, "Queue table should exist"));
+                testContext.completeNow();
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        })
+        .onFailure(testContext::failNow);
 }
 ```
 
 ### What Gets Created
 
-When a queue is created dynamically, the following database objects are created:
+When a queue is created dynamically, the queue template applies **10 SQL files** producing **11 named
+schema objects** (1 table + 8 indexes + 1 function + 1 trigger).
 
-#### Queue Table
+#### Queue Table (`queue/01-table.sql`)
 ```sql
-CREATE TABLE {schema}.{queueName} (
-    id BIGSERIAL PRIMARY KEY,
-    topic VARCHAR(255) NOT NULL,
-    payload JSONB NOT NULL,
-    visible_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    lock_id BIGINT,
-    lock_until TIMESTAMP WITH TIME ZONE,
-    retry_count INT DEFAULT 0,
-    max_retries INT DEFAULT 3,
-    status VARCHAR(50) DEFAULT 'AVAILABLE',
-    headers JSONB DEFAULT '{}',
-    error_message TEXT,
-    correlation_id VARCHAR(255),
-    message_group VARCHAR(255),
-    priority INT DEFAULT 5
-) INHERITS ({schema}.queue_template);
+-- Structure is COPIED from queue_template (not inherited); see 05-queue-template.sql for columns.
+CREATE TABLE IF NOT EXISTS {schema}."{queueName}" (
+    LIKE {schema}.queue_template INCLUDING ALL
+);
 ```
 
-#### Performance Indexes (5 indexes)
+#### Performance Indexes (8 indexes, `queue/02a`–`02g`)
 ```sql
-CREATE INDEX idx_{queueName}_topic 
-    ON {schema}.{queueName}(topic, visible_at, status);
-
-CREATE INDEX idx_{queueName}_visible 
-    ON {schema}.{queueName}(visible_at) WHERE status = 'AVAILABLE';
-
-CREATE INDEX idx_{queueName}_lock 
-    ON {schema}.{queueName}(lock_id) WHERE lock_id IS NOT NULL;
-
-CREATE INDEX idx_{queueName}_status 
-    ON {schema}.{queueName}(status, created_at);
-
-CREATE INDEX idx_{queueName}_priority 
-    ON {schema}.{queueName}(priority, created_at);
+CREATE INDEX IF NOT EXISTS idx_{queueName}_topic_visible ON {schema}."{queueName}"(topic, visible_at, status);      -- 02a
+CREATE INDEX IF NOT EXISTS idx_{queueName}_lock          ON {schema}."{queueName}"(lock_id) WHERE lock_id IS NOT NULL; -- 02b
+CREATE INDEX IF NOT EXISTS idx_{queueName}_status        ON {schema}."{queueName}"(status, created_at);                -- 02c
+CREATE INDEX IF NOT EXISTS idx_{queueName}_correlation_id ON {schema}."{queueName}"(correlation_id) WHERE correlation_id IS NOT NULL; -- 02d
+CREATE INDEX IF NOT EXISTS idx_{queueName}_priority      ON {schema}."{queueName}"(priority, created_at);              -- 02e
+CREATE INDEX IF NOT EXISTS idx_{queueName}_headers_gin   ON {schema}."{queueName}" USING GIN(headers);                 -- 02f
+-- 02g creates TWO idempotency indexes:
+CREATE UNIQUE INDEX IF NOT EXISTS idx_{queueName}_idempotency_key        ON {schema}."{queueName}"(topic, idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE INDEX IF NOT EXISTS        idx_{queueName}_idempotency_key_lookup ON {schema}."{queueName}"(idempotency_key)        WHERE idempotency_key IS NOT NULL;
 ```
 
-#### Notification Trigger
+#### Per-queue Notify Function (`queue/03-function.sql`)
 ```sql
-CREATE TRIGGER {queueName}_notify_trigger
-    AFTER INSERT ON {schema}.{queueName}
-    FOR EACH ROW
-    EXECUTE FUNCTION notify_queue_insert();
+-- One function PER queue (not shared). Builds channel {schema}_queue_{queueName} and pg_notify()s it.
+CREATE OR REPLACE FUNCTION {schema}."notify_{queueName}_changes"() RETURNS TRIGGER AS $$ ... $$ LANGUAGE plpgsql;
 ```
 
-#### Function (shared across all queues)
+#### Per-queue Trigger (`queue/04-trigger.sql`)
 ```sql
-CREATE OR REPLACE FUNCTION notify_queue_insert()
-RETURNS TRIGGER AS $$
-BEGIN
-    PERFORM pg_notify('queue_insert', NEW.topic || ':' || NEW.id);
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+-- Fires on INSERT, UPDATE, and DELETE (not INSERT-only).
+CREATE TRIGGER "trigger_{queueName}_notify"
+    AFTER INSERT OR UPDATE OR DELETE ON {schema}."{queueName}"
+    FOR EACH ROW EXECUTE FUNCTION {schema}."notify_{queueName}_changes"();
 ```
 
 ### Dynamic Event Store Creation
@@ -2895,12 +2891,10 @@ public CompletableFuture<EventStore<OrderEvent>> getOrCreateEventStore(String st
 }
 ```
 
-**Event Store Objects Created**:
-- Event log table with bi-temporal columns
-- 10+ indexes for temporal queries
-- GIN indexes for JSONB payload/headers
-- Notification trigger for event streaming
-- Inherited from `event_store_template`
+**Event Store Objects Created** (`eventstore/` template, 13 files):
+- Event log table copied from `event_store_template` via `LIKE ... INCLUDING ALL` (not inherited)
+- 10 indexes for temporal queries (`02a`–`02j`: validtime, txtime, eventid, eventtype, aggregate, correlation, version, corrections, payload GIN, headers GIN)
+- A per-store notify function `notify_{tableName}_events()` and an `AFTER INSERT` trigger `trigger_{tableName}_notify`
 
 ### Performance Considerations
 
@@ -2908,9 +2902,9 @@ public CompletableFuture<EventStore<OrderEvent>> getOrCreateEventStore(String st
 ```
 Dynamic queue creation takes approximately:
 - Queue table: ~50ms
-- 5 indexes: ~100ms
-- Trigger: ~20ms
-- Total: ~170ms per queue
+- 8 indexes: ~150ms
+- Function + trigger: ~30ms
+- Total: ~230ms per queue (approximate, environment-dependent)
 ```
 
 #### 2. Connection Pooling
@@ -2929,21 +2923,24 @@ public class DynamicQueueConfig {
 
 #### 3. Concurrent Creation
 ```java
-// Safe for concurrent queue creation
-CompletableFuture<Void> future1 = setupService.addQueue(setupId, config1);
-CompletableFuture<Void> future2 = setupService.addQueue(setupId, config2);
-CompletableFuture<Void> future3 = setupService.addQueue(setupId, config3);
+// Safe for concurrent queue creation. addQueue returns a Vert.x Future<Void>.
+Future<Void> f1 = setupService.addQueue(setupId, config1);
+Future<Void> f2 = setupService.addQueue(setupId, config2);
+Future<Void> f3 = setupService.addQueue(setupId, config3);
 
-// All three queues created in parallel (if different names)
-CompletableFuture.allOf(future1, future2, future3).get();
+// All three created in parallel (if different names); compose the results, never block.
+Future.all(f1, f2, f3)
+    .onSuccess(cf -> logger.info("all queues created"))
+    .onFailure(err -> logger.error("queue creation failed", err));
 ```
 
 #### 4. Idempotent Creation
 ```java
-// Safe to call multiple times with same queue name
-// Uses CREATE TABLE IF NOT EXISTS internally
-setupService.addQueue(setupId, config).get();  // Creates table
-setupService.addQueue(setupId, config).get();  // No-op (already exists)
+// Safe to call multiple times with same queue name (CREATE TABLE IF NOT EXISTS internally).
+// addQueue returns a Vert.x Future — compose the calls, don't block.
+setupService.addQueue(setupId, config)                     // Creates table
+    .compose(v -> setupService.addQueue(setupId, config))  // No-op (already exists)
+    .onFailure(err -> logger.error("addQueue failed", err));
 ```
 
 ### Limitations and Considerations
@@ -2960,12 +2957,14 @@ QueueConfig config = new QueueConfig.Builder()
 
 #### 2. Template Table Required
 ```java
-// ❌ BAD: queue_template doesn't exist
-// Dynamic queue creation requires queue_template to exist
+// ❌ BAD: queue_template doesn't exist yet
+// addQueue() requires queue_template to already exist.
 
-// ✅ GOOD: Apply base template first
-setupService.applySchemaTemplatesAsync(request).get();  // Creates templates
-setupService.addQueue(setupId, queueConfig).get();      // Now works
+// ✅ GOOD: createCompleteSetup() applies the base template (which creates queue_template),
+// after which addQueue() can create per-queue tables — composed, no blocking .get()
+setupService.createCompleteSetup(request)                          // applies base template → queue_template
+    .compose(result -> setupService.addQueue(setupId, queueConfig))  // now works
+    .onFailure(err -> logger.error("setup failed", err));
 ```
 
 #### 3. Naming Constraints
@@ -3063,15 +3062,15 @@ public class QueueRegistry {
 #### 4. Handle Creation Failures Gracefully
 ```java
 // ✅ GOOD: Proper error handling
-public CompletableFuture<Queue<Order>> getOrCreateQueue(String queueName) {
+public CompletableFuture<MessageProducer<Order>> getOrCreateProducer(String queueName) {
     return createQueueIfNeeded(queueName)
-        .thenApply(v -> queueFactory.createQueue(queueName, Order.class))
+        .thenApply(v -> queueFactory.createProducer(queueName, Order.class))
         .exceptionally(ex -> {
             logger.error("Failed to create queue: {}", queueName, ex);
             
             // Check if queue already exists (race condition)
             if (queueExists(queueName)) {
-                return queueFactory.createQueue(queueName, Order.class);
+                return queueFactory.createProducer(queueName, Order.class);
             }
             
             throw new QueueCreationException("Unable to create queue: " + queueName, ex);
@@ -3107,6 +3106,32 @@ public class MonitoredQueueService {
     }
 }
 ```
+
+### Queue Deletion (current behavior)
+
+Deletion is **not** symmetric with creation, and this is important to understand. There is **no
+`removeQueue`** on `PeeGeeQDatabaseSetupService` — `addQueue` has no counterpart. Deletion exists only
+through two REST handlers, and **neither drops the schema objects that `addQueue` created**:
+
+| Endpoint | Handler | What it does | Message data | Schema objects |
+|---|---|---|---|---|
+| `DELETE /api/v1/management/queues/{setupId}/{queueName}` | `ManagementApiHandler.deleteQueue` | Closes the queue factory and removes it from the active setup's in-memory map | **Not** purged | **Not** dropped |
+| `DELETE /api/v1/queues/{setupId}/{queueName}` | `ManagementApiHandler.deleteQueueByName` | `purgeMessages(topic)` then closes the factory and removes it from the map | **Purged** | **Not** dropped |
+
+Consequences:
+
+- **A "deleted" queue disappears from listings** (`GET /api/v1/setups/{id}/queues` reads the same
+  in-memory factory map), so within a running backend it *looks* deleted.
+- **But the per-queue schema objects remain** — the table, its 8 indexes, the `notify_{queueName}_changes`
+  function, and the `trigger_{queueName}_notify` trigger are **not** dropped by either route. Every
+  deleted queue leaves those objects behind in the schema.
+- The management route (used by the utilities UI) does **not** purge messages either, so rows for that
+  topic remain in the shared `queue_messages` / `outbox` tables.
+- Because queue identity is in-memory only, the "deletion" is not durable — it applies to the running
+  process, not to the database.
+
+If you need the schema objects removed, drop them explicitly (`DROP TABLE {schema}."{queueName}" CASCADE`
+also drops its indexes and trigger; drop the `notify_{queueName}_changes` function separately).
 
 ### Comparison: Static vs Dynamic Queue Creation
 
@@ -3146,9 +3171,9 @@ public class MonitoredQueueService {
 //   - notifications_queue
 
 // Dynamic: Tenant-specific queues at runtime
-public CompletableFuture<Queue<Order>> getTenantQueue(String tenantId) {
+public CompletableFuture<MessageProducer<Order>> getTenantProducer(String tenantId) {
     String queueName = "tenant_" + tenantId + "_orders";
-    return getOrCreateQueue(queueName);
+    return getOrCreateProducer(queueName);
 }
 ```
 
@@ -3166,13 +3191,13 @@ public CompletableFuture<Queue<Order>> getTenantQueue(String tenantId) {
 - **Unit Tests**: `PeeGeeQTestSchemaInitializer`
 
 **Key Classes**:
-- `PeeGeeQDatabaseSetupService` (825 lines)
+- `PeeGeeQDatabaseSetupService` (1148 lines)
   - Creates test databases dynamically
   - Applies SQL templates from `src/main/resources/db/templates/`
   - Manages PeeGeeQManager lifecycle
   - Handles cleanup and resource disposal
   
-- `SqlTemplateProcessor` (153 lines)
+- `SqlTemplateProcessor` (218 lines)
   - Loads SQL files from template directories
   - Processes `.manifest` files for execution order
   - Substitutes parameters in SQL ({queueName}, {tableName})
@@ -3195,7 +3220,9 @@ DatabaseSetupRequest request = new DatabaseSetupRequest.Builder()
     .queues(List.of(queueConfig))
     .eventStores(List.of(eventStoreConfig))
     .build();
-DatabaseSetupResult result = setupService.createCompleteSetup(request).get();
+setupService.createCompleteSetup(request)
+    .onSuccess(result -> { /* use result.getQueueFactories(), result.getEventStores(), ... */ })
+    .onFailure(Throwable::printStackTrace);
 ```
 
 ### peegeeq-native (Native Queue Implementation)
@@ -3221,8 +3248,9 @@ PeeGeeQManager manager = new PeeGeeQManager(config);
 QueueFactory factory = manager.getQueueFactoryProvider()
     .createFactory("native", manager.getDatabaseService());
 
-// Use queue
-Queue<Message> queue = factory.createQueue("orders_queue", Message.class);
+// Create a producer (and/or consumer) for a topic
+MessageProducer<Message> producer = factory.createProducer("orders_queue", Message.class);
+// MessageConsumer<Message> consumer = factory.createConsumer("orders_queue", Message.class);
 ```
 
 #### Integration Tests
@@ -3237,10 +3265,10 @@ DatabaseSetupRequest request = new DatabaseSetupRequest.Builder()
     ))
     .build();
 
-DatabaseSetupResult result = setupService.createCompleteSetup(request).get();
-
-// Native queue factory available in result
-QueueFactory factory = result.getQueueFactories().get("test_native_queue");
+setupService.createCompleteSetup(request).onSuccess(result -> {
+    // Native queue factory available in result
+    QueueFactory factory = result.getQueueFactories().get("test_native_queue");
+}).onFailure(Throwable::printStackTrace);
 ```
 
 #### Unit Tests
@@ -3248,6 +3276,7 @@ QueueFactory factory = result.getQueueFactories().get("test_native_queue");
 // Initialize only native queue schema
 PeeGeeQTestSchemaInitializer.initializeSchema(
     postgres,
+    "peegeeq",
     SchemaComponent.NATIVE_QUEUE,
     SchemaComponent.DEAD_LETTER_QUEUE
 );
@@ -3312,10 +3341,10 @@ DatabaseSetupRequest request = new DatabaseSetupRequest.Builder()
     .eventStores(List.of())
     .build();
 
-DatabaseSetupResult result = setupService.createCompleteSetup(request).get();
-
-// Outbox tables available via PeeGeeQManager
-PeeGeeQManager manager = result.getManager();
+setupService.createCompleteSetup(request).onSuccess(result -> {
+    // Outbox queues available via the setup result (getQueueFactories()/getEventStores())
+    QueueFactory outboxFactory = result.getQueueFactories().get("my_outbox_queue");
+}).onFailure(Throwable::printStackTrace);
 ```
 
 #### Unit Tests
@@ -3323,6 +3352,7 @@ PeeGeeQManager manager = result.getManager();
 // Initialize outbox schema
 PeeGeeQTestSchemaInitializer.initializeSchema(
     postgres,
+    "peegeeq",
     SchemaComponent.OUTBOX,
     SchemaComponent.DEAD_LETTER_QUEUE
 );
@@ -3378,12 +3408,13 @@ EventStore<OrderEvent> orderEvents = factory.createEventStore(
 );
 
 // Append events
-BiTemporalEvent<OrderEvent> event = orderEvents.append(
+orderEvents.append(
     "order-123",          // event ID
     "OrderCreated",       // event type
     Instant.now(),        // valid time
     orderCreatedPayload   // event data
-).get();
+).onSuccess(event -> logger.info("Appended event {}", event.getEventId()))
+ .onFailure(err -> logger.error("Append failed", err));
 ```
 
 #### Integration Tests
@@ -3399,10 +3430,10 @@ DatabaseSetupRequest request = new DatabaseSetupRequest.Builder()
     ))
     .build();
 
-DatabaseSetupResult result = setupService.createCompleteSetup(request).get();
-
-// Event stores available in result
-EventStore<?> eventStore = result.getEventStores().get("test_order_events");
+setupService.createCompleteSetup(request).onSuccess(result -> {
+    // Event stores available in result
+    EventStore<?> eventStore = result.getEventStores().get("test_order_events");
+}).onFailure(Throwable::printStackTrace);
 ```
 
 #### Unit Tests
@@ -3410,6 +3441,7 @@ EventStore<?> eventStore = result.getEventStores().get("test_order_events");
 // Initialize bitemporal schema
 PeeGeeQTestSchemaInitializer.initializeSchema(
     postgres,
+    "peegeeq",
     SchemaComponent.BITEMPORAL
 );
 
@@ -3462,7 +3494,7 @@ ORDER BY version;
 **Setup Method**: Flyway migrations only (this IS the migration module)
 
 **Key Files**:
-- `src/main/resources/db/migration/V001__Create_Base_Tables.sql` (576 lines)
+- `src/main/resources/db/migration/V001__Create_Base_Tables.sql` (616 lines)
   - Complete schema definition
   - All tables, indexes, functions, triggers
   - Idempotent (safe to re-run)
@@ -3537,7 +3569,7 @@ CREATE INDEX idx_queue_messages_topic_visible ON queue_messages(topic, visible_a
 
 -- Views
 CREATE OR REPLACE VIEW bitemporal_current_state AS ...;
--- ... 3 views
+-- ... 4 views
 
 -- Functions and Triggers
 -- (defined in migration script)
@@ -3548,17 +3580,22 @@ CREATE OR REPLACE VIEW bitemporal_current_state AS ...;
 **Purpose**: Shared test utilities for all modules
 
 **Key Classes**:
-- `PeeGeeQTestSchemaInitializer` (747 lines)
+- `PeeGeeQTestSchemaInitializer` (325 lines)
   - Component-based schema initialization
   - Fast JDBC-based setup for unit tests
   - Granular schema component control
 
 **Usage Patterns**:
 
+**Signature:** `initializeSchema(PostgreSQLContainer postgres, String schema, SchemaComponent... components)`
+(and a `(String jdbcUrl, String username, String password, String schema, SchemaComponent...)` overload).
+The `schema` argument is **required**.
+
 #### Full Schema
 ```java
 PeeGeeQTestSchemaInitializer.initializeSchema(
     postgres,
+    "peegeeq",                 // schema (required)
     SchemaComponent.ALL
 );
 ```
@@ -3568,6 +3605,7 @@ PeeGeeQTestSchemaInitializer.initializeSchema(
 // Only what you need for specific test
 PeeGeeQTestSchemaInitializer.initializeSchema(
     postgres,
+    "peegeeq",
     SchemaComponent.OUTBOX,
     SchemaComponent.NATIVE_QUEUE,
     SchemaComponent.DEAD_LETTER_QUEUE
@@ -3579,6 +3617,7 @@ PeeGeeQTestSchemaInitializer.initializeSchema(
 // Convenience enum for all queue components
 PeeGeeQTestSchemaInitializer.initializeSchema(
     postgres,
+    "peegeeq",
     SchemaComponent.QUEUE_ALL  // Expands to OUTBOX + NATIVE + DLQ
 );
 ```
@@ -3590,6 +3629,7 @@ void cleanup() {
     // Remove test data but keep schema
     PeeGeeQTestSchemaInitializer.cleanupTestData(
         postgres,
+        "peegeeq",
         SchemaComponent.OUTBOX,
         SchemaComponent.NATIVE_QUEUE
     );
@@ -3645,12 +3685,13 @@ void cleanup() {
 │  └──────────────────────────────────────────────┘     │
 │                                                          │
 │  ┌──────────────────────────────────────────────┐     │
-│  │  Consumer Group Tables (5)                    │     │
-│  │  • peegeeq.consumer_group                     │     │
-│  │  • peegeeq.consumer_instance                  │     │
-│  │  • peegeeq.consumer_subscription              │     │
-│  │  • peegeeq.consumer_offset                    │     │
-│  │  • peegeeq.consumer_heartbeat                 │     │
+│  │  Consumer Group / Fanout Tables (6)           │     │
+│  │  • outbox_topics                              │     │
+│  │  • outbox_topic_subscriptions                 │     │
+│  │  • outbox_consumer_groups                     │     │
+│  │  • processed_ledger                           │     │
+│  │  • consumer_group_index                       │     │
+│  │  • bitemporal_subscriptions                   │     │
 │  └──────────────────────────────────────────────┘     │
 │                                                          │
 │  ┌──────────────────────────────────────────────┐     │
@@ -3662,16 +3703,17 @@ void cleanup() {
 │  └──────────────────────────────────────────────┘     │
 │                                                          │
 │  ┌──────────────────────────────────────────────┐     │
-│  │  Functions & Triggers (4)                     │     │
-│  │  • Timestamp update triggers                  │     │
-│  │  • Notification triggers                      │     │
+│  │  Functions & Triggers (9 func, 5 trig)        │     │
+│  │  • Notification functions/triggers            │     │
+│  │  • Maintenance/consumer-group functions       │     │
 │  └──────────────────────────────────────────────┘     │
 │                                                          │
 │  ┌──────────────────────────────────────────────┐     │
-│  │  Views (3)                                    │     │
+│  │  Views (4)                                    │     │
 │  │  • bitemporal_current_state                   │     │
 │  │  • bitemporal_latest_events                   │     │
 │  │  • bitemporal_event_stats                     │     │
+│  │  • bitemporal_event_type_stats                │     │
 │  └──────────────────────────────────────────────┘     │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -3686,9 +3728,9 @@ outbox ──────────┤
                  
 outbox ───────────> outbox_consumer_groups (1:N)
 
-queue_template <─── queue tables (inheritance)
+queue_template ───> queue tables (LIKE ... INCLUDING ALL, copy at creation)
                     
-event_store_template <─── event store tables (inheritance)
+event_store_template ───> event store tables (LIKE ... INCLUDING ALL, copy at creation)
 
 bitemporal_event_log ──> bitemporal_current_state (view)
                      ├──> bitemporal_latest_events (view)
@@ -3712,9 +3754,9 @@ Consumer Group Tables (5 tables)
     ↓
 Indexes (30+)
     ↓
-Functions & Triggers (4)
+Functions & Triggers (9 functions, 5 triggers)
     ↓
-Views (3)
+Views (4)
 ```
 
 ---
@@ -3788,11 +3830,11 @@ mvn flyway:migrate
 # Development: Use docker-compose
 docker-compose -f docker-compose.dev.yml up
 
-# Integration Tests: Use PeeGeeQDatabaseSetupService
-setupService.createCompleteSetup(request).get();
+# Integration Tests: Use PeeGeeQDatabaseSetupService (compose on the Future, don't block)
+setupService.createCompleteSetup(request).onSuccess(result -> { /* ... */ }).onFailure(Throwable::printStackTrace);
 
 # Unit Tests: Use PeeGeeQTestSchemaInitializer
-PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+PeeGeeQTestSchemaInitializer.initializeSchema(postgres, "peegeeq", SchemaComponent.ALL);
 ```
 
 #### Issue 2: "Templates not found" in Tests
@@ -3923,16 +3965,15 @@ Failed to drop test database: test_db_123 - database is being accessed by other 
 **Solution**:
 ```java
 @AfterAll
-void cleanup() {
-    // Stop PeeGeeQManager first (closes all connections)
-    if (setupResult != null && setupResult.getManager() != null) {
-        setupResult.getManager().stop();
+void cleanup(VertxTestContext testContext) {
+    // destroySetup() closes the setup's manager/connections and drops it — compose, don't block.
+    if (setupService == null || setupResult == null) {
+        testContext.completeNow();
+        return;
     }
-    
-    // Then destroy setup
-    if (setupService != null && setupResult != null) {
-        setupService.destroySetup(setupResult.getSetupId()).get();
-    }
+    setupService.destroySetup(setupResult.getSetupId())
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
 }
 ```
 
@@ -3999,10 +4040,10 @@ Failed to load template: base - Error: Template not found
 |------|--------|--------------|
 | **Setup Production DB** | Flyway Migrations | `java -jar peegeeq-migrations.jar migrate` |
 | **Setup Dev DB** | Docker Compose | `docker-compose -f docker-compose.dev.yml up` |
-| **Setup Integration Test** | PeeGeeQDatabaseSetupService | `setupService.createCompleteSetup(request).get()` |
-| **Setup Unit Test** | PeeGeeQTestSchemaInitializer | `initializeSchema(postgres, SchemaComponent.ALL)` |
+| **Setup Integration Test** | PeeGeeQDatabaseSetupService | `setupService.createCompleteSetup(request).onSuccess(...).onFailure(...)` |
+| **Setup Unit Test** | PeeGeeQTestSchemaInitializer | `initializeSchema(postgres, "peegeeq", SchemaComponent.ALL)` |
 | **Set Custom Schema (Flyway)** | Configuration | `flyway.schemas=myapp_queue,myapp_events` |
-| **Set Custom Schema (App)** | Environment Variable | `export PEEGEEQ_DB_SCHEMA="myapp_queue"` |
+| **Set Custom Schema (App)** | Environment Variable | `export PEEGEEQ_DATABASE_SCHEMA="myapp_queue"` |
 | **Verify Schema** | Flyway Info | `mvn flyway:info` |
 | **Reset Dev DB** | Flyway Clean | `mvn flyway:clean flyway:migrate` |
 | **Check Health** | PeeGeeQManager | `manager.getHealthService().checkHealth()` |
