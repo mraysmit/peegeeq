@@ -4,29 +4,61 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+      STANDALONE project — intentionally NOT a module of the core PeeGeeQ reactor.
+      Spring is an integration-example concern only and must never influence the core's
+      dependency graph, so this project has its own parent (spring-boot-starter-parent) and
+      consumes PeeGeeQ purely as published artifacts (dev.mars:peegeeq-* from the local repo,
+      installed via `mvn install` at the reactor root). Build it separately:
+          cd peegeeq-examples-spring && mvn verify
+    -->
     <parent>
-        <groupId>dev.mars</groupId>
-        <artifactId>peegeeq</artifactId>
-        <version>1.0-SNAPSHOT</version>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>4.0.7</version>
+        <relativePath/>
     </parent>
 
+    <groupId>dev.mars</groupId>
     <artifactId>peegeeq-examples-spring</artifactId>
+    <version>1.0-SNAPSHOT</version>
     <name>PeeGeeQ Examples Spring</name>
-    <description>Spring and Spring Boot integration examples for PeeGeeQ</description>
+    <description>Spring and Spring Boot integration examples for PeeGeeQ (standalone, not part of the core reactor)</description>
+
+    <properties>
+        <java.version>25</java.version>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- PeeGeeQ artifacts are consumed from the local repo (installed by the core reactor build). -->
+        <peegeeq.version>1.0-SNAPSHOT</peegeeq.version>
+        <!-- Match the core's Testcontainers 2.x so peegeeq-test-support is API-compatible; this
+             overrides the Testcontainers version the Spring Boot BOM would otherwise impose. -->
+        <testcontainers.version>2.0.2</testcontainers.version>
+
+        <!-- Test-execution tag filtering (self-contained; the core reactor's test profiles are not inherited). -->
+        <test.groups>core</test.groups>
+        <test.excludedGroups>integration,performance,slow</test.excludedGroups>
+        <test.parallel>methods</test.parallel>
+        <test.threadCount>4</test.threadCount>
+        <test.timeout.default>30s</test.timeout.default>
+        <test.timeout.method>10s</test.timeout.method>
+    </properties>
 
     <dependencies>
-        <!-- PeeGeeQ Modules -->
+        <!-- PeeGeeQ Modules (consumed as published artifacts) -->
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-api</artifactId>
+            <version>${peegeeq.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-db</artifactId>
+            <version>${peegeeq.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-bitemporal</artifactId>
+            <version>${peegeeq.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.ongres.scram</groupId>
@@ -41,6 +73,7 @@
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-outbox</artifactId>
+            <version>${peegeeq.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.ongres.scram</groupId>
@@ -55,14 +88,17 @@
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-rest</artifactId>
+            <version>${peegeeq.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-service-manager</artifactId>
+            <version>${peegeeq.version}</version>
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-native</artifactId>
+            <version>${peegeeq.version}</version>
             <exclusions>
                 <exclusion>
                     <groupId>com.ongres.scram</groupId>
@@ -75,7 +111,7 @@
             </exclusions>
         </dependency>
 
-        <!-- Spring Boot Dependencies -->
+        <!-- Spring Boot Dependencies (versions from spring-boot-starter-parent) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter</artifactId>
@@ -105,7 +141,7 @@
             <version>4.0.1</version>
         </dependency>
 
-        <!-- Logging -->
+        <!-- Logging (versions from spring-boot-starter-parent) -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
@@ -121,6 +157,17 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Spring Boot 4 moved TestRestTemplate to spring-boot-resttestclient (needs spring-boot-restclient) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-resttestclient</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-restclient</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>io.projectreactor</groupId>
             <artifactId>reactor-test</artifactId>
@@ -134,26 +181,31 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>junit-jupiter</artifactId>
+            <artifactId>testcontainers-junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>testcontainers-postgresql</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.testcontainers</groupId>
-            <artifactId>consul</artifactId>
+            <artifactId>testcontainers-consul</artifactId>
+            <version>${testcontainers.version}</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
             <artifactId>peegeeq-test-support</artifactId>
+            <version>${peegeeq.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -168,26 +220,18 @@
                 </configuration>
             </plugin>
 
-            <!-- Maven Surefire Plugin 3.2.5 for JUnit 5 test execution with tag-based categorization -->
+            <!-- Surefire: JUnit 5 tag-based filtering (properties defined locally above) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
-                <version>3.2.5</version>
                 <configuration>
-                    <!-- Tag-based test filtering -->
                     <groups>${test.groups}</groups>
                     <excludedGroups>${test.excludedGroups}</excludedGroups>
-
-                    <!-- Parallel execution configuration -->
                     <parallel>${test.parallel}</parallel>
                     <threadCount>${test.threadCount}</threadCount>
                     <perCoreThreadCount>false</perCoreThreadCount>
                     <useUnlimitedThreads>false</useUnlimitedThreads>
-
-                    <!-- Stop the test run after first failure to align with fast-fail preference -->
                     <skipAfterFailureCount>1</skipAfterFailureCount>
-
-                    <!-- JVM Performance Tuning -->
                     <argLine>
                         -Xmx2g -Xms1g
                         -XX:+UseG1GC
@@ -196,22 +240,16 @@
                         -Djava.awt.headless=true
                         -XX:+EnableDynamicAgentLoading
                     </argLine>
-
-                    <!-- JUnit 5 configuration -->
                     <properties>
                         <configurationParameters>
                             junit.jupiter.execution.timeout.default=${test.timeout.default}
                             junit.jupiter.execution.timeout.testmethod.default=${test.timeout.method}
                         </configurationParameters>
                     </properties>
-
-                    <!-- Improved Test Output -->
                     <trimStackTrace>false</trimStackTrace>
                     <printSummary>true</printSummary>
                     <reportFormat>brief</reportFormat>
                     <useFile>true</useFile>
-
-                    <!-- System Properties for TestContainers -->
                     <systemPropertyVariables>
                         <testcontainers.reuse.enable>true</testcontainers.reuse.enable>
                         <testcontainers.ryuk.disabled>false</testcontainers.ryuk.disabled>
@@ -222,7 +260,6 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <version>${spring.boot.version}</version>
                 <configuration>
                     <mainClass>dev.mars.peegeeq.examples.springboot.SpringBootOutboxApplication</mainClass>
                 </configuration>
@@ -230,10 +267,4 @@
         </plugins>
     </build>
 
-    <!--
-      NOTE: Test-execution profiles are defined ONLY in the root pom.
-      Do not redeclare them here.
-    -->
-
 </project>
-
