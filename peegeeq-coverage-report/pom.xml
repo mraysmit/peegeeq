@@ -80,11 +80,6 @@
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-examples-spring</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
             <artifactId>peegeeq-migrations</artifactId>
             <version>${project.version}</version>
         </dependency>

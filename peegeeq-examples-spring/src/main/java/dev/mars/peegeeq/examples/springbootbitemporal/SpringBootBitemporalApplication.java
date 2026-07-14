@@ -18,8 +18,6 @@ package dev.mars.peegeeq.examples.springbootbitemporal;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration;
-import org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -171,10 +169,10 @@ import org.slf4j.LoggerFactory;
  * @since 2025-10-06
  * @version 1.0
  */
-@SpringBootApplication(exclude = {
-    DataSourceAutoConfiguration.class,  // Exclude JDBC DataSource - using Vert.x reactive
-    R2dbcAutoConfiguration.class        // Exclude R2DBC - using Vert.x reactive PostgreSQL client
-})
+// Vert.x reactive PostgreSQL is used, not Spring JDBC/R2DBC. Under Spring Boot 4 the JDBC/R2DBC
+// auto-configurations are not on the classpath (no spring-boot-jdbc/r2dbc starters), so there is
+// nothing to exclude.
+@SpringBootApplication
 public class SpringBootBitemporalApplication {
     
     private static final Logger logger = LoggerFactory.getLogger(SpringBootBitemporalApplication.class);

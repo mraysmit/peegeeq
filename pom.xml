@@ -63,7 +63,6 @@
         <module>peegeeq-test-support</module>
         <module>peegeeq-performance-test-harness</module>
         <module>peegeeq-examples</module>
-        <module>peegeeq-examples-spring</module>
         <module>peegeeq-migrations</module>
         <module>peegeeq-openapi</module>
         <module>peegeeq-integration-tests</module>
@@ -82,7 +81,7 @@
         <vertx.version>5.0.4</vertx.version>
         <postgresql.version>42.7.4</postgresql.version>
         <jackson.version>2.15.2</jackson.version>
-        <junit.version>5.10.1</junit.version>
+        <junit.version>5.12.2</junit.version>
         <testcontainers.version>2.0.2</testcontainers.version>
         <slf4j.version>2.0.9</slf4j.version>
         <logback.version>1.5.18</logback.version>
@@ -91,6 +90,15 @@
         <scram.version>3.1</scram.version>
         <spring.boot.version>3.5.6</spring.boot.version>
         <reactor.version>3.5.8</reactor.version>
+        <!-- Versions formerly supplied by the (now-removed) Spring Boot BOM; pinned explicitly so the
+             core reactor manages its own dependencies. Values match Spring Boot 3.5.6 for parity. -->
+        <testcontainers.classic.version>1.21.3</testcontainers.classic.version>
+        <mockito.version>5.17.0</mockito.version>
+        <hikaricp.version>6.3.3</hikaricp.version>
+        <flyway.version>11.7.2</flyway.version>
+        <h2.version>2.3.232</h2.version>
+        <commons-lang3.version>3.17.0</commons-lang3.version>
+        <reactor-test.version>3.7.11</reactor-test.version>
 
         <!--
           Single source of truth for Surefire/Failsafe JUnit 5 tag filtering.
@@ -224,26 +232,30 @@
                 <scope>import</scope>
             </dependency>
 
+            <!-- JUnit 5 BOM — manages jupiter/params/api/engine and the platform consistently
+                 (formerly supplied via the Spring Boot BOM). Keeps the platform launcher/engine in lockstep
+                 with jupiter, which JUnit tag-filtering depends on. -->
             <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter</artifactId>
+                <groupId>org.junit</groupId>
+                <artifactId>junit-bom</artifactId>
                 <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter-params</artifactId>
-                <version>${junit.version}</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.platform</groupId>
-                <artifactId>junit-platform-suite-api</artifactId>
-                <version>1.10.1</version>
-                <scope>test</scope>
+                <type>pom</type>
+                <scope>import</scope>
             </dependency>
 
-            <!-- TestContainers 2.x -->
+            <!-- Testcontainers BOM — supplies the classic-named modules (junit-jupiter/postgresql/consul)
+                 and a consistent transitive stack (docker-java, etc.); matches what the removed Spring Boot
+                 BOM imported (${testcontainers.classic.version}). The explicit testcontainers-* pins below
+                 override it to ${testcontainers.version} for the 2.x-named modules the core standardises on. -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.classic.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+
+            <!-- TestContainers 2.x (2.x-renamed modules; override the BOM above) -->
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers</artifactId>
@@ -281,14 +293,9 @@
                 <scope>test</scope>
             </dependency>
 
-            <!-- Spring Boot BOM -->
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring.boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
+            <!-- NOTE: The Spring Boot BOM is intentionally NOT imported here. Spring is an
+                 integration-example concern only (peegeeq-examples-spring, a standalone project) and
+                 must never manage versions for the core reactor. Do not re-add it. -->
 
             <!-- Test Utilities -->
             <dependency>
@@ -338,6 +345,55 @@
                 <groupId>io.github.resilience4j</groupId>
                 <artifactId>resilience4j-micrometer</artifactId>
                 <version>${resilience4j.version}</version>
+            </dependency>
+
+            <!-- ================================================================================
+                 Libraries formerly versioned by the (now-removed) Spring Boot BOM. Pinned here so
+                 the core reactor manages its own dependencies with no Spring involvement. Values
+                 match what Spring Boot 3.5.6 resolved, for behavioural parity.
+                 ================================================================================ -->
+
+            <!-- (Testcontainers classic-named modules + JUnit api/engine are now supplied by the
+                 testcontainers-bom and junit-bom imported above — no individual pins needed.) -->
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-junit-jupiter</artifactId>
+                <version>${mockito.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.zaxxer</groupId>
+                <artifactId>HikariCP</artifactId>
+                <version>${hikaricp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-core</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-database-postgresql</artifactId>
+                <version>${flyway.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${h2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-lang3</artifactId>
+                <version>${commons-lang3.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.projectreactor</groupId>
+                <artifactId>reactor-test</artifactId>
+                <version>${reactor-test.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
