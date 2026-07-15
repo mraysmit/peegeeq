@@ -851,4 +851,106 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
+
+    /**
+     * Verifies that {@code createCompleteSetup()} populates the self-describing registry tables so that
+     * {@code connectToExistingSetup()} can later reconstitute the setup from the schema itself.
+     *
+     * <p>Native and outbox queues produce byte-identical DDL, so a setup's identity and its objects'
+     * implementation kinds are NOT recoverable from table shapes alone. The setup must therefore record,
+     * at provisioning time:
+     * <ul>
+     *   <li>a single {@code peegeeq_setup_metadata} row declaring "this schema IS setup X"; and</li>
+     *   <li>one {@code peegeeq_object_registry} row per provisioned object, carrying its kind and config.</li>
+     * </ul>
+     *
+     * <p>This test provisions an event store (whose kind is unambiguously {@code bitemporal} and whose
+     * table is created by template regardless of downstream factory availability) and asserts both rows
+     * are present. Queue kinds require registered implementation modules and are covered from those modules.
+     */
+    @Test
+    @Order(13)
+    void testSelfDescribingRegistryPopulatedOnSetup(VertxTestContext ctx) {
+        logger.info("=== Testing Self-Describing Registry Population on Setup ===");
+
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(getPostgres().getHost())
+                .port(getPostgres().getFirstMappedPort())
+                .databaseName("registry_write_test_db_" + System.currentTimeMillis())
+                .username(getPostgres().getUsername())
+                .password(getPostgres().getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        EventStoreConfig eventStore = new EventStoreConfig.Builder()
+                .eventStoreName("registry_events")
+                .tableName("registry_events")
+                .build();
+
+        String setupId = "registry-write-" + System.currentTimeMillis();
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(eventStore), Map.of());
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(manager.getVertx(), null);
+
+        setupService.createCompleteSetup(request)
+                .compose(result -> {
+                    assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Setup should be active");
+
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbConfig.getDatabaseName())
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(dbConfig.getSchema())
+                            .build();
+                    verifyMgr.getOrCreateReactivePool("verify-registry", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+
+                    return verifyMgr.withConnection("verify-registry", conn ->
+                            // 1. Exactly one self-identifying metadata row for this setup.
+                            conn.preparedQuery("SELECT schema_name FROM " + schema
+                                            + ".peegeeq_setup_metadata WHERE setup_id = $1")
+                                    .execute(Tuple.of(setupId))
+                                    .compose(rows -> {
+                                        var it = rows.iterator();
+                                        if (!it.hasNext()) {
+                                            return Future.failedFuture(new AssertionError(
+                                                    "peegeeq_setup_metadata row should exist for setup: " + setupId));
+                                        }
+                                        assertEquals(schema, it.next().getString("schema_name"),
+                                                "metadata row should record the setup's schema");
+                                        return Future.succeededFuture();
+                                    })
+                                    // 2. One object-registry row for the event store, kind 'bitemporal' + config.
+                                    .compose(v -> conn.preparedQuery("SELECT kind, config FROM " + schema
+                                                    + ".peegeeq_object_registry WHERE object_name = $1")
+                                            .execute(Tuple.of("registry_events"))
+                                            .compose(rows -> {
+                                                var it = rows.iterator();
+                                                if (!it.hasNext()) {
+                                                    return Future.failedFuture(new AssertionError(
+                                                            "peegeeq_object_registry row should exist for object: registry_events"));
+                                                }
+                                                var row = it.next();
+                                                assertEquals("bitemporal", row.getString("kind"),
+                                                        "event store should be registered as 'bitemporal'");
+                                                assertNotNull(row.getValue("config"),
+                                                        "object-registry config JSON should be recorded");
+                                                return Future.succeededFuture();
+                                            })));
+                })
+                .compose(v -> setupService.destroySetup(setupId))
+                .eventually(() -> verifyMgr.close())
+                .onSuccess(v -> {
+                    logger.info("Self-describing registry population test passed");
+                    ctx.completeNow();
+                })
+                .onFailure(ctx::failNow);
+    }
 }

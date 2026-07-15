@@ -192,13 +192,13 @@ Use the provided helper script for convenient test execution:
 
 ```bash
 # Make executable (first time only)
-chmod +x run-tests.sh
+chmod +x scripts/testing/run-tests.sh
 
 # Run different test categories
-./run-tests.sh smoke         # Smoke tests (~5 seconds)
-./run-tests.sh performance   # Performance tests (~3-5 minutes)
-./run-tests.sh slow          # Slow tests (~15+ minutes)
-./run-tests.sh all           # All tests (~20+ minutes)
+./scripts/testing/run-tests.sh smoke         # Smoke tests (~5 seconds)
+./scripts/testing/run-tests.sh performance   # Performance tests (~3-5 minutes)
+./scripts/testing/run-tests.sh slow          # Slow tests (~15+ minutes)
+./scripts/testing/run-tests.sh all           # All tests (~20+ minutes)
 ```
 
 ## Performance Test Configuration

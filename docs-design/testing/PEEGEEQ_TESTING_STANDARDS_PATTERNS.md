@@ -406,7 +406,7 @@ System.setProperty("peegeeq.database.host", postgres.getHost());
 **Check for Violations**
 ```bash
 # Run the pre-commit check
-./scripts/pre-commit-postgresql-check
+./scripts/git-hooks/pre-commit-postgresql-check
 
 # Search for hardcoded versions
 findstr /R /S /C:"new PostgreSQLContainer.*postgres:" *.java
@@ -1584,10 +1584,10 @@ Then only add one of these when truly needed:
 **Fix Violations**
 ```bash
 # Run migration script (Linux/Mac)
-./scripts/migrate-postgresql-versions.sh
+./scripts/postgres-migration/migrate-postgresql-versions.sh
 
 # Run migration script (Windows)
-powershell -ExecutionPolicy Bypass -File ./scripts/migrate-postgresql-versions.ps1
+powershell -ExecutionPolicy Bypass -File ./scripts/postgres-migration/migrate-postgresql-versions.ps1
 ```
 
 ## Testing Checklist for Each Increment
