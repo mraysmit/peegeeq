@@ -216,14 +216,14 @@ Use the provided helper script for convenient test execution:
 
 ```bash
 # Make executable (first time only)
-chmod +x run-tests.sh
+chmod +x scripts/testing/run-tests.sh
 
 # Run different test categories
-./run-tests.sh smoke         # Smoke tests (~1 second)
-./run-tests.sh core          # Core tests (~2 seconds)
-./run-tests.sh integration   # Integration tests (~1-3 minutes)
-./run-tests.sh performance   # Performance tests (~2-5 minutes)
-./run-tests.sh all           # All tests (~5 minutes)
+./scripts/testing/run-tests.sh smoke         # Smoke tests (~1 second)
+./scripts/testing/run-tests.sh core          # Core tests (~2 seconds)
+./scripts/testing/run-tests.sh integration   # Integration tests (~1-3 minutes)
+./scripts/testing/run-tests.sh performance   # Performance tests (~2-5 minutes)
+./scripts/testing/run-tests.sh all           # All tests (~5 minutes)
 ```
 
 ## Current Test Files

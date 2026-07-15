@@ -42,7 +42,7 @@ function Run-Test {
 
 # Change to peegeeq-rest directory
 $scriptPath = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location "$scriptPath\..\peegeeq-rest"
+Set-Location "$scriptPath\..\..\peegeeq-rest"
 
 Write-Host "Step 1: Clean and compile" -ForegroundColor Cyan
 Write-Host "-------------------------"

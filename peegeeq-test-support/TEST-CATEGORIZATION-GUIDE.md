@@ -141,11 +141,11 @@ mvn test -Pslow-tests             # ~15+ minutes
 ### Helper Script
 ```bash
 # Use the convenient helper script
-./run-tests.sh core               # Core tests only (no integration - NOT recommended)
-./run-tests.sh integration        # Integration tests only
-./run-tests.sh performance        # Performance tests
-./run-tests.sh slow               # Slow tests
-./run-tests.sh all                # All tests
+./scripts/testing/run-tests.sh core               # Core tests only (no integration - NOT recommended)
+./scripts/testing/run-tests.sh integration        # Integration tests only
+./scripts/testing/run-tests.sh performance        # Performance tests
+./scripts/testing/run-tests.sh slow               # Slow tests
+./scripts/testing/run-tests.sh all                # All tests
 
 # RECOMMENDED: Use default profile (includes core + integration)
 mvn test                          # Best for daily development

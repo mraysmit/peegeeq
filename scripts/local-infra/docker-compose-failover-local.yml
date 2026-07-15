@@ -19,18 +19,18 @@ version: '3.8'
 #
 # Quick-start
 # ───────────
-#   docker compose -f scripts/docker-compose-failover-local.yml up -d
+#   docker compose -f scripts/local-infra/docker-compose-failover-local.yml up -d
 #
 # Manual failover simulation
 # ──────────────────────────
 #   # Stop primary – HAProxy detects failure in ~1 s (fall=2 × inter=500ms)
-#   docker compose -f scripts/docker-compose-failover-local.yml stop pg-primary
+#   docker compose -f scripts/local-infra/docker-compose-failover-local.yml stop pg-primary
 #
 #   # Traffic now routes through pg-secondary
 #   # Connect via:  localhost:6432 (PgBouncer) or localhost:5400 (HAProxy direct)
 #
 #   # Restore primary
-#   docker compose -f scripts/docker-compose-failover-local.yml start pg-primary
+#   docker compose -f scripts/local-infra/docker-compose-failover-local.yml start pg-primary
 #
 # Credentials (both nodes use the same credentials for easy rotation)
 # ────────────────────────────────────────────────────────────────────

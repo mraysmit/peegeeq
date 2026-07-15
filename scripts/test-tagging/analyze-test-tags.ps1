@@ -2,7 +2,7 @@
 # This script scans all Java test files and reports on @Tag usage
 
 param(
-    [string]$ProjectRoot = (Split-Path $PSScriptRoot -Parent),
+    [string]$ProjectRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
     [switch]$Verbose
 )
 
@@ -128,7 +128,7 @@ Write-Host "Untagged files: $($untaggedFiles.Count)" -ForegroundColor Yellow
 Write-Host "Unique tags found: $($taggedFiles.Keys.Count)" -ForegroundColor Magenta
 
 # Export detailed results to CSV (optional)
-$exportPath = Join-Path $PSScriptRoot "test-tag-analysis.csv"
+$exportPath = Join-Path $PSScriptRoot "output\test-tag-analysis.csv"
 $csvData = @()
 
 foreach ($file in $fileTagMap.Keys) {

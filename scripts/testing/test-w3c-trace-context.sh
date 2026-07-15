@@ -40,7 +40,7 @@ run_test() {
 }
 
 # Change to peegeeq-rest directory
-cd "$(dirname "$0")/../peegeeq-rest" || exit 1
+cd "$(dirname "$0")/../../peegeeq-rest" || exit 1
 
 echo "Step 1: Clean and compile"
 echo "-------------------------"
