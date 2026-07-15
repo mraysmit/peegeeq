@@ -23,6 +23,13 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.pgclient.PgBuilder;
+import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Tuple;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -151,6 +158,94 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                     ctx.verify(() -> assertEquals(DatabaseSetupStatus.ACTIVE, status, "Status should be ACTIVE"));
                     ctx.completeNow();
                 })
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(4)
+    @DisplayName("createCompleteSetup - records queue kind + setup metadata in self-describing registry")
+    void createCompleteSetup_recordsSelfDescribingRegistry(Vertx vertx, VertxTestContext ctx) {
+        // With native + outbox factories wired, a queue with no explicit implementation type resolves to
+        // the runtime's best-available kind. That resolved kind is NOT recoverable from the (byte-identical)
+        // table DDL, so createCompleteSetup must record it in peegeeq_object_registry — matching exactly the
+        // implementation type of the factory it actually created — alongside the self-identifying metadata row.
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "registry_runtime_test_db_" + System.currentTimeMillis();
+        String setupId = "registry-runtime-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        QueueConfig queueConfig = new QueueConfig.Builder()
+                .queueName("registryqueue")
+                .maxRetries(3)
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(queueConfig), List.of(), Map.of());
+
+        setupService.createCompleteSetup(request)
+                .compose(result -> {
+                    assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Status should be ACTIVE");
+                    QueueFactory factory = result.getQueueFactories().get("registryqueue");
+                    assertNotNull(factory, "Queue factory should have been created for registryqueue");
+                    String expectedKind = factory.getImplementationType();
+
+                    Pool pool = PgBuilder.pool()
+                            .with(new PoolOptions().setMaxSize(1))
+                            .connectingTo(new PgConnectOptions()
+                                    .setHost(dbConfig.getHost())
+                                    .setPort(dbConfig.getPort())
+                                    .setDatabase(dbName)
+                                    .setUser(dbConfig.getUsername())
+                                    .setPassword(dbConfig.getPassword()))
+                            .using(vertx)
+                            .build();
+
+                    return pool.withConnection(conn ->
+                            // 1. Self-identifying metadata row.
+                            conn.preparedQuery("SELECT schema_name FROM " + schema
+                                            + ".peegeeq_setup_metadata WHERE setup_id = $1")
+                                    .execute(Tuple.of(setupId))
+                                    .compose(rows -> {
+                                        var it = rows.iterator();
+                                        if (!it.hasNext()) {
+                                            return Future.failedFuture(new AssertionError(
+                                                    "peegeeq_setup_metadata row should exist for setup: " + setupId));
+                                        }
+                                        assertEquals(schema, it.next().getString("schema_name"),
+                                                "metadata row should record the setup's schema");
+                                        return Future.succeededFuture();
+                                    })
+                                    // 2. Object-registry row for the queue, kind == the created factory's type.
+                                    .compose(v -> conn.preparedQuery("SELECT kind, config FROM " + schema
+                                                    + ".peegeeq_object_registry WHERE object_name = $1")
+                                            .execute(Tuple.of("registryqueue"))
+                                            .compose(rows -> {
+                                                var it = rows.iterator();
+                                                if (!it.hasNext()) {
+                                                    return Future.failedFuture(new AssertionError(
+                                                            "peegeeq_object_registry row should exist for object: registryqueue"));
+                                                }
+                                                var row = it.next();
+                                                assertEquals(expectedKind, row.getString("kind"),
+                                                        "recorded kind should match the created factory's implementation type");
+                                                assertNotNull(row.getValue("config"),
+                                                        "object-registry config JSON should be recorded");
+                                                return Future.succeededFuture();
+                                            })))
+                            .eventually(() -> pool.close());
+                })
+                .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }
 

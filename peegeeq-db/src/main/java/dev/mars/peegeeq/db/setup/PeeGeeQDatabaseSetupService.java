@@ -7,6 +7,8 @@ import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.*;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
@@ -66,6 +68,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
+
+    // Serialises object config (QueueConfig / EventStoreConfig) into the self-describing object registry.
+    // JavaTimeModule so Duration fields (e.g. QueueConfig.visibilityTimeout) round-trip cleanly.
+    private final ObjectMapper registryMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     /**
      * Registers pre-built setup state for a given setupId.
@@ -203,11 +209,18 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     return validateDatabaseInfrastructure(req.getDatabaseConfig(), capturedTrace)
                             .map(v -> arr);
                 })
-                .map(arr -> {
+                .compose(arr -> {
+                    DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
+                    DatabaseSetupResult result;
+                    // Resolved implementation kinds captured during factory creation, recorded in the
+                    // self-describing object registry below (queues only — event store rows are written at
+                    // schema-apply time where their 'bitemporal' kind is already known).
+                    Map<String, String> resolvedKinds = new HashMap<>();
+                    Map<String, QueueConfig> queueConfigs = new HashMap<>();
+
                     // Restore MDC for this block so factory creation logs have traceId
                     try (var ignored = (capturedTrace != null) ? TraceContextUtil.mdcScope(capturedTrace) : null) {
                         logger.info("STEP 4: Create queues and event stores");
-                        DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
                         PeeGeeQManager manager = (PeeGeeQManager) arr[1];
 
                         // Register queue factory implementations with the manager's provider
@@ -221,12 +234,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         }
 
                         // 4. Create queues and event stores
-                        Map<String, QueueConfig> queueConfigs = new HashMap<>();
-                        Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues(), queueConfigs);
+                        Map<String, QueueFactory> queueFactories = createQueueFactories(manager, req.getQueues(),
+                                queueConfigs, resolvedKinds);
                         Map<String, EventStore<?>> eventStores = createEventStores(manager, req.getEventStores(),
                                 eventStoreFactory);
 
-                        DatabaseSetupResult result = new DatabaseSetupResult(
+                        result = new DatabaseSetupResult(
                                 req.getSetupId(), queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
                         queueConfigs.forEach(result::putQueueConfig);
 
@@ -237,9 +250,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                 req.getDatabaseConfig() != null ? req.getDatabaseConfig().getHost() : "NULL",
                                 req.getDatabaseConfig() != null ? req.getDatabaseConfig().getDatabaseName() : "NULL");
                         // activeManagers.put(req.getSetupId(), manager); // Already added in Step 3
-
-                        return result;
                     }
+
+                    // Record resolved queue kinds in the object registry, then return the setup result.
+                    final DatabaseSetupResult finalResult = result;
+                    return persistQueueRegistry(req.getDatabaseConfig(), queueConfigs, resolvedKinds)
+                            .map(finalResult);
                 })
                 .transform(ar -> {
                     if (ar.succeeded()) {
@@ -330,6 +346,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     })
                     .onSuccess(v -> logger.info("[{}] Base template verified - all required templates exist",
                             PeeGeeQInfoCodes.INFRASTRUCTURE_READY))
+                    // Record the self-identifying setup metadata row once the registry tables exist, so the
+                    // schema itself declares "this schema IS setup X" for connectToExistingSetup to recognise.
+                    .compose(v -> insertSetupMetadata(connection, request))
                     .map(Boolean.TRUE)
                     .compose(baseApplied -> {
                         // Only create per-queue tables if base template (with templates) was applied
@@ -396,6 +415,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                         .compose(v3 -> config.isAggregateSummaryEnabled()
                                                 ? templateProcessor.applyTemplate(connection, "eventstore-aggregate-summary", params)
                                                 : Future.succeededFuture())
+                                        // Register the event store in the self-describing object registry. Its kind is
+                                        // unambiguously 'bitemporal'; the full config is stored so connect can rebuild it.
+                                        .compose(v3 -> insertObjectRegistry(connection,
+                                                request.getDatabaseConfig().getSchema(),
+                                                config.getTableName(), "bitemporal", config))
                                         .onSuccess(v3 -> logger.info("[{}] Event store table created: {}",
                                                 PeeGeeQInfoCodes.EVENT_STORE_CREATED, config.getTableName()))
                                         .onFailure(err -> logger.error("Failed to create event store table {}: {}",
@@ -436,6 +460,102 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .onFailure(err -> logger.error("applySchemaTemplates failed", err))
                 .eventually(() -> tempPool.close())
                 .map(v -> request);
+    }
+
+    /**
+     * Records the single self-identifying metadata row for a setup: "this schema IS setup X".
+     *
+     * <p>The setupId is otherwise an in-memory-only label. Persisting it here (idempotently) makes the
+     * schema recognisable on connect and lets the estate registry be cross-checked against the databases.
+     * The schema name is a validated PostgreSQL identifier (checked in createCompleteSetup), so it is safe
+     * to interpolate as the table qualifier; all values are bound as parameters.
+     */
+    private Future<Void> insertSetupMetadata(SqlConnection connection, DatabaseSetupRequest request) {
+        String schema = request.getDatabaseConfig().getSchema();
+        String sql = "INSERT INTO " + schema + ".peegeeq_setup_metadata (setup_id, schema_name) "
+                + "VALUES ($1, $2) ON CONFLICT (setup_id) DO NOTHING";
+        return connection.preparedQuery(sql)
+                .execute(Tuple.of(request.getSetupId(), schema))
+                .onSuccess(v -> logger.debug("Recorded setup metadata row for setup '{}' in schema '{}'",
+                        request.getSetupId(), schema))
+                .onFailure(err -> logger.error("Failed to record setup metadata for setup '{}': {}",
+                        request.getSetupId(), err.getMessage(), err))
+                .mapEmpty();
+    }
+
+    /**
+     * Records one row in the self-describing object registry for a provisioned queue or event store.
+     *
+     * <p>Native and outbox queues produce byte-identical DDL, so an object's implementation kind and full
+     * config are not recoverable from table shapes. This row captures both explicitly so
+     * connectToExistingSetup can rebuild the object with the exact kind + config. Written on the same
+     * connection that creates the object; the config is serialised with {@link #registryMapper}.
+     *
+     * @param kind resolved implementation kind — one of {@code native}, {@code outbox}, {@code bitemporal}
+     * @param config the {@link QueueConfig} or {@link EventStoreConfig} describing the object
+     */
+    private Future<Void> insertObjectRegistry(SqlConnection connection, String schema, String objectName,
+                                              String kind, Object config) {
+        String configJson;
+        try {
+            configJson = registryMapper.writeValueAsString(config);
+        } catch (Exception e) {
+            return Future.failedFuture(new RuntimeException(
+                    "Failed to serialise config for object registry entry '" + objectName + "'", e));
+        }
+        String sql = "INSERT INTO " + schema + ".peegeeq_object_registry (object_name, kind, config) "
+                + "VALUES ($1, $2, CAST($3 AS JSONB)) ON CONFLICT (object_name) DO NOTHING";
+        return connection.preparedQuery(sql)
+                .execute(Tuple.of(objectName, kind, configJson))
+                .onSuccess(v -> logger.debug("Registered object '{}' (kind={}) in object registry for schema '{}'",
+                        objectName, kind, schema))
+                .onFailure(err -> logger.error("Failed to register object '{}' (kind={}) in object registry: {}",
+                        objectName, kind, err.getMessage(), err))
+                .mapEmpty();
+    }
+
+    /**
+     * Writes one self-describing object-registry row per provisioned queue, recording the resolved
+     * implementation kind (native/outbox) and full config.
+     *
+     * <p>Unlike event stores — whose kind is known at DDL time — a queue's kind is only resolved once the
+     * manager has started and its factory providers are registered (createCompleteSetup step 4). This runs
+     * after factory creation, on a short-lived pool against the setup's database, so the recorded kind is
+     * exactly the one used to build the factory. No queues (or none with a resolvable kind) is a no-op.
+     */
+    private Future<Void> persistQueueRegistry(DatabaseConfig dbConfig, Map<String, QueueConfig> queueConfigs,
+                                              Map<String, String> resolvedKinds) {
+        if (resolvedKinds == null || resolvedKinds.isEmpty()) {
+            return Future.succeededFuture();
+        }
+
+        PgConnectOptions connectOptions = new PgConnectOptions()
+                .setHost(dbConfig.getHost())
+                .setPort(dbConfig.getPort())
+                .setDatabase(dbConfig.getDatabaseName())
+                .setUser(dbConfig.getUsername())
+                .setPassword(dbConfig.getPassword());
+
+        Pool tempPool = PgBuilder.pool()
+                .with(new PoolOptions().setMaxSize(1))
+                .connectingTo(connectOptions)
+                .using(vertx)
+                .build();
+
+        return tempPool.withConnection(connection -> {
+            Future<Void> chain = Future.succeededFuture();
+            for (Map.Entry<String, String> entry : resolvedKinds.entrySet()) {
+                String queueName = entry.getKey();
+                String kind = entry.getValue();
+                QueueConfig config = queueConfigs != null ? queueConfigs.get(queueName) : null;
+                chain = chain.compose(v -> insertObjectRegistry(connection, dbConfig.getSchema(),
+                        queueName, kind, config));
+            }
+            return chain;
+        })
+                .onFailure(err -> logger.error("Failed to persist queue registry rows for schema '{}': {}",
+                        dbConfig.getSchema(), err.getMessage(), err))
+                .eventually(() -> tempPool.close());
     }
 
     private Future<Void> verifyTemplatesExist(SqlConnection connection, String schema) {
@@ -799,11 +919,23 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     }
 
     private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues) {
-        return createQueueFactories(manager, queues, null);
+        return createQueueFactories(manager, queues, null, null);
     }
 
     private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues,
                                                             Map<String, QueueConfig> configsByName) {
+        return createQueueFactories(manager, queues, configsByName, null);
+    }
+
+    /**
+     * @param configsByName        if non-null, populated with the QueueConfig for each queue that got a factory
+     * @param resolvedKindsByName  if non-null, populated with the RESOLVED implementation kind (native/outbox)
+     *                             actually used to create each queue's factory — the value recorded in the
+     *                             self-describing object registry, since it is not recoverable from table DDL
+     */
+    private Map<String, QueueFactory> createQueueFactories(PeeGeeQManager manager, List<QueueConfig> queues,
+                                                            Map<String, QueueConfig> configsByName,
+                                                            Map<String, String> resolvedKindsByName) {
         Map<String, QueueFactory> factories = new HashMap<>();
 
         logger.info("createQueueFactories called with queues: {}", queues != null ? queues.size() : "null");
@@ -855,6 +987,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     factories.put(queueConfig.getQueueName(), factory);
                     if (configsByName != null) {
                         configsByName.put(queueConfig.getQueueName(), queueConfig);
+                    }
+                    if (resolvedKindsByName != null) {
+                        resolvedKindsByName.put(queueConfig.getQueueName(), implementationType);
                     }
 
                     logger.info("Created {} queue factory for queue: {} with schema: {}", implementationType,

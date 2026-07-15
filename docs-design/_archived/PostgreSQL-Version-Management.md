@@ -125,7 +125,7 @@ Install the pre-commit hook to prevent hardcoded versions from being committed:
 
 ```bash
 # Copy the pre-commit hook
-cp scripts/pre-commit-postgresql-check .git/hooks/pre-commit
+cp scripts/git-hooks/pre-commit-postgresql-check .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
 
@@ -135,10 +135,10 @@ Use the migration script to convert existing hardcoded versions:
 
 ```bash
 # Linux/Mac
-./scripts/migrate-postgresql-versions.sh
+./scripts/postgres-migration/migrate-postgresql-versions.sh
 
 # Windows
-scripts\migrate-postgresql-versions.bat
+scripts\postgres-migration\migrate-postgresql-versions.bat
 ```
 
 ## 📋 Migration Guide

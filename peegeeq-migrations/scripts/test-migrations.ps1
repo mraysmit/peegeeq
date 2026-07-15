@@ -121,7 +121,7 @@ function Test-PostgreSQLConnection {
         # psql not available
     }
 
-    Record-TestResult "PostgreSQL Connection" $false "Cannot connect to PostgreSQL. Try: docker-compose -f docker-compose-local-dev.yml up -d"
+    Record-TestResult "PostgreSQL Connection" $false "Cannot connect to PostgreSQL. Try: docker-compose -f scripts/local-infra/docker-compose-local-dev.yml up -d"
     return $false
 }
 

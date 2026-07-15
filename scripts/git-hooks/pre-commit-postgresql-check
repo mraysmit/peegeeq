@@ -62,7 +62,7 @@ if [ "$VIOLATIONS_FOUND" = true ]; then
     echo -e "   ${GREEN}PostgreSQLTestConstants.createContainer(\"db\", \"user\", \"pass\")${NC}"
     echo ""
     echo -e "${BLUE}💡 Run the migration script to fix all files:${NC}"
-    echo "   ./scripts/migrate-postgresql-versions.sh"
+    echo "   ./scripts/postgres-migration/migrate-postgresql-versions.sh"
     echo ""
     echo -e "${RED}Commit aborted. Please fix the violations and try again.${NC}"
     exit 1

@@ -16,7 +16,6 @@ package dev.mars.peegeeq.api.database;
  * limitations under the License.
  */
 
-
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
@@ -41,15 +40,25 @@ public interface ConnectionProvider extends AutoCloseable {
      * Gets a reactive pool for the specified client ID.
      * Uses Vert.x 5.x composable Future patterns.
      *
+     * This method never throws for an unknown client; all failures are reported
+     * via the returned Future. The Future fails with {@link IllegalArgumentException}
+     * if the client ID is not registered, or {@link IllegalStateException} if the
+     * provider is closed or shutting down.
+     *
      * @param clientId The unique identifier for the client
      * @return Future that resolves to a reactive Pool for database operations
-     * @throws IllegalArgumentException if the client ID is not found
      */
     Future<Pool> getReactivePool(String clientId);
 
     /**
      * Gets a reactive connection for the specified client ID.
      * Uses Vert.x 5.x composable Future patterns.
+     *
+     * The caller owns the returned connection and must close it to return it
+     * to the pool. Prefer {@link #withConnection(String, Function)} or
+     * {@link #withTransaction(String, Function)}, which manage the connection
+     * lifecycle automatically. The returned Future fails if the client ID is
+     * not registered.
      *
      * @param clientId The unique identifier for the client
      * @return Future that resolves to a SqlConnection for reactive database operations

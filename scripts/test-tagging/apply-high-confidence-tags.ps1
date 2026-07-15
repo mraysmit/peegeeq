@@ -2,8 +2,8 @@
 # This script reads the tag suggestions CSV and applies tags to test files
 
 param(
-    [string]$ProjectRoot = (Split-Path $PSScriptRoot -Parent),
-    [string]$SuggestionsFile = (Join-Path $PSScriptRoot "test-tag-suggestions.csv"),
+    [string]$ProjectRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+    [string]$SuggestionsFile = (Join-Path $PSScriptRoot "output\test-tag-suggestions.csv"),
     [switch]$DryRun = $false,
     [switch]$Verbose = $false,
     [string[]]$TagsToApply = @("integration", "performance", "smoke")
@@ -17,7 +17,7 @@ Write-Host ""
 
 if (-not (Test-Path $SuggestionsFile)) {
     Write-Host "ERROR: Suggestions file not found: $SuggestionsFile" -ForegroundColor Red
-    Write-Host "Please run .\scripts\suggest-test-tags.ps1 first" -ForegroundColor Yellow
+    Write-Host "Please run .\scripts\test-tagging\suggest-test-tags.ps1 first" -ForegroundColor Yellow
     exit 1
 }
 
@@ -158,17 +158,17 @@ if (-not $DryRun -and $successCount -gt 0) {
     Write-Host "Run these commands to verify the changes:" -ForegroundColor White
     Write-Host ""
     Write-Host "# Verify tags were added correctly:" -ForegroundColor Gray
-    Write-Host ".\scripts\analyze-test-tags.ps1" -ForegroundColor Cyan
+    Write-Host ".\scripts\test-tagging\analyze-test-tags.ps1" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "# Run the newly tagged integration tests:" -ForegroundColor Gray
-    Write-Host ".\scripts\run-tests.sh integration" -ForegroundColor Cyan
+    Write-Host ".\scripts\testing\run-tests.sh integration" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "# Run the newly tagged performance tests:" -ForegroundColor Gray
-    Write-Host ".\scripts\run-tests.sh performance" -ForegroundColor Cyan
+    Write-Host ".\scripts\testing\run-tests.sh performance" -ForegroundColor Cyan
     Write-Host ""
-    
+
     # Export list of modified files
-    $modifiedListPath = Join-Path $PSScriptRoot "modified-files.txt"
+    $modifiedListPath = Join-Path $PSScriptRoot "output\modified-files.txt"
     $filesModified | Out-File $modifiedListPath
     Write-Host "Modified files list saved to: $modifiedListPath" -ForegroundColor Cyan
 }
@@ -176,11 +176,11 @@ elseif ($DryRun) {
     Write-Host ""
     Write-Host "=== NEXT STEPS ===" -ForegroundColor Magenta
     Write-Host "To apply these changes, run:" -ForegroundColor White
-    Write-Host "  .\scripts\apply-high-confidence-tags.ps1" -ForegroundColor Cyan
+    Write-Host "  .\scripts\test-tagging\apply-high-confidence-tags.ps1" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "To apply only specific tags:" -ForegroundColor White
-    Write-Host "  .\scripts\apply-high-confidence-tags.ps1 -TagsToApply integration" -ForegroundColor Cyan
-    Write-Host "  .\scripts\apply-high-confidence-tags.ps1 -TagsToApply performance" -ForegroundColor Cyan
+    Write-Host "  .\scripts\test-tagging\apply-high-confidence-tags.ps1 -TagsToApply integration" -ForegroundColor Cyan
+    Write-Host "  .\scripts\test-tagging\apply-high-confidence-tags.ps1 -TagsToApply performance" -ForegroundColor Cyan
 }
 
 return [PSCustomObject]@{

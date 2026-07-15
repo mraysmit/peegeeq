@@ -68,13 +68,13 @@ npm run test:all          # Unit + Integration + E2E
 
 ```bash
 # Core tests for UI module only
-./scripts/run-tests.sh core peegeeq-management-ui
+./scripts/testing/run-tests.sh core peegeeq-management-ui
 
 # All modules including UI
-./scripts/run-tests.sh core
+./scripts/testing/run-tests.sh core
 
 # Integration tests for UI
-./scripts/run-tests.sh integration peegeeq-management-ui
+./scripts/testing/run-tests.sh integration peegeeq-management-ui
 ```
 
 ## Build Configuration
@@ -182,7 +182,7 @@ If TypeScript compilation fails during Maven build, the build phase is skipped b
 ## Notes
 
 - The UI module is now included in the parent `pom.xml` modules list
-- The test script (`scripts/run-tests.sh`) includes `peegeeq-management-ui` in the module list
+- The test script (`scripts/testing/run-tests.sh`) includes `peegeeq-management-ui` in the module list
 - npm remains the primary tool for development; Maven is for CI/CD consistency
 - E2E tests require a running backend (see `docs/TEST_DATA_SETUP.md`)
 

@@ -2,8 +2,8 @@
 # Based on test characteristics, this script recommends @Tag annotations
 
 param(
-    [string]$ProjectRoot = (Split-Path $PSScriptRoot -Parent),
-    [string]$CsvOutput = (Join-Path $PSScriptRoot "test-tag-suggestions.csv"),
+    [string]$ProjectRoot = (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent),
+    [string]$CsvOutput = (Join-Path $PSScriptRoot "output\test-tag-suggestions.csv"),
     [switch]$Verbose,
     [switch]$OnlyUntagged
 )
@@ -250,9 +250,9 @@ Write-Host "   These need careful analysis of test behavior" -ForegroundColor Gr
 Write-Host ""
 
 Write-Host "4. CRITICAL: Run each category separately to verify performance:" -ForegroundColor Cyan
-Write-Host "   .\scripts\run-tests.sh core     # Should complete in <30 seconds" -ForegroundColor Gray
-Write-Host "   .\scripts\run-tests.sh smoke    # Should complete in <20 seconds" -ForegroundColor Gray
-Write-Host "   .\scripts\run-tests.sh integration  # 10-15 minutes expected" -ForegroundColor Gray
+Write-Host "   .\scripts\testing\run-tests.sh core     # Should complete in <30 seconds" -ForegroundColor Gray
+Write-Host "   .\scripts\testing\run-tests.sh smoke    # Should complete in <20 seconds" -ForegroundColor Gray
+Write-Host "   .\scripts\testing\run-tests.sh integration  # 10-15 minutes expected" -ForegroundColor Gray
 Write-Host ""
 
 Write-Host "5. Use the CSV file to batch-apply tags by module" -ForegroundColor Cyan
