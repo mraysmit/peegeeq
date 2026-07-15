@@ -187,13 +187,13 @@ Use the provided helper script for convenient test execution:
 
 ```bash
 # Make executable (first time only)
-chmod +x run-tests.sh
+chmod +x scripts/testing/run-tests.sh
 
 # Run different test categories
-./run-tests.sh core          # Core tests (~5 seconds)
-./run-tests.sh integration   # Integration tests (~1-2 minutes)
-./run-tests.sh performance   # Performance tests (~3-5 minutes)
-./run-tests.sh all           # All tests (~5-10 minutes)
+./scripts/testing/run-tests.sh core          # Core tests (~5 seconds)
+./scripts/testing/run-tests.sh integration   # Integration tests (~1-2 minutes)
+./scripts/testing/run-tests.sh performance   # Performance tests (~3-5 minutes)
+./scripts/testing/run-tests.sh all           # All tests (~5-10 minutes)
 ```
 
 ## Measured Performance

@@ -36,4 +36,6 @@
 09c-consumer-index-groupstatus.sql
 09d-consumer-index-ledgertime.sql
 09e-consumer-index-topic.sql
+10a-setup-object-registry.sql
+10b-setup-metadata.sql
 

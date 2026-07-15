@@ -573,9 +573,9 @@ For manual failover testing without running a JVM test, a docker-compose stack i
 
 | File | Purpose |
 |---|---|
-| `scripts/docker-compose-failover-local.yml` | Full stack definition |
-| `scripts/haproxy-failover-local.cfg` | HAProxy config with stats page |
-| `scripts/init-haproxy-check.sql` | Creates `haproxy_check` PostgreSQL user on first start |
+| `scripts/local-infra/docker-compose-failover-local.yml` | Full stack definition |
+| `scripts/local-infra/haproxy-failover-local.cfg` | HAProxy config with stats page |
+| `scripts/local-infra/init-haproxy-check.sql` | Creates `haproxy_check` PostgreSQL user on first start |
 
 **Topology:**
 
@@ -600,19 +600,19 @@ PgBouncer absorbs the reset and retries the server connection transparently to t
 
 **Start:**
 ```powershell
-docker compose -f scripts/docker-compose-failover-local.yml up -d
+docker compose -f scripts/local-infra/docker-compose-failover-local.yml up -d
 ```
 
 **Simulate failover:**
 ```powershell
 # Stop primary — HAProxy detects failure in ~1 s, routes to secondary
-docker compose -f scripts/docker-compose-failover-local.yml stop pg-primary
+docker compose -f scripts/local-infra/docker-compose-failover-local.yml stop pg-primary
 
 # Connect through PgBouncer (or HAProxy direct on :5400)
 psql -h localhost -p 6432 -U peegeeq_dev -d peegeeq_dev -c "SELECT 1"
 
 # Restore primary — HAProxy auto-recovers, traffic returns to primary
-docker compose -f scripts/docker-compose-failover-local.yml start pg-primary
+docker compose -f scripts/local-infra/docker-compose-failover-local.yml start pg-primary
 ```
 
 ---

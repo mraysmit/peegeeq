@@ -20,12 +20,12 @@ The system consists of three layers that must be started in order:
 
 ## Step 1: Start the Database Layer
 
-The database runs in a Docker container defined in `docker-compose-local-dev.yml`.
+The database runs in a Docker container defined in `scripts/local-infra/docker-compose-local-dev.yml`.
 
 **Command:**
 Open a terminal at the project root and run:
 ```bash
-docker-compose -f docker-compose-local-dev.yml up -d
+docker-compose -f scripts/local-infra/docker-compose-local-dev.yml up -d
 ```
 
 **Verification:**

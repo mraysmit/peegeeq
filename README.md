@@ -24,10 +24,10 @@ git clone <repository-url>
 cd peegeeq
 
 # Unix/Linux/macOS
-./run-self-contained-demo.sh
+./scripts/demo/run-self-contained-demo.sh
 
 # Windows
-run-self-contained-demo.bat
+scripts\demo\run-self-contained-demo.bat
 ```
 
 This demo demonstrates:
@@ -128,8 +128,8 @@ peegeeq/
 
 ### 1. Run the Demo
 ```bash
-./run-self-contained-demo.sh    # Unix/Linux/macOS
-run-self-contained-demo.bat     # Windows
+./scripts/demo/run-self-contained-demo.sh    # Unix/Linux/macOS
+scripts\demo\run-self-contained-demo.bat     # Windows
 ```
 
 ### 2. Explore Examples
@@ -194,22 +194,22 @@ consumer.subscribe(message -> {
 
 ```bash
 # Quick development testing (~30 seconds)
-./scripts/run-tests.sh core
+./scripts/testing/run-tests.sh core
 
 # Smoke tests for basic validation (~15 seconds)
-./scripts/run-tests.sh smoke
+./scripts/testing/run-tests.sh smoke
 
 # Single module testing
-./scripts/run-tests.sh core peegeeq-outbox
+./scripts/testing/run-tests.sh core peegeeq-outbox
 
 # Integration tests with TestContainers (~10-15 minutes)
-./scripts/run-tests.sh integration
+./scripts/testing/run-tests.sh integration
 
 # Performance benchmarks (~20-30 minutes)
-./scripts/run-tests.sh performance
+./scripts/testing/run-tests.sh performance
 
 # All tests (~45+ minutes)
-./scripts/run-tests.sh all
+./scripts/testing/run-tests.sh all
 ```
 
 ## License

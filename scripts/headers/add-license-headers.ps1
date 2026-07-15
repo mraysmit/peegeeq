@@ -5,14 +5,34 @@
     Adds Apache License 2.0 headers to Java files in the PeeGeeQ project.
 
 .DESCRIPTION
-    This script adds proper Apache License 2.0 headers to all Java files,
-    preserving existing JavaDoc comments and author information.
+    Inserts the Apache License 2.0 header immediately after the package
+    declaration of every Java file under the repository root (or at the top
+    of the file if there is no package declaration).
+
+    Preserves each file's original line endings (CRLF/LF) and
+    trailing-newline state, so diffs contain only the header change.
+
+    Excluded directories: target, .history, node_modules, .git.
+
+.PARAMETER Path
+    Optional file or directory to process. A single .java file is processed
+    directly; a directory is scanned recursively (with the standard
+    exclusions). Defaults to the repository root when omitted.
 
 .PARAMETER DryRun
-    If specified, shows what changes would be made without actually modifying files.
+    Shows what changes would be made without actually modifying files.
 
 .PARAMETER Force
-    If specified, updates files even if they already have license headers.
+    Re-processes files that already have a license header: every existing
+    Apache license block is removed (wherever it appears, before or after
+    the package declaration, including accidental duplicates) and a single
+    fresh header is inserted after the package declaration.
+
+.PARAMETER CopyrightYear
+    Year used in the copyright line. Defaults to 2025.
+
+.PARAMETER Verbose
+    Shows per-file processing and skip messages.
 
 .EXAMPLE
     .\add-license-headers.ps1 -DryRun
@@ -20,22 +40,29 @@
 
 .EXAMPLE
     .\add-license-headers.ps1 -Force
-    Updates all files, even those with existing license headers.
+    Normalizes all files to a single license header after the package declaration.
+
+.EXAMPLE
+    .\add-license-headers.ps1 -Path peegeeq-api\src\main\java\dev\mars\peegeeq\api\database\ConnectionProvider.java -Force
+    Normalizes the license header of a single file.
 #>
 
 param(
+    [string]$Path,
     [switch]$DryRun,
-    [switch]$Force
+    [switch]$Force,
+    [string]$CopyrightYear = "2025",
+    [switch]$Verbose
 )
 
 # Configuration
 $AUTHOR_NAME = "Mark Andrew Ray-Smith Cityline Ltd"
-$COPYRIGHT_YEAR = "2025"
+$EXCLUDED_DIRS = '\\(target|\.history|node_modules|\.git)\\'
 
 # Apache License 2.0 header template
 $LICENSE_HEADER = @"
 /*
- * Copyright $COPYRIGHT_YEAR $AUTHOR_NAME
+ * Copyright $CopyrightYear $AUTHOR_NAME
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -51,11 +78,29 @@ $LICENSE_HEADER = @"
  */
 "@
 
+# Function to detect the file's predominant line ending
+function Get-LineEnding {
+    param([string]$Content)
+
+    if ($Content -match "`r`n") { return "`r`n" }
+    return "`n"
+}
+
 # Function to check if file already has license header
 function Test-HasLicenseHeader {
     param([string]$Content)
-    
+
     return $Content -match "Licensed under the Apache License"
+}
+
+# Function to remove every existing Apache license block, wherever it appears.
+# The lazy (?!\*/) guards keep the match inside a single comment block.
+function Remove-ExistingLicense {
+    param([string]$Content)
+
+    return [regex]::Replace($Content,
+        '(?s)[ \t]*/\*(?:(?!\*/).)*?Licensed under the Apache License(?:(?!\*/).)*?\*/[ \t]*(\r?\n)*',
+        '')
 }
 
 # Function to process a single Java file
@@ -65,89 +110,89 @@ function Add-LicenseHeader {
         [switch]$DryRun,
         [switch]$Force
     )
-    
-    Write-Host "Processing: $FilePath" -ForegroundColor Cyan
-    
+
+    if ($Verbose) {
+        Write-Host "Processing: $FilePath" -ForegroundColor Cyan
+    }
+
     try {
         $content = Get-Content -Path $FilePath -Raw -Encoding UTF8
-        
-        # Check if file already has license header
-        if ((Test-HasLicenseHeader -Content $content) -and -not $Force) {
-            Write-Host "  Skipping - already has license header (use -Force to override)" -ForegroundColor Yellow
+
+        if ([string]::IsNullOrEmpty($content)) {
+            if ($Verbose) {
+                Write-Host "  Skipping - empty file" -ForegroundColor Yellow
+            }
             return $false
         }
-        
-        # Split content into lines
+
+        # Check if file already has license header
+        if ((Test-HasLicenseHeader -Content $content) -and -not $Force) {
+            if ($Verbose) {
+                Write-Host "  Skipping - already has license header (use -Force to override)" -ForegroundColor Yellow
+            }
+            return $false
+        }
+
+        $eol = Get-LineEnding -Content $content
+        $hadTrailingNewline = $content.EndsWith("`n")
+
+        # In Force mode, strip all existing license blocks first (this also
+        # collapses accidental duplicates and headers placed before the package)
+        if ($Force) {
+            $content = Remove-ExistingLicense -Content $content
+        }
+
         $lines = $content -split "`r?`n"
-        
-        # Find insertion point (after package declaration)
-        $insertIndex = 0
+        $headerLines = $LICENSE_HEADER -split "`r?`n"
+
+        # Find the package declaration
+        $pkgIndex = -1
         for ($i = 0; $i -lt $lines.Length; $i++) {
-            $line = $lines[$i].Trim()
-            if ($line -match '^package\s+') {
-                $insertIndex = $i + 1
+            if ($lines[$i].Trim() -match '^package\s+') {
+                $pkgIndex = $i
                 break
             }
         }
-        
-        # Build new content
+
         $newLines = @()
-        
-        # Add lines up to insertion point
-        if ($insertIndex -gt 0) {
-            $newLines += $lines[0..($insertIndex-1)]
-        }
-        
-        # Add empty line after package if needed
-        if ($insertIndex -gt 0 -and $lines[$insertIndex-1].Trim() -ne "") {
+
+        if ($pkgIndex -ge 0) {
+            # Insert the header after the package declaration
+            $newLines += $lines[0..$pkgIndex]
             $newLines += ""
+            $newLines += $headerLines
+
+            # Remainder of the file, with leading blank lines collapsed to one
+            $restStart = $pkgIndex + 1
+            while ($restStart -lt $lines.Length -and $lines[$restStart].Trim() -eq "") {
+                $restStart++
+            }
+            if ($restStart -lt $lines.Length) {
+                $newLines += ""
+                $newLines += $lines[$restStart..($lines.Length - 1)]
+            }
+        } else {
+            # No package declaration: header goes at the very top
+            $newLines += $headerLines
+            $newLines += ""
+            $newLines += $lines
         }
-        
-        # Add license header
-        $newLines += $LICENSE_HEADER -split "`r?`n"
-        $newLines += ""
-        
-        # Add remaining lines (skip existing license header if present)
-        $skipLicense = $false
-        $licenseEndFound = $false
-        
-        for ($i = $insertIndex; $i -lt $lines.Length; $i++) {
-            $line = $lines[$i]
-            
-            # Skip existing license header
-            if ($line.Trim() -eq "/*" -and $lines[$i+1] -match "Copyright.*$AUTHOR_NAME") {
-                $skipLicense = $true
-                continue
-            }
-            
-            if ($skipLicense) {
-                if ($line.Trim() -eq "*/") {
-                    $skipLicense = $false
-                    $licenseEndFound = $true
-                }
-                continue
-            }
-            
-            # Skip empty lines immediately after removed license
-            if ($licenseEndFound -and $line.Trim() -eq "") {
-                $licenseEndFound = $false
-                continue
-            }
-            
-            $newLines += $line
+
+        # Preserve the file's original line endings and trailing-newline state
+        $newContent = $newLines -join $eol
+        if ($hadTrailingNewline -and -not $newContent.EndsWith($eol)) {
+            $newContent += $eol
         }
-        
-        # Write the updated content
+
         if ($DryRun) {
             Write-Host "  Would add license header to: $FilePath" -ForegroundColor Green
         } else {
-            $newContent = $newLines -join "`n"
             Set-Content -Path $FilePath -Value $newContent -Encoding UTF8 -NoNewline
             Write-Host "  Added license header to: $FilePath" -ForegroundColor Green
         }
-        
+
         return $true
-        
+
     } catch {
         Write-Error "Error processing $FilePath`: $_"
         return $false
@@ -170,9 +215,31 @@ if ($Force) {
     Write-Host ""
 }
 
-# Find all Java files
-Write-Host "Scanning for Java files..." -ForegroundColor Blue
-$javaFiles = Get-ChildItem -Recurse -Filter "*.java" | Where-Object { $_.FullName -notmatch "\\target\\" }
+# Resolve the target: an explicit file or directory, or the repository root
+# (this script lives in <repo>/scripts/headers, so the root is two levels up)
+$repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+if ($Path) {
+    if (-not (Test-Path -Path $Path)) {
+        Write-Error "Path not found: $Path"
+        exit 1
+    }
+    $targetPath = (Resolve-Path -Path $Path).Path
+} else {
+    $targetPath = $repoRoot
+}
+
+if (Test-Path -Path $targetPath -PathType Leaf) {
+    if ($targetPath -notmatch '\.java$') {
+        Write-Error "Not a Java file: $targetPath"
+        exit 1
+    }
+    Write-Host "Processing single file: $targetPath" -ForegroundColor Blue
+    $javaFiles = @(Get-Item -Path $targetPath)
+} else {
+    Write-Host "Scanning for Java files under $targetPath ..." -ForegroundColor Blue
+    $javaFiles = Get-ChildItem -Path $targetPath -Recurse -Filter "*.java" |
+        Where-Object { $_.FullName -notmatch $EXCLUDED_DIRS }
+}
 
 Write-Host "Found $($javaFiles.Count) Java files" -ForegroundColor Blue
 Write-Host ""

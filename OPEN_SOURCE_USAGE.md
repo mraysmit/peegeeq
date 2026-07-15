@@ -162,10 +162,10 @@ Use the provided script to ensure all files have proper headers:
 
 ```powershell
 # Check current status
-.\update-java-headers.ps1 -DryRun
+.\scripts\headers\update-java-headers.ps1 -DryRun
 
 # Update headers with license information
-.\update-java-headers.ps1
+.\scripts\headers\update-java-headers.ps1
 ```
 
 ### Maven License Plugin

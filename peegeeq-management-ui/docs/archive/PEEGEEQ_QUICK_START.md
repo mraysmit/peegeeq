@@ -20,10 +20,10 @@ The fastest way to see PeeGeeQ in action is the self-contained demo. This script
 
 ```bash
 # Linux / macOS
-./scripts/run-self-contained-demo.sh
+./scripts/demo/run-self-contained-demo.sh
 
 # Windows
-./scripts/run-self-contained-demo.bat
+./scripts/demo/run-self-contained-demo.bat
 ```
 
 **What happens:**

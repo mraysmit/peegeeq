@@ -57,5 +57,5 @@ powershell -Command "Write-Host 'Use the centralized constant to ensure only ONE
 
 :end
 echo.
-echo For detailed migration, use the Linux/Mac script: scripts/migrate-postgresql-versions.sh
+echo For detailed migration, use the Linux/Mac script: scripts/postgres-migration/migrate-postgresql-versions.sh
 pause

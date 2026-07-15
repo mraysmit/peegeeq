@@ -671,10 +671,10 @@ git clone <repository-url>
 cd peegeeq
 
 # Unix/Linux/macOS
-./run-self-contained-demo.sh
+./scripts/demo/run-self-contained-demo.sh
 
 # Windows
-run-self-contained-demo.bat
+scripts\demo\run-self-contained-demo.bat
 ```
 
 **What this demo shows:**
@@ -13151,8 +13151,8 @@ After resetting the status, call `BackfillService.startBackfill()` again.
 Run the self-contained demo to see PeeGeeQ in action:
 
 ```bash
-./run-self-contained-demo.sh    # Unix/Linux/macOS
-run-self-contained-demo.bat     # Windows
+./scripts/demo/run-self-contained-demo.sh    # Unix/Linux/macOS
+scripts\demo\run-self-contained-demo.bat     # Windows
 ```
 
 **Happy messaging with PeeGeeQ!** 🚀

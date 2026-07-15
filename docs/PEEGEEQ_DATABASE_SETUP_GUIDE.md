@@ -2030,7 +2030,7 @@ mvn flyway:validate
 
 ### Option 3: Local Docker PostgreSQL
 
-**File**: `docker-compose-local-dev.yml` (root directory)
+**File**: `scripts/local-infra/docker-compose-local-dev.yml`
 
 #### Configuration
 ```yaml
@@ -2050,7 +2050,7 @@ services:
 
 ```bash
 # Start PostgreSQL only
-docker-compose -f docker-compose-local-dev.yml up -d
+docker-compose -f scripts/local-infra/docker-compose-local-dev.yml up -d
 
 # Run migrations manually
 cd peegeeq-migrations
