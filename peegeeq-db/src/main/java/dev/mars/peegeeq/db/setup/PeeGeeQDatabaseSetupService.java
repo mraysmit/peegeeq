@@ -15,6 +15,7 @@ import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Context;
+import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
@@ -22,6 +23,8 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -283,6 +286,199 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 });
     }
 
+    @Override
+    public Future<DatabaseSetupResult> connectToExistingSetup(DatabaseSetupRequest request) {
+        Context currentCtx = Vertx.currentContext();
+        final TraceCtx capturedTrace = (currentCtx != null)
+                ? (TraceCtx) currentCtx.get(TraceContextUtil.CONTEXT_TRACE_KEY) : null;
+
+        // Validate the schema identifier (same guard as create) — but connect must NEVER create anything.
+        String schema = request.getDatabaseConfig().getSchema();
+        if (schema == null || schema.isBlank()) {
+            logger.error("Schema parameter is required and cannot be null or blank");
+            return Future.failedFuture(
+                    new IllegalArgumentException("Schema parameter is required and cannot be null or blank"));
+        }
+        try {
+            dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator.validate(schema, "Schema");
+        } catch (IllegalArgumentException e) {
+            logger.error("Schema validation failed: {}", e.getMessage());
+            return Future.failedFuture(e);
+        }
+
+        final DatabaseConfig dbConfig = request.getDatabaseConfig();
+        logger.info("CONNECT: attaching to existing setup (expected id '{}') in schema '{}' of database '{}'",
+                request.getSetupId(), schema, dbConfig.getDatabaseName());
+
+        // 1. Validate the PeeGeeQ schema already exists (fails clearly if tables are missing). Never creates.
+        return validateDatabaseInfrastructure(dbConfig, capturedTrace)
+                // 2. Reconstitute identity + object inventory from the self-describing registry tables.
+                .compose(v -> reconstituteFromRegistry(dbConfig, request.getSetupId()))
+                // 3. Start the manager (own Vert.x + pool). PeeGeeQManager.start() is non-destructive.
+                .compose(contents -> {
+                    PeeGeeQConfiguration config = createConfiguration(dbConfig, contents.setupId);
+                    PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+                    return manager.start().map(v -> {
+                        activeManagers.put(contents.setupId, manager);
+                        return new Object[] { manager, contents };
+                    });
+                })
+                // 4. Register the RECONSTITUTED factories and repopulate the in-memory maps. No registry writes.
+                .map(arr -> {
+                    PeeGeeQManager manager = (PeeGeeQManager) arr[0];
+                    ReconstitutedContents contents = (ReconstitutedContents) arr[1];
+                    try (var ignored = (capturedTrace != null) ? TraceContextUtil.mdcScope(capturedTrace) : null) {
+                        logger.info("CONNECT: reconstituting {} queue(s) and {} event store(s) for setup '{}'",
+                                contents.queues.size(), contents.eventStores.size(), contents.setupId);
+
+                        registerAvailableQueueFactories(manager);
+                        Optional<EventStoreFactory> eventStoreFactory = eventStoreFactoryProvider
+                                .map(provider -> provider.apply(manager));
+                        if (eventStoreFactory.isPresent()) {
+                            registerEventStoreFactory(manager, eventStoreFactory.get());
+                        }
+
+                        Map<String, QueueConfig> queueConfigs = new HashMap<>();
+                        Map<String, QueueFactory> queueFactories =
+                                createQueueFactories(manager, contents.queues, queueConfigs);
+                        Map<String, EventStore<?>> eventStores =
+                                createEventStores(manager, contents.eventStores, eventStoreFactory);
+
+                        DatabaseSetupResult result = new DatabaseSetupResult(
+                                contents.setupId, queueFactories, eventStores, DatabaseSetupStatus.ACTIVE);
+                        queueConfigs.forEach(result::putQueueConfig);
+
+                        // Repopulate event-store configs so removeEventStore works after a connect/reload.
+                        if (!contents.eventStoreConfigs.isEmpty()) {
+                            eventStoreConfigs.computeIfAbsent(contents.setupId, k -> new ConcurrentHashMap<>())
+                                    .putAll(contents.eventStoreConfigs);
+                        }
+
+                        activeSetups.put(contents.setupId, result);
+                        setupDatabaseConfigs.put(contents.setupId, dbConfig);
+                        logger.info("CONNECT complete: setup '{}' attached and ACTIVE (schema '{}')",
+                                contents.setupId, schema);
+                        return result;
+                    }
+                })
+                .transform(ar -> {
+                    if (ar.succeeded()) {
+                        return Future.succeededFuture(ar.result());
+                    }
+                    Throwable ex = ar.cause();
+                    logger.error("Failed to connect to existing setup '{}': {}", request.getSetupId(),
+                            ex.getMessage(), ex);
+                    // Detach any partially-attached resources WITHOUT dropping data (destroySetup is
+                    // non-destructive — it closes the manager and clears in-memory maps only).
+                    return destroySetup(request.getSetupId())
+                            .onFailure(cleanupEx -> logger.error(
+                                    "Failed to clean up after connect failure: {}", request.getSetupId(), cleanupEx))
+                            .transform(ar2 -> Future.failedFuture(new RuntimeException(
+                                    "Failed to connect to existing setup: " + request.getSetupId(), ex)));
+                });
+    }
+
+    /**
+     * Reconstitutes a setup's identity and object inventory from its own self-describing registry tables
+     * ({@code peegeeq_setup_metadata} + {@code peegeeq_object_registry}) — never inferring from table
+     * shapes. Read-only. Fails clearly if the metadata row is absent (not a self-describing PeeGeeQ setup,
+     * or provisioned before the registry tables existed) or if the recovered id contradicts the expected id.
+     */
+    private Future<ReconstitutedContents> reconstituteFromRegistry(DatabaseConfig dbConfig, String expectedSetupId) {
+        String schema = dbConfig.getSchema();
+        PgConnectOptions connectOptions = new PgConnectOptions()
+                .setHost(dbConfig.getHost())
+                .setPort(dbConfig.getPort())
+                .setDatabase(dbConfig.getDatabaseName())
+                .setUser(dbConfig.getUsername())
+                .setPassword(dbConfig.getPassword());
+        Pool pool = PgBuilder.pool()
+                .with(new PoolOptions().setMaxSize(1))
+                .connectingTo(connectOptions)
+                .using(vertx)
+                .build();
+
+        return pool.withConnection(conn ->
+                conn.preparedQuery("SELECT setup_id FROM " + schema + ".peegeeq_setup_metadata LIMIT 1").execute()
+                        .compose(metaRows -> {
+                            var it = metaRows.iterator();
+                            if (!it.hasNext()) {
+                                return Future.<ReconstitutedContents>failedFuture(new IllegalStateException(
+                                        "No peegeeq_setup_metadata row in schema '" + schema
+                                                + "' — not a self-describing PeeGeeQ setup (or provisioned before the registry existed)"));
+                            }
+                            String recoveredSetupId = it.next().getString("setup_id");
+                            if (expectedSetupId != null && !expectedSetupId.isBlank()
+                                    && !expectedSetupId.equals(recoveredSetupId)) {
+                                return Future.<ReconstitutedContents>failedFuture(new IllegalStateException(
+                                        "Setup id mismatch: schema '" + schema + "' self-identifies as '"
+                                                + recoveredSetupId + "' but connect requested '" + expectedSetupId + "'"));
+                            }
+                            return conn.preparedQuery("SELECT object_name, kind, config::text AS config FROM "
+                                            + schema + ".peegeeq_object_registry ORDER BY object_name").execute()
+                                    .compose(objRows -> buildReconstitutedContents(recoveredSetupId, objRows));
+                        })
+        ).eventually(() -> pool.close());
+    }
+
+    /**
+     * Turns object-registry rows into typed {@link QueueConfig} / {@link EventStoreConfig} lists. A queue's
+     * reconstituted {@code implementationType} is forced to the recorded {@code kind} so the factory is
+     * rebuilt as the exact type actually used, not re-resolved to the best-available type.
+     */
+    private Future<ReconstitutedContents> buildReconstitutedContents(String setupId, RowSet<Row> objRows) {
+        List<QueueConfig> queues = new ArrayList<>();
+        List<EventStoreConfig> eventStores = new ArrayList<>();
+        Map<String, EventStoreConfig> eventStoreConfigsByName = new HashMap<>();
+        for (Row row : objRows) {
+            String objectName = row.getString("object_name");
+            String kind = row.getString("kind");
+            String configJson = row.getString("config");
+            try {
+                if ("bitemporal".equals(kind)) {
+                    EventStoreConfig esc = registryMapper.readValue(configJson, EventStoreConfig.class);
+                    eventStores.add(esc);
+                    eventStoreConfigsByName.put(esc.getEventStoreName(), esc);
+                } else {
+                    QueueConfig fromJson = registryMapper.readValue(configJson, QueueConfig.class);
+                    QueueConfig withKind = new QueueConfig.Builder()
+                            .queueName(fromJson.getQueueName())
+                            .visibilityTimeout(fromJson.getVisibilityTimeout())
+                            .maxRetries(fromJson.getMaxRetries())
+                            .deadLetterEnabled(fromJson.isDeadLetterEnabled())
+                            .batchSize(fromJson.getBatchSize())
+                            .pollingInterval(fromJson.getPollingInterval())
+                            .fifoEnabled(fromJson.isFifoEnabled())
+                            .deadLetterQueueName(fromJson.getDeadLetterQueueName())
+                            .implementationType(kind)
+                            .build();
+                    queues.add(withKind);
+                }
+            } catch (Exception e) {
+                return Future.failedFuture(new RuntimeException(
+                        "Failed to deserialise object registry config for '" + objectName + "' (kind=" + kind + ")", e));
+            }
+        }
+        return Future.succeededFuture(
+                new ReconstitutedContents(setupId, queues, eventStores, eventStoreConfigsByName));
+    }
+
+    /** Setup identity + object inventory recovered from the self-describing registry tables on connect. */
+    private static final class ReconstitutedContents {
+        final String setupId;
+        final List<QueueConfig> queues;
+        final List<EventStoreConfig> eventStores;
+        final Map<String, EventStoreConfig> eventStoreConfigs;
+
+        ReconstitutedContents(String setupId, List<QueueConfig> queues, List<EventStoreConfig> eventStores,
+                              Map<String, EventStoreConfig> eventStoreConfigs) {
+            this.setupId = setupId;
+            this.queues = queues;
+            this.eventStores = eventStores;
+            this.eventStoreConfigs = eventStoreConfigs;
+        }
+    }
+
     private Future<Void> createDatabaseFromTemplate(DatabaseConfig dbConfig) {
         logger.debug("Creating database with admin connection: host={}, port={}, username={}",
                 dbConfig.getHost(), dbConfig.getPort(), dbConfig.getUsername());
@@ -488,8 +684,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      *
      * <p>Native and outbox queues produce byte-identical DDL, so an object's implementation kind and full
      * config are not recoverable from table shapes. This row captures both explicitly so
-     * connectToExistingSetup can rebuild the object with the exact kind + config. Written on the same
-     * connection that creates the object; the config is serialised with {@link #registryMapper}.
+     * connectToExistingSetup can rebuild the object with the exact kind + config. Run on the same
+     * connection that creates the object; the config is serialised with {@link #registryMapper}. On a
+     * name conflict the row is UPSERTed (kind + config refreshed) so re-provisioning stays truthful.
      *
      * @param kind resolved implementation kind — one of {@code native}, {@code outbox}, {@code bitemporal}
      * @param config the {@link QueueConfig} or {@link EventStoreConfig} describing the object
@@ -503,14 +700,37 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return Future.failedFuture(new RuntimeException(
                     "Failed to serialise config for object registry entry '" + objectName + "'", e));
         }
+        // Bind the config as a Vert.x JsonObject so it is stored as a JSONB *object*. Binding the raw
+        // String instead would be JSON-encoded by the client (quoted) and stored double-encoded as a JSON
+        // string, which then fails to deserialise back into QueueConfig/EventStoreConfig on reconnect.
+        JsonObject configObject = new JsonObject(configJson);
+        // Upsert on re-provisioning so the recorded kind/config stay a faithful source of truth for
+        // reconstitution (created_at is preserved — only kind + config are refreshed).
         String sql = "INSERT INTO " + schema + ".peegeeq_object_registry (object_name, kind, config) "
-                + "VALUES ($1, $2, CAST($3 AS JSONB)) ON CONFLICT (object_name) DO NOTHING";
+                + "VALUES ($1, $2, $3) "
+                + "ON CONFLICT (object_name) DO UPDATE SET kind = EXCLUDED.kind, config = EXCLUDED.config";
         return connection.preparedQuery(sql)
-                .execute(Tuple.of(objectName, kind, configJson))
+                .execute(Tuple.of(objectName, kind, configObject))
                 .onSuccess(v -> logger.debug("Registered object '{}' (kind={}) in object registry for schema '{}'",
                         objectName, kind, schema))
                 .onFailure(err -> logger.error("Failed to register object '{}' (kind={}) in object registry: {}",
                         objectName, kind, err.getMessage(), err))
+                .mapEmpty();
+    }
+
+    /**
+     * Removes an object's row from the self-describing object registry, keeping it in step with physical
+     * reality when a queue or event store is dropped. Idempotent — a missing row is a no-op. Run in the
+     * same transaction that drops the object so the drop and the de-registration commit together.
+     */
+    private Future<Void> deleteObjectRegistry(SqlConnection connection, String schema, String objectName) {
+        String sql = "DELETE FROM " + schema + ".peegeeq_object_registry WHERE object_name = $1";
+        return connection.preparedQuery(sql)
+                .execute(Tuple.of(objectName))
+                .onSuccess(v -> logger.debug("Removed object '{}' from object registry for schema '{}'",
+                        objectName, schema))
+                .onFailure(err -> logger.error("Failed to remove object '{}' from object registry: {}",
+                        objectName, err.getMessage(), err))
                 .mapEmpty();
     }
 
@@ -725,34 +945,43 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return templateProcessor.applyTemplate(connection, "queue", params);
         })
                 .eventually(() -> tempPool.close())
-                .<Void>map(result -> {
-                    // After table is created, create and register the QueueFactory
+                .compose(result -> {
+                    // After the table is created, create the QueueFactory (resolves the native/outbox kind).
                     logger.info("Creating queue factory for queue: {} in setup: {}",
                                queueConfig.getQueueName(), setupId);
 
-                    // Create a single queue factory for the new queue
                     Map<String, QueueConfig> newConfigs = new HashMap<>();
-                    Map<String, QueueFactory> newFactories = createQueueFactories(manager, List.of(queueConfig), newConfigs);
+                    Map<String, String> resolvedKinds = new HashMap<>();
+                    Map<String, QueueFactory> newFactories = createQueueFactories(manager, List.of(queueConfig), newConfigs, resolvedKinds);
 
-                    if (!newFactories.isEmpty()) {
-                        // Add the new factory and its config to the existing setup
-                        QueueFactory newFactory = newFactories.get(queueConfig.getQueueName());
-                        if (newFactory != null) {
-                            setup.getQueueFactories().put(queueConfig.getQueueName(), newFactory);
-                            newConfigs.forEach(setup::putQueueConfig);
-                            logger.info("Added queue factory for '{}' to setup '{}'. Total factories: {}",
-                                       queueConfig.getQueueName(), setupId, setup.getQueueFactories().size());
-                        } else {
-                            logger.warn("Queue factory was not created for queue: {}", queueConfig.getQueueName());
-                            throw new RuntimeException("Failed to create queue '" + queueConfig.getQueueName()
-                                    + "' in setup '" + setupId + "': Queue factory was not created");
-                        }
-                    } else {
+                    if (newFactories.isEmpty()) {
                         logger.warn("No queue factories were created for queue: {}", queueConfig.getQueueName());
-                        throw new RuntimeException("Failed to create queue '" + queueConfig.getQueueName()
-                                + "' in setup '" + setupId + "': No queue factories were created");
+                        return Future.<Void>failedFuture(new RuntimeException("Failed to create queue '"
+                                + queueConfig.getQueueName() + "' in setup '" + setupId
+                                + "': No queue factories were created"));
                     }
-                    return null;
+                    QueueFactory newFactory = newFactories.get(queueConfig.getQueueName());
+                    if (newFactory == null) {
+                        logger.warn("Queue factory was not created for queue: {}", queueConfig.getQueueName());
+                        return Future.<Void>failedFuture(new RuntimeException("Failed to create queue '"
+                                + queueConfig.getQueueName() + "' in setup '" + setupId
+                                + "': Queue factory was not created"));
+                    }
+
+                    // Record the resolved kind in the object registry BEFORE mutating in-memory setup state,
+                    // so a registry-write failure never leaves the queue live in memory but absent from the
+                    // registry. (The registry row is written on a separate connection from the queue DDL
+                    // above — the resolved kind is only known after factory creation — so the two are not in
+                    // one transaction; on create this is covered by create-failure teardown, and a dynamic
+                    // add that fails here leaves the table but no in-memory factory, so a re-add reconciles.)
+                    return persistQueueRegistry(dbConfig, newConfigs, resolvedKinds)
+                            .map(v -> {
+                                setup.getQueueFactories().put(queueConfig.getQueueName(), newFactory);
+                                newConfigs.forEach(setup::putQueueConfig);
+                                logger.info("Added queue factory for '{}' to setup '{}'. Total factories: {}",
+                                           queueConfig.getQueueName(), setupId, setup.getQueueFactories().size());
+                                return (Void) null;
+                            });
                 });
     }
 
@@ -792,7 +1021,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .using(vertx)
                 .build();
 
-        return tempPool.withConnection(connection -> {
+        return tempPool.withTransaction(connection -> {
             Map<String, String> params = Map.of(
                     "tableName", eventStoreConfig.getTableName(),
                     "schema", dbConfig.getSchema(),
@@ -800,7 +1029,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return templateProcessor.applyTemplate(connection, "eventstore", params)
                     .compose(v -> eventStoreConfig.isAggregateSummaryEnabled()
                             ? templateProcessor.applyTemplate(connection, "eventstore-aggregate-summary", params)
-                            : Future.succeededFuture());
+                            : Future.succeededFuture())
+                    // Record the event store in the object registry in the SAME transaction as the DDL
+                    // (kind is always 'bitemporal'), so the table and its registry row commit together.
+                    .compose(v -> insertObjectRegistry(connection, dbConfig.getSchema(),
+                            eventStoreConfig.getTableName(), "bitemporal", eventStoreConfig));
         })
                 .eventually(() -> tempPool.close())
                 .<Void>map(result -> {
@@ -878,9 +1111,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .build();
 
         return store.close()
-                .compose(v -> tempPool.withConnection(conn ->
+                .compose(v -> tempPool.withTransaction(conn ->
                         conn.query("DROP TABLE IF EXISTS " + schema + "." + tableName + "_aggregate_summary CASCADE").execute()
                                 .compose(r -> conn.query("DROP TABLE IF EXISTS " + schema + "." + tableName + " CASCADE").execute())
+                                // Keep the self-describing registry in step with the dropped table — same
+                                // transaction, so the drop and the de-registration commit or roll back together.
+                                .compose(r -> deleteObjectRegistry(conn, schema, tableName))
                 ))
                 .eventually(() -> tempPool.close())
                 .map(v -> {

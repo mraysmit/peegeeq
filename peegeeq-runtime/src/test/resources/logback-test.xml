@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <conversionRule conversionWord="vxTrace"
+                    class="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+    <conversionRule conversionWord="vxSpan"
+                    class="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
+
+    <!-- Test-specific console appender with simplified pattern -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - [trace=%vxTrace span=%vxSpan] %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Root logger for tests - INFO level to reduce noise -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE" />
+    </root>
+
+    <!-- PeeGeeQ Runtime -->
+    <logger name="dev.mars.peegeeq" level="INFO" />
+    <logger name="dev.mars.peegeeq.runtime" level="INFO" />
+
+    <!-- Reduce TestContainers noise (also suppresses the docker-java named-pipe teardown
+         ClosedChannelException stack traces logged during container reap on Windows) -->
+    <logger name="org.testcontainers" level="WARN" />
+    <logger name="com.github.dockerjava" level="WARN" />
+    <logger name="tc" level="WARN" />
+
+    <!-- Reduce Vert.x / Netty noise (also suppresses the DEBUG-level Netty PlatformDependent
+         Unsafe / native-access probe stack traces emitted during Vertx init on Java 25) -->
+    <logger name="io.vertx" level="WARN" />
+    <logger name="io.netty" level="WARN" />
+
+    <!-- Reduce Hikari connection pool and PostgreSQL driver noise -->
+    <logger name="com.zaxxer.hikari" level="WARN" />
+    <logger name="org.postgresql" level="WARN" />
+
+    <!-- Suppress noisy duplicate-object warnings from idempotent Flyway migrations. -->
+    <logger name="org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor" level="ERROR" />
+</configuration>

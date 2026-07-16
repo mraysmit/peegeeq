@@ -467,9 +467,9 @@ setup whose database already exists, plus the reference + port UI. No persisted 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
 | S.0 | peegeeq-api/db/rest | **Non-destructive `create` guard (P0/W-G):** add `overwrite` flag (default `false`); refuse + `409` **before any drop** when the DB exists; force-drop only under `overwrite` (WARN, not INFO) | setup-db §13 |
-| S.1 | peegeeq-api | Add `DatabaseSetupService.connectToExistingSetup(request)` (same DTO as create) | setup-db §4 |
-| S.2a | peegeeq-db | Create per-schema `peegeeq_object_registry` + `peegeeq_setup_metadata`; write them transactionally on provisioning + `addQueue` / `addEventStore` (self-describing setup) | setup-db §4 |
-| S.2 | peegeeq-db | Refactor `createCompleteSetup` steps 3–5 into a shared tail; `connect` = **skip destructive steps 1–2**, `validateDatabaseInfrastructure` first, **reconstitute queues/event-stores from the registry tables (S.2a)** — exact `kind` + config, not inferred from schema — then the tail | setup-db §4 |
+| S.1 | peegeeq-api | ✅ **DONE** — `DatabaseSetupService.connectToExistingSetup(request)` added as a non-breaking `default` (throws `UnsupportedOperationException`); real impl in S.2, delegators in S.3. | setup-db §4 |
+| S.2a | peegeeq-db | ✅ **DONE** — `peegeeq_object_registry` + `peegeeq_setup_metadata` created via the base schema-template (`10a`/`10b`); rows written on bulk create (metadata + event-store `bitemporal` + queue resolved `native`/`outbox` kind), on dynamic `addQueue` / `addEventStore`, and removed on `removeEventStore` delete-sync. Event-store add/remove are atomic with their DDL (`withTransaction`); the queue write is ordered-safe on a separate connection (resolved kind is only known post-factory). Registry rows upsert. All three code-review follow-ups closed (below). | setup-db §4 |
+| S.2 | peegeeq-db | ✅ **DONE** — `connectToExistingSetup` implemented as a **fully separate, parallel non-destructive path** (decision: do **not** refactor the load-bearing `createCompleteSetup` — keep create untouched as a failsafe). Skips steps 1–2, runs `validateDatabaseInfrastructure` **first** (fails clearly if the schema/registry tables are absent; never creates), reconstitutes queues/event-stores from `peegeeq_setup_metadata` + `peegeeq_object_registry` (exact `kind` + config; queue `implementationType` forced to the recorded kind), then starts the manager + registers the reconstituted factories. `RuntimeDatabaseSetupService` delegates. | setup-db §4 |
 | S.3 | peegeeq-rest | `POST /api/v1/database-setup/connect` → `connectToExistingSetup`; delegate in `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` | setup-db §4/§5 |
 | S.4 | peegeeq-management-ui (reference) | "Connect to Existing" button + modal (same fields), post to `database-setup/connect`, reworded copy | setup-db §12 |
 | S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form — **replacing** the Create Setup page, not alongside it | setup-db §12 |
@@ -479,6 +479,66 @@ setup whose database already exists, plus the reference + port UI. No persisted 
 reconstitution (pre-existing queues enumerated with correct `kind` + config, not re-supplied);
 schema-absent → clear `400`; **`create` on an existing DB → `409`, data intact unless `overwrite=true`**;
 after S.6, no create-setup/create-queue route or service function remains in utilities-ui.
+
+### S.2a — implemented (writes foundation), 2026-07-16
+
+The self-describing registry is populated end-to-end, so S.2 reconstitution has real data to read:
+
+- **DDL via the base schema-template mechanism** (not ad-hoc): `10a-setup-object-registry.sql`
+  (`peegeeq_object_registry`: `object_name` PK, `kind` CHECK `native`/`outbox`/`bitemporal`, `config`
+  JSONB) and `10b-setup-metadata.sql` (`peegeeq_setup_metadata`: one self-identifying `setup_id` row).
+  Both are appended to the base `.manifest`, so `resolveRequiredTables` auto-includes them in
+  `validateDatabaseInfrastructure`.
+- **Writes:** bulk `createCompleteSetup` (metadata row; one event-store row per store, kind `bitemporal`;
+  one queue row per queue carrying the **resolved** `native`/`outbox` kind captured from factory
+  creation); dynamic `addQueue` and `addEventStore`; delete-sync on `removeEventStore`. Config is
+  serialised with a JavaTimeModule `ObjectMapper` (`QueueConfig`/`EventStoreConfig` → JSONB).
+- **Queue delete-sync is moot today:** there is no `removeQueue` in the service/interface and REST
+  `deleteQueue` never touches the DB registry, so no queue-row drift is possible. Add a
+  `deleteObjectRegistry` call if/when a `removeQueue` is introduced.
+- **Tests** (TDD red→green, real TestContainers, `PgConnectionManager` verification): `peegeeq-runtime`
+  `RuntimeDatabaseSetupServiceIntegrationTest` (create + `addQueue` + `addEventStore` + `removeEventStore`
+  registry rows) **7/7**; `peegeeq-db` `PeeGeeQDatabaseSetupServiceEnhancedTest` (bulk metadata +
+  event-store row) **13/13**. Also added the missing `peegeeq-runtime/src/test/resources/logback-test.xml`.
+
+**Code-review follow-ups — all resolved 2026-07-16 (green: runtime 7/7, db 13/13):**
+1. ✅ `addQueue` now writes the registry row and mutates in-memory setup state **only on success**, so a
+   registry-write failure no longer leaves a queue live in memory but absent from the registry.
+2. ✅ `addEventStore` and `removeEventStore` run their DDL + registry write in one `withTransaction`
+   (table and registry row commit or roll back together). `addQueue` and the bulk create path write the
+   queue row on a separate connection **by design** — the resolved `native`/`outbox` kind is only known
+   after factory creation, which needs the started manager — so those are ordered-safe (registry before
+   in-memory mutation; the bulk case is additionally covered by create-failure teardown) rather than
+   single-transaction, and the code comments now state this accurately.
+3. ✅ `insertObjectRegistry` upserts (`ON CONFLICT (object_name) DO UPDATE SET kind, config`), so
+   re-provisioning refreshes the recorded kind/config instead of keeping a stale row.
+
+### S.1 + S.2 — implemented (connect / reconstitution), 2026-07-16
+
+`connectToExistingSetup` is a **fully separate, parallel path** — `createCompleteSetup` is untouched
+(decision: keep create as a failsafe; no shared-tail refactor):
+
+- **S.1** — `DatabaseSetupService.connectToExistingSetup(request)` added as a non-breaking `default`
+  (throws `UnsupportedOperationException`); implemented in `PeeGeeQDatabaseSetupService`;
+  `RuntimeDatabaseSetupService` delegates. Rest delegation is **S.3** (still open).
+- **S.2** — flow: validate schema identifier → `validateDatabaseInfrastructure` **first** (fails clearly
+  if the registry/schema tables are absent — never creates) → **reconstitute** from
+  `peegeeq_setup_metadata` (recover + validate `setupId`) and `peegeeq_object_registry` (each row →
+  `QueueConfig` for `native`/`outbox` with `implementationType` forced to the recorded kind, or
+  `EventStoreConfig` for `bitemporal`) → start manager (`start()` is non-destructive) → register the
+  reconstituted factories + repopulate in-memory maps. No registry writes on connect. Failure path uses
+  the non-destructive `destroySetup` (closes the manager; never drops the database).
+- **Latent bug fixed:** object-registry `config` was being stored **double-encoded** — binding a `String`
+  to a `CAST($n AS JSONB)` param makes the Vert.x pg client JSON-encode (quote) it, so it landed as a
+  JSONB *string* not an object. The S.2a write tests only asserted `config` non-null, so it slipped
+  through; reconnect (the first reader to deserialize it) caught it. Now bound as a `JsonObject`.
+- **Test** (TDD red→green): `RuntimeDatabaseSetupServiceIntegrationTest.connectToExistingSetup_reconstitutesFromRegistry`
+  — instance A provisions; a fresh instance B attaches to the same DB with an **empty** request body and
+  rebuilds the queue (correct `native`/`outbox` kind) + event store from the registry. Green:
+  runtime **8/8**, db **13/13**.
+
+**Still open in Phase S:** S.0 (non-destructive create guard / `409`), S.3 (REST `POST …/connect`),
+S.4/S.5 (UI), S.6 (utilities-ui create-page removal).
 
 ## Phase R — Durable registry + auto-reload (single backend)
 
