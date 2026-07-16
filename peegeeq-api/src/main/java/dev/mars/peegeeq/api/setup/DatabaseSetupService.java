@@ -39,6 +39,29 @@ import java.util.function.Consumer;
  */
 public interface DatabaseSetupService extends ServiceProvider {
     Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request);
+
+    /**
+     * Non-destructively attaches to a setup whose database and schema already exist.
+     *
+     * <p>Unlike {@link #createCompleteSetup}, this neither creates the database nor applies schema
+     * templates. It validates that the PeeGeeQ schema is present (failing clearly if it is not — it must
+     * never create it), reconstitutes the setup's queues and event stores by reading the setup's own
+     * self-describing registry tables ({@code peegeeq_setup_metadata} + {@code peegeeq_object_registry})
+     * — not from the request body — and then starts the manager and registers the reconstituted factories.
+     * {@code PeeGeeQManager.start()} is non-destructive, so no existing data is touched.
+     *
+     * <p>The {@code queues} / {@code eventStores} on the request are ignored (contents are recovered from
+     * the schema); the {@code setupId} is treated as the expected id and validated against the value
+     * recovered from {@code peegeeq_setup_metadata}.
+     *
+     * @param request the setup coordinates (database/schema/credentials + expected setupId)
+     * @return a Future completing with the reconstituted, now-active setup result
+     */
+    default Future<DatabaseSetupResult> connectToExistingSetup(DatabaseSetupRequest request) {
+        return Future.failedFuture(
+                new UnsupportedOperationException("connectToExistingSetup is not supported by this implementation"));
+    }
+
     Future<Void> destroySetup(String setupId);
     Future<DatabaseSetupStatus> getSetupStatus(String setupId);
     Future<DatabaseSetupResult> getSetupResult(String setupId);
