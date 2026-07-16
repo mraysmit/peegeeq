@@ -101,6 +101,11 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
+    public Future<DatabaseSetupResult> connectToExistingSetup(DatabaseSetupRequest request) {
+        return delegate.connectToExistingSetup(request);
+    }
+
+    @Override
     public Future<Void> destroySetup(String setupId) {
         return delegate.destroySetup(setupId);
     }
