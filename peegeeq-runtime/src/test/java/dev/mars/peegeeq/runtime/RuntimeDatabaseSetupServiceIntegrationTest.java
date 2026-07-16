@@ -17,18 +17,18 @@
 package dev.mars.peegeeq.runtime;
 
 import dev.mars.peegeeq.api.database.DatabaseConfig;
+import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.pgclient.PgBuilder;
-import io.vertx.pgclient.PgConnectOptions;
-import io.vertx.sqlclient.Pool;
-import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Tuple;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -192,6 +192,8 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
         DatabaseSetupRequest request = new DatabaseSetupRequest(
                 setupId, dbConfig, List.of(queueConfig), List.of(), Map.of());
 
+        PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+
         setupService.createCompleteSetup(request)
                 .compose(result -> {
                     assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Status should be ACTIVE");
@@ -199,18 +201,18 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                     assertNotNull(factory, "Queue factory should have been created for registryqueue");
                     String expectedKind = factory.getImplementationType();
 
-                    Pool pool = PgBuilder.pool()
-                            .with(new PoolOptions().setMaxSize(1))
-                            .connectingTo(new PgConnectOptions()
-                                    .setHost(dbConfig.getHost())
-                                    .setPort(dbConfig.getPort())
-                                    .setDatabase(dbName)
-                                    .setUser(dbConfig.getUsername())
-                                    .setPassword(dbConfig.getPassword()))
-                            .using(vertx)
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbName)
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(schema)
                             .build();
+                    verifyMgr.getOrCreateReactivePool("verify-registry", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
 
-                    return pool.withConnection(conn ->
+                    return verifyMgr.withConnection("verify-registry", conn ->
                             // 1. Self-identifying metadata row.
                             conn.preparedQuery("SELECT schema_name FROM " + schema
                                             + ".peegeeq_setup_metadata WHERE setup_id = $1")
@@ -241,9 +243,278 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                                 assertNotNull(row.getValue("config"),
                                                         "object-registry config JSON should be recorded");
                                                 return Future.succeededFuture();
-                                            })))
-                            .eventually(() -> pool.close());
+                                            })));
                 })
+                .eventually(() -> verifyMgr.close())
+                .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(5)
+    @DisplayName("addQueue - records the dynamically added queue in the object registry")
+    void addQueue_recordsQueueInRegistry(Vertx vertx, VertxTestContext ctx) {
+        // A queue added AFTER setup creation must be recorded in the self-describing object registry with its
+        // resolved kind, exactly like queues provisioned at create time — otherwise connectToExistingSetup
+        // could not rebuild a dynamically added queue's factory (native vs outbox is not recoverable from DDL).
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "registry_addqueue_test_db_" + System.currentTimeMillis();
+        String setupId = "registry-addqueue-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(), Map.of());
+
+        QueueConfig dynamicQueue = new QueueConfig.Builder()
+                .queueName("dynamicqueue")
+                .maxRetries(3)
+                .build();
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+
+        setupService.createCompleteSetup(request)
+                .compose(v -> setupService.addQueue(setupId, dynamicQueue))
+                .compose(v -> setupService.getSetupResult(setupId))
+                .compose(result -> {
+                    QueueFactory factory = result.getQueueFactories().get("dynamicqueue");
+                    assertNotNull(factory, "Queue factory should have been created for dynamicqueue");
+                    String expectedKind = factory.getImplementationType();
+
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbName)
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(schema)
+                            .build();
+                    verifyMgr.getOrCreateReactivePool("verify-addqueue", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+
+                    return verifyMgr.withConnection("verify-addqueue", conn ->
+                            conn.preparedQuery("SELECT kind, config FROM " + schema
+                                            + ".peegeeq_object_registry WHERE object_name = $1")
+                                    .execute(Tuple.of("dynamicqueue"))
+                                    .compose(rows -> {
+                                        var it = rows.iterator();
+                                        if (!it.hasNext()) {
+                                            return Future.failedFuture(new AssertionError(
+                                                    "peegeeq_object_registry row should exist for dynamically added queue: dynamicqueue"));
+                                        }
+                                        var row = it.next();
+                                        assertEquals(expectedKind, row.getString("kind"),
+                                                "recorded kind should match the created factory's implementation type");
+                                        assertNotNull(row.getValue("config"),
+                                                "object-registry config JSON should be recorded");
+                                        return Future.succeededFuture();
+                                    }));
+                })
+                .eventually(() -> verifyMgr.close())
+                .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(6)
+    @DisplayName("addEventStore - records the dynamically added event store in the object registry")
+    void addEventStore_recordsEventStoreInRegistry(Vertx vertx, VertxTestContext ctx) {
+        // An event store added AFTER setup creation must be recorded in the self-describing object registry
+        // (kind 'bitemporal', with its config) exactly like event stores provisioned at create time, so
+        // connectToExistingSetup can rebuild it.
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "registry_addstore_test_db_" + System.currentTimeMillis();
+        String setupId = "registry-addstore-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(), Map.of());
+
+        EventStoreConfig dynamicStore = new EventStoreConfig.Builder()
+                .eventStoreName("dynamicstore")
+                .tableName("dynamicstore")
+                .build();
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+
+        setupService.createCompleteSetup(request)
+                .compose(v -> setupService.addEventStore(setupId, dynamicStore))
+                .compose(v -> {
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbName)
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(schema)
+                            .build();
+                    verifyMgr.getOrCreateReactivePool("verify-addstore", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+
+                    return verifyMgr.withConnection("verify-addstore", conn ->
+                            conn.preparedQuery("SELECT kind, config FROM " + schema
+                                            + ".peegeeq_object_registry WHERE object_name = $1")
+                                    .execute(Tuple.of("dynamicstore"))
+                                    .compose(rows -> {
+                                        var it = rows.iterator();
+                                        if (!it.hasNext()) {
+                                            return Future.failedFuture(new AssertionError(
+                                                    "peegeeq_object_registry row should exist for dynamically added event store: dynamicstore"));
+                                        }
+                                        var row = it.next();
+                                        assertEquals("bitemporal", row.getString("kind"),
+                                                "event store should be registered as 'bitemporal'");
+                                        assertNotNull(row.getValue("config"),
+                                                "object-registry config JSON should be recorded");
+                                        return Future.succeededFuture();
+                                    }));
+                })
+                .eventually(() -> verifyMgr.close())
+                .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(7)
+    @DisplayName("removeEventStore - removes the event store's object-registry row")
+    void removeEventStore_removesRegistryRow(Vertx vertx, VertxTestContext ctx) {
+        // Removing an object must also remove its self-describing registry row, so the registry never drifts
+        // from physical reality (a dropped object must not appear reconstitutable to connectToExistingSetup).
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "registry_rmstore_test_db_" + System.currentTimeMillis();
+        String setupId = "registry-rmstore-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(), Map.of());
+
+        EventStoreConfig store = new EventStoreConfig.Builder()
+                .eventStoreName("removablestore")
+                .tableName("removablestore")
+                .build();
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+
+        setupService.createCompleteSetup(request)
+                .compose(v -> setupService.addEventStore(setupId, store))
+                .compose(v -> setupService.removeEventStore(setupId, "removablestore"))
+                .compose(v -> {
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbName)
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(schema)
+                            .build();
+                    verifyMgr.getOrCreateReactivePool("verify-rmstore", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+
+                    return verifyMgr.withConnection("verify-rmstore", conn ->
+                            conn.preparedQuery("SELECT 1 FROM " + schema
+                                            + ".peegeeq_object_registry WHERE object_name = $1")
+                                    .execute(Tuple.of("removablestore"))
+                                    .compose(rows -> {
+                                        if (rows.iterator().hasNext()) {
+                                            return Future.failedFuture(new AssertionError(
+                                                    "peegeeq_object_registry row should have been removed for event store: removablestore"));
+                                        }
+                                        return Future.succeededFuture();
+                                    }));
+                })
+                .eventually(() -> verifyMgr.close())
+                .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(8)
+    @DisplayName("connectToExistingSetup - reconstitutes queues + event stores from the registry")
+    void connectToExistingSetup_reconstitutesFromRegistry(Vertx vertx, VertxTestContext ctx) {
+        // Instance A provisions the setup (creating the DB, schema, and self-describing registry). A FRESH
+        // instance B then attaches non-destructively to the SAME database with an EMPTY request body — it
+        // must rebuild the queue (with the exact native/outbox kind) and the event store purely from
+        // peegeeq_setup_metadata + peegeeq_object_registry, recovering the setupId from the schema.
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "connect_test_db_" + System.currentTimeMillis();
+        String setupId = "connect-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        QueueConfig queue = new QueueConfig.Builder().queueName("connectqueue").maxRetries(3).build();
+        EventStoreConfig store = new EventStoreConfig.Builder()
+                .eventStoreName("connectstore").tableName("connectstore").build();
+
+        DatabaseSetupRequest createReq = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(queue), List.of(store), Map.of());
+        // Connect request: SAME coordinates but EMPTY contents — contents must be reconstituted, not supplied.
+        DatabaseSetupRequest connectReq = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(), Map.of());
+
+        DatabaseSetupService serviceB = PeeGeeQRuntime.createDatabaseSetupService();
+
+        setupService.createCompleteSetup(createReq)
+                .compose(created -> {
+                    String createdKind = created.getQueueFactories().get("connectqueue").getImplementationType();
+                    return serviceB.connectToExistingSetup(connectReq)
+                            .map(reconstituted -> {
+                                assertEquals(DatabaseSetupStatus.ACTIVE, reconstituted.getStatus(),
+                                        "connected setup should be ACTIVE");
+                                assertEquals(setupId, reconstituted.getSetupId(),
+                                        "setupId should be recovered from peegeeq_setup_metadata");
+                                assertTrue(reconstituted.getQueueFactories().containsKey("connectqueue"),
+                                        "queue should be reconstituted from the object registry");
+                                assertEquals(createdKind,
+                                        reconstituted.getQueueFactories().get("connectqueue").getImplementationType(),
+                                        "reconstituted queue kind must match the originally created kind");
+                                assertTrue(reconstituted.getEventStores().containsKey("connectstore"),
+                                        "event store should be reconstituted from the object registry");
+                                return (Void) null;
+                            });
+                })
+                .eventually(() -> serviceB.close())
                 .compose(v -> setupService.destroySetup(setupId))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
