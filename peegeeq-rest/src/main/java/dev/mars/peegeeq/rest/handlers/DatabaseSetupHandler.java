@@ -116,13 +116,17 @@ public class DatabaseSetupHandler {
                                 String errorMessage = "Failed to create setup '" + request.getSetupId() + "': "
                                         + throwable.getMessage();
 
-                                if (cause.getMessage() != null) {
-                                    if (cause.getMessage().contains("already exists")) {
-                                        statusCode = 409;
-                                        errorMessage = "Setup already exists: " + request.getSetupId();
-                                    } else if (cause.getMessage().contains("invalid")) {
-                                        statusCode = 400;
-                                    }
+                                if (isDatabaseCreationConflictError(cause)
+                                        || (cause.getMessage() != null && cause.getMessage().contains("already exists"))) {
+                                    // The setup (its database) already exists. Create is non-destructive and will
+                                    // NOT overwrite it — attach with connect, or drop the database first (a
+                                    // separate, guarded operation) to recreate.
+                                    statusCode = 409;
+                                    errorMessage = "Setup already exists: " + request.getSetupId()
+                                            + ". Use POST /api/v1/database-setup/connect to attach, or drop the "
+                                            + "database first (a separate, guarded operation) to recreate.";
+                                } else if (cause.getMessage() != null && cause.getMessage().contains("invalid")) {
+                                    statusCode = 400;
                                 }
 
                                 sendError(ctx, statusCode, errorMessage);
@@ -134,6 +138,81 @@ public class DatabaseSetupHandler {
                 sendError(ctx, 400, "Invalid request: " + e.getMessage());
             } catch (Exception e) {
                 logger.error("Error parsing create setup request", e);
+                sendError(ctx, 400, "Error processing request: " + e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Non-destructively connects to a setup whose database and schema already exist.
+     * POST /api/v1/database-setup/connect
+     *
+     * <p>Uses the same request DTO as {@link #createSetup}, but the {@code queues} / {@code eventStores}
+     * in the body are ignored — the setup's contents are reconstituted from its self-describing registry
+     * tables — and {@code setupId} is treated as the expected id, validated against the value recovered
+     * from the schema. Nothing is created; a missing PeeGeeQ schema fails clearly with 400.
+     */
+    public void connectToExistingSetup(RoutingContext ctx) {
+        String traceparent = ctx.request().getHeader("traceparent");
+        TraceCtx requestTrace = TraceContextUtil.parseOrCreate(traceparent);
+
+        Context vertxContext = Vertx.currentContext();
+        if (vertxContext != null) {
+            vertxContext.put(TraceContextUtil.CONTEXT_TRACE_KEY, requestTrace);
+        }
+
+        try (var ignored = TraceContextUtil.mdcScope(requestTrace)) {
+            try {
+                JsonObject body = ctx.body().asJsonObject();
+                final TraceCtx finalTraceCtx = requestTrace;
+
+                // Same DTO as create; queues/eventStores are ignored on connect (reconstituted from schema).
+                DatabaseSetupRequest request = parseSetupRequest(ctx, body);
+
+                logger.info("Connecting to existing database setup: {}", request.getSetupId());
+
+                setupService.connectToExistingSetup(request)
+                        .map(result -> {
+                            try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
+                                logger.debug("REST HANDLER: Received completion from connectToExistingSetup for setupId={}",
+                                        result.getSetupId());
+                                return new JsonObject()
+                                        .put("setupId", result.getSetupId())
+                                        .put("status", result.getStatus().name())
+                                        .put("queueCount", result.getQueueFactories().size())
+                                        .put("eventStoreCount", result.getEventStores().size())
+                                        .put("message", "Database setup connected successfully");
+                            }
+                        })
+                        .onSuccess(response -> {
+                            ctx.response()
+                                    .setStatusCode(200)
+                                    .putHeader("Content-Type", "application/json")
+                                    .end(response.encode());
+                            logger.info("Connected to existing database setup: {}", request.getSetupId());
+                        })
+                        .onFailure(throwable -> {
+                            try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
+                                logger.error("Error connecting to existing database setup: " + request.getSetupId(), throwable);
+                                Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
+
+                                // Schema-absent / not-a-PeeGeeQ-database / setupId mismatch are client errors (400);
+                                // connection/auth and other infrastructure failures map to 503.
+                                if (cause instanceof IllegalArgumentException || cause instanceof IllegalStateException) {
+                                    sendError(ctx, 400, "Cannot connect to setup '" + request.getSetupId() + "': "
+                                            + cause.getMessage());
+                                } else {
+                                    sendError(ctx, 503, "Failed to connect to setup '" + request.getSetupId() + "': "
+                                            + throwable.getMessage());
+                                }
+                            }
+                        });
+
+            } catch (IllegalArgumentException e) {
+                logger.warn("Invalid request for connect setup: {}", e.getMessage());
+                sendError(ctx, 400, "Invalid request: " + e.getMessage());
+            } catch (Exception e) {
+                logger.error("Error parsing connect setup request", e);
                 sendError(ctx, 400, "Error processing request: " + e.getMessage());
             }
         }

@@ -61,19 +61,19 @@ describe('TargetSelector', () => {
 
   // ── Empty state (no setups) ───────────────────────────────────────────────
 
-  it('shows empty-state alert and Create Setup button when no setups exist', async () => {
+  it('shows empty-state alert and Connect setup button when no setups exist', async () => {
     mockedGetSetups.mockResolvedValueOnce([])
     renderSelector()
     await waitFor(() => {
-      expect(screen.getByText(/No PeeGeeQ setup found/i)).toBeTruthy()
+      expect(screen.getByText(/No PeeGeeQ setup connected/i)).toBeTruthy()
     })
-    expect(screen.getByRole('button', { name: /Create Setup/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Connect setup/i })).toBeTruthy()
   })
 
   it('does not show setup/queue dropdowns when no setups exist', async () => {
     mockedGetSetups.mockResolvedValueOnce([])
     renderSelector()
-    await waitFor(() => screen.getByText(/No PeeGeeQ setup found/i))
+    await waitFor(() => screen.getByText(/No PeeGeeQ setup connected/i))
     expect(screen.queryByRole('combobox')).toBeNull()
   })
 
@@ -189,14 +189,14 @@ describe('TargetSelector', () => {
     expect(mockedListQueueDetails).toHaveBeenCalledTimes(2)
   })
 
-  // ── Create Setup navigation ───────────────────────────────────────────────
+  // ── Connect setup navigation ──────────────────────────────────────────────
 
-  it('navigates to /generator/setup/new when Create Setup button is clicked', async () => {
+  it('navigates to /setups/connect when Connect setup button is clicked', async () => {
     mockedGetSetups.mockResolvedValueOnce([])
     renderSelector()
-    await waitFor(() => screen.getByRole('button', { name: /Create Setup/i }))
-    await userEvent.click(screen.getByRole('button', { name: /Create Setup/i }))
-    expect(mockNavigate).toHaveBeenCalledWith('/generator/setup/new')
+    await waitFor(() => screen.getByRole('button', { name: /Connect setup/i }))
+    await userEvent.click(screen.getByRole('button', { name: /Connect setup/i }))
+    expect(mockNavigate).toHaveBeenCalledWith('/setups/connect')
   })
 
   // ── onTargetSelected callback ─────────────────────────────────────────────

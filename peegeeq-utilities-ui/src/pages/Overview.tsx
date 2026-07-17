@@ -100,10 +100,10 @@ export default function Overview() {
                             <Button
                                 type="primary"
                                 icon={<PlusOutlined />}
-                                onClick={() => navigate('/generator/setup/new')}
-                                data-testid="create-setup-button"
+                                onClick={() => navigate('/setups/connect')}
+                                data-testid="connect-setup-button"
                             >
-                                Create Setup
+                                Connect setup
                             </Button>
                         </Space>
                     }

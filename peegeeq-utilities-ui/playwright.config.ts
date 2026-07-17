@@ -94,31 +94,22 @@ export default defineConfig({
       use: chromeMaximized,
       dependencies: ['1-navigation'],
     },
-    // Step 4: Quick Setup - Tests the Create Setup wizard flow end-to-end.
-    // Depends on 3-generator so the generator's clean-state (empty) tests run
-    // BEFORE this suite creates the e2e setup and pollutes shared DB state.
-    {
-      name: '4-quick-setup',
-      testMatch: '**/quick-setup.spec.ts',
-      use: chromeMaximized,
-      dependencies: ['3-generator'],
-    },
-    // Step 5: Setups - Tests the /setups list page, detail modal, and delete flow
-    // Depends on 4-quick-setup having created the e2e test setup
+    // Step 4: Setups - /setups list page, detail page, and connect navigation.
+    // Provisions its own SETUP_ID via REST (admin path) in beforeAll, so it depends on
+    // 3-generator only for ordering (generator's empty-state tests must run before any
+    // setup exists).
     {
       name: '5-setups',
       testMatch: '**/setups.spec.ts',
       use: chromeMaximized,
-      dependencies: ['4-quick-setup'],
+      dependencies: ['3-generator'],
     },
-    // Step 6: Create Queue - Full-coverage tests for the Create Queue page.
-    // Owns a dedicated setup (created/torn down via REST), so it only depends on
-    // 5-setups for ordering (to avoid interleaving shared-DB mutations).
+    // Connect-to-existing-setup — independent, real backend (provision → detach → connect via UI).
+    // Runs headless and owns its own throwaway setup, so it has no ordering dependency.
     {
-      name: '6-create-queue',
-      testMatch: '**/create-queue.spec.ts',
-      use: chromeMaximized,
-      dependencies: ['5-setups'],
+      name: 'connect',
+      testMatch: '**/connect-setup.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
 

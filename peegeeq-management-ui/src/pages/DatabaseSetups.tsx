@@ -24,6 +24,7 @@ import {
 } from 'antd'
 import {
     PlusOutlined,
+    ApiOutlined,
     DeleteOutlined,
     EyeOutlined,
     MoreOutlined,
@@ -50,7 +51,9 @@ const DatabaseSetups = () => {
     const [setups, setSetups] = useState<DatabaseSetup[]>([])
     const [loading, setLoading] = useState(false)
     const [isModalVisible, setIsModalVisible] = useState(false)
+    const [isConnectModalVisible, setIsConnectModalVisible] = useState(false)
     const [form] = Form.useForm()
+    const [connectForm] = Form.useForm()
     const [viewDetailsSetup, setViewDetailsSetup] = useState<DatabaseSetup | null>(null)
     const [detailsData, setDetailsData] = useState<any | null>(null)
 
@@ -192,6 +195,50 @@ const DatabaseSetups = () => {
         }
     }
 
+    const handleConnectSetup = () => {
+        connectForm.resetFields()
+        setIsConnectModalVisible(true)
+    }
+
+    const handleConnectModalOk = async () => {
+        try {
+            const values = await connectForm.validateFields()
+
+            const connectRequest = {
+                setupId: values.setupId,
+                databaseConfig: {
+                    host: values.host || 'localhost',
+                    port: values.port || 5432,
+                    databaseName: values.databaseName,
+                    username: values.username,
+                    password: values.password,
+                    schema: values.schema,
+                    sslEnabled: values.sslEnabled || false,
+                    templateDatabase: 'template0',
+                    encoding: 'UTF8'
+                },
+                // Ignored on connect — the backend reconstitutes queues/event stores from the schema.
+                queues: [],
+                eventStores: []
+            }
+
+            await axios.post(getVersionedApiUrl('database-setup/connect'), connectRequest, {
+                timeout: 120000
+            })
+
+            message.success(`Connected to setup ${values.setupId}`)
+            useManagementStore.getState().addNotification({ resource: values.setupId, action: 'setup connected' })
+            setIsConnectModalVisible(false)
+            connectForm.resetFields()
+            await fetchSetups()
+        } catch (error: any) {
+            if (error?.errorFields) return // form validation error — keep the modal open
+            console.error('Failed to connect to setup:', error)
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to connect to setup'
+            message.error(errorMsg)
+        }
+    }
+
     const getActionMenu = (setup: DatabaseSetup) => ({
         items: [
             {
@@ -279,9 +326,14 @@ const DatabaseSetups = () => {
                 <Card
                     title="Database Setups"
                     extra={
-                        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSetup} data-testid="database-setups-create-btn">
-                            Create Setup
-                        </Button>
+                        <Space>
+                            <Button icon={<ApiOutlined />} onClick={handleConnectSetup} data-testid="database-setups-connect-btn">
+                                Connect to Existing
+                            </Button>
+                            <Button type="primary" icon={<PlusOutlined />} onClick={handleCreateSetup} data-testid="database-setups-create-btn">
+                                Create Setup
+                            </Button>
+                        </Space>
                     }
                 >
                     {setups.length === 0 && !loading && (
@@ -405,6 +457,98 @@ const DatabaseSetups = () => {
                                     valuePropName="checked"
                                     initialValue={false}
                                 >
+                                    <Checkbox>Enable SSL</Checkbox>
+                                </Form.Item>
+                            </Col>
+                        </Row>
+                    </Form>
+                </Modal>
+
+                {/* Connect to Existing Setup Modal */}
+                <Modal
+                    title="Connect to Existing Setup"
+                    open={isConnectModalVisible}
+                    onOk={handleConnectModalOk}
+                    onCancel={() => setIsConnectModalVisible(false)}
+                    width={700}
+                    okText="Connect"
+                >
+                    <Alert
+                        message="Non-destructive connect"
+                        description="This attaches to an EXISTING PeeGeeQ setup. It will not create or modify any database — it connects to the existing schema and reconstitutes its queues and event stores. The password is used to connect and is not stored."
+                        type="info"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                    />
+
+                    <Form form={connectForm} layout="vertical">
+                        <Divider>Setup Information</Divider>
+                        <Form.Item
+                            name="setupId"
+                            label="Setup ID"
+                            rules={[{ required: true, message: 'Please enter setup ID' }]}
+                            extra="The identifier of the existing setup to connect to"
+                        >
+                            <Input placeholder="e.g., production-setup" />
+                        </Form.Item>
+
+                        <Divider>Database Configuration</Divider>
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <Form.Item name="host" label="Host" initialValue="localhost">
+                                    <Input placeholder="localhost" />
+                                </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                                <Form.Item name="port" label="Port" initialValue={5432}>
+                                    <InputNumber min={1} max={65535} style={{ width: '100%' }} />
+                                </Form.Item>
+                            </Col>
+                        </Row>
+
+                        <Form.Item
+                            name="databaseName"
+                            label="Database Name"
+                            rules={[{ required: true, message: 'Please enter database name' }]}
+                            extra="The existing database this setup lives in"
+                        >
+                            <Input placeholder="e.g., peegeeq_production" />
+                        </Form.Item>
+
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <Form.Item
+                                    name="username"
+                                    label="Username"
+                                    rules={[{ required: true, message: 'Please enter username' }]}
+                                    initialValue="peegeeq"
+                                >
+                                    <Input />
+                                </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                                <Form.Item
+                                    name="password"
+                                    label="Password"
+                                    rules={[{ required: true, message: 'Please enter password' }]}
+                                >
+                                    <Input.Password />
+                                </Form.Item>
+                            </Col>
+                        </Row>
+
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <Form.Item
+                                    name="schema"
+                                    label="Schema"
+                                    rules={[{ required: true, message: 'Please enter schema' }]}
+                                >
+                                    <Input />
+                                </Form.Item>
+                            </Col>
+                            <Col span={12}>
+                                <Form.Item name="sslEnabled" valuePropName="checked" initialValue={false}>
                                     <Checkbox>Enable SSL</Checkbox>
                                 </Form.Item>
                             </Col>

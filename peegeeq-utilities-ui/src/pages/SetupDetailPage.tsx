@@ -19,11 +19,10 @@ import {
   ReloadOutlined,
   DeleteOutlined,
   DatabaseOutlined,
-  PlusOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
-import { getSetupDetails, deleteSetup } from '../services/setupService'
+import { getSetupDetails } from '../services/setupService'
 import { listQueueDetails, deleteQueue } from '../services/queueService'
 import type { SetupDetails } from '../types/setup'
 import type { QueueSummary } from '../types/queue'
@@ -52,7 +51,6 @@ export default function SetupDetailPage() {
   const [queueSummaries, setQueueSummaries] = useState<QueueSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState(false)
   const [deletingQueue, setDeletingQueue] = useState<string | null>(null)
 
   const loadDetails = useCallback(async () => {
@@ -90,18 +88,6 @@ export default function SetupDetailPage() {
   useEffect(() => {
     loadDetails()
   }, [loadDetails])
-
-  const handleDelete = async () => {
-    setDeleting(true)
-    try {
-      await deleteSetup(setupId)
-      message.success(`Setup "${setupId}" deleted`)
-      navigate('/setups')
-    } catch {
-      message.error(`Failed to delete setup "${setupId}"`)
-      setDeleting(false)
-    }
-  }
 
   const status = details?.status ?? 'active'
   const queues = queueSummaries
@@ -149,23 +135,6 @@ export default function SetupDetailPage() {
             >
               Refresh
             </Button>
-            <Popconfirm
-              title={`Delete setup "${setupId}"?`}
-              description="This will drop the database and all associated queues. This cannot be undone."
-              onConfirm={handleDelete}
-              okText="Delete"
-              okType="danger"
-              cancelText="Cancel"
-            >
-              <Button
-                danger
-                icon={<DeleteOutlined />}
-                loading={deleting}
-                data-testid="delete-detail-button"
-              >
-                Delete
-              </Button>
-            </Popconfirm>
           </Space>
         }
       >
@@ -187,22 +156,9 @@ export default function SetupDetailPage() {
             </Descriptions>
 
             <div data-testid="setup-detail-queues">
-              <Space
-                style={{ width: '100%', justifyContent: 'space-between', marginBottom: 8 }}
-              >
-                <Title level={5} style={{ margin: 0 }}>
-                  Queues
-                </Title>
-                <Button
-                  type="primary"
-                  size="small"
-                  icon={<PlusOutlined />}
-                  onClick={() => navigate(`/setups/${setupId}/queues/new`)}
-                  data-testid="create-queue-button"
-                >
-                  Create queue
-                </Button>
-              </Space>
+              <Title level={5} style={{ marginBottom: 8 }}>
+                Queues
+              </Title>
               {queues.length > 0 ? (
                 <List
                   size="small"
