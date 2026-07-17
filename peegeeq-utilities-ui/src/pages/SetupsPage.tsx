@@ -8,19 +8,16 @@ import {
   Tag,
   Typography,
   Alert,
-  Popconfirm,
-  message,
 } from 'antd'
 import {
-  PlusOutlined,
-  DeleteOutlined,
+  ApiOutlined,
   EyeOutlined,
   ReloadOutlined,
   DatabaseOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
-import { getSetups, getSetupDetails, deleteSetup } from '../services/setupService'
+import { getSetups, getSetupDetails } from '../services/setupService'
 import type { SetupDetails } from '../types/setup'
 
 const { Title } = Typography
@@ -73,16 +70,6 @@ export default function SetupsPage() {
   useEffect(() => {
     loadSetups()
   }, [loadSetups])
-
-  const handleDelete = async (setupId: string) => {
-    try {
-      await deleteSetup(setupId)
-      message.success(`Setup "${setupId}" deleted`)
-      await loadSetups()
-    } catch {
-      message.error(`Failed to delete setup "${setupId}"`)
-    }
-  }
 
   const statusColors: Record<string, string> = {
     active: 'green',
@@ -141,23 +128,6 @@ export default function SetupsPage() {
           >
             Details
           </Button>
-          <Popconfirm
-            title={`Delete setup "${record.setupId}"?`}
-            description="This will drop the database and all associated queues. This cannot be undone."
-            onConfirm={() => handleDelete(record.setupId)}
-            okText="Delete"
-            okType="danger"
-            cancelText="Cancel"
-          >
-            <Button
-              type="text"
-              danger
-              icon={<DeleteOutlined />}
-              data-testid={`delete-${record.setupId}`}
-            >
-              Delete
-            </Button>
-          </Popconfirm>
         </Space>
       ),
     },
@@ -192,19 +162,19 @@ export default function SetupsPage() {
             </Button>
             <Button
               type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => navigate('/generator/setup/new')}
-              data-testid="create-setup-button"
+              icon={<ApiOutlined />}
+              onClick={() => navigate('/setups/connect')}
+              data-testid="connect-setup-button"
             >
-              Create Setup
+              Connect setup
             </Button>
           </Space>
         }
       >
         {setups.length === 0 && !loading && (
           <Alert
-            message="No setups found"
-            description="Create your first setup to start using PeeGeeQ. A setup represents a PostgreSQL database configuration with queues and event stores."
+            message="No setups connected"
+            description="Connect to an existing PeeGeeQ setup to target its queues. Utilities does not create setups — provisioning is done with the admin tool."
             type="info"
             showIcon
             style={{ marginBottom: 16 }}

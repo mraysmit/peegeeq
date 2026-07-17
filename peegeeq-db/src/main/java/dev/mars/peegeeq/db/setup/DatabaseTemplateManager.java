@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 
 import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
+import dev.mars.peegeeq.api.setup.DatabaseCreationConflictException;
 import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
 
 public class DatabaseTemplateManager {
@@ -73,12 +74,18 @@ public class DatabaseTemplateManager {
             return databaseExists(connection, newDatabaseName)
                 .compose(exists -> {
                     if (exists) {
-                        logger.info("Database {} already exists, dropping and recreating", newDatabaseName);
-                        return dropDatabase(connection, newDatabaseName);
-                    } else {
-                        logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
-                        return Future.<Void>succeededFuture();
+                        // Create is NON-DESTRUCTIVE: it must never drop or overwrite an existing database.
+                        // Dropping a database is a separate, explicitly-guarded operation — refuse clearly
+                        // here rather than silently destroying data in a system of record.
+                        logger.warn("Refusing to create database {}: it already exists. Create never overwrites; "
+                                + "drop it explicitly (a separate, guarded operation) to recreate.", newDatabaseName);
+                        return Future.<Void>failedFuture(new DatabaseCreationConflictException(
+                                "Database already exists: " + newDatabaseName
+                                + " — create will not overwrite it. Drop it explicitly (a separate, guarded "
+                                + "operation) to recreate."));
                     }
+                    logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
+                    return Future.<Void>succeededFuture();
                 })
                 .compose(v -> {
                     String sql = buildCreateDatabaseSql(newDatabaseName, templateName, encoding, options);

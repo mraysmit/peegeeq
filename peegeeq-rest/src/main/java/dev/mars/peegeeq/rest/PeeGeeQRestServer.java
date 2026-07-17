@@ -381,6 +381,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
 
         // Database setup routes (legacy /database-setup path - kept for backward compatibility)
         router.post("/api/v1/database-setup/create").handler(setupHandler::createSetup);
+        router.post("/api/v1/database-setup/connect").handler(setupHandler::connectToExistingSetup);
         router.delete("/api/v1/database-setup/:setupId").handler(setupHandler::destroySetup);
         router.get("/api/v1/database-setup/:setupId/status").handler(setupHandler::getSetupStatus);
         router.post("/api/v1/database-setup/:setupId/queues").handler(setupHandler::addQueue);

@@ -274,5 +274,74 @@ test.describe('Database Setup', () => {
       await expect(detailsBody).not.toBeVisible({ timeout: 5000 })
     })
   })
+
+  test.describe('Connect to Existing Setup', () => {
+
+    test('connects to a detached setup through the UI modal and it becomes active', async ({ page, databaseSetupsPage }) => {
+      // Real backend, no stub. Provision a setup out-of-band, DETACH it (non-destructive DELETE —
+      // the database + registry persist, only the in-memory binding is dropped), then CONNECT to it
+      // through the UI modal and verify it is active again via the real GET /api/v1/setups.
+      test.setTimeout(120000)
+
+      const dbConfig = JSON.parse(fs.readFileSync('testcontainers-db.json', 'utf8'))
+      const connectId = `connect_test_${Date.now()}`
+      const connectDb = `connect_test_db_${Date.now()}`
+
+      const createResp = await page.request.post('/api/v1/database-setup/create', {
+        data: {
+          setupId: connectId,
+          databaseConfig: {
+            host: dbConfig.host,
+            port: dbConfig.port,
+            databaseName: connectDb,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            schema: TEST_SCHEMA,
+            templateDatabase: 'template0',
+            encoding: 'UTF8',
+          },
+          queues: [],
+          eventStores: [],
+        },
+        timeout: 90000,
+      })
+      if (!createResp.ok()) {
+        throw new Error(`Provision (create) failed: ${createResp.status()} ${await createResp.text()}`)
+      }
+
+      // Detach (non-destructive) so the UI can connect fresh.
+      const detachResp = await page.request.delete(`/api/v1/setups/${connectId}`)
+      expect(detachResp.ok()).toBeTruthy()
+      await expect.poll(async () => {
+        const resp = await page.request.get('/api/v1/setups')
+        const body = await resp.json()
+        return (body.setupIds ?? []).includes(connectId)
+      }, { timeout: 15000 }).toBe(false)
+
+      // Connect through the UI modal.
+      await page.goto('/')
+      await databaseSetupsPage.goto()
+      await databaseSetupsPage.connectSetup({
+        setupId: connectId,
+        host: dbConfig.host,
+        port: dbConfig.port,
+        databaseName: connectDb,
+        username: dbConfig.username,
+        password: dbConfig.password,
+        schema: TEST_SCHEMA,
+      })
+
+      // Row appears in the table, and the real backend reports it active again.
+      await expect(page.locator(`tr:has-text("${connectId}")`)).toBeVisible({ timeout: 15000 })
+      await expect.poll(async () => {
+        const resp = await page.request.get('/api/v1/setups')
+        const body = await resp.json()
+        return (body.setupIds ?? []).includes(connectId)
+      }, { timeout: 15000 }).toBe(true)
+
+      // Cleanup: non-destructive detach.
+      await page.request.delete(`/api/v1/setups/${connectId}`)
+    })
+  })
 })
 

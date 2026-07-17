@@ -20,6 +20,7 @@ import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.setup.DatabaseCreationConflictException;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
@@ -29,6 +30,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Tuple;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -240,8 +242,8 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                                 var row = it.next();
                                                 assertEquals(expectedKind, row.getString("kind"),
                                                         "recorded kind should match the created factory's implementation type");
-                                                assertNotNull(row.getValue("config"),
-                                                        "object-registry config JSON should be recorded");
+                                                assertInstanceOf(JsonObject.class, row.getValue("config"),
+                                                        "config must round-trip as a JSONB object, not a double-encoded JSON string");
                                                 return Future.succeededFuture();
                                             })));
                 })
@@ -315,8 +317,8 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                         var row = it.next();
                                         assertEquals(expectedKind, row.getString("kind"),
                                                 "recorded kind should match the created factory's implementation type");
-                                        assertNotNull(row.getValue("config"),
-                                                "object-registry config JSON should be recorded");
+                                        assertInstanceOf(JsonObject.class, row.getValue("config"),
+                                                "config must round-trip as a JSONB object, not a double-encoded JSON string");
                                         return Future.succeededFuture();
                                     }));
                 })
@@ -385,8 +387,8 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                                         var row = it.next();
                                         assertEquals("bitemporal", row.getString("kind"),
                                                 "event store should be registered as 'bitemporal'");
-                                        assertNotNull(row.getValue("config"),
-                                                "object-registry config JSON should be recorded");
+                                        assertInstanceOf(JsonObject.class, row.getValue("config"),
+                                                "config must round-trip as a JSONB object, not a double-encoded JSON string");
                                         return Future.succeededFuture();
                                     }));
                 })
@@ -516,6 +518,135 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                 })
                 .eventually(() -> serviceB.close())
                 .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(9)
+    @DisplayName("connectToExistingSetup - refuses a duplicate attach and leaves the active setup intact")
+    void connectToExistingSetup_refusesDuplicateAttach(VertxTestContext ctx) {
+        // A setup already active in THIS service must not be re-attached: a second connect would overwrite
+        // (and leak) the live manager's Vert.x + pool. The guard must refuse AND leave the original ACTIVE.
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "dupconnect_test_db_" + System.currentTimeMillis();
+        String setupId = "dupconnect-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        QueueConfig queue = new QueueConfig.Builder().queueName("dupqueue").maxRetries(3).build();
+        DatabaseSetupRequest createReq = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(queue), List.of(), Map.of());
+        // Same coordinates, empty contents — a connect to the setup that create just made active.
+        DatabaseSetupRequest connectReq = new DatabaseSetupRequest(
+                setupId, dbConfig, List.of(), List.of(), Map.of());
+
+        setupService.createCompleteSetup(createReq)
+                // createCompleteSetup makes the setup active; connecting to it again must be refused.
+                .compose(created -> setupService.connectToExistingSetup(connectReq)
+                        .transform(ar -> {
+                            assertTrue(ar.failed(), "a duplicate connect to an already-active setup must fail");
+                            StringBuilder chain = new StringBuilder();
+                            for (Throwable t = ar.cause(); t != null; t = t.getCause()) {
+                                chain.append(t.getMessage()).append(" | ");
+                            }
+                            assertTrue(chain.toString().contains("already active"),
+                                    "the refusal should explain the duplicate attach, got: " + chain);
+                            return Future.succeededFuture();
+                        }))
+                // The originally-created setup must still be ACTIVE — the refused connect must not tear it down.
+                .compose(v -> setupService.getSetupStatus(setupId))
+                .map(status -> {
+                    assertEquals(DatabaseSetupStatus.ACTIVE, status,
+                            "the created setup must remain ACTIVE after a refused duplicate connect");
+                    return (Void) null;
+                })
+                .compose(v -> setupService.destroySetup(setupId))
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("createCompleteSetup - refuses (non-destructively) when the database already exists")
+    void createCompleteSetup_refusesOnExistingDatabase(Vertx vertx, VertxTestContext ctx) {
+        // Create must NEVER overwrite: a second create against the SAME database must fail as a conflict and
+        // leave the first setup's schema + self-describing registry intact — proving no drop-and-recreate.
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "refuse_existing_db_" + System.currentTimeMillis();
+        String setupIdA = "refuse-a-" + System.currentTimeMillis();
+        String setupIdB = "refuse-b-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+
+        QueueConfig queue = new QueueConfig.Builder().queueName("refusequeue").maxRetries(3).build();
+        DatabaseSetupRequest createA = new DatabaseSetupRequest(setupIdA, dbConfig, List.of(queue), List.of(), Map.of());
+        // Same database name, different setupId — the second create must be refused, not overwrite.
+        DatabaseSetupRequest createB = new DatabaseSetupRequest(setupIdB, dbConfig, List.of(), List.of(), Map.of());
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+
+        setupService.createCompleteSetup(createA)
+                .compose(createdA -> {
+                    assertEquals(DatabaseSetupStatus.ACTIVE, createdA.getStatus(), "first setup should be ACTIVE");
+                    return setupService.createCompleteSetup(createB).transform(ar -> {
+                        assertTrue(ar.failed(), "create against an existing database must be refused");
+                        boolean isConflict = false;
+                        StringBuilder chain = new StringBuilder();
+                        for (Throwable t = ar.cause(); t != null; t = t.getCause()) {
+                            chain.append(t.getClass().getSimpleName()).append(": ").append(t.getMessage()).append(" | ");
+                            if (t instanceof DatabaseCreationConflictException) isConflict = true;
+                        }
+                        assertTrue(isConflict,
+                                "refusal must be a DatabaseCreationConflictException, got: " + chain);
+                        return Future.succeededFuture();
+                    });
+                })
+                // The first setup's self-identifying metadata must still be present — the DB was NOT dropped.
+                .compose(v -> {
+                    PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
+                            .host(dbConfig.getHost())
+                            .port(dbConfig.getPort())
+                            .database(dbName)
+                            .username(dbConfig.getUsername())
+                            .password(dbConfig.getPassword())
+                            .schema(schema)
+                            .build();
+                    verifyMgr.getOrCreateReactivePool("verify-refuse", connConfig,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+                    return verifyMgr.withConnection("verify-refuse", conn ->
+                            conn.preparedQuery("SELECT setup_id FROM " + schema
+                                            + ".peegeeq_setup_metadata WHERE setup_id = $1")
+                                    .execute(Tuple.of(setupIdA))
+                                    .compose(rows -> {
+                                        if (!rows.iterator().hasNext()) {
+                                            return Future.failedFuture(new AssertionError(
+                                                    "setup A metadata must survive the refused second create — "
+                                                    + "the database must not have been dropped"));
+                                        }
+                                        return Future.succeededFuture();
+                                    }));
+                })
+                .eventually(() -> verifyMgr.close())
+                .compose(v -> setupService.destroySetup(setupIdA))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
     }

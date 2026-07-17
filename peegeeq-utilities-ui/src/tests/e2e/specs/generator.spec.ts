@@ -49,23 +49,22 @@ test.describe('Generator Pages', () => {
       await expect(page.getByTestId('zone-a')).toBeVisible()
     })
 
-    test('should show empty-state alert when no setups are configured', async ({ page, generatorPage }) => {
+    test('should show empty-state alert when no setups are connected', async ({ page, generatorPage }) => {
       await generatorPage.goto()
       await expect(generatorPage.getEmptyStateAlert()).toBeVisible({ timeout: 15000 })
-      await expect(generatorPage.getCreateSetupButton()).toBeVisible()
+      await expect(generatorPage.getConnectSetupButton()).toBeVisible()
     })
 
-    test('should show the Create Setup button that opens the create-setup page', async ({ page, generatorPage }) => {
+    test('should show the Connect setup button that opens the connect page', async ({ page, generatorPage }) => {
       await generatorPage.goto()
-      await expect(generatorPage.getCreateSetupButton()).toBeVisible({ timeout: 15000 })
+      await expect(generatorPage.getConnectSetupButton()).toBeVisible({ timeout: 15000 })
 
-      await generatorPage.getCreateSetupButton().click()
-      await page.waitForURL('**/generator/setup/new')
-      await expect(generatorPage.getCreateSetupPageHeading()).toBeVisible()
+      await generatorPage.getConnectSetupButton().click()
+      await page.waitForURL('**/setups/connect')
+      await expect(page.getByTestId('connect-setup-page')).toBeVisible()
 
-      // Cancel — do not create a setup in this spec (quick-setup.spec.ts handles that)
-      await generatorPage.getWizardCancelButton().click()
-      await page.waitForURL('**/generator')
+      // Back — do not connect a setup in this spec (connect-setup.spec.ts covers connecting)
+      await page.getByTestId('back-button').click()
     })
 
   })

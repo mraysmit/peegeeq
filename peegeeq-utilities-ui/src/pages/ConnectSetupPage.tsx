@@ -13,7 +13,7 @@ import {
   Checkbox,
 } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
-import { createSetup } from '../services/setupService'
+import { connectExisting } from '../services/setupService'
 import { DEFAULT_DATABASE_CONFIG } from '../types/setup'
 
 const { Title } = Typography
@@ -31,18 +31,18 @@ function extractErrorMessage(err: unknown): string {
   return 'An unexpected error occurred'
 }
 
-export default function CreateSetupPage() {
+export default function ConnectSetupPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form] = Form.useForm()
 
-  async function handleCreate() {
+  async function handleConnect() {
     try {
       const values = await form.validateFields()
       setLoading(true)
       setError(null)
-      await createSetup({
+      await connectExisting({
         setupId: values.setupId,
         databaseConfig: {
           ...DEFAULT_DATABASE_CONFIG,
@@ -54,6 +54,7 @@ export default function CreateSetupPage() {
           databaseName: values.databaseName,
           password: values.password,
         },
+        // Ignored on connect — the backend reconstitutes queues/event stores from the schema.
         queues: [],
         eventStores: [],
       })
@@ -106,7 +107,7 @@ export default function CreateSetupPage() {
   ]
 
   return (
-    <div data-testid="create-setup-page" style={{ maxWidth: 520 }}>
+    <div data-testid="connect-setup-page" style={{ maxWidth: 520 }}>
       <Space style={{ marginBottom: 16 }}>
         <Button
           type="text"
@@ -119,13 +120,13 @@ export default function CreateSetupPage() {
         </Button>
       </Space>
 
-      <Title level={3}>Create Setup</Title>
+      <Title level={3}>Connect to Existing Setup</Title>
 
       <Card>
         <Alert
-          message="Database Permissions Required"
-          description="Creating a setup will create a new PostgreSQL database. Ensure your database user has CREATEDB permission."
-          type="warning"
+          message="Non-destructive connect"
+          description="This attaches to an EXISTING PeeGeeQ setup. It will not create or modify any database — it connects to the existing schema and reconstitutes its queues and event stores. The password is used to connect and is not stored."
+          type="info"
           showIcon
           style={{ marginBottom: 16 }}
         />
@@ -154,18 +155,18 @@ export default function CreateSetupPage() {
         >
           <Form.Item
             name="setupId"
-            label="Setup name"
-            rules={[{ required: true, message: 'Please enter a setup name' }]}
-            extra="Unique identifier, e.g. dev, local-test, staging"
+            label="Setup ID"
+            rules={[{ required: true, message: 'Please enter the setup ID' }]}
+            extra="The identifier of the existing setup to connect to"
           >
-            <Input placeholder="my-test-setup" autoFocus />
+            <Input placeholder="my-existing-setup" autoFocus />
           </Form.Item>
 
           <Form.Item
             name="databaseName"
             label="Database name"
-            rules={[{ required: true, message: 'Please enter a database name' }]}
-            extra="A new PostgreSQL database will be created with this name"
+            rules={[{ required: true, message: 'Please enter the database name' }]}
+            extra="The existing PostgreSQL database this setup lives in"
           >
             <Input placeholder="peegeeq_dev" />
           </Form.Item>
@@ -173,7 +174,7 @@ export default function CreateSetupPage() {
           <Form.Item
             name="password"
             label="Database password"
-            rules={[{ required: true, message: 'Please enter a database password' }]}
+            rules={[{ required: true, message: 'Please enter the database password' }]}
           >
             <Input.Password />
           </Form.Item>
@@ -184,8 +185,8 @@ export default function CreateSetupPage() {
             <Button onClick={handleCancel} disabled={loading}>
               Cancel
             </Button>
-            <Button type="primary" onClick={handleCreate} loading={loading} data-testid="create-button">
-              Create setup
+            <Button type="primary" onClick={handleConnect} loading={loading} data-testid="connect-button">
+              Connect
             </Button>
           </Space>
         </Form>
