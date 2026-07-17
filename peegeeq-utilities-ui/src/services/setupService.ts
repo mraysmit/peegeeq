@@ -1,22 +1,26 @@
 import axios from 'axios'
 import { getVersionedApiUrl } from './configService'
-import type { CreateSetupRequest, SetupDetails } from '../types/setup'
+import type { ConnectSetupRequest, SetupDetails } from '../types/setup'
 
 /**
- * Create a new PeeGeeQ setup (database + schema).
+ * Connect to an EXISTING PeeGeeQ setup (non-destructive).
  *
- * Posts to POST /api/v1/database-setup/create.
- * Timeout is 120 s — database creation is slow.
- * Throws AxiosError on non-2xx; caller is responsible for error display.
+ * Posts to POST /api/v1/database-setup/connect. This attaches to a setup whose
+ * database + schema already exist — it does NOT create or modify anything. The
+ * backend reconstitutes queues/event stores from the schema, so the queues/
+ * eventStores in the body are ignored.
+ *
+ * Timeout is 120 s to match the setup lifecycle. Throws AxiosError on non-2xx;
+ * caller is responsible for error display.
  */
-export async function createSetup(req: CreateSetupRequest): Promise<void> {
-  await axios.post(getVersionedApiUrl('database-setup/create'), req, {
+export async function connectExisting(req: ConnectSetupRequest): Promise<void> {
+  await axios.post(getVersionedApiUrl('database-setup/connect'), req, {
     timeout: 120_000,
   })
 }
 
 /**
- * List all setup IDs registered in this PeeGeeQ instance.
+ * List all setup IDs currently connected in this PeeGeeQ instance.
  *
  * GET /api/v1/setups → { count: number, setupIds: string[] }
  */
@@ -43,13 +47,4 @@ export async function getQueues(setupId: string): Promise<string[]> {
 export async function getSetupDetails(setupId: string): Promise<SetupDetails> {
   const res = await axios.get<SetupDetails>(getVersionedApiUrl(`setups/${setupId}`))
   return res.data
-}
-
-/**
- * Delete a setup and its associated database.
- *
- * DELETE /api/v1/database-setup/{setupId}
- */
-export async function deleteSetup(setupId: string): Promise<void> {
-  await axios.delete(getVersionedApiUrl(`database-setup/${setupId}`))
 }

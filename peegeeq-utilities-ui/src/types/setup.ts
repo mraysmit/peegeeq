@@ -10,7 +10,12 @@ export interface DatabaseConfig {
   encoding: 'UTF8'
 }
 
-export interface CreateSetupRequest {
+/**
+ * Request body for connecting to an EXISTING setup (POST database-setup/connect).
+ * Same shape as the (removed) create request; on connect the backend ignores
+ * queues/eventStores and reconstitutes them from the existing schema.
+ */
+export interface ConnectSetupRequest {
   setupId: string
   databaseConfig: DatabaseConfig
   queues: []

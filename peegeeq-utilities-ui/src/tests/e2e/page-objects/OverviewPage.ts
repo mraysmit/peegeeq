@@ -25,8 +25,8 @@ export class OverviewPage extends BasePage {
     return this.page.getByTestId('refresh-button')
   }
 
-  getCreateSetupButton(): Locator {
-    return this.page.getByTestId('create-setup-button')
+  getConnectSetupButton(): Locator {
+    return this.page.getByTestId('connect-setup-button')
   }
 
   /** The selectable setups list (present when at least one setup exists). */

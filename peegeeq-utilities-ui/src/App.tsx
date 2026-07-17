@@ -3,10 +3,9 @@ import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react
 import { Layout, Menu, Typography, Space } from 'antd'
 import { ToolOutlined, HomeOutlined, ThunderboltOutlined, FileTextOutlined, UnorderedListOutlined, DatabaseOutlined } from '@ant-design/icons'
 import Overview from './pages/Overview'
-import CreateSetupPage from './pages/CreateSetupPage'
+import ConnectSetupPage from './pages/ConnectSetupPage'
 import SetupsPage from './pages/SetupsPage'
 import SetupDetailPage from './pages/SetupDetailPage'
-import CreateQueuePage from './pages/CreateQueuePage'
 import TargetSelector from './components/TargetSelector'
 
 const { Title, Text } = Typography
@@ -113,9 +112,8 @@ export default function App() {
               <Route path="/tools" element={<Overview />} />
               <Route path="/generator" element={<MessageGeneratorPage />} />
               <Route path="/setups" element={<SetupsPage />} />
+              <Route path="/setups/connect" element={<ConnectSetupPage />} />
               <Route path="/setups/:setupId" element={<SetupDetailPage />} />
-              <Route path="/setups/:setupId/queues/new" element={<CreateQueuePage />} />
-              <Route path="/generator/setup/new" element={<CreateSetupPage />} />
               <Route path="/generator/templates" element={<TemplateManagerPage />} />
               <Route path="/generator/value-lists" element={<ValueListManagerPage />} />
             </Routes>

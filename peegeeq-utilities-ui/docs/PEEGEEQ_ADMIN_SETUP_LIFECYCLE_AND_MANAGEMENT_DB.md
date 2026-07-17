@@ -501,6 +501,21 @@ destructive** — provisioning and activation are conflated, so the act of *reac
 act that wipes it. This section specifies the split that removes that hazard. (The reconstitution half —
 `connectToExistingSetup` — is §4; this section adds the guard on the *provisioning* path itself.)
 
+> **Update 2026-07-17 — partially shipped, and a design change.** The create-time drop has been
+> **removed outright** rather than gated behind a flag. `createDatabaseFromTemplate` no longer drops on a
+> name collision: when the database exists it now **refuses** — a failed `Future`
+> (`IllegalStateException`, message contains `"already exists"`), logged at **WARN**, with the
+> `dropDatabase` call gone from the create path
+> ([DatabaseTemplateManager.java:75](../../peegeeq-db/src/main/java/dev/mars/peegeeq/db/setup/DatabaseTemplateManager.java)).
+> That closes the **P0 / W-G** hazard for the common case (create can no longer wipe an existing setup).
+>
+> **Design change (user directive):** destruction is **not** an `overwrite: true` flag on `create` (as the
+> Target-model and Implementation tables below originally proposed). Dropping a database is **an entirely
+> separate, explicitly-guarded operation** — specified in **§13.1**. The `overwrite`-flag items (G1,
+> G3–G5) are therefore **superseded** by §13.1. "Recreate" is a **sequence** — the §13.1 destroy op
+> **then** `create` — never a `create` argument. The original tables are kept below for history; read the
+> `recreate` row and G-items as superseded by §13.1.
+
 ### Design
 
 **The hazard (verified from source):**
@@ -553,7 +568,7 @@ correctness/safety fix, not an enhancement, and should ship ahead of the estate 
 | **`create`** (provision) | present | **Refuse** — fail loudly (`409`, WARN) **before any drop**; data untouched |
 | **`create`** (provision) | absent | Provision as today |
 | **`connect`** (§4) | present | Non-destructive attach + reconstitute |
-| **`recreate`** (explicit overwrite) | present | The **only** path allowed to drop — opt-in (`overwrite: true` / dedicated op), WARN before dropping |
+| **`recreate`** = **destroy (§13.1) then create** | present | The **only** path allowed to drop — the dedicated, guarded **§13.1** operation (NOT an `overwrite` flag on `create`), WARN before dropping |
 
 Together with §4 this yields: **connect** never destroys, **create** refuses if the setup already
 exists, **recreate** is the single deliberate destructive path. Destruction stops being the silent
@@ -573,6 +588,82 @@ default.
 Production Java change → mandatory pre-work (`pgq-coding-principles.md` +
 `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`), reactive-only, no banned patterns. Tracked as workstream
 **G** in Appendix A.
+
+### 13.1 The separate guarded drop operation (destroy) — design
+
+Destroying a setup's database is its **own** operation — never a side effect of another call, never a
+boolean flag. It is the single deliberate path that issues `DROP DATABASE`, engineered to be **hard to
+trigger by accident** and **impossible to trigger silently**. This is the direct response to the §13
+hazard: rather than gate the old drop behind `overwrite: true` (which still leaves destruction reachable
+from the everyday `create` call), the drop is removed from `create` entirely (done 2026-07-17) and
+re-homed here behind explicit guards.
+
+**Where it sits among the (now) five setup operations — only one destroys:**
+
+| Operation | Destroys data? | What it does |
+|---|---|---|
+| `create` | No (as of 2026-07-17) | Provisions a **new** database; **refuses** if it already exists |
+| `connect` (§4) | No | Attaches to an existing database + reconstitutes |
+| `detachSetup` (W-A A6) | No | Releases the in-memory binding + stops the manager; artifacts untouched |
+| `destroySetup` (existing) | No | In-memory teardown (closes manager/factories, clears maps) |
+| **`dropSetupDatabase`** (this op) | **Yes — the only one** | Explicit, guarded `DROP DATABASE` |
+
+**Signature (proposed).** A dedicated, unmistakably-named method — not a flag on an existing call:
+
+```java
+Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName);
+```
+
+`confirmDatabaseName` is a **type-to-confirm token**: the caller must re-supply the exact target database
+name, and the op refuses (fails, no drop) unless it equals the resolved database name for `setupId`. This
+defeats the exact §13 accident shapes — replayed/retried requests, copy-pasted `setupId`s, IaC re-applies
+— because a stale or automated call does not carry the matching name by chance.
+
+**Guards — all must hold before any `DROP` runs:**
+
+1. **Type-to-confirm match** — `confirmDatabaseName` equals the setup's actual database name; else fail
+   (`400`), no drop.
+2. **Detached first** — the database must not be live in this service (no attached manager/pools). The op
+   performs the in-memory teardown (`destroySetup`) itself as an explicit, logged first step, so a `DROP`
+   never races live producers/consumers. *(Recommend auto-detach-within-the-op so it is one guarded call,
+   over requiring a separate prior detach.)*
+3. **Ownership (when §10 lands)** — only the lease **owner** may destroy; a non-owner is refused. Until
+   leases exist this is a documented no-op follow-up.
+4. **Identifier validation** — the resolved name is validated as a safe PostgreSQL identifier before
+   interpolation (already enforced by `dropDatabase`/`dropWhenDrained`).
+
+**Failsafes:**
+
+- **Loud + auditable** — every drop logs at **WARN** with a `DESTRUCTIVE` marker (actor / `setupId` /
+  database / timestamp), fixing the §13 "INFO-only, undetectable" hazard. Audit-to-registry when §8 lands.
+- **No implicit path** — exactly one way to drop (this op). No `overwrite`, no create-time flag, no
+  "drop on exists" anywhere else. The 2026-07-17 removal from `create` is what makes this the sole path.
+- **Optional dry-run** — a `dryRun` variant that reports the target (and that it exists) without dropping,
+  so automation can pre-flight.
+- **Idempotent** — `DROP DATABASE IF EXISTS` + the existing `dropWhenDrained` drain loop; a missing
+  database is a clean success (or a `404` — decide), not an error.
+- **Rename-aside (optional, deferred)** — instead of an immediate `DROP`, `ALTER DATABASE … RENAME TO
+  …_dropped_<ts>` and reap later, giving an undo window. Heavier; a future safety upgrade, not v1.
+
+**REST surface — distinct and explicit.** **Not** `DELETE /api/v1/setups/{setupId}` (that path is the
+non-destructive teardown / detach per §12.3 / W-A). A separate, self-describing endpoint:
+
+```
+POST /api/v1/setups/{setupId}/database/drop
+body: { "confirmDatabaseName": "<exact db name>" }
+```
+
+Returns `200` on drop; `400` on confirm-mismatch (no drop); `404` if the setup/database is unknown;
+`409`/`423` if not the lease owner (when §10 lands). **Admin-tool-only** (§14) — utilities-ui never calls
+it; only an admin surface does.
+
+**UI (per §12.3).** Danger-styled confirm, distinct copy ("Drop the database … cannot be undone"), a
+type-to-confirm input bound to `confirmDatabaseName`, never the default action, and never reachable for a
+setup the operator merely **connected** to unless they explicitly choose destroy.
+
+**"Recreate" is a sequence, not an operation:** `dropSetupDatabase` (this op) → `create`. There is no
+atomic recreate and no create-time overwrite, keeping the single destructive path the only one. Tracked
+as workstream **DD** in Appendix A.
 
 ---
 
@@ -656,14 +747,34 @@ registry was never told about (reconnect works from the registry, not by scannin
 
 ### W-G — Non-destructive provisioning guard (§13) — *the create/connect/recreate fix*
 
+> **2026-07-17 — the guard shipped by removal, not by a flag.** `create` now **refuses** on an existing DB
+> (the `dropDatabase` call was deleted from the create path), so **G2 is effectively done**
+> (refuse-before-drop). The `overwrite`-flag items **G1, G3, G4, G5 are superseded** by §13.1 —
+> destruction is a **separate** guarded op, not a `create` argument. **G6 still applies, retargeted**: no
+> `overwrite` case; assert `create` on an existing DB refuses and the data survives. Remaining destroy-op
+> work → **W-DD**.
+
 | ID | Task | Ref | Status |
 |---|---|---|---|
-| G1 | Add `overwrite` (boolean, default `false`) to `DatabaseSetupRequest` | §13 | ☐ |
-| G2 | `createDatabaseFromTemplate`: when `databaseExists && !overwrite`, return a failed `Future` with a typed, actionable message **before** `dropDatabase` | §13 | ☐ |
-| G3 | Force-drop runs **only** under `overwrite`; change the drop log INFO → **WARN** with a `DESTRUCTIVE` marker | §13 | ☐ |
-| G4 | `createCompleteSetup` passes `request.isOverwrite()` through | §13 | ☐ |
-| G5 | REST: distinct **409** + actionable message (connect vs `overwrite=true`); keep separate from the `isDatabaseCreationConflict` race handler | §13 | ☐ |
-| G6 | ITs: (a) exists + no-overwrite → 409, data survives, no drop/eviction; (b) exists + overwrite → recreated; (c) absent → created; (d) guard fires before any eviction | §13/§15 | ☐ |
+| G1 | ~~Add `overwrite` to `DatabaseSetupRequest`~~ | §13 | ⊘ superseded by §13.1 |
+| G2 | `createDatabaseFromTemplate`: refuse (failed `Future`, actionable message) **before** any drop when the DB exists | §13 | ☑ 2026-07-17 (via removal — no `overwrite`; unconditional refuse) |
+| G3 | ~~Force-drop only under `overwrite`; drop log INFO → **WARN**~~ (WARN done; force-drop is now §13.1 only) | §13 | ◐ WARN done; force-drop moved to W-DD |
+| G4 | ~~`createCompleteSetup` passes `request.isOverwrite()`~~ | §13 | ⊘ superseded by §13.1 |
+| G5 | ~~REST: distinct **409** for exists-vs-`overwrite`~~ — retarget: map the exists-refusal to a clear status, still distinct from the `isDatabaseCreationConflict` race handler | §13 | ☐ (mapping refinement; currently 503) |
+| G6 | ITs (retargeted, no `overwrite`): (a) existing DB → refuse, data **survives**, no drop/eviction; (b) absent DB → created; (c) guard fires **before** any eviction | §13/§15 | ☐ |
+
+### W-DD — Guarded drop operation (destroy, §13.1)
+
+| ID | Task | Ref | Status |
+|---|---|---|---|
+| DD1 | `Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName)` on the admin service — the single destructive path | §13.1 | ☐ |
+| DD2 | **Type-to-confirm** guard: refuse (`400`, no drop) unless `confirmDatabaseName` == the setup's resolved DB name | §13.1 | ☐ |
+| DD3 | **Detach-first**: perform in-memory teardown (`destroySetup`) as an explicit logged step before `DROP`, so no live producers/consumers race the drop | §13.1 | ☐ |
+| DD4 | **WARN + `DESTRUCTIVE` audit log** (actor / setupId / db / ts) on every drop; reuse `dropWhenDrained` (validated identifier, drain loop, `DROP … IF EXISTS`) | §13.1 | ☐ |
+| DD5 | REST `POST /api/v1/setups/{setupId}/database/drop` with `{confirmDatabaseName}` — **distinct** from the non-destructive `DELETE …/{setupId}` (detach); admin-tool-only | §13.1/§12.3 | ☐ |
+| DD6 | Ownership guard (when W-E lands): only the lease owner may drop; non-owner refused | §13.1/§10 | ⊘ blocked on W-E |
+| DD7 | Optional `dryRun` (report target, no drop) and rename-aside safety upgrade | §13.1 | ⊘ deferred |
+| DD8 | ITs (TestContainers, no mocking): confirm-match drops; confirm-mismatch refuses with data intact; drop after auto-detach leaves no orphaned manager/pool; missing DB is idempotent | §13.1/§15 | ☐ |
 
 ### W-C — Durable registry & auto-reload (§6)
 
@@ -734,7 +845,7 @@ Prerequisite in the sense they are correctness/safety defects that should clear 
 
 | ID | Bug | Location | Severity | Status |
 |---|---|---|---|---|
-| P0 | Destructive `create` wipes an existing database on name collision (silent, INFO-only, no guard) | §13; `DatabaseTemplateManager.java:72–82` | critical | ☐ (= W-G) |
+| P0 | Destructive `create` wipes an existing database on name collision (silent, INFO-only, no guard) | §13; `DatabaseTemplateManager.java:75` | critical | ☑ **2026-07-17** — drop removed from the create path; `create` now **refuses** on an existing DB (WARN, `"already exists"`). Destruction re-homed to the guarded §13.1 op (W-DD) |
 | P1 | Silent partial setup — `createQueueFactories` continues on a per-queue factory failure → setup reports **ACTIVE with queues missing** (violates no-error-swallowing) | `PeeGeeQDatabaseSetupService.java:863–864` | high | ☐ |
 | P2 | `pg_notify` failure swallowed (warn-only) while the insert succeeds | `PgNativeQueueProducer.java:196–199` | high | ☐ |
 | P3 | No polling fallback in `LISTEN_NOTIFY_ONLY` — a missed/failed NOTIFY leaves a message stuck invisibly (compounds P2 into a delivery-loss path) | `PgNativeQueueConsumer.java:179` | high | ☐ |

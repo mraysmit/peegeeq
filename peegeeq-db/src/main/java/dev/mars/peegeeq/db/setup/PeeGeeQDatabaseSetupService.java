@@ -39,6 +39,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -310,16 +311,31 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         logger.info("CONNECT: attaching to existing setup (expected id '{}') in schema '{}' of database '{}'",
                 request.getSetupId(), schema, dbConfig.getDatabaseName());
 
+        // The id resources are actually attached under is the id RECOVERED from the schema, not the
+        // request's (which may be blank on the estate auto-reload path). Capture it once the manager is
+        // stored so the failure path cleans up the right entry — and skip cleanup entirely when nothing
+        // was attached (avoids destroySetup(null), which NPEs, and never tears down an unrelated setup).
+        final AtomicReference<String> attachedId = new AtomicReference<>();
+
         // 1. Validate the PeeGeeQ schema already exists (fails clearly if tables are missing). Never creates.
         return validateDatabaseInfrastructure(dbConfig, capturedTrace)
                 // 2. Reconstitute identity + object inventory from the self-describing registry tables.
                 .compose(v -> reconstituteFromRegistry(dbConfig, request.getSetupId()))
                 // 3. Start the manager (own Vert.x + pool). PeeGeeQManager.start() is non-destructive.
                 .compose(contents -> {
+                    // Refuse a duplicate attach: the recovered id is the authoritative identity. If it is
+                    // already active in this service, fail WITHOUT touching the existing manager (nothing has
+                    // been attached for this call yet, so attachedId stays null and cleanup is skipped) —
+                    // overwriting the map entry would silently leak the first manager's Vert.x + pool.
+                    if (activeManagers.containsKey(contents.setupId)) {
+                        return Future.<Object[]>failedFuture(new IllegalStateException(
+                                "Setup '" + contents.setupId + "' is already active; refusing duplicate connect"));
+                    }
                     PeeGeeQConfiguration config = createConfiguration(dbConfig, contents.setupId);
                     PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
                     return manager.start().map(v -> {
                         activeManagers.put(contents.setupId, manager);
+                        attachedId.set(contents.setupId);
                         return new Object[] { manager, contents };
                     });
                 })
@@ -368,13 +384,22 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     Throwable ex = ar.cause();
                     logger.error("Failed to connect to existing setup '{}': {}", request.getSetupId(),
                             ex.getMessage(), ex);
-                    // Detach any partially-attached resources WITHOUT dropping data (destroySetup is
-                    // non-destructive — it closes the manager and clears in-memory maps only).
-                    return destroySetup(request.getSetupId())
+                    String cleanupId = attachedId.get();
+                    if (cleanupId == null) {
+                        // Failed at validate/reconstitute, or the duplicate-attach guard — nothing was
+                        // attached for this call, so there is no manager/pool to release. Do NOT call
+                        // destroySetup(null) (NPEs) or on the request id (may not match the recovered id).
+                        return Future.failedFuture(new RuntimeException(
+                                "Failed to connect to existing setup: " + request.getSetupId(), ex));
+                    }
+                    // Detach the partially-attached resources under the id they were actually stored under,
+                    // WITHOUT dropping data (destroySetup is non-destructive — it closes the manager and
+                    // clears in-memory maps only).
+                    return destroySetup(cleanupId)
                             .onFailure(cleanupEx -> logger.error(
-                                    "Failed to clean up after connect failure: {}", request.getSetupId(), cleanupEx))
+                                    "Failed to clean up after connect failure: {}", cleanupId, cleanupEx))
                             .transform(ar2 -> Future.failedFuture(new RuntimeException(
-                                    "Failed to connect to existing setup: " + request.getSetupId(), ex)));
+                                    "Failed to connect to existing setup: " + cleanupId, ex)));
                 });
     }
 
@@ -516,7 +541,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .using(vertx)
                 .build();
 
-        return tempPool.withConnection(connection -> {
+        // withTransaction so the whole schema provisioning — base DDL, per-queue/event-store tables, the
+        // self-identifying metadata row, and the event-store registry rows — commits or rolls back as one.
+        // A create that fails mid-apply then leaves no partial schema/registry for a later connect to treat
+        // as truth. All templates are plain DDL / DO blocks (no CONCURRENTLY, CREATE DATABASE, or explicit
+        // BEGIN/COMMIT), so they are safe to run inside a single explicit transaction.
+        return tempPool.withTransaction(connection -> {
             // Apply base template; on permission errors, fall back to minimal core schema
             // (no extensions)
             // NOTE: PostgreSQL will emit NOTICE messages for "DROP TABLE IF NOT EXISTS"
@@ -762,7 +792,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 .using(vertx)
                 .build();
 
-        return tempPool.withConnection(connection -> {
+        // withTransaction so all N per-queue registry rows commit together — a mid-chain failure must not
+        // leave a partially-written registry (the object registry is the source of truth for reconnection).
+        return tempPool.withTransaction(connection -> {
             Future<Void> chain = Future.succeededFuture();
             for (Map.Entry<String, String> entry : resolvedKinds.entrySet()) {
                 String queueName = entry.getKey();
@@ -1094,6 +1126,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 : storeName.replaceAll("-", "_") + "_events";
         String schema = dbConfig.getSchema();
 
+        // Validate the resolved table name before it is interpolated into the DROP statements below.
+        // When no stored config is available the name is derived from the raw store name, which — unlike
+        // addEventStore's input — has not otherwise been validated as a safe PostgreSQL identifier.
+        try {
+            dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator.validate(tableName, "Event store table");
+        } catch (IllegalArgumentException e) {
+            logger.error("Event store table name validation failed for removal: {}", e.getMessage());
+            return Future.failedFuture(e);
+        }
+
         logger.info("Removing event store '{}' (table: {}.{}) from setup '{}'",
                 storeName, schema, tableName, setupId);
 
@@ -1247,6 +1289,15 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private boolean isDatabaseCreationConflict(Throwable e) {
         if (e == null)
             return false;
+
+        // A typed DatabaseCreationConflictException anywhere in the chain is authoritative — this is how
+        // create's non-destructive "database already exists" refusal (DatabaseTemplateManager) surfaces,
+        // and it does not depend on fragile message matching.
+        for (Throwable t = e; t != null; t = t.getCause()) {
+            if (t instanceof DatabaseCreationConflictException) {
+                return true;
+            }
+        }
 
         // Check the exception message for database conflict indicators
         String message = e.getMessage();
@@ -1489,7 +1540,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      * Closes this service and releases its owned resources.
      *
      * Teardown order:
-     * 1. Destroy any active setups (best-effort)
+     * 1. Close each active setup's manager (cancels timers, releases pools; drops no database)
      * 2. Close setup worker executor
      * 3. Close Vertx only if this service created it
      */
@@ -1499,8 +1550,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         }
 
         // Close each active manager to cancel background timers and release pool connections.
-        // Do NOT call destroySetup() here that would drop test databases, which must only
-        // happen via an explicit destroySetup() call (e.g. from integration test teardown).
+        // destroySetup() is intentionally NOT called here: it is non-destructive (it drops no database),
+        // but it also closes factories/event-stores and clears the in-memory maps — a fuller per-setup
+        // teardown than a service close needs. Closing the managers is enough to release resources.
         List<Future<Void>> closeFutures = new ArrayList<>(activeManagers.values()).stream()
                 .map(manager -> manager.closeReactive()
                         .onFailure(error ->
