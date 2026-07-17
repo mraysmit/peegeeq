@@ -76,6 +76,52 @@ export class DatabaseSetupsPage extends BasePage {
   }
 
   /**
+   * Get the "Connect to Existing" button (card header)
+   */
+  getConnectButton(): Locator {
+    return this.page.getByTestId('database-setups-connect-btn')
+  }
+
+  /**
+   * Open the "Connect to Existing Setup" modal
+   */
+  async clickConnect() {
+    await this.getConnectButton().click()
+    await this.waitForModal('Connect to Existing Setup')
+  }
+
+  /**
+   * Connect to an existing database setup through the UI modal. Fields are scoped to the
+   * connect modal so they never collide with the create modal's identically-labelled fields.
+   */
+  async connectSetup(config: {
+    setupId: string
+    host: string
+    port: number
+    databaseName: string
+    username: string
+    password: string
+    schema?: string
+  }) {
+    await this.clickConnect()
+
+    const modal = this.page.locator('.ant-modal').filter({ hasText: 'Connect to Existing Setup' })
+    await modal.getByLabel('Setup ID').fill(config.setupId)
+    await modal.getByLabel('Host').fill(config.host)
+    await modal.getByLabel('Port').fill(config.port.toString())
+    await modal.getByLabel('Database Name').fill(config.databaseName)
+    await modal.getByLabel('Username').fill(config.username)
+    await modal.getByLabel('Password').fill(config.password)
+    if (config.schema) {
+      await modal.getByLabel('Schema').fill(config.schema)
+    }
+
+    await this.clickModalButton('Connect')
+    await this.waitForSuccessMessage()
+    await this.page.locator('.ant-modal').waitFor({ state: 'hidden', timeout: 5000 })
+  }
+
+  /**
    * Get the action menu trigger button for a specific setup row
    */
   getActionButton(setupId: string): Locator {

@@ -31,11 +31,11 @@ export class GeneratorPage extends BasePage {
   }
 
   getEmptyStateAlert(): Locator {
-    return this.page.getByText(/No PeeGeeQ setup found/i)
+    return this.page.getByText(/No PeeGeeQ setup connected/i)
   }
 
-  getCreateSetupButton(): Locator {
-    return this.page.getByRole('button', { name: /Create Setup/i })
+  getConnectSetupButton(): Locator {
+    return this.page.getByRole('button', { name: /Connect setup/i })
   }
 
   getNoQueuesAlert(): Locator {

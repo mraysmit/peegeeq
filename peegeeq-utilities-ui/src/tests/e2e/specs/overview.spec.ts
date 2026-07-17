@@ -37,13 +37,13 @@ test.describe('Overview', () => {
       await expect(overviewPage.getHeading()).toBeVisible()
     })
 
-    test('should display the Setups card with Refresh and Create Setup actions', async ({ page, overviewPage }) => {
+    test('should display the Setups card with Refresh and Connect setup actions', async ({ page, overviewPage }) => {
       await page.goto('/')
       await page.waitForLoadState('load')
 
       await expect(page.locator('.ant-card-head-title').filter({ hasText: 'Setups' })).toBeVisible()
       await expect(overviewPage.getRefreshButton()).toBeVisible()
-      await expect(overviewPage.getCreateSetupButton()).toBeVisible()
+      await expect(overviewPage.getConnectSetupButton()).toBeVisible()
     })
 
     test('should show either the setups list or the empty-state alert', async ({ page, overviewPage }) => {
@@ -69,13 +69,13 @@ test.describe('Overview', () => {
       await expect(overviewPage.getHeading()).toBeVisible()
     })
 
-    test('Create Setup navigates to the create-setup form', async ({ page, overviewPage }) => {
+    test('Connect setup navigates to the connect form', async ({ page, overviewPage }) => {
       await page.goto('/')
       await page.waitForLoadState('load')
 
-      await overviewPage.getCreateSetupButton().click()
+      await overviewPage.getConnectSetupButton().click()
 
-      await expect(page.getByTestId('create-setup-page')).toBeVisible()
+      await expect(page.getByTestId('connect-setup-page')).toBeVisible()
     })
 
   })

@@ -117,12 +117,12 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
     return (
       <Alert
         type="info"
-        message="No PeeGeeQ setup found"
-        description="Create a setup here, then add queues to it on the Setups page before publishing messages."
+        message="No PeeGeeQ setup connected"
+        description="Connect to an existing setup to publish messages to its queues."
         showIcon
         action={
-          <Button type="primary" size="small" onClick={() => navigate('/generator/setup/new')}>
-            Create Setup
+          <Button type="primary" size="small" onClick={() => navigate('/setups/connect')}>
+            Connect setup
           </Button>
         }
       />

@@ -48,8 +48,8 @@ export class SetupsPage extends BasePage {
 
   // ── Buttons ───────────────────────────────────────────────────────────────────
 
-  getCreateSetupButton(): Locator {
-    return this.page.getByTestId('create-setup-button')
+  getConnectSetupButton(): Locator {
+    return this.page.getByTestId('connect-setup-button')
   }
 
   getRefreshButton(): Locator {
@@ -58,10 +58,6 @@ export class SetupsPage extends BasePage {
 
   getViewDetailsButton(setupId: string): Locator {
     return this.page.getByTestId(`view-details-${setupId}`)
-  }
-
-  getDeleteButton(setupId: string): Locator {
-    return this.page.getByTestId(`delete-${setupId}`)
   }
 
   getSetupRow(setupId: string): Locator {
