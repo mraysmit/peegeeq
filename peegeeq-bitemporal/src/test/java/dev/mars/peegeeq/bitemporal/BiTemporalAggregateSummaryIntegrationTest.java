@@ -64,7 +64,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * — the same mechanism the setup service uses — so there is no DDL drift
  * between this test and production.
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class BiTemporalAggregateSummaryIntegrationTest {

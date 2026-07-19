@@ -111,6 +111,24 @@ export default defineConfig({
       testMatch: '**/connect-setup.spec.ts',
       use: { ...devices['Desktop Chrome'] },
     },
+    // Generator run (B.5/B.6) — full Zone A–E flow with real publishing.
+    // Owns its own throwaway setup + queue; depends on 3-generator only for
+    // ordering (the generator empty-state tests must run before any setup exists).
+    {
+      name: '4-generator-run',
+      testMatch: '**/generator-run.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
+    // Scheduled runs (SCH.7) — schedule via the UI, real firing with real
+    // publishing, history/filter/template journey, and the missed-run rule.
+    // Owns its own throwaway setup + queue.
+    {
+      name: '6-generator-schedules',
+      testMatch: '**/generator-schedule.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

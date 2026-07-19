@@ -111,6 +111,16 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
+    public Future<Void> detachSetup(String setupId) {
+        return delegate.detachSetup(setupId);
+    }
+
+    @Override
+    public Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName) {
+        return delegate.dropSetupDatabase(setupId, confirmDatabaseName);
+    }
+
+    @Override
     public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
         return delegate.getSetupStatus(setupId);
     }

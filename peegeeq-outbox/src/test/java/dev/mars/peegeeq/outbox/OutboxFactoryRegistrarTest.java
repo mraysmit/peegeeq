@@ -1,4 +1,6 @@
 package dev.mars.peegeeq.outbox;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -19,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive unit tests for OutboxFactoryRegistrar.
  * Tests registration, unregistration, and factory creation logic without mocking.
  */
+@Tag(TestCategories.CORE)
 class OutboxFactoryRegistrarTest {
 
     private TestQueueFactoryRegistrar testRegistrar;

@@ -8,16 +8,19 @@ import {
   Tag,
   Typography,
   Alert,
+  Popconfirm,
+  message,
 } from 'antd'
 import {
   ApiOutlined,
   EyeOutlined,
   ReloadOutlined,
   DatabaseOutlined,
+  DisconnectOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
-import { getSetups, getSetupDetails } from '../services/setupService'
+import { getSetups, getSetupDetails, detachSetup } from '../services/setupService'
 import type { SetupDetails } from '../types/setup'
 
 const { Title } = Typography
@@ -36,6 +39,7 @@ export default function SetupsPage() {
   const [setups, setSetups] = useState<SetupRow[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [detaching, setDetaching] = useState<string | null>(null)
 
   const loadSetups = useCallback(async () => {
     setLoading(true)
@@ -70,6 +74,20 @@ export default function SetupsPage() {
   useEffect(() => {
     loadSetups()
   }, [loadSetups])
+
+  const handleDetach = async (setupId: string) => {
+    setDetaching(setupId)
+    try {
+      await detachSetup(setupId)
+      message.success(`Setup "${setupId}" detached (data preserved)`)
+      await loadSetups()
+    } catch (err) {
+      const apiError = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+      message.error(apiError ?? `Failed to detach setup "${setupId}"`)
+    } finally {
+      setDetaching(null)
+    }
+  }
 
   const statusColors: Record<string, string> = {
     active: 'green',
@@ -128,6 +146,22 @@ export default function SetupsPage() {
           >
             Details
           </Button>
+          <Popconfirm
+            title={`Detach setup "${record.setupId}"?`}
+            description="Non-destructive: the database and its data are preserved; you can reconnect later."
+            onConfirm={() => handleDetach(record.setupId)}
+            okText="Detach"
+            cancelText="Cancel"
+          >
+            <Button
+              type="text"
+              icon={<DisconnectOutlined />}
+              loading={detaching === record.setupId}
+              data-testid={`detach-setup-${record.setupId}`}
+            >
+              Detach
+            </Button>
+          </Popconfirm>
         </Space>
       ),
     },

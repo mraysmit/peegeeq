@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(VertxExtension.class)
 @Disabled("Use PeeGeeQServiceManagerIntegrationTest instead - requires Consul running")
+@Tag(TestCategories.INTEGRATION)
 class PeeGeeQServiceManagerTest {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQServiceManagerTest.class);

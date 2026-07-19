@@ -63,6 +63,46 @@ public interface DatabaseSetupService extends ServiceProvider {
     }
 
     Future<Void> destroySetup(String setupId);
+
+    /**
+     * Non-destructively detaches from a setup: stops the manager and deregisters the in-memory binding,
+     * but NEVER drops the database or schema (the inverse of {@link #connectToExistingSetup}). The data
+     * persists and the setup can be reconnected later. This is the safe "remove" for a connected setup;
+     * dropping the database is a separate, explicitly-guarded operation.
+     *
+     * <p>The default delegates to {@link #destroySetup}, which is itself non-destructive (it closes the
+     * manager and clears in-memory state, dropping nothing), so implementations get correct detach
+     * behaviour without change.
+     *
+     * @param setupId the setup to detach
+     * @return a Future completing when the in-memory binding has been released
+     */
+    default Future<Void> detachSetup(String setupId) {
+        return destroySetup(setupId);
+    }
+
+    /**
+     * The single DESTRUCTIVE path: drops the setup's database (irreversible). This is deliberately separate
+     * from {@link #detachSetup} and {@link #destroySetup} (both non-destructive) and from create — it is the
+     * only operation that issues {@code DROP DATABASE}.
+     *
+     * <p>Guarded by a type-to-confirm token: {@code confirmDatabaseName} must equal the setup's actual
+     * database name, otherwise the operation is refused (a failed Future carrying an
+     * {@link IllegalArgumentException}) with nothing dropped. This defeats accidental/replayed calls. The
+     * drop drains live connections ({@code WITH (FORCE)}) and then detaches the now-dead in-memory binding.
+     *
+     * <p>The default implementation is unsupported; only implementations that own the database lifecycle
+     * override it.
+     *
+     * @param setupId             the setup whose database to drop
+     * @param confirmDatabaseName the exact database name, re-supplied as confirmation
+     * @return a Future completing when the database has been dropped; failed (no drop) on confirm mismatch
+     */
+    default Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName) {
+        return Future.failedFuture(
+                new UnsupportedOperationException("dropSetupDatabase is not supported by this implementation"));
+    }
+
     Future<DatabaseSetupStatus> getSetupStatus(String setupId);
     Future<DatabaseSetupResult> getSetupResult(String setupId);
     Future<Void> addQueue(String setupId, QueueConfig queueConfig);

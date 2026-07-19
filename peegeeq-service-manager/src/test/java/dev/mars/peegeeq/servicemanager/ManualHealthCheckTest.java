@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-24
  * @version 1.0
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 class ManualHealthCheckTest {
     

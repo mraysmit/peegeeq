@@ -43,7 +43,10 @@ Primary use cases:
 ## 3. Non-Goals (v1)
 
 - Consumer / message-browser functionality.
-- Scheduled (cron-style) future runs.
+- ~~Scheduled (cron-style) future runs.~~ **Graduated 2026-07-19**: scheduled runs shipped
+  (one-shot + fixed-interval, client-side execution, run history, schedule templates) — see
+  [PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md](PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md).
+  Cron expressions remain out of scope.
 - CSV / file-based payload import.
 - Authentication / authorisation configuration (deferred to a future Settings page).
 - Backend-side generator endpoint (client drives rate in v1).
@@ -511,10 +514,14 @@ unless they truly are consecutive without any success in between.
 
 - **Template dropdown**: lists all templates saved in localStorage. Selecting one populates the
   textarea, message type, priority, delay, group, and headers fields.
-- **New / Edit / Save / Export**: Create a new blank template; open the selected template in
-  an editable state; save changes back to localStorage; download the template as a `.json` file.
-- **Payload textarea**: monospace font, full-width, ~15 lines tall. Validated as JSON on blur.
-  An inline error shows the parse error message if invalid. Placeholder tokens (`{{...}}`) are
+- **New / Save / Export** *(2026-07-18: "Edit" removed — under the working-copy contract below
+  the editor is always editable, so a separate Edit mode has no meaning)*: Create a new blank
+  template; save the working copy back to localStorage; download the working copy as a `.json`
+  file.
+- **Payload textarea**: monospace font, full-width, ~15 lines tall. Validated on blur by
+  **resolving with a sample context and then parsing** (§8 semantics — raw `JSON.parse` would
+  false-error on legal bare tokens such as `"amount": {{random:500}}`; missing lists resolve to
+  `""` and do not fail validation). An inline error shows the parse error message if invalid. Placeholder tokens (`{{...}}`) are
   visually distinct (bold or accent colour via CSS `::before`/`::after` tricks, or plain
   highlighting achieved with a `<pre>`-based display layer in v1).
 - **Fields row**: Message Type (text), Priority (number input 1–10), Delay (number input ≥ 0),
@@ -525,14 +532,21 @@ unless they truly are consecutive without any success in between.
   its scope (per-message / per-run) and description. Always available inline — no page
   navigation required.
 
+**Working-copy contract (decided 2026-07-18):** Zone C edits a **working copy** of the selected
+template, and **the working copy is what runs**: Preview and Start both use the editor's current
+state, saved or not — what the user sees is what is published. **Save** is pure persistence
+(writes the working copy back to localStorage via `templateStore.update`); it is never required
+before a run. Selecting a different template (or New) replaces the working copy — unsaved edits
+are discarded after an "unsaved changes" confirm.
+
 #### Zone D — Actions
 
 | Control | Description |
 |---|---|
 | Preview message # | Number input (default 1, any positive integer). The `messageId` to resolve for preview. |
 | Preview | Resolves the template at the given index (with a fresh `runId` and `correlationId` for display). Opens a Modal showing the resolved `MessageRequest` JSON. No HTTP call. Any template parse error is shown inline before the modal. |
-| Start | Enabled when status is `idle` and setup, queue, and template are all set. Begins the publication run. |
-| Stop | Enabled when status is `running`. Immediately cancels the run; transitions to `stopped`; partial results remain in Zone E. |
+| Start | Enabled when status is `idle` and setup, queue, and template are all set. Begins the publication run. After a terminal state, `idle` is re-entered via the summary card's **New run** button (§7.2) — Start itself stays idle-only. |
+| Stop | Enabled when status is `running`. Cancels the run: no further ticks fire; if a fan-out is in flight, Stop **waits for it to settle** so the summary counts every server-acknowledged send (decision 2026-07-18 — the summary is the run's record and must not understate real publishes; worst case Stop takes one publish round-trip). Transitions to `stopped`; partial results remain in Zone E. |
 
 #### Zone E — Progress and Results
 
@@ -542,6 +556,12 @@ Live counters (refreshed every 500 ms during a run):
 - **Elapsed** / Duration
 - **Current rate** — rolling 1-second window (actual messages acknowledged / second)
 - **Errors** — total failed batch requests
+
+**Refresh cadences (clarified 2026-07-18):** Sent / Current rate / Errors update at the
+engine's tick cadence (`tickMs`, ≈1 s at typical configs) via `tickUpdate`. **Elapsed** must
+not stall between ticks: the ProgressPanel runs its own 500 ms UI interval deriving elapsed
+from `runState.startedAt` while status is `running`. The store's `elapsedMs` (tick-cadence)
+feeds the rate window, not the Elapsed display.
 
 Progress bar: `(sent / total) * 100` percent.
 
@@ -563,6 +583,12 @@ when error count is zero.
 | Final status | COMPLETED / STOPPED / ERROR |
 
 A **Download results** button exports the summary plus all recorded errors as a `.json` file.
+
+The summary card renders **from the stored `RunSummary` alone** (not from `runState` counters —
+the terminal callback's summary carries the final acknowledged counts, which can be ahead of the
+last tick; no reconciliation is needed when the card reads only the summary). The card also
+carries the **New run** button (see §7.2): it clears `summary` and calls `resetRun()`, returning
+the page to `IDLE` for the next run.
 
 ---
 
@@ -950,7 +976,13 @@ Setup: staging-tenant-2
 
 The engine runs in the browser main thread using a `setInterval`-based tick loop. A Web Worker is deferred to v2.
 
-### 7.1 Tick Algorithm
+### 7.1 Tick Algorithm *(respecified 2026-07-18 — DECIDED: concurrent fan-out ships in v1.
+Note the original sketch was internally inconsistent: it capped `batchSize` at `maxBatchSize`
+AND shrank `tickMs` proportionally, so a tick never carried more than one batch and the
+"split into groups" branch was unreachable. The coherent form of that intent, specified here,
+is 1-second ticks carrying the full per-second quota, split into concurrently-fired groups.
+The currently-built engine is serial (sub-second single-batch ticks with an in-flight guard);
+bringing it up to this spec is a scheduled Phase B step.)*
 
 ```
 given:
@@ -960,56 +992,85 @@ given:
   warnThreshold    (0 = no warning, non-blocking)
   maxConsecErrors  (0 = disabled)
 
-batchSize   = min(maxBatchSize, max(1, floor(rate)))
-tickMs      = (batchSize / rate) * 1000
+tickMs          = 1000                      // one tick per second
+messagesPerTick = rate                      // the full per-second quota
+groups          = ceil(rate / maxBatchSize) // batches of ≤ maxBatchSize, fired concurrently
 
-runId         = randomUUID()       // generated once per run
-correlationId = randomUUID()       // generated once per run
+// The FIRST tick fires immediately at start; the interval then fires every 1 s.
+// (Without this, a run of durationSecs=N sends only N-1 quotas: the tick at t=N s
+// collides with the duration check and the last quota is never sent.)
+
+runId, correlationId = SUPPLIED BY THE CALLER (the page passes generatorStore's run identity —
+                       the store is the single owner; the engine generates none of the ids)
 messageId     = 1                  // 1-based, increments per message
 consecErrors  = 0
+inFlight      = false              // guards the whole fan-out, not a single batch
 
 on each tick:
+  if inFlight: SKIP this tick      // previous fan-out still settling
   if (Date.now() - startedAt) >= durationSecs * 1000:
     clearInterval
-    transition to COMPLETED
+    transition to COMPLETED        // fires even if sent < target (see ceiling note)
 
-  generate batchSize MessageRequests from template
+  generate messagesPerTick MessageRequests from template
     (messageId increments 1 per message; index = messageId - 1)
+  split into `groups` batches of ≤ maxBatchSize
+  fire ALL batches concurrently; await Promise.allSettled
 
-  for rates requiring multiple batches per tick (rate > maxBatchSize):
-    split messages into groups of maxBatchSize
-    fire all groups concurrently with Promise.allSettled
-
-  for each batch response:
-    on success (2xx):
-      sent += batch.length
+  for each settled result, in batch order:
+    fulfilled (2xx):
+      sent += response.messagesSent    // server-ACKNOWLEDGED count, not batch.length
       consecErrors = 0
-    on error:
-      errors.push(PublishError)
+    rejected:
+      errors.push(PublishError)        // messageIndex = first id in that batch
       consecErrors += 1
-      if maxConsecErrors > 0 && consecErrors >= maxConsecErrors:
-        clearInterval
-        transition to ERROR
-        set autoStopReason = "Auto-stopped: {N} consecutive errors. Last: {message}"
-        return
 
-  update Zone E counters
+  after processing the tick's results:
+    if maxConsecErrors > 0 && consecErrors >= maxConsecErrors:
+      clearInterval
+      transition to ERROR
+      set autoStopReason = "Auto-stopped: {N} consecutive errors. Last: {message}"
+      return
+
+  onTick(sent, errors, consecErrors, elapsedMs)   // Zone E counters via generatorStore
 ```
+
+**Semantics notes:**
+- For `rate ≤ maxBatchSize` this degenerates to exactly one batch per 1-second tick — identical
+  to the previous serial behaviour at typical configs.
+- **Consecutive-error counting is per batch result, processed in batch order** — a single tick
+  whose groups all fail can reach the auto-stop threshold on its own; any fulfilled batch in
+  the sequence resets the streak. This preserves the §6.1 rule ("resets on every successful
+  batch response") under concurrency.
+- Traffic is bursty at second boundaries (the full quota is fired at once). Acceptable for a
+  load generator; smoothing is a non-goal for v1.
+
+**Throughput ceiling (v1):** a tick is skipped only while the *whole previous fan-out* is
+still settling, so the achieved rate degrades only when the slowest batch of a fan-out takes
+longer than 1 s. Practical bound: the browser's ~6-connections-per-origin limit serialises
+groups beyond 6, so ceiling ≈ `6 × maxBatchSize / avgPublishLatency` msg/s (e.g. batch 100 at
+50 ms ≈ 12 000 msg/s). Past it, the run **completes at duration with `sent < target`** —
+Zone E's summary shows both numbers, which is the visible record of the shortfall.
 
 ### 7.2 State Machine
 
 ```
-IDLE ──[Start]──────────────> RUNNING ──[duration elapsed]──────────> COMPLETED
-                                  │
-                               [Stop]──────────────────────────────> STOPPED
-                                  │
-                               [N consecutive errors, maxConsecErrors > 0]
-                                  │
-                                  └────────────────────────────────> ERROR
+IDLE ──[Start]──────────────> RUNNING ──[duration elapsed]──────────> COMPLETED ─┐
+                                  │                                              │
+                               [Stop]──────────────────────────────> STOPPED ────┤
+                                  │                                              │
+                               [N consecutive errors, maxConsecErrors > 0]       │
+                                  │                                              │
+                                  └────────────────────────────────> ERROR ──────┤
+                                                                                 │
+IDLE <──────────────────────────[New run  (summary card button → resetRun)]──────┘
 ```
 
 All transitions are reflected immediately in Zone D (button enabled states) and Zone E
-(status label and summary card).
+(status label and summary card). The terminal states are exited **only** via the summary
+card's **New run** button (added 2026-07-18 — the original diagram dead-ended: Start is
+enabled only in `IDLE`, and nothing returned a terminal run to `IDLE`, so a second run was
+impossible). New run clears the stored summary and calls `resetRun()`.
 
 ---
 
@@ -1259,14 +1320,23 @@ export interface BatchMessageRequest {
 interface GeneratorState {
   config: RunConfig | null
   runState: RunState
+  summary: RunSummary | null   // set by the terminal engine callbacks; cleared on startRun/resetRun
+                               // (added 2026-07-18 — the Zone E summary card + Download read this)
   setConfig: (config: RunConfig) => void
   startRun: () => void
   stopRun: () => void
   resetRun: () => void
+  setSummary: (summary: RunSummary) => void
   tickUpdate: (sent: number, errors: PublishError[], consecErrors: number, elapsedMs: number) => void
   transitionTo: (status: RunStatus, autoStopReason?: string) => void
 }
 ```
+
+**Run identity (decided 2026-07-18):** `startRun()` generates the run's `runId` (and the page reads
+it from `runState`); the **engine generates none of the ids** — `MessageGeneratorPage` passes the store's
+`runId`/`correlationId` into `engine.start`, so `{{runId}}` tokens inside published messages,
+Zone E's display, and the summary all carry the **same** identity. (Previously both the store
+and the engine each generated their own UUID — two different runIds for one run.)
 
 ### `templateStore` — template management
 
@@ -1322,14 +1392,23 @@ interface ValueListState {
 
 ## 12. Service Layer
 
+### `src/services/setupService.ts` *(corrected 2026-07-18 to the as-built layer — the
+original sketch placed setup listing in queueService with invented DTO shapes)*
+
+```typescript
+getSetups(): Promise<string[]>                       // GET /api/v1/setups → setupIds
+getQueues(setupId: string): Promise<string[]>        // GET /api/v1/setups/{setupId}/queues → names
+getSetupDetails(setupId: string): Promise<SetupDetails>  // GET /api/v1/setups/{setupId}
+connectExisting(req: ConnectSetupRequest): Promise<void> // POST /api/v1/database-setup/connect
+detachSetup(setupId: string): Promise<void>              // POST /api/v1/setups/{setupId}/detach
+```
+
 ### `src/services/queueService.ts`
 
 ```typescript
-getSetups(): Promise<SetupInfo[]>
-  // GET /api/v1/setups
-
-getQueues(setupId: string): Promise<QueueInfo[]>
-  // GET /api/v1/setups/{setupId}/queues
+listQueueDetails(setupId: string): Promise<QueueSummary[]>  // names + implementationType
+deleteQueue(setupId: string, queueName: string): Promise<void>
+  // DELETE /api/v1/management/queues/{setupId}/{queueName}  (verified contract, §16)
 ```
 
 ### `src/services/publishService.ts`
@@ -1399,8 +1478,13 @@ extractListNames(payloadSchema: string): string[]
 ### `src/engine/publicationEngine.ts`
 
 ```typescript
+interface RunIdentity {
+  runId: string          // generated by generatorStore.startRun(); passed through, never regenerated
+  correlationId: string
+}
+
 interface PublicationEngine {
-  start(config: RunConfig, callbacks: EngineCallbacks): void
+  start(config: RunConfig, identity: RunIdentity, callbacks: EngineCallbacks): void
   stop(): void
 }
 
@@ -1411,6 +1495,11 @@ interface EngineCallbacks {
   onError(summary: RunSummary, reason: string): void
 }
 ```
+
+*(2026-07-18: `start` gained the `identity` parameter — see §11 "Run identity". The as-built
+engine still generates its own `runId`/`correlationId`; the identity parameter lands in plan step
+**B.0** together with the §7.1 concurrent fan-out upgrade, before the engine is wired to the
+UI in B.5.)*
 
 The engine is instantiated fresh for each run and discarded on completion. It holds no
 persistent state. The `generatorStore` owns all state; the engine only calls back into it.
@@ -2039,9 +2128,12 @@ npx playwright test --config=playwright.screenshots.config.ts
 ```
 
 The capture spec (`src/tests/e2e/specs/screenshots.spec.ts`) starts a TestContainers
-PostgreSQL instance and a PeeGeeQ REST backend, walks each page, creates and deletes a
-throwaway `screenshot-demo` setup and `demo_orders` queue to populate the data-bearing
-pages, and writes each full-page PNG into `docs/screenshots/`.
+PostgreSQL instance and a PeeGeeQ REST backend, provisions a throwaway `screenshot-demo`
+setup with a `demo_orders` queue via the admin REST path (the UI is connect-only), creates
+a demo template and value list through the UI, runs a short real publication, and writes
+each full-page PNG into `docs/screenshots/`. It detaches the demo setup afterwards
+(non-destructive). *(Regenerated 2026-07-19 — the previous set showed the removed
+Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ### A.1 Pages
 
@@ -2053,59 +2145,65 @@ pages, and writes each full-page PNG into `docs/screenshots/`.
 
 ![Tools](screenshots/02-tools.png)
 
-#### 03 — Message Generator (`/generator`)
+#### 03 — Value List Manager, populated with the edit panel open (`/generator/value-lists`)
 
-![Message Generator](screenshots/03-message-generator.png)
+![Value Lists](screenshots/03-value-lists.png)
 
-#### 04 — Templates (Phase 3 placeholder) (`/generator/templates`)
+#### 04 — Message Generator, Zones A–E with a target selected (`/generator`)
 
-![Templates](screenshots/04-templates.png)
+![Message Generator](screenshots/04-message-generator.png)
 
-#### 05 — Value Lists (Phase 3 placeholder) (`/generator/value-lists`)
+#### 07 — Template Manager, populated (`/generator/templates`)
 
-![Value Lists](screenshots/05-value-lists.png)
+![Templates](screenshots/07-templates.png)
 
-#### 06 — Setups list (`/setups`)
+#### 08 — Setups list, populated (`/setups`)
 
-![Setups list](screenshots/06-setups-list.png)
+![Setups list](screenshots/08-setups-list.png)
 
-#### 10 — Setup detail, no queues (`/setups/:setupId`)
+#### 11 — Setup detail, with queue (`/setups/:setupId`)
 
-![Setup detail empty](screenshots/10-setup-detail-empty.png)
-
-#### 13 — Setup detail, with queue (`/setups/:setupId`)
-
-![Setup detail with queue](screenshots/13-setup-detail-with-queue.png)
+![Setup detail](screenshots/11-setup-detail.png)
 
 ### A.2 Actions
 
-#### 07 — Create Setup, empty form
+#### 05 — Generator preview modal (resolved message, no HTTP)
 
-![Create Setup empty](screenshots/07-create-setup-empty.png)
+![Generator preview](screenshots/05-generator-preview.png)
 
-#### 08 — Create Setup, filled with connection details expanded
+#### 06 — Generator completed-run summary (real publication, acknowledged counts)
 
-![Create Setup filled](screenshots/08-create-setup-filled.png)
+![Run summary](screenshots/06-generator-run-summary.png)
 
-#### 09 — Setups list, populated after creation
+#### 09 — Detach setup, confirmation popover (non-destructive)
 
-![Setups list populated](screenshots/09-setups-list-populated.png)
+![Detach setup confirm](screenshots/09-detach-setup-confirm.png)
 
-#### 11 — Create Queue, empty form
+#### 10 — Connect to existing setup, form with connection details expanded (`/setups/connect`)
 
-![Create Queue empty](screenshots/11-create-queue-empty.png)
+![Connect setup](screenshots/10-connect-setup.png)
 
-#### 12 — Create Queue, filled with advanced settings expanded
+#### 12 — Delete queue, confirmation popover
 
-![Create Queue advanced](screenshots/12-create-queue-advanced.png)
+![Delete queue confirm](screenshots/12-delete-queue-confirm.png)
 
-#### 14 — Delete queue, confirmation popover
+### A.3 Scheduled runs (see PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md)
 
-![Delete queue confirm](screenshots/14-delete-queue-confirm.png)
+#### 13 — Schedule-a-run modal, filled (`/generator`, Zone D "Schedule…")
 
-#### 15 — Delete setup, confirmation popover
+![Schedule run modal](screenshots/13-schedule-run-modal.png)
 
-![Delete setup confirm](screenshots/15-delete-setup-confirm.png)
+#### 14 — Scheduled Runs, Schedules tab (`/generator/schedules`)
+
+![Scheduled runs](screenshots/14-scheduled-runs.png)
+
+#### 15 — Scheduled Runs, run history after a real firing
+
+![Schedule run history](screenshots/15-schedule-run-history.png)
+
+#### 16 — Scheduled Runs, Templates tab
+
+![Schedule templates](screenshots/16-schedule-templates.png)
 
 
 ---
@@ -2503,21 +2601,18 @@ this section records them so they are not lost.
    actions, progress) and the Template/Value-List manager pages (design §6.1–6.3) are not built.
    State: *foundation complete, generator UI not assembled.*
 
-2. **Overview page contradicts its own redesign.** [Overview.tsx](../src/pages/Overview.tsx)
-   still renders **global aggregates** (total setups/queues/messages, msg/s cards, system-wide
-   stats via `utilitiesStore`) — precisely what design §6.6 says to remove in favour of
-   setups-as-top-level cards with per-setup/per-queue metrics only. The redesign is documented
-   but not applied to this page.
+2. **Overview page — RESOLVED (Phase E).** [Overview.tsx](../src/pages/Overview.tsx) now renders
+   the §6.6 design: a per-setup table with a per-setup detail card (queues + event stores), no
+   global/system-wide aggregates. Post-Phase S the header CTA and empty state point at
+   **Connect setup** (provisioning is admin-tool-only).
 
 3. **Delete-queue endpoint — RESOLVED (2026-07-05).** [queueService.deleteQueue](../src/services/queueService.ts)
    calls `DELETE /api/v1/management/queues/{setupId}/{queueName}`. Verified against the live backend:
    this path returns **200** and matches `peegeeq-management-ui`'s proven contract. The design §16
-   path `/api/v1/setups/{setupId}/queues/{queueName}` is the incorrect one (404) — **fix the doc,
-   not the code.** Separately, [queueService.createQueue](../src/services/queueService.ts) uses a
-   *bespoke* contract (`POST /setups/{id}/queues {queueName, implementationType}`) that diverges
-   from management-ui's verified `POST /management/queues {setup, name, type}` (→ 201). Per the
-   directive to copy management-ui precisely, createQueue should be switched to the management-ui
-   contract (see IMPLEMENTATION_PLAN "Backend integration architecture").
+   path `/api/v1/setups/{setupId}/queues/{queueName}` is the incorrect one (404) — the §16 table
+   now carries the corrected path with a verification note. The separate `createQueue` contract
+   divergence is **moot since Phase S (S.6)**: provisioning is admin-tool-only and
+   `queueService.createQueue` was removed entirely.
 
 4. **Queue dropdown type — RESOLVED (2026-07-10, Phase A.2).**
    [TargetSelector](../src/components/TargetSelector.tsx) now loads the queue dropdown via

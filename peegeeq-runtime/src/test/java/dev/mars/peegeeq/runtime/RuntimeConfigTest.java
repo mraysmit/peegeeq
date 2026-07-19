@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.runtime;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import org.junit.jupiter.api.Test;
 
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for RuntimeConfig.
  */
+@Tag(TestCategories.CORE)
 class RuntimeConfigTest {
     
     @Test

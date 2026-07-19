@@ -25,6 +25,7 @@ import {
 import {
     PlusOutlined,
     ApiOutlined,
+    DisconnectOutlined,
     DeleteOutlined,
     EyeOutlined,
     MoreOutlined,
@@ -56,6 +57,9 @@ const DatabaseSetups = () => {
     const [connectForm] = Form.useForm()
     const [viewDetailsSetup, setViewDetailsSetup] = useState<DatabaseSetup | null>(null)
     const [detailsData, setDetailsData] = useState<any | null>(null)
+    const [dropTarget, setDropTarget] = useState<{ setupId: string; databaseName: string } | null>(null)
+    const [dropConfirmText, setDropConfirmText] = useState('')
+    const [dropInProgress, setDropInProgress] = useState(false)
 
     const fetchSetups = async () => {
         setLoading(true)
@@ -112,37 +116,77 @@ const DatabaseSetups = () => {
         setIsModalVisible(true)
     }
 
-    const handleDeleteSetup = async (setup: DatabaseSetup) => {
+    const handleDetachSetup = async (setup: DatabaseSetup) => {
         Modal.confirm({
-            title: 'Delete Database Setup',
+            title: 'Detach Database Setup',
             icon: <ExclamationCircleOutlined />,
             content: (
                 <div>
-                    <p>Are you sure you want to delete setup <strong>{setup.setupId}</strong>?</p>
-                    <p>This will:</p>
+                    <p>Detach setup <strong>{setup.setupId}</strong> from this backend?</p>
+                    <p>This is <strong>non-destructive</strong> — it releases the in-memory binding and stops the manager, but:</p>
                     <ul>
-                        <li>Delete the database <strong>{setup.databaseName}</strong></li>
-                        <li>Remove all {setup.queues} queues</li>
-                        <li>Remove all {setup.eventStores} event stores</li>
-                        <li>This action cannot be undone</li>
+                        <li>The database <strong>{setup.databaseName}</strong> is <strong>not</strong> dropped</li>
+                        <li>Its queues, event stores, and data are preserved</li>
+                        <li>You can reconnect to it later</li>
                     </ul>
+                    <p>Dropping the database is a separate, explicitly-guarded operation.</p>
                 </div>
             ),
-            okText: 'Delete',
-            okType: 'danger',
+            okText: 'Detach',
             onOk: async () => {
                 try {
-                    await axios.delete(getVersionedApiUrl(`database-setup/${setup.setupId}`))
-                    message.success(`Setup ${setup.setupId} deleted successfully`)
-                    useManagementStore.getState().addNotification({ resource: setup.setupId, action: 'setup deleted' })
+                    await axios.post(getVersionedApiUrl(`setups/${setup.setupId}/detach`))
+                    message.success(`Setup ${setup.setupId} detached (data preserved)`)
+                    useManagementStore.getState().addNotification({ resource: setup.setupId, action: 'setup detached' })
                     await fetchSetups()
                 } catch (error: any) {
-                    console.error('Failed to delete setup:', error)
-                    const errorMsg = error.response?.data?.error || error.message || 'Failed to delete setup'
+                    console.error('Failed to detach setup:', error)
+                    const errorMsg = error.response?.data?.error || error.message || 'Failed to detach setup'
                     message.error(errorMsg)
                 }
             },
         })
+    }
+
+    const handleOpenDropModal = async (setup: DatabaseSetup) => {
+        // The table row's databaseName is a placeholder (the setupId); the type-to-confirm guard needs the
+        // setup's REAL database name, so resolve it from the details endpoint before opening the modal.
+        try {
+            const response = await axios.get(getVersionedApiUrl(`setups/${setup.setupId}`))
+            const databaseName = response.data?.databaseName
+            if (!databaseName) {
+                message.error(`Could not resolve the database name for setup ${setup.setupId}`)
+                return
+            }
+            setDropConfirmText('')
+            setDropTarget({ setupId: setup.setupId, databaseName })
+        } catch (error: any) {
+            console.error('Failed to resolve database name for drop:', error)
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to resolve database name'
+            message.error(errorMsg)
+        }
+    }
+
+    const handleDropDatabase = async () => {
+        if (!dropTarget) return
+        setDropInProgress(true)
+        try {
+            // Send exactly what the user typed — the backend guard is the authority on the match.
+            await axios.post(getVersionedApiUrl(`setups/${dropTarget.setupId}/database/drop`), {
+                confirmDatabaseName: dropConfirmText,
+            }, { timeout: 120000 })
+            message.success(`Database ${dropTarget.databaseName} dropped (setup ${dropTarget.setupId})`)
+            useManagementStore.getState().addNotification({ resource: dropTarget.setupId, action: 'database dropped' })
+            setDropTarget(null)
+            setDropConfirmText('')
+            await fetchSetups()
+        } catch (error: any) {
+            console.error('Failed to drop database:', error)
+            const errorMsg = error.response?.data?.error || error.message || 'Failed to drop database'
+            message.error(errorMsg)
+        } finally {
+            setDropInProgress(false)
+        }
     }
 
     const handleViewDetails = async (setup: DatabaseSetup) => {
@@ -251,11 +295,20 @@ const DatabaseSetups = () => {
                 type: 'divider' as const,
             },
             {
-                key: 'delete',
+                key: 'detach',
+                icon: <DisconnectOutlined />,
+                label: 'Detach Setup',
+                onClick: () => handleDetachSetup(setup),
+            },
+            {
+                type: 'divider' as const,
+            },
+            {
+                key: 'drop',
                 icon: <DeleteOutlined />,
-                label: 'Delete Setup',
+                label: 'Drop Database…',
                 danger: true,
-                onClick: () => handleDeleteSetup(setup),
+                onClick: () => handleOpenDropModal(setup),
             },
         ],
     })
@@ -554,6 +607,59 @@ const DatabaseSetups = () => {
                             </Col>
                         </Row>
                     </Form>
+                </Modal>
+
+                {/* Drop Database Modal — the destructive path, type-to-confirm guarded */}
+                <Modal
+                    title="Drop Database"
+                    open={dropTarget !== null}
+                    onCancel={() => { setDropTarget(null); setDropConfirmText('') }}
+                    footer={[
+                        <Button key="cancel" onClick={() => { setDropTarget(null); setDropConfirmText('') }}>
+                            Cancel
+                        </Button>,
+                        <Button
+                            key="drop"
+                            danger
+                            type="primary"
+                            loading={dropInProgress}
+                            disabled={dropConfirmText !== dropTarget?.databaseName}
+                            onClick={handleDropDatabase}
+                            data-testid="drop-database-confirm-btn"
+                        >
+                            Drop Database
+                        </Button>,
+                    ]}
+                    width={600}
+                >
+                    <Alert
+                        message="This is irreversible"
+                        description={
+                            <div>
+                                <p>
+                                    This will <strong>permanently drop the database</strong>{' '}
+                                    <strong>{dropTarget?.databaseName}</strong> for setup{' '}
+                                    <strong>{dropTarget?.setupId}</strong> — all queues, event stores, and
+                                    data in it will be destroyed. There is no undo.
+                                </p>
+                                <p style={{ marginBottom: 0 }}>
+                                    If you only want to disconnect and keep the data, use <strong>Detach Setup</strong> instead.
+                                </p>
+                            </div>
+                        }
+                        type="error"
+                        showIcon
+                        style={{ marginBottom: 16 }}
+                    />
+                    <p>
+                        Type the database name <strong>{dropTarget?.databaseName}</strong> to confirm:
+                    </p>
+                    <Input
+                        value={dropConfirmText}
+                        onChange={(e) => setDropConfirmText(e.target.value)}
+                        placeholder={dropTarget?.databaseName}
+                        data-testid="drop-database-confirm-input"
+                    />
                 </Modal>
 
                 {/* Setup Details Modal */}

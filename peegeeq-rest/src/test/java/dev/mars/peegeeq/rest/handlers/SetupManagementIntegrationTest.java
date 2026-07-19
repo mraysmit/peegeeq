@@ -33,9 +33,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * - POST /api/v1/setups - Create setup
  * - GET /api/v1/setups/:setupId - Get setup details
  * - GET /api/v1/setups/:setupId/status - Get setup status
- * - DELETE /api/v1/setups/:setupId - Delete setup
+ * - DELETE /api/v1/setups/:setupId - Delete setup (non-destructive)
  * - POST /api/v1/setups/:setupId/queues - Add queue to setup
  * - POST /api/v1/setups/:setupId/eventstores - Add event store to setup
+ * - POST /api/v1/setups/:setupId/detach - Detach setup (non-destructive)
+ * - POST /api/v1/setups/:setupId/database/drop - Guarded destructive drop (type-to-confirm)
  * 
  * Classification: INTEGRATION TEST
  * - Uses real PostgreSQL database (TestContainers)
@@ -68,6 +70,7 @@ public class SetupManagementIntegrationTest {
     private PeeGeeQRestServer server;
     private String deploymentId;
     private String setupId;
+    private String databaseName;
     private WebClient webClient;
 
     @BeforeAll
@@ -130,12 +133,13 @@ public class SetupManagementIntegrationTest {
     @Order(2)
     @DisplayName("Create setup with queue")
     void testCreateSetup(VertxTestContext testContext) {
+        databaseName = "setup_mgmt_db_" + System.currentTimeMillis();
         JsonObject setupRequest = new JsonObject()
             .put("setupId", setupId)
             .put("databaseConfig", new JsonObject()
                 .put("host", postgres.getHost())
                 .put("port", postgres.getFirstMappedPort())
-                .put("databaseName", "setup_mgmt_db_" + System.currentTimeMillis())
+                .put("databaseName", databaseName)
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
                 .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
@@ -353,6 +357,160 @@ public class SetupManagementIntegrationTest {
                 testContext.verify(() -> {
                     assertEquals(404, response.statusCode(), "Expected 404 for deleted setup");
                     logger.info("Got expected 404 for deleted setup");
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    private JsonObject connectRequest() {
+        return new JsonObject()
+            .put("setupId", setupId)
+            .put("databaseConfig", new JsonObject()
+                .put("host", postgres.getHost())
+                .put("port", postgres.getFirstMappedPort())
+                .put("databaseName", databaseName)
+                .put("username", postgres.getUsername())
+                .put("password", postgres.getPassword())
+                .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
+                .put("templateDatabase", "template0")
+                .put("encoding", "UTF8"))
+            .put("queues", new JsonArray())
+            .put("eventStores", new JsonArray());
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("Reconnect after delete - DELETE was non-destructive, connect succeeds")
+    void testReconnectAfterDelete(VertxTestContext testContext) {
+        webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/connect")
+            .putHeader("content-type", "application/json")
+            .timeout(60000)
+            .sendJsonObject(connectRequest())
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    logger.info("Reconnect response: {} - {}", response.statusCode(), response.bodyAsString());
+                    assertEquals(200, response.statusCode(),
+                        "DELETE is non-destructive, so reconnect must succeed, got: " + response.statusCode());
+                    assertEquals(setupId, response.bodyAsJsonObject().getString("setupId"));
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(12)
+    @DisplayName("Drop database with wrong confirmation returns 400 and setup stays active")
+    void testDropDatabaseWrongConfirmationRefused(VertxTestContext testContext) {
+        String dropPath = String.format("/api/v1/setups/%s/database/drop", setupId);
+
+        webClient.post(TEST_PORT, "localhost", dropPath)
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(new JsonObject().put("confirmDatabaseName", "definitely_not_the_db"))
+            .compose(dropResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Wrong-confirmation drop response: {} - {}",
+                        dropResponse.statusCode(), dropResponse.bodyAsString());
+                    assertEquals(400, dropResponse.statusCode(),
+                        "Wrong confirmation must be refused with 400, got: " + dropResponse.statusCode());
+                });
+                // Nothing was dropped: the setup must still be attached and ACTIVE.
+                return webClient.get(TEST_PORT, "localhost", String.format("/api/v1/setups/%s", setupId)).send();
+            })
+            .onSuccess(detailsResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, detailsResponse.statusCode(),
+                        "Setup must survive a refused drop, got: " + detailsResponse.statusCode());
+                    assertEquals(databaseName, detailsResponse.bodyAsJsonObject().getString("databaseName"));
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(13)
+    @DisplayName("Drop database for unknown setup returns 404")
+    void testDropDatabaseUnknownSetup(VertxTestContext testContext) {
+        webClient.post(TEST_PORT, "localhost", "/api/v1/setups/non-existent-setup/database/drop")
+            .putHeader("content-type", "application/json")
+            .sendJsonObject(new JsonObject().put("confirmDatabaseName", "anything"))
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(404, response.statusCode(),
+                        "Drop on an unknown setup must return 404, got: " + response.statusCode());
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(14)
+    @DisplayName("Detach setup returns 204 and removes it from the active list")
+    void testDetachSetup(VertxTestContext testContext) {
+        String detachPath = String.format("/api/v1/setups/%s/detach", setupId);
+
+        webClient.post(TEST_PORT, "localhost", detachPath)
+            .send()
+            .compose(detachResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(204, detachResponse.statusCode(),
+                        "Expected 204 for detach, got: " + detachResponse.statusCode());
+                });
+                return webClient.get(TEST_PORT, "localhost", "/api/v1/setups").send();
+            })
+            .onSuccess(listResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, listResponse.statusCode());
+                    JsonArray setupIds = listResponse.bodyAsJsonObject().getJsonArray("setupIds");
+                    assertFalse(setupIds.contains(setupId),
+                        "Detached setup must be gone from the active list, got: " + setupIds);
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    @Test
+    @Order(15)
+    @DisplayName("Detach was non-destructive; confirmed drop then destroys the database")
+    void testDropDatabaseConfirmed(VertxTestContext testContext) {
+        // Reconnect (proves detach at Order 14 preserved the database), then drop with the exact
+        // database name (200), then verify the setup is gone from the active list.
+        String dropPath = String.format("/api/v1/setups/%s/database/drop", setupId);
+
+        webClient.post(TEST_PORT, "localhost", "/api/v1/database-setup/connect")
+            .putHeader("content-type", "application/json")
+            .timeout(60000)
+            .sendJsonObject(connectRequest())
+            .compose(connectResponse -> {
+                testContext.verify(() -> {
+                    assertEquals(200, connectResponse.statusCode(),
+                        "Detach is non-destructive, so reconnect must succeed, got: "
+                            + connectResponse.statusCode() + " " + connectResponse.bodyAsString());
+                });
+                return webClient.post(TEST_PORT, "localhost", dropPath)
+                    .putHeader("content-type", "application/json")
+                    .timeout(60000)
+                    .sendJsonObject(new JsonObject().put("confirmDatabaseName", databaseName));
+            })
+            .compose(dropResponse -> {
+                testContext.verify(() -> {
+                    logger.info("Confirmed drop response: {} - {}",
+                        dropResponse.statusCode(), dropResponse.bodyAsString());
+                    assertEquals(200, dropResponse.statusCode(),
+                        "Confirmed drop must succeed, got: " + dropResponse.statusCode());
+                    assertEquals(setupId, dropResponse.bodyAsJsonObject().getString("setupId"));
+                });
+                return webClient.get(TEST_PORT, "localhost", "/api/v1/setups").send();
+            })
+            .onSuccess(listResponse -> {
+                testContext.verify(() -> {
+                    JsonArray setupIds = listResponse.bodyAsJsonObject().getJsonArray("setupIds");
+                    assertFalse(setupIds.contains(setupId),
+                        "Dropped setup must be gone from the active list, got: " + setupIds);
                 });
                 testContext.completeNow();
             })

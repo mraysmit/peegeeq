@@ -1,4 +1,6 @@
 package dev.mars.peegeeq.rest.config;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
@@ -16,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @DisplayName("RestServerConfig Tests")
 @org.junit.jupiter.api.Tag("core")
+@Tag(TestCategories.CORE)
 class RestServerConfigTest {
 
     @Nested
