@@ -2,7 +2,9 @@
 
 **Author**: Mark Andrew Ray-Smith Cityline Ltd
 **Created**: 2026-07-19
-**Status**: ✅ COMPLETE 2026-07-19 — all steps SCH.0–SCH.7 done; per-step evidence below.
+**Status**: ✅ COMPLETE 2026-07-19 — all steps SCH.0–SCH.7 done, plus SCH.8 (the later
+phases: schedule import + manual-run history, implemented on user request the same day —
+evidence at the end of this document); per-step evidence below.
 SCH.1 ✅ DONE 2026-07-19 (24 tests red→green; three storage keys with per-entry validation +
 D8 bounds in the service write path; `computeNextRunAt` pure and directly tested; model
 corrected at user review: schedules carry scheduling state only, outcomes live in history,
@@ -51,8 +53,8 @@ Coverage extension (user request, 2026-07-19): two further e2e tests — (a) the
 lease with two REAL tabs sharing real storage: a due schedule fires exactly once, and the
 count stays 1 through two further check cycles in both tabs; (b) an interval schedule
 fires twice at its one-minute slots with the schedule staying enabled between firings.
-Project re-de-flaked `--repeat-each=2 --retries=0` (33/33). Remaining out of scope by
-decision: schedule import (later phase, D7).
+Project re-de-flaked `--repeat-each=2 --retries=0` (33/33). Schedule import, deferred here
+as the D7 later phase, shipped the same day as SCH.8 (see the end of this document).
 
 Design: [PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md](PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md).
 Section references (§n) point into it.
@@ -115,7 +117,9 @@ Backend/unattended execution, cron grammar, config editing in place, full per-sc
 history, cross-tab live list sync — all per design §4. Backend execution, if ever wanted, is
 a separate project that reuses the §5 schedule model and replaces §7.
 
-**SCH.8 ✅ DONE 2026-07-19 — the later phases, implemented on user request:**
+## SCH.8 — the later phases (graduated from Out of scope)
+
+**SCH.8 ✅ DONE 2026-07-19 — implemented on user request:**
 1. *Schedule import*: `importSchedulesFromFile` (per-entry Zod incl. range rules, named
    rejects, array-or-single) + `scheduleStore.importSchedules` (duplicate-id skip against
    storage AND within the batch, named; `nextRunAt` recomputed — past one-shot arrives

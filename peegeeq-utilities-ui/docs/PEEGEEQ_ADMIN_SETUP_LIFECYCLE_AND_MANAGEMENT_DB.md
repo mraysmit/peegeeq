@@ -2,7 +2,8 @@
 
 **Author**: Mark Andrew Ray-Smith Cityline Ltd  
 **Created**: 2026-07-10  
-**Version**: 1.0  
+**Updated**: 2026-07-19 (Appendix A statuses brought in line with the shipped Phase S work: W-A, most of W-B, W-G, W-DD, and the UI rows U1/U4/U5/U6 are done; W-C/W-D/W-E/W-F remain open)  
+**Version**: 1.1  
 
 Defines what a *setup* is, how to **re-establish** one against a database whose artifacts already
 exist (both **manual** and **automatic**), and the standalone, centralised **`peegeeq-management`
@@ -69,6 +70,9 @@ reach it. Today the binding is in-memory, per REST-backend process:
 - There is **no** reconnect/attach/load method on `DatabaseSetupService`
   ([:40–53](../../peegeeq-api/src/main/java/dev/mars/peegeeq/api/setup/DatabaseSetupService.java)) and
   no registry persistence or reload-on-startup. `peegeeq-management-ui` has no connect concept either.
+  *(Update 2026-07-17: the reconnect half is now closed — `connectToExistingSetup` shipped per §4 with
+  the self-describing registry tables, and both UIs gained connect flows. Registry persistence and
+  reload-on-startup — §6/§8 — remain open. This section is retained as the original problem statement.)*
 
 So a setup whose artifacts exist (created elsewhere, or after a restart) cannot be reached, and
 `create` cannot be reused to attach — it would wipe the data.
@@ -134,7 +138,7 @@ via **both** paths, which share one core operation (§4):
 | Layer | Change |
 |---|---|
 | **peegeeq-api** `DatabaseSetupService` | Add `Future<DatabaseSetupResult> connectToExistingSetup(DatabaseSetupRequest request)` (same DTO). |
-| **peegeeq-db** `PeeGeeQDatabaseSetupService` | Refactor steps 3–5 into a shared private tail. `connectToExistingSetup` = **skip 1 & 2**, run `validateDatabaseInfrastructure` **first** (fail clearly if the PeeGeeQ schema is absent — must not create it), **reconstitute queues/event-stores by reading the existing schema** (not from the request), then the tail. `PeeGeeQManager.start()` is non-destructive, so no data is touched. |
+| **peegeeq-db** `PeeGeeQDatabaseSetupService` | ~~Refactor steps 3–5 into a shared private tail~~ *(decided 2026-07-16: **no shared-tail refactor** — `connectToExistingSetup` was built as a fully separate, parallel path so the load-bearing `createCompleteSetup` stays untouched as a failsafe)*. `connectToExistingSetup` = **skip 1 & 2**, run `validateDatabaseInfrastructure` **first** (fail clearly if the PeeGeeQ schema is absent — must not create it), **reconstitute queues/event-stores from the registry tables** (not from the request), then start the manager + register. `PeeGeeQManager.start()` is non-destructive, so no data is touched. **Shipped 2026-07-16/17.** |
 | **peegeeq-rest** `DatabaseSetupHandler` | New route `POST /api/v1/database-setup/connect` → `connectToExistingSetup`. `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` delegate. |
 
 Both the manual (§5) and automatic (§6) paths call this same operation — they differ only in the
@@ -410,15 +414,19 @@ The connect UI must therefore separate two actions:
 
 - **Detach / deregister (default for a connected setup):** drop only the in-memory binding (+ the
   registry row if remembered) and stop the manager. **Artifacts untouched.** This is the natural inverse
-  of connect. *(Backend op not yet present — no detach/deregister endpoint exists in source; it is part
-  of the §4/§9 "release ownership" path and must be built.)*
+  of connect. *(Shipped 2026-07-17/18 — `detachSetup` on the service interface plus REST
+  `POST /api/v1/setups/{setupId}/detach` (204); both UIs use it as the default removal action. W-A A6/A7.)*
 - **Destroy (drop database):** the §13 explicit-overwrite/destroy path only — behind distinct copy, a
   danger-styled confirm, and never the default for a setup that was connected rather than created.
 
 Do **not** reuse the reference's "Delete the database … cannot be undone" confirm for the connect flow's
 primary action; that wording belongs only to the explicit destroy path.
 
-### 12.4 Port — peegeeq-utilities-ui (current state → target)
+### 12.4 Port — peegeeq-utilities-ui *(delivered 2026-07-17 — S.5/S.6)*
+
+> **Done.** The port shipped as planned: `ConnectSetupPage` at `/setups/connect` (page idiom, as
+> decided below), `setupService.connectExisting` + `detachSetup`, and the Create pages, their routes,
+> and `createSetup`/`deleteSetup` removed. The analysis below is retained as the build-time record.
 
 Per the copy-management-ui directive the port mirrors the reference **once (b) exists**, but the
 utilities-ui baseline differs from the reference in ways that change the work:
@@ -665,6 +673,15 @@ setup the operator merely **connected** to unless they explicitly choose destroy
 atomic recreate and no create-time overwrite, keeping the single destructive path the only one. Tracked
 as workstream **DD** in Appendix A.
 
+**Note B — teardown honesty (shipped 2026-07-18).** `destroySetup`/`close()` no longer erase
+resource-close failures: every close is still attempted best-effort, but the first failure is captured
+and re-raised, so DELETE/detach can return 503 on a genuine close failure instead of reporting success
+over a leaked connection. The re-raise happens **inside** the manager-close transform, not chained after
+it — the per-setup Vert.x is closed by `closeReactive`, so a continuation chained after it would be
+dropped and the caller would hang. A dead-database probe (`DestroySetupDeadDatabaseIntegrationTest`)
+pins that closes are local: destroying a setup whose database is already gone completes cleanly rather
+than hanging or spuriously failing.
+
 ---
 
 ## 14. Decisions & non-goals
@@ -718,32 +735,37 @@ registry was never told about (reconnect works from the registry, not by scannin
 > **Dependency order:** **B** (self-describing schema) → **A** (connect core), which consume it; **G**
 > (provisioning guard) is independent and should ship early as a safety fix; **C/D/E** (durable registry,
 > estate DB, leases) build the control plane; **F** (credential seam) can land alongside; **U** (UI) is
-> last; **V** (verification) is cross-cutting. Nothing below is started yet.
+> last; **V** (verification) is cross-cutting.
+>
+> **Status as of 2026-07-19:** W-A, W-B (except B7), W-G, and W-DD shipped with Phase S
+> (2026-07-16 → 18); W-U rows U1/U4/U5/U6 shipped; W-V rows V1/V2/V6 verified green. Open: W-C
+> (durable registry — Phase R), W-D/W-E (estate DB + leases — Phase M), W-F (credential seam),
+> U2/U3, V3–V5, and W-P P1–P3.
 
 ### W-A — Non-destructive connect core (§4)
 
 | ID | Task | Ref | Status |
 |---|---|---|---|
-| A1 | Add `Future<DatabaseSetupResult> connectToExistingSetup(DatabaseSetupRequest)` to `DatabaseSetupService` | §4 | ☐ |
-| A2 | Refactor `createCompleteSetup` steps 3–5 into a shared private tail (manager start → validate → register) | §4 | ☐ |
-| A3 | Implement `connectToExistingSetup`: skip provisioning, run `validateDatabaseInfrastructure` **first** (fail if schema absent, never create), reconstitute (W-B), then the shared tail | §4 | ☐ |
-| A4 | REST route `POST /api/v1/database-setup/connect` → `connectToExistingSetup` | §4/§5 | ☐ |
-| A5 | `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` delegate the new method | §4 | ☐ |
-| A6 | Add non-destructive **detach**: `Future<Void> detachSetup(setupId)` — deregister the in-memory binding + stop the manager, **never drops the database** (the inverse of connect; distinct from the DB-dropping delete). Release the ownership lease (W-E) if held | §12.3/§9 | ☐ |
-| A7 | REST route for detach, **distinct** from the destructive `DELETE /api/v1/database-setup/{setupId}` (which drops the DB) → `detachSetup` | §12.3/§9 | ☐ |
+| A1 | Add `Future<DatabaseSetupResult> connectToExistingSetup(DatabaseSetupRequest)` to `DatabaseSetupService` | §4 | ☑ 2026-07-16 (non-breaking `default`; S.1) |
+| A2 | ~~Refactor `createCompleteSetup` steps 3–5 into a shared private tail~~ | §4 | ⊘ superseded — decided 2026-07-16: separate parallel path, create untouched as failsafe |
+| A3 | Implement `connectToExistingSetup`: skip provisioning, run `validateDatabaseInfrastructure` **first** (fail if schema absent, never create), reconstitute (W-B), then start + register | §4 | ☑ 2026-07-16 (S.2; incl. the double-encoded-JSONB config fix) |
+| A4 | REST route `POST /api/v1/database-setup/connect` → `connectToExistingSetup` | §4/§5 | ☑ 2026-07-17 (S.3; schema-absent → 400) |
+| A5 | ~~`RestDatabaseSetupService`~~ / `RuntimeDatabaseSetupService` delegate the new method | §4 | ☑ 2026-07-17 (runtime delegates; the dead `RestDatabaseSetupService` was **deleted**) |
+| A6 | Add non-destructive **detach**: `Future<Void> detachSetup(setupId)` — deregister the in-memory binding + stop the manager, **never drops the database** (the inverse of connect; distinct from the DB-dropping delete). Release the ownership lease (W-E) if held | §12.3/§9 | ☑ 2026-07-17/18 (delegates to the non-destructive `destroySetup`; lease release stays with W-E) |
+| A7 | REST route for detach → `detachSetup` | §12.3/§9 | ☑ 2026-07-17 (`POST /api/v1/setups/{setupId}/detach`, 204) |
 
 ### W-B — Self-describing schema (reconstitution data model, §4)
 
 | ID | Task | Ref | Status |
 |---|---|---|---|
-| B1 | DDL template for per-schema `peegeeq_object_registry` (`object_name` pk, `kind`, `config` jsonb, `created_at`) | §4 | ☐ |
-| B2 | DDL template for single-row `peegeeq_setup_metadata` (`setup_id` pk, `schema_name`, `schema_version`, `created_at`) | §4 | ☐ |
-| B3 | Write the object-registry row **transactionally** in the `addQueue` path (:601–605) | §4 | ☐ |
-| B4 | Write it in the bulk provisioning loop (:338–350) and the `addEventStore` path (:640) | §4 | ☐ |
-| B5 | Write the `setup_metadata` row once at provisioning | §4 | ☐ |
-| B6 | `connectToExistingSetup` reads both tables to rebuild queue/event-store factories (exact `kind` + config) and recover `setupId` | §4 | ☐ |
-| B7 | Back-compat for setups provisioned before these tables exist (graceful absence / backfill) | §4 | ☐ |
-| B8 | **Maintain the registry on delete** (not just create): remove the `peegeeq_object_registry` row **in the same transaction** as the object teardown — in the queue-delete path (`ManagementApiHandler.deleteQueue:1200`, **in-memory only today**, so it gains a DB write) and the event-store-delete path (`removeEventStore:725`, already drops tables). Without it, delete → reconnect resurrects the deleted object | §4 | ☐ |
+| B1 | DDL template for per-schema `peegeeq_object_registry` (`object_name` pk, `kind`, `config` jsonb, `created_at`) | §4 | ☑ 2026-07-16 (`10a-setup-object-registry.sql`, via the base schema-template manifest) |
+| B2 | DDL template for single-row `peegeeq_setup_metadata` (`setup_id` pk, `schema_name`, `schema_version`, `created_at`) | §4 | ☑ 2026-07-16 (`10b-setup-metadata.sql`) |
+| B3 | Write the object-registry row in the `addQueue` path | §4 | ☑ 2026-07-16 (ordered-safe on a separate connection **by design** — the resolved kind is only known post-factory; row + in-memory mutation only on success) |
+| B4 | Write it in the bulk provisioning loop and the `addEventStore` path | §4 | ☑ 2026-07-16 (event-store add is transactional with its DDL; upsert on conflict) |
+| B5 | Write the `setup_metadata` row once at provisioning | §4 | ☑ 2026-07-16 |
+| B6 | `connectToExistingSetup` reads both tables to rebuild queue/event-store factories (exact `kind` + config) and recover `setupId` | §4 | ☑ 2026-07-16 (S.2; IT: fresh instance B reconstitutes instance A's setup) |
+| B7 | Back-compat for setups provisioned before these tables exist (graceful absence / backfill) | §4 | ☐ (current behaviour: `validateDatabaseInfrastructure` fails clearly — no backfill) |
+| B8 | **Maintain the registry on delete**: remove the `peegeeq_object_registry` row in the same transaction as the object teardown | §4 | ◐ event-store half ☑ (`removeEventStore` delete-sync via `deleteObjectRegistry`); queue half **moot today** — no `removeQueue` exists and REST `deleteQueue` never touches the DB; add the registry delete if/when `removeQueue` is introduced |
 
 ### W-G — Non-destructive provisioning guard (§13) — *the create/connect/recreate fix*
 
@@ -760,8 +782,8 @@ registry was never told about (reconnect works from the registry, not by scannin
 | G2 | `createDatabaseFromTemplate`: refuse (failed `Future`, actionable message) **before** any drop when the DB exists | §13 | ☑ 2026-07-17 (via removal — no `overwrite`; unconditional refuse) |
 | G3 | ~~Force-drop only under `overwrite`; drop log INFO → **WARN**~~ (WARN done; force-drop is now §13.1 only) | §13 | ◐ WARN done; force-drop moved to W-DD |
 | G4 | ~~`createCompleteSetup` passes `request.isOverwrite()`~~ | §13 | ⊘ superseded by §13.1 |
-| G5 | ~~REST: distinct **409** for exists-vs-`overwrite`~~ — retarget: map the exists-refusal to a clear status, still distinct from the `isDatabaseCreationConflict` race handler | §13 | ☐ (mapping refinement; currently 503) |
-| G6 | ITs (retargeted, no `overwrite`): (a) existing DB → refuse, data **survives**, no drop/eviction; (b) absent DB → created; (c) guard fires **before** any eviction | §13/§15 | ☐ |
+| G5 | ~~REST: distinct **409** for exists-vs-`overwrite`~~ — retarget: map the exists-refusal to a clear status, still distinct from the `isDatabaseCreationConflict` race handler | §13 | ☑ 2026-07-17 (`DatabaseCreationConflictException` → **409** with an actionable message, `DatabaseSetupHandler`) |
+| G6 | ITs (retargeted, no `overwrite`): (a) existing DB → refuse, data **survives**, no drop/eviction; (b) absent DB → created; (c) guard fires **before** any eviction | §13/§15 | ☑ 2026-07-17/18 (runtime IT: create-conflict 409 with data intact; part of the Phase S verification, 12/12) |
 
 ### W-DD — Guarded drop operation (destroy, §13.1)
 
@@ -832,23 +854,23 @@ registry was never told about (reconnect works from the registry, not by scannin
 
 | ID | Task | Ref | Status |
 |---|---|---|---|
-| U1 | management-ui: "Connect to Existing" button + modal (reuse form + `setupRequest` builder) | §12 | ☐ |
-| U2 | management-ui: "remember this setup" checkbox → persist flag (W-C) | §12 | ☐ |
-| U3 | management-ui: server-inventory / per-server setup view | §12 | ☐ |
-| U4 | utilities-ui: `setupService.connectExisting(req)` + connect form replacing the Create pages | §12 | ☐ |
-| U5 | utilities-ui: **post-connect repopulation** — on connect success, reload the setup's object graph (`getSetups` → select the connected `setupId` → its effects re-run `listQueueDetails` + `getSetupDetails`) and land the operator on that setup so rehydration is visible; degrade honestly (blank type) when W-B reconstitution is absent, never fabricate a type | §12.5 | ☐ |
-| U6 | Both UIs: **detach-vs-destroy** — make the connected-setup removal default to non-destructive **detach** (W-A A6/A7); gate destroy (drop DB) behind distinct copy + a danger-styled confirm; do not reuse the "drops the database … cannot be undone" wording for the detach action | §12.3 | ☐ |
+| U1 | management-ui: "Connect to Existing" button + modal (reuse form + `setupRequest` builder) | §12 | ☑ 2026-07-17 (S.4; e2e 44/44) |
+| U2 | management-ui: "remember this setup" checkbox → persist flag (W-C) | §12 | ☐ blocked on W-C |
+| U3 | management-ui: server-inventory / per-server setup view | §12 | ☐ (Phase M) |
+| U4 | utilities-ui: `setupService.connectExisting(req)` + connect form replacing the Create pages | §12 | ☑ 2026-07-17 (S.5/S.6 — `ConnectSetupPage` at `/setups/connect`, page idiom as decided; Create pages + `createSetup`/`deleteSetup` removed) |
+| U5 | utilities-ui: **post-connect repopulation** — on connect success, reload the setup's object graph and land the operator on it; degrade honestly (blank type) when W-B reconstitution is absent, never fabricate a type | §12.5 | ☑ 2026-07-17 (S.5; connect e2e verifies the reconnected setup's queues render typed and targetable) |
+| U6 | Both UIs: **detach-vs-destroy** — removal defaults to non-destructive **detach** (W-A A6/A7); destroy (drop DB) behind distinct copy + a danger-styled type-to-confirm; admin-tool-only | §12.3 | ☑ 2026-07-18 (management-ui Detach + "Drop Database…" type-to-confirm modal; utilities-ui per-row Detach only — it never calls drop) |
 
 ### W-V — Verification (cross-cutting, §15)
 
 | ID | Task | Ref | Status |
 |---|---|---|---|
-| V1 | Non-destructiveness IT: create → publish → `connect` from a fresh instance → rows survive | §15 | ☐ |
-| V2 | Reconstitution IT: `kind` + full config + `setupId` restored from the registry tables | §15 | ☐ |
-| V3 | Auto-reload IT: persist binding → restart → active with no manual step; bad entry skipped | §15 | ☐ |
-| V4 | Cross-server reconnect IT: setups on two PG containers both return active | §15 | ☐ |
-| V5 | Lease-takeover IT: kill owner → another claims + re-activates, no duplicate maintenance jobs | §15 | ☐ |
-| V6 | Schema-absent → clear `400`, no partial registration | §15 | ☐ |
+| V1 | Non-destructiveness IT: create → publish → `connect` from a fresh instance → rows survive | §15 | ☑ 2026-07-17/18 (Phase S verification, runtime IT) |
+| V2 | Reconstitution IT: `kind` + full config + `setupId` restored from the registry tables | §15 | ☑ 2026-07-16 (`connectToExistingSetup_reconstitutesFromRegistry`) |
+| V3 | Auto-reload IT: persist binding → restart → active with no manual step; bad entry skipped | §15 | ☐ (Phase R) |
+| V4 | Cross-server reconnect IT: setups on two PG containers both return active | §15 | ☐ (Phase M) |
+| V5 | Lease-takeover IT: kill owner → another claims + re-activates, no duplicate maintenance jobs | §15 | ☐ (Phase M) |
+| V6 | Schema-absent → clear `400`, no partial registration | §15 | ☑ 2026-07-17 (REST connect IT) |
 
 ### W-P — Correctness/safety bugs (prerequisites)
 

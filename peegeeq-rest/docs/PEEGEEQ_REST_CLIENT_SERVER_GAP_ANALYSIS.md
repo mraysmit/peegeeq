@@ -3,7 +3,7 @@
 This document provides a comprehensive analysis of testing coverage across PeeGeeQ modules, identifies gaps in the REST client implementation, and compares the `peegeeq-rest` module implementation against documentation.
 
 **Analysis Date:** 2025-12-07
-**Last Updated:** 2025-12-13
+**Last Updated:** 2026-07-19
 **Modules Analyzed:** peegeeq-rest, peegeeq-runtime, peegeeq-management-ui, peegeeq-rest-client
 
 **Status Update:** The `peegeeq-rest-client` Java module has been fully updated with complete REST client implementation covering ALL server endpoints.
@@ -18,6 +18,18 @@ This document provides a comprehensive analysis of testing coverage across PeeGe
 - Java REST Client: Replaced mock-based tests with integration tests using TestContainers
 - TypeScript Client: Added queue message, webhook, and subscription options endpoints
 - peegeeq-runtime: Added integration tests with TestContainers
+
+**July 2026 Update (setup lifecycle — see `peegeeq-utilities-ui/docs/PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md`):**
+- New server endpoints, all integration-tested: `POST /api/v1/database-setup/connect` (non-destructive
+  attach + reconstitution), `POST /api/v1/setups/:setupId/detach` (non-destructive, 204),
+  `POST /api/v1/setups/:setupId/database/drop` (type-to-confirm guarded destructive drop);
+  `create` on an existing database now refuses with **409** (`DatabaseCreationConflictException`)
+  instead of dropping. The Java and TypeScript clients have **not** been extended with these
+  operations — that is a new client gap if programmatic access is wanted.
+- The dead `RestDatabaseSetupService` was deleted (no production callers).
+- Repo-wide test-tag sweep: `MessageSendingIntegrationTest` → `MessageSendingCoreTest` and
+  `SubscriptionOptionsIntegrationTest` → `SubscriptionOptionsCoreTest` (no DB usage; retagged CORE),
+  plus previously untagged classes tagged so every test runs in a profile.
 
 ---
 
@@ -98,9 +110,11 @@ The peegeeq-runtime module has minimal test coverage.
 - **Estimated Coverage:** ~40% (no JaCoCo report available)
 - **Status:** ADEQUATE - Integration tests verify full wiring with TestContainers
 
-**Test Files:**
+**Test Files (updated 2026-07-19):**
 - `RuntimeDatabaseSetupServiceTest.java` - Unit tests for factory registration
-- `RuntimeDatabaseSetupServiceIntegrationTest.java` - Integration tests with TestContainers (ADDED 2025-12-13)
+- `RuntimeDatabaseSetupServiceIntegrationTest.java` - Integration tests with TestContainers (ADDED 2025-12-13; extended through 2026-07 with the setup-lifecycle chain: registry writes, connect/reconstitution, create-conflict 409, guarded drop)
+- `DestroySetupDeadDatabaseIntegrationTest.java` - destroy against an already-dropped database completes instead of hanging (ADDED 2026-07)
+- `ModuleWiringTest.java` / `PeeGeeQContextTest.java` - module wiring and context tests
 - `PeeGeeQRuntimeTest.java` - Tests for PeeGeeQRuntime factory methods
 - `RuntimeConfigTest.java` - Tests for RuntimeConfig builder and validation
 
@@ -436,8 +450,8 @@ The REST API Reference documents detailed queue statistics, but the implementati
 
 | Documented Endpoint | Documentation Reference | Status |
 |:--------------------|:------------------------|:-------|
-| `GET /api/v1/setups/:setupId/queues` | REST API Reference - List Setups section | **NOT IMPLEMENTED** - No route registered |
-| `GET /api/v1/setups/:setupId/eventstores` | REST API Reference - List Event Stores | **NOT IMPLEMENTED** - No route registered |
+| `GET /api/v1/setups/:setupId/queues` | REST API Reference - List Setups section | ~~NOT IMPLEMENTED~~ **RESOLVED** (see §6.1 #7 — route registered) |
+| `GET /api/v1/setups/:setupId/eventstores` | REST API Reference - List Event Stores | ~~NOT IMPLEMENTED~~ **RESOLVED** (see §6.1 #7 — route registered) |
 
 #### 4.2.2 Response Format Mismatches
 
@@ -459,8 +473,8 @@ Comparing `PeeGeeQRestServer.java` routes (lines 171-279) against documentation:
 | `POST /api/v1/setups` | Yes | Line 180 |
 | `GET /api/v1/setups/:setupId` | Yes | Line 181 |
 | `DELETE /api/v1/setups/:setupId` | Yes | Line 183 |
-| `GET /api/v1/setups/:setupId/queues` | **NO** | Not registered |
-| `GET /api/v1/setups/:setupId/eventstores` | **NO** | Not registered |
+| `GET /api/v1/setups/:setupId/queues` | ~~NO~~ **Yes (since resolved)** | Registered with §6.1 #7 |
+| `GET /api/v1/setups/:setupId/eventstores` | ~~NO~~ **Yes (since resolved)** | Registered with §6.1 #7 |
 
 ---
 
