@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.runtime;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
@@ -30,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for RuntimeDatabaseSetupService.
  * Tests factory registration and delegation using real PeeGeeQRuntime.
  */
+@Tag(TestCategories.CORE)
 class RuntimeDatabaseSetupServiceTest {
 
     private RuntimeDatabaseSetupService service;

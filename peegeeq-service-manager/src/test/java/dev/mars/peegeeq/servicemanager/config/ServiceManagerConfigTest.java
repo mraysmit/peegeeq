@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.servicemanager.config;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.DisplayName;
@@ -25,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for ServiceManagerConfig.
  */
+@Tag(TestCategories.CORE)
 class ServiceManagerConfigTest {
 
     @Test

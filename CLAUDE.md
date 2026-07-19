@@ -35,3 +35,21 @@
 - **No mocking.** No Mockito, no mocked database connections, no mocked repositories. TestContainers for all database tests.
 - **Mirror existing patterns exactly.** Do not invent new patterns. Read the surrounding code first.
 - **Never state runtime behaviour as fact from static reading.** If behaviour needs verifying, say so — do not assert it.
+
+---
+
+### Communication style (mandatory, applies to every response)
+
+Write short declarative sentences. No idioms, no metaphors, no hedging words ("candidate", "arguably", "sort of", "essentially", "basically"), no rhetorical setups ("here's the thing", "the key insight is"), no fake-casual phrasing ("hang off", "lean into", "sweet spot"). No programmer slang in prose, comments, or docs — "mint" is "create/generate", "hydrate" is "load", "bubble up" is "propagate", "happy path" is "normal path". State the fact, then stop. If a recommendation is being made, commit to it in one sentence and give the reason in the next.
+
+---
+
+### Working agreement (mandatory, from defects found in this project)
+
+1. **Data model first.** Every design presents its data model and contracts before anything else. For every stored field state: source of truth, or derivable? Derivable data is computed, never stored. When a new requirement subsumes an old mechanism, delete the old mechanism — never keep both.
+2. **TDD includes dependency failure modes.** Before writing code that calls a dependency, list that dependency's failure modes (throws, rejections, nulls) and write a failing test per mode first. `void asyncFn()` and un-caught async calls are banned — grep for them like the Java banned patterns.
+3. **Claims require same-turn evidence.** Any statement about test results, coverage, or repo state must come from command output produced in that turn — never from memory, a summary, or a document. Read the per-class "Tests run:" lines; "Tests run: 0" and silent profile exclusions count as failures. Never pipe a completeness sweep through `head`.
+4. **Docs are not state.** Status lives in code, tests, and logs. Before reporting the state of anything, verify against the artifact; documents get updated to match reality, not quoted as it.
+5. **Fix first, never litigate blame.** When a defect is reported or suspected, sweep the whole class, fix everything found regardless of origin, report the fix. Attribution only if asked.
+6. **Report errors as wrong judgments, not oversights.** A post-mortem names what was decided wrongly and why. If an explanation sounds like a process story, it is probably self-serving — check it against the record.
+7. **Say what was NOT checked.** Every phase report ends with known gaps and unverified paths, stated plainly.

@@ -113,7 +113,7 @@ export default function Overview() {
                             data-testid="no-setups"
                             type="info"
                             message="No setups found"
-                            description="Create a setup to get started, then add queues to it."
+                            description="Connect to an existing PeeGeeQ setup to get started. Setups are provisioned with the admin tool."
                             showIcon
                         />
                     ) : (

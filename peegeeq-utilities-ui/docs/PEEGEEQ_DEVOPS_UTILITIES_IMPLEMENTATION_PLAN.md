@@ -26,13 +26,14 @@ the current baseline and covers only what is left, plus the divergences recorded
 | Publication engine (tick loop, auto-stop) | ✅ done, **not UI-wired** | TD §3.1, §7 |
 | Services (setup, queue, publish, template, valueList, config) | ✅ done | TD §3.1, §5 |
 | Stores (generator, template, valueList, utilities) | ✅ done | TD §3.1 |
-| Create Setup / Create Queue pages | ✅ built — **to be removed in Phase S** (provisioning is admin-tool-only) | TD §3.2; S.6 |
-| Setups list + Setup detail (queue CRUD, badges) | ✅ done | TD §3.2 |
+| Create Setup / Create Queue pages | ✅ **removed** (Phase S / S.6, 2026-07-17 — provisioning is admin-tool-only; replaced by ConnectSetupPage) | TD §3.2; S.6 |
+| Setups list + Setup detail (queue CRUD, badges) + per-row Detach | ✅ done | TD §3.2 |
 | TargetSelector (Zone A) | ✅ done | TD §3.2 |
+| Connect-to-existing-setup UI (ConnectSetupPage + service) | ✅ done (Phase S / S.5, 2026-07-17) | setup-db §12 |
 | Generator Zones B–E | ❌ stub only | feature §6.1 |
 | Template Manager page | ❌ stub only | feature §6.2 |
 | Value List Manager page | ❌ stub only | feature §6.3 |
-| Overview redesign (per-setup, no global aggregates) | ❌ old design | feature §6.6, TD §12.2 |
+| Overview redesign (per-setup, no global aggregates) | ✅ done (per-setup table + detail card; connect CTA) | feature §6.6, TD §12.2 |
 
 ---
 
@@ -67,8 +68,8 @@ Provide the commands; the user runs them.
 ## Dependency graph
 
 ```
-Phase A (divergence fixes & hardening)     ── independent, ship first
-Phase S (Setup connect: manual attach)     ── backend-led; the connectToExistingSetup primitive + UI
+Phase A (divergence fixes & hardening)     ── ✅ DONE 2026-07-10 (TD §12 items 3–6 resolved)
+Phase S (Setup connect: manual attach)     ── ✅ DONE 2026-07-18 (S.0–S.6 + detach + guarded drop W-DD)
       │                                       (DECIDED: S lands BEFORE B — setups are provisioned by
       │                                        the admin tool, NOT by the generator; connecting to an
       │                                        existing setup is the generator's only path to a target)
@@ -137,10 +138,13 @@ and prerequisites beyond the per-phase lists. Captured here until each is worked
   supplied-at-connect; adopters bring their own store). Open-source: no vault bundled or assumed. No
   encryption key to provision. Spec: setup-db §11.
 - **Pre-5 — Correctness/safety bugs (prerequisites).** Defects found during the spike, each static-only
-  and to be **runtime-reproduced before fixing** (see setup-db Appendix A, W-P): destructive `create` on
-  name collision (§13/W-G, **critical**); silent partial setup (`createQueueFactories` continues on a
-  factory failure → setup ACTIVE with queues missing); `pg_notify` failure swallowed; no polling fallback
-  in `LISTEN_NOTIFY_ONLY`. Should clear ahead of feature work.
+  and to be **runtime-reproduced before fixing** (see setup-db Appendix A, W-P):
+  ✅ **destructive `create` on name collision (§13/W-G) — FIXED 2026-07-17:** `create` now *refuses* an
+  existing database with a `DatabaseCreationConflictException` → REST **409**; it never drops. Dropping is
+  a separate guarded operation (W-DD, §13.1: type-to-confirm `dropSetupDatabase` +
+  `POST /setups/{id}/database/drop`), shipped and integration-tested.
+  Still open: silent partial setup (`createQueueFactories` continues on a factory failure → setup ACTIVE
+  with queues missing); `pg_notify` failure swallowed; no polling fallback in `LISTEN_NOTIFY_ONLY`.
 
 ---
 
@@ -247,24 +251,21 @@ management-ui's proven layer, copied file-for-file with only path/origin edits:
 
 ---
 
-## Phase A — Divergence fixes and hardening
+## Phase A — Divergence fixes and hardening — ✅ DONE 2026-07-10
 
-**Goal:** close the small, high-confidence gaps in TD §12 before building new pages, so the
-foundation the new UI leans on is correct.
+**Goal (met):** close the small, high-confidence gaps in TD §12 before building new pages. All
+four items are recorded as RESOLVED in TD §12 (items 3–6).
 
-| Step | File | Change | Reference |
+| Step | File | Outcome | Reference |
 |---|---|---|---|
-| A.1 | docs only | **Re-scoped.** The createQueue contract mismatch is **moot**: provisioning is admin-tool-only, so `createSetup`/`createQueue` and their pages are **removed in Phase S (S.6)** rather than fixed. A.1 is now doc-correction only: fix feature §16's wrong delete-queue path (the code's `DELETE /management/queues/...` is the verified-correct one). Do **not** invest in the creation path. | Backend integration architecture above; TD §12.3; S.6 |
-| A.2 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | Switch the Queue dropdown from `getQueues` (names) to `listQueueDetails`, and render a per-queue `native`/`outbox` badge in each option (green/orange, matching `SetupDetailPage`). | feature §6.1; TD §12.4 |
-| A.3 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | Distinguish "queue fetch failed" from "no queues": surface a failure (e.g. `<Alert type="error">` with retry) instead of silently rendering the empty state. | TD §12.6 |
-| A.4 | [generatorStore.ts](../src/stores/generatorStore.ts) + [publicationEngine.ts](../src/engine/publicationEngine.ts) | Decide `currentRate`: either implement a true rolling 1-second window (design intent) or update feature §6.1/§10 to state it is a cumulative average. Keep store and engine consistent. | TD §12.5 |
+| A.1 | docs only | ✅ done — feature §16's delete-queue path corrected in place (verified note at the §16 endpoint table: `DELETE /management/queues/{setupId}/{queueName}` is correct; the old `/setups/...` path 404s). The createQueue contract mismatch became **moot** when S.6 removed `createQueue` entirely. | TD §12.3; S.6 |
+| A.2 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | ✅ done — Queue dropdown loads via `listQueueDetails`; implementation type shown as **plain text** in the option label (`orders (native)`) per the recorded **no-badges decision** (TD §12.4) — the original badge idea was dropped deliberately. | feature §6.1; TD §12.4 |
+| A.3 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | ✅ done — queue-fetch failure surfaces as an error `Alert` with Retry (`data-testid="queue-load-error"`), distinct from the no-queues empty state; covered by unit tests. | TD §12.6 |
+| A.4 | [generatorStore.ts](../src/stores/generatorStore.ts) | ✅ done — `currentRate` is a true rolling 1-second window in the store (per-run samples in the store closure, cumulative fallback on first tick); the engine computes no rate of its own (`buildSummary.avgRate` is cumulative **by design** — it is the summary average). | TD §12.5 |
 
-**Acceptance:** delete-queue works against the live backend; the generator Queue dropdown shows
-type badges; a queue-load failure is visible to the user; `currentRate` semantics match the docs.
-
-**Verification:** banned-pattern grep on the three TS files → `npm run build` → Vitest for
-`queueService` and any TargetSelector test → manual/Playwright check of delete-queue and the
-badge in the dropdown.
+**Acceptance (met):** delete-queue verified against the live backend; the Queue dropdown shows
+each queue's type; a queue-load failure is visible with retry; `currentRate` semantics match the
+docs (rolling window, documented in types + TD §12.5).
 
 ---
 
@@ -283,17 +284,40 @@ Build in the order below (each is its own component under `src/pages/generator/`
 
 | Step | File | Zone / responsibility | Reference |
 |---|---|---|---|
-| B.1 | `src/pages/generator/RateControls.tsx` | Zone B — rate, duration, max batch size, warn threshold, auto-stop; live "Total = rate × duration"; non-blocking rate-warning `Alert`. | feature §6.1 Zone B |
-| B.2 | `src/pages/generator/TemplateEditor.tsx` | Zone C — template `Select`, JSON payload textarea (validate on blur), message type / priority / delay / group, headers add/remove, placeholder reference `Collapse`. | feature §6.1 Zone C, §5 |
-| B.3 | `src/pages/generator/GeneratorActions.tsx` | Zone D — preview index input, **Preview** (resolve + modal, no HTTP, `findMissingLists` warning), **Start**, **Stop**; button enable/disable per `RunStatus`. | feature §6.1 Zone D, §5.5, §8 |
-| B.4 | `src/pages/generator/ProgressPanel.tsx` | Zone E — progress bar, Sent/Elapsed/Rate/Errors counters (refresh ~500 ms), recent-errors list, terminal summary card + **Download results**. | feature §6.1 Zone E |
-| B.5 | `src/pages/generator/MessageGeneratorPage.tsx` | Assemble Zones A–E; own the `generatorStore` subscription; construct `createPublicationEngine()` on Start, pass callbacks that call `tickUpdate`/`transitionTo`/summary handlers; discard the engine on terminal state. | feature §6.1; §7, §13; TD §7 |
-| B.6 | [App.tsx](../src/App.tsx) | Replace the inline `MessageGeneratorPage` stub with the real page. | — |
+| B.0 | ✅ **DONE 2026-07-18** — [publicationEngine.ts](../src/engine/publicationEngine.ts) | Engine upgraded to §7.1 as respecified: 1 s ticks (first fan-out fires immediately — §7.1 note; without it a duration-N run sends only N−1 quotas), full per-second quota split into ≤ `maxBatchSize` groups fired concurrently (`Promise.allSettled`), per-batch consec-error processing in batch order, whole-fan-out in-flight guard, stop-during-fan-out race guarded; `start(config, identity, callbacks)` — engine generates none of the ids. TDD red→green, 11 engine tests. | feature §7.1, §13 |
+| B.1 | ✅ **DONE 2026-07-18** — `src/pages/generator/RateControls.tsx` | Zone B — rate, duration, max batch size, warn threshold, auto-stop; live "Total = rate × duration"; non-blocking rate-warning `Alert`. 15 unit tests, no mocks. | feature §6.1 Zone B |
+| B.2 | ✅ **DONE 2026-07-18** — `src/pages/generator/TemplateEditor.tsx` | Zone C — working-copy editor (value/onChange, page owns state): template `Select` backed by the real templateStore, New/Save/Export ("Edit" dropped — always editable under the working-copy contract), payload validated on blur by resolve-then-parse (§8 semantics), name/type/priority/delay/group fields, headers add/remove (cap 20), §5.3 placeholder reference `Collapse`, dirty-switch confirm. 15 unit tests, real store + localStorage, no service mocks. | feature §6.1 Zone C, §5 |
+| B.3 | ✅ **DONE 2026-07-18** — `src/pages/generator/GeneratorActions.tsx` | Zone D — preview index input, **Preview** (resolve at index with display-only fresh identity + modal, no HTTP, missing-lists warning banner, inline error on parse failure), **Start** (idle + target only; missing-lists Proceed/Cancel pre-flight per §5.5), **Stop** (running only). 13 unit tests, real resolver + real valueListStore, no mocks. **Header-resolution finding: FIXED 2026-07-18 (user decision — fix the engine):** `resolveString` extracted in the resolver; the engine resolves header values per message; Preview shows resolved headers; the missing-list scan covers payload + header values. 7 new tests across resolver/engine/Zone D. | feature §6.1 Zone D, §5.5, §8 |
+| B.4 | ✅ **DONE 2026-07-18** — `src/pages/generator/ProgressPanel.tsx` | Zone E — store-driven (reads generatorStore directly): progress bar, Sent/Elapsed/Rate/Errors counters (Elapsed on the panel's own 500 ms interval from `startedAt`), 20-most-recent error list (hidden at zero), ERROR status shows `autoStopReason`, terminal summary card replaces the bar and renders from the stored `RunSummary` alone, **Download results** + **New run** (clears summary + `resetRun`). Store gained `summary`/`setSummary` (cleared on start/reset). 8 panel tests + 3 store tests, real store, no mocks. | feature §6.1 Zone E, §7.2, §11 |
+| B.5 | ✅ **DONE 2026-07-18** — `src/pages/generator/MessageGeneratorPage.tsx` | Zones A–E assembled. Page owns working template / rate settings / preview index / target; Start builds `RunConfig` → `setConfig` + `startRun()` (generates runId) → `engine.start(config, {runId, correlationId}, callbacks)`; onTick → `tickUpdate`; terminal callbacks → `transitionTo` + `setSummary`, engine discarded; Stop delegates to `engine.stop()` (no double-write); unmount stops a live run; Zones B/C disabled while running. 5 page unit tests (zone assembly + state wiring; run flow deferred to the e2e — needs a real backend). | feature §6.1; §7, §13; TD §7 |
+| B.6 | ✅ **DONE 2026-07-18** — [App.tsx](../src/App.tsx) | Stub replaced with the real page (stub + its now-unused imports removed). New e2e project `4-generator-run` (own throwaway setup+queue): Zone B total + threshold advisory (the B.1 e2e obligation), template editing, Preview, full run with real publishing (server-acknowledged counters → COMPLETED summary → New run), and Stop → STOPPED. Fallout fix: TargetSelector now keeps the **setup dropdown visible in the no-queues and queue-error states** — previously a queue-less first setup stranded the user with no way to switch setups (found because a concurrent spec's queue-less setup was auto-selected). Full e2e suite 60/60; `4-generator-run` de-flaked at `--repeat-each=2 --retries=0`. | — |
 
-**Key wiring detail (B.5):** the store and engine must share one `runId`. The engine currently
-generates its own (TD §7). Reconcile: either the page passes the store's `runId`/config into the
-engine, or the store adopts the engine's summary `runId`. Pick one and keep the summary's `runId`
-consistent with what Zone E displays.
+**Design decisions locked in before B.2 (coherence review 2026-07-18 — see design §7.1, §7.2,
+§6.1 Zone C/E, §11, §13 for the full statements):**
+
+1. **Run identity (B.0):** the **store owns `runId`** — `startRun()` generates it; the page passes the
+   store's `runId`/`correlationId` into `engine.start(config, identity, callbacks)`. The engine's
+   own UUID generation is removed in B.0 (it currently generates two identities for one run).
+2. **Concurrent fan-out in v1 (DECIDED 2026-07-18, user call — implemented as step B.0):**
+   design §7.1 respecified to 1-second ticks carrying the full per-second quota, split into
+   `ceil(rate / maxBatchSize)` batches fired concurrently via `Promise.allSettled`; per-batch
+   consecutive-error counting in batch order; ceiling ≈ `6 × maxBatchSize / avgLatency` (browser
+   connection limit). `sent` counts server-**acknowledged** messages. (The original §7.1 sketch
+   was internally inconsistent — its group-split branch was unreachable; §7.1 now records the
+   coherent form.)
+3. **Summary home (B.4/B.5):** `generatorStore` gains `summary: RunSummary | null` +
+   `setSummary` (set by terminal callbacks, cleared on start/reset); the Zone E summary card and
+   Download render from the summary alone.
+4. **No dead-end (B.4):** the summary card carries a **New run** button (clears summary +
+   `resetRun()`) — the only exit from terminal states; Start stays idle-only.
+5. **Elapsed cadence (B.4):** ProgressPanel runs its own 500 ms interval deriving Elapsed from
+   `startedAt`; sent/rate/errors update at engine tick cadence.
+6. **Zone C working copy (B.2):** Preview and Start use the editor's current working copy, saved
+   or not; Save is pure persistence; switching templates confirms before discarding edits.
+
+**E2E obligation (B.5/B.6):** the generator Playwright spec must exercise Zone B through the
+run flow (set rate/duration → total updates; cross the warn threshold → advisory appears) —
+RateControls has unit coverage only until the page is assembled.
 
 **Acceptance:** with a live backend, a user can select target → set rate/duration → edit/select a
 template → Preview (valid JSON in a modal, missing-list warning shown) → Start (Zone E counters
@@ -311,8 +335,8 @@ component tests → Playwright: start a short run, observe counters increment, s
 
 | Step | File | What | Reference |
 |---|---|---|---|
-| C.1 | `src/pages/templates/TemplateManagerPage.tsx` | `Table` of templates (Name link → generator editor, Message Type, Description tooltip, relative Updated, row actions Edit/Duplicate/Delete/Export); toolbar New + Import (Zod-validated, duplicate-ID rejected with named warning). | feature §6.2; TD §8 |
-| C.2 | [App.tsx](../src/App.tsx) | Replace the `/generator/templates` stub with the real page. | — |
+| C.1 | ✅ **DONE 2026-07-18** — `src/pages/templates/TemplateManagerPage.tsx` | `Table` over the real templateStore: Name link + Edit action → `select(id)` + navigate `/generator` (MessageGeneratorPage now consumes `selected` as its initial working copy, cleared after mount); Message Type; Description truncated at 80 + tooltip; relative Updated (dayjs); Duplicate / Delete (Popconfirm) / Export per row; toolbar New Template + Import (per-entry Zod validation via `importFromFile`, duplicate IDs skipped with a **named** warning, invalid entries surface named errors). 11 unit tests + 1 generator-handoff test, real store/localStorage/FileReader, no mocks. | feature §6.2; TD §8 |
+| C.2 | ✅ **DONE 2026-07-18** — [App.tsx](../src/App.tsx) | Stub replaced. e2e: "Coming soon" test replaced with real assertions (table + toolbar; New Template → blank editor; save-in-generator → listed in manager → reopens via Name link, full localStorage round-trip). Full e2e suite 62/62. | — |
 
 Reuse [templateStore](../src/stores/templateStore.ts) and
 [templateService](../src/services/templateService.ts) as-is (already built).
@@ -332,8 +356,8 @@ Parallelisable with Phases B and C.
 
 | Step | File | What | Reference |
 |---|---|---|---|
-| D.1 | `src/pages/value-lists/ValueListManagerPage.tsx` | `Table` (Name, values preview, count, Edit/Export/Delete) + edit panel (name rename, one-value-per-line textarea, live count, Save/Cancel); New List; Import JSON with Overwrite/Merge/Cancel on collision; Delete warns if a template references the list. | feature §6.3; TD §8 |
-| D.2 | [App.tsx](../src/App.tsx) | Replace the `/generator/value-lists` stub with the real page. | — |
+| D.1 | ✅ **DONE 2026-07-19** — `src/pages/value-lists/ValueListManagerPage.tsx` | `Table` (Name, preview, count, Edit/Export/Delete) + edit panel (rename = remove-old+add-new with collision rejection; one-value-per-line, trimmed, blanks dropped; live count; Save/Cancel); New List (empty-name rejected); Import via `importFromFile` with Overwrite/Merge/Cancel collision modal (merge de-dupes), named errors, coercion warning; Delete confirm names referencing templates (payload AND header values). 13 unit tests, real stores/localStorage/FileReader, no mocks. | feature §6.3; TD §8 |
+| D.2 | ✅ **DONE 2026-07-19** — [App.tsx](../src/App.tsx) | Last stub replaced. e2e: "Coming soon" test replaced with real assertions incl. a cross-page round-trip (create list → generator preview resolves it → delete). **The e2e caught a real bug:** on a fresh page load the generator never called `valueListStore.loadFromStorage()`, so every `{{list:...}}` resolved to `""` in previews and runs — fixed in MessageGeneratorPage (unit regression test added). Full e2e 63/63, unit 217/217. | — |
 
 Reuse [valueListStore](../src/stores/valueListStore.ts) (`importList` already implements
 overwrite/merge) and [valueListService](../src/services/valueListService.ts).
@@ -346,23 +370,24 @@ referenced list warns; the resolver's `snapshot()` reflects the current lists at
 
 ---
 
-## Phase E — Overview redesign
+## Phase E — Overview redesign — ✅ DONE
 
-**Goal:** bring [Overview.tsx](../src/pages/Overview.tsx) in line with feature §6.6 — setups as
-top-level cards, queues per setup with type badges, consumer groups and message stats only in the
-context of their parent queue, and **no global/system-wide aggregates** (TD §12.2). Independent of
-B/C/D.
+**Goal (met):** [Overview.tsx](../src/pages/Overview.tsx) is in line with feature §6.6 — a per-setup
+table with a per-setup detail card (queues + event stores), and **no global/system-wide aggregates**
+(TD §12.2). Post-S.6 the header CTA and empty state point at **Connect setup** (provisioning is
+admin-tool-only), not create.
 
 | Step | File | What | Reference |
 |---|---|---|---|
-| E.1 | [Overview.tsx](../src/pages/Overview.tsx) | Remove the global Statistic cards and system-wide totals; render one card per setup (setup id, database name, queue count, Manage-queues link) with nested queues (type badge, view-details link) and, where present, consumer groups + per-queue message stats. Keep the empty-state CTA to create a setup. | feature §6.6 |
-| E.2 | [utilitiesStore.ts](../src/stores/utilitiesStore.ts) | Adjust the data shape it exposes to be per-setup/per-queue; drop reliance on `systemStats` global aggregates. Confirm the backend `management/overview` payload supplies per-queue detail, or source it from `listQueueDetails`. **Verify the payload at runtime** rather than assuming its shape. | feature §6.6; TD §5 |
+| E.1 | [Overview.tsx](../src/pages/Overview.tsx) | ✅ done — global Statistic cards/system totals removed; per-setup table + selected-setup detail card; empty-state and header CTA navigate to `/setups/connect`. | feature §6.6 |
+| E.2 | [utilitiesStore.ts](../src/stores/utilitiesStore.ts) | ✅ done — per-setup/per-queue data shape, no `systemStats` global aggregates. | feature §6.6; TD §5 |
 
 **Note on charts:** per the recorded recharts constraint, keep charts **non-stacked** (the current
 `AreaChart`/`LineChart` are single-series and safe). Do not introduce a stacked `stackId`.
 
-**Acceptance:** Overview shows no cross-setup aggregates; every metric is per-setup or per-queue;
-empty state shows the create-setup CTA.
+**Acceptance (met):** Overview shows no cross-setup aggregates; every metric is per-setup or
+per-queue; empty state shows the connect-setup CTA. Covered by the converted real-backend
+overview e2e spec.
 
 **Verification:** banned-pattern grep → `npm run build` → Vitest for any Overview test →
 Playwright overview render with and without setups.
@@ -378,11 +403,11 @@ existing global-setup; no extra work is needed for the Playwright steps themselv
 
 | Step | What | Reference |
 |---|---|---|
-| F.1 | Vitest: extend resolver/service/store coverage for any new edge cases introduced by A–E. | feature §18 6.1–6.3 |
-| F.2 | Playwright: generator run happy path (start → counters increment → stop → summary/download). | feature §18 6.5 |
-| F.3 | Playwright: template and value-list CRUD paths. | feature §6.2, §6.3 |
-| F.4 | Regenerate screenshots: `npx playwright test --config=playwright.screenshots.config.ts`; update `docs/screenshots/*` and the Appendix A captions (Templates/Value Lists are no longer "placeholder"). | feature Appendix A |
-| F.5 | Full module gate (final check, user's call): `mvn test -pl :peegeeq-utilities-ui -Pall-tests`. | reference test commands |
+| F.1 | ✅ **DONE** (delivered through B/C/D TDD) — unit suite 217 tests: resolver incl. `resolveString`/header resolution, engine incl. fan-out/identity/run-time-failure/stop-settle, stores incl. `summary`, all five zone components, both manager pages. | feature §18 6.1–6.3 |
+| F.2 | ✅ **DONE** — `4-generator-run` e2e: full run (start → acknowledged counters → COMPLETED summary → New run) + stop flow, real backend. Download is unit-tested (blob content); browser download event not e2e-asserted. | feature §18 6.5 |
+| F.3 | ✅ **DONE** — e2e: template save → manager list → reopen round-trip; value-list create → generator resolve → delete round-trip. Duplicate/delete/import paths covered at unit level with real localStorage. | feature §6.2, §6.3 |
+| F.4 | ✅ **DONE 2026-07-19** — screenshots spec rewritten for the connect-only, fully-built UI (old spec drove the removed Create Setup/Queue pages); 12 fresh PNGs incl. the assembled generator, preview modal, real-run summary, detach/connect flows; Appendix A rewritten; 15 stale PNGs removed. | feature Appendix A |
+| F.5 | Full module gate (final check, **user's call**): `mvn test -pl :peegeeq-utilities-ui -Pall-tests`. | reference test commands |
 
 **Acceptance:** targeted suites green; screenshots reflect the built pages; the module gate passes.
 
@@ -466,19 +491,23 @@ setup whose database already exists, plus the reference + port UI. No persisted 
 
 | Step | Layer | Change | Reference |
 |---|---|---|---|
-| S.0 | peegeeq-api/db/rest | **Non-destructive `create` guard (P0/W-G):** add `overwrite` flag (default `false`); refuse + `409` **before any drop** when the DB exists; force-drop only under `overwrite` (WARN, not INFO) | setup-db §13 |
+| S.0 | peegeeq-api/db/rest | ✅ **DONE 2026-07-17** — stronger than originally sketched: **no `overwrite` flag at all.** `create` **never drops** — an existing DB fails with `DatabaseCreationConflictException` → REST **409** with an actionable message (connect, or drop first). The destructive path is a *separate* guarded op (**W-DD**, setup-db §13.1): `dropSetupDatabase(setupId, confirmDatabaseName)` type-to-confirm + `POST /setups/{id}/database/drop` + management-ui danger modal. | setup-db §13/§13.1 |
 | S.1 | peegeeq-api | ✅ **DONE** — `DatabaseSetupService.connectToExistingSetup(request)` added as a non-breaking `default` (throws `UnsupportedOperationException`); real impl in S.2, delegators in S.3. | setup-db §4 |
 | S.2a | peegeeq-db | ✅ **DONE** — `peegeeq_object_registry` + `peegeeq_setup_metadata` created via the base schema-template (`10a`/`10b`); rows written on bulk create (metadata + event-store `bitemporal` + queue resolved `native`/`outbox` kind), on dynamic `addQueue` / `addEventStore`, and removed on `removeEventStore` delete-sync. Event-store add/remove are atomic with their DDL (`withTransaction`); the queue write is ordered-safe on a separate connection (resolved kind is only known post-factory). Registry rows upsert. All three code-review follow-ups closed (below). | setup-db §4 |
 | S.2 | peegeeq-db | ✅ **DONE** — `connectToExistingSetup` implemented as a **fully separate, parallel non-destructive path** (decision: do **not** refactor the load-bearing `createCompleteSetup` — keep create untouched as a failsafe). Skips steps 1–2, runs `validateDatabaseInfrastructure` **first** (fails clearly if the schema/registry tables are absent; never creates), reconstitutes queues/event-stores from `peegeeq_setup_metadata` + `peegeeq_object_registry` (exact `kind` + config; queue `implementationType` forced to the recorded kind), then starts the manager + registers the reconstituted factories. `RuntimeDatabaseSetupService` delegates. | setup-db §4 |
-| S.3 | peegeeq-rest | `POST /api/v1/database-setup/connect` → `connectToExistingSetup`; delegate in `RestDatabaseSetupService` / `RuntimeDatabaseSetupService` | setup-db §4/§5 |
-| S.4 | peegeeq-management-ui (reference) | "Connect to Existing" button + modal (same fields), post to `database-setup/connect`, reworded copy | setup-db §12 |
-| S.5 | peegeeq-utilities-ui (port) | `setupService.connectExisting` + "Connect to existing setup" form — **replacing** the Create Setup page, not alongside it | setup-db §12 |
-| S.6 | peegeeq-utilities-ui (removal) | **Provisioning is admin-tool-only:** remove `CreateSetupPage`, `CreateQueuePage`, their routes, and `setupService.createSetup` / `queueService.createQueue`; remove SetupDetailPage's "Create queue" button; repoint all create CTAs / empty states (TargetSelector, Overview, SetupsPage, SetupDetailPage) at "Connect to existing setup" + a pointer to the admin tool for provisioning; update affected unit/e2e tests and screenshots | design §6.4/§6.5 scope decision |
+| S.3 | peegeeq-rest | ✅ **DONE 2026-07-17** — `POST /api/v1/database-setup/connect` → `connectToExistingSetup` (200 + reconstituted contents; schema-absent → 400); `RuntimeDatabaseSetupService` delegates. The dead `RestDatabaseSetupService` was **deleted** (no production callers, no back-compat required). Also added: `POST /setups/{id}/detach` (non-destructive, 204) and `POST /setups/{id}/database/drop` (W-DD, guarded). | setup-db §4/§5 |
+| S.4 | peegeeq-management-ui (reference) | ✅ **DONE 2026-07-17** — "Connect to Existing" button + modal posting to `database-setup/connect`; "Delete Setup" reworded to non-destructive **Detach Setup**; danger **Drop Database…** type-to-confirm modal (W-DD). E2E: 44/44 (`4-database-setup` chain). | setup-db §12 |
+| S.5 | peegeeq-utilities-ui (port) | ✅ **DONE 2026-07-17** — `setupService.connectExisting` + `ConnectSetupPage` (form, **no modal**; connect-only — replaced the Create Setup page) + per-row **Detach** on SetupsPage. E2E real-backend: 52/52 (`connect` + `5-setups`); unit 118/118. | setup-db §12 |
+| S.6 | peegeeq-utilities-ui (removal) | ✅ **DONE 2026-07-17** — `CreateSetupPage`, `CreateQueuePage`, their routes, `setupService.createSetup`/`deleteSetup` and mock-based unit tests removed; SetupDetailPage destructive delete-setup removed; create CTAs/empty states (TargetSelector, Overview, SetupsPage) repointed at "Connect setup" + admin-tool pointer; e2e specs converted to real-backend style. Screenshots doc-gen conversion deferred. | design §6.4/§6.5 scope decision |
 
-**Verification:** non-destructiveness (publish rows, connect from a fresh instance, assert rows survive);
-reconstitution (pre-existing queues enumerated with correct `kind` + config, not re-supplied);
-schema-absent → clear `400`; **`create` on an existing DB → `409`, data intact unless `overwrite=true`**;
-after S.6, no create-setup/create-queue route or service function remains in utilities-ui.
+**Verification (all run green, 2026-07-17/18):** non-destructiveness (publish rows, connect from a fresh
+instance, assert rows survive); reconstitution (pre-existing queues enumerated with correct `kind` +
+config, not re-supplied); schema-absent → clear `400`; **`create` on an existing DB → `409`, data always
+intact — there is no overwrite path; dropping is the separate guarded W-DD op**; after S.6, no
+create-setup/create-queue route or service function remains in utilities-ui. Backend: runtime IT 12/12
+(incl. duplicate-attach refusal, create-conflict 409, guarded drop, dead-DB teardown contract), REST
+connect IT 2/2, REST setup-lifecycle IT 15/15 (incl. detach 204, drop 400/404/200). UI e2e:
+management-ui 44/44, utilities-ui 52/52 + unit 118/118.
 
 ### S.2a — implemented (writes foundation), 2026-07-16
 
@@ -537,8 +566,22 @@ The self-describing registry is populated end-to-end, so S.2 reconstitution has 
   rebuilds the queue (correct `native`/`outbox` kind) + event store from the registry. Green:
   runtime **8/8**, db **13/13**.
 
-**Still open in Phase S:** S.0 (non-destructive create guard / `409`), S.3 (REST `POST …/connect`),
-S.4/S.5 (UI), S.6 (utilities-ui create-page removal).
+### Phase S — COMPLETE 2026-07-18
+
+All steps S.0–S.6 shipped and verified (see the step table above for per-step detail). Delivered
+beyond the original scope, all spec'd in setup-db §13.1 / Appendix W:
+
+- **Detach vs destroy made explicit:** `detachSetup` on the service interface (delegates to the
+  already-non-destructive `destroySetup`), REST `POST /setups/{id}/detach` (204), management-ui
+  "Detach Setup" action (replacing misleading "Delete" copy), utilities-ui per-row Detach.
+- **Guarded drop (W-DD):** the *single* destructive path — `dropSetupDatabase(setupId,
+  confirmDatabaseName)` with a type-to-confirm guard, REST `POST /setups/{id}/database/drop`
+  (400 mismatch / 404 unknown / 200 confirmed), management-ui danger modal whose Drop button stays
+  disabled until the exact database name is typed.
+- **Teardown honesty (setup-db §13 Note B):** `destroySetup`/`close()` now surface resource-close
+  failures (DELETE/detach can return 503 on a genuine close failure) instead of erasing them; a
+  dead-database probe verified closes are local and never spuriously fail (pinned by
+  `DestroySetupDeadDatabaseIntegrationTest`).
 
 ## Phase R — Durable registry + auto-reload (single backend)
 

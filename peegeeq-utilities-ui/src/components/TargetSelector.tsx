@@ -129,58 +129,70 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
     )
   }
 
+  // The setup dropdown renders in EVERY post-load state (normal, no-queues,
+  // queue-load-error): a queue-less or failing first setup must never strand
+  // the user — switching setups is the only way to reach another setup's queues.
+  const setupRow = (
+    <Space align="center" style={{ width: '100%' }}>
+      <label htmlFor="target-setup-select">Setup</label>
+      <Select
+        id="target-setup-select"
+        aria-label="Setup"
+        value={selectedSetup ?? undefined}
+        onChange={handleSetupChange}
+        options={setups.map((s) => ({ value: s, label: s }))}
+        style={{ minWidth: 160 }}
+      />
+    </Space>
+  )
+
   // Queue-load failure — distinct from a legitimately empty setup
   if (queueLoadError) {
     return (
-      <Alert
-        type="error"
-        message={queueLoadError}
-        showIcon
-        data-testid="queue-load-error"
-        action={
-          <Button size="small" onClick={() => selectedSetup && loadQueues(selectedSetup)}>
-            Retry
-          </Button>
-        }
-      />
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {setupRow}
+        <Alert
+          type="error"
+          message={queueLoadError}
+          showIcon
+          data-testid="queue-load-error"
+          action={
+            <Button size="small" onClick={() => selectedSetup && loadQueues(selectedSetup)}>
+              Retry
+            </Button>
+          }
+        />
+      </Space>
     )
   }
 
   // No-queues state — setup selected but no queues yet
   if (queues.length === 0) {
     return (
-      <Alert
-        type="info"
-        message="No queues found for this setup"
-        description={
-          <>
-            <Text>
-              Queues are managed per setup on the{' '}
-              <Link to={selectedSetup ? `/setups/${selectedSetup}` : '/setups'}>Setups page</Link>.
-              Add at least one queue, then return here to publish messages.
-            </Text>
-          </>
-        }
-        showIcon
-      />
+      <Space direction="vertical" style={{ width: '100%' }}>
+        {setupRow}
+        <Alert
+          type="info"
+          message="No queues found for this setup"
+          description={
+            <>
+              <Text>
+                Queues are managed per setup on the{' '}
+                <Link to={selectedSetup ? `/setups/${selectedSetup}` : '/setups'}>Setups page</Link>.
+                Add at least one queue, then return here to publish messages.
+              </Text>
+            </>
+          }
+          showIcon
+        />
+      </Space>
     )
   }
 
   // Normal state — setup and queues available
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
-      <Space align="center" style={{ width: '100%' }}>
-        <label htmlFor="target-setup-select">Setup</label>
-        <Select
-          id="target-setup-select"
-          aria-label="Setup"
-          value={selectedSetup ?? undefined}
-          onChange={handleSetupChange}
-          options={setups.map((s) => ({ value: s, label: s }))}
-          style={{ minWidth: 160 }}
-        />
-      </Space>
-
+      {setupRow}
       <Space align="center" style={{ width: '100%' }}>
         <label htmlFor="target-queue-select">Queue</label>
         <Select

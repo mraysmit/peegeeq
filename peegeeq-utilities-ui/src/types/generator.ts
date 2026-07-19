@@ -43,6 +43,12 @@ export interface RunConfig {
   previewIndex: number // messageId to use for Preview (default 1)
 }
 
+/** The Zone B rate/duration/guard settings — the numeric slice of {@link RunConfig}. */
+export type RateSettings = Pick<
+  RunConfig,
+  'rate' | 'durationSecs' | 'maxBatchSize' | 'warnThreshold' | 'maxConsecErrors'
+>
+
 /** A single failed batch publication, recorded for the run summary. */
 export interface PublishError {
   messageIndex: number

@@ -394,6 +394,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/setups/:setupId").handler(setupHandler::getSetupDetails);
         router.get("/api/v1/setups/:setupId/status").handler(setupHandler::getSetupStatus);
         router.delete("/api/v1/setups/:setupId").handler(setupHandler::deleteSetup);
+        router.post("/api/v1/setups/:setupId/detach").handler(setupHandler::detachSetup);
+        router.post("/api/v1/setups/:setupId/database/drop").handler(setupHandler::dropSetupDatabase);
         router.get("/api/v1/setups/:setupId/queues").handler(setupHandler::listQueues);
         router.post("/api/v1/setups/:setupId/queues").handler(setupHandler::addQueue);
         router.get("/api/v1/setups/:setupId/eventstores").handler(setupHandler::listEventStores);

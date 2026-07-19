@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.runtime;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests for module wiring in PeeGeeQRuntime.
  * Verifies that native/outbox/bitemporal modules are correctly wired based on config.
  */
+@Tag(TestCategories.CORE)
 class ModuleWiringTest {
 
     // ========================================================================

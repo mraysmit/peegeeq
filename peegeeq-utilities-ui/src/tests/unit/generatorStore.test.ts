@@ -144,4 +144,40 @@ describe('generatorStore', () => {
     expect(runState.sent).toBe(0)
     expect(runState.runId).toBeNull()
   })
+
+  // ── summary (added 2026-07-18 — Zone E summary card home, §11) ────────────
+
+  it('setSummary stores the run summary', () => {
+    const summary = {
+      totalSent: 50,
+      targetTotal: 50,
+      avgRate: 10,
+      durationMs: 5000,
+      totalErrors: 0,
+      finalStatus: 'completed' as const,
+      runId: 'r1',
+      errors: [] as PublishError[],
+    }
+    useGeneratorStore.getState().setSummary(summary)
+    expect(useGeneratorStore.getState().summary).toEqual(summary)
+  })
+
+  it('startRun clears any previous summary', () => {
+    useGeneratorStore.getState().setSummary({
+      totalSent: 1, targetTotal: 1, avgRate: 1, durationMs: 1,
+      totalErrors: 0, finalStatus: 'completed', runId: 'r1', errors: [],
+    })
+    useGeneratorStore.getState().setConfig(makeConfig())
+    useGeneratorStore.getState().startRun()
+    expect(useGeneratorStore.getState().summary).toBeNull()
+  })
+
+  it('resetRun clears the summary', () => {
+    useGeneratorStore.getState().setSummary({
+      totalSent: 1, targetTotal: 1, avgRate: 1, durationMs: 1,
+      totalErrors: 0, finalStatus: 'stopped', runId: 'r1', errors: [],
+    })
+    useGeneratorStore.getState().resetRun()
+    expect(useGeneratorStore.getState().summary).toBeNull()
+  })
 })

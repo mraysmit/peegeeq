@@ -1,4 +1,6 @@
 package dev.mars.peegeeq.outbox;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.api.messaging.ServerSideFilter;
 import org.junit.jupiter.api.Test;
@@ -12,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive unit tests for OutboxConsumerConfig.
  * Tests builder pattern, validation, defaults, and edge cases.
  */
+@Tag(TestCategories.CORE)
 class OutboxConsumerConfigTest {
 
     @Test

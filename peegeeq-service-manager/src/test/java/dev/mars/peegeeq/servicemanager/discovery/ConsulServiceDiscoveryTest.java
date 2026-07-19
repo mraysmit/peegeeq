@@ -36,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @ExtendWith(VertxExtension.class)
 @Disabled("Use ConsulServiceDiscoveryIntegrationTest instead - requires Consul running")
+@Tag(TestCategories.INTEGRATION)
 class ConsulServiceDiscoveryTest {
     
     private static final Logger logger = LoggerFactory.getLogger(ConsulServiceDiscoveryTest.class);

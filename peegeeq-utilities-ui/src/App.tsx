@@ -1,51 +1,18 @@
-import { useCallback, useState } from 'react'
+import { useEffect } from 'react'
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom'
-import { Layout, Menu, Typography, Space } from 'antd'
-import { ToolOutlined, HomeOutlined, ThunderboltOutlined, FileTextOutlined, UnorderedListOutlined, DatabaseOutlined } from '@ant-design/icons'
+import { Layout, Menu } from 'antd'
+import { ToolOutlined, HomeOutlined, ThunderboltOutlined, FieldTimeOutlined, FileTextOutlined, UnorderedListOutlined, DatabaseOutlined } from '@ant-design/icons'
 import Overview from './pages/Overview'
 import ConnectSetupPage from './pages/ConnectSetupPage'
 import SetupsPage from './pages/SetupsPage'
 import SetupDetailPage from './pages/SetupDetailPage'
-import TargetSelector from './components/TargetSelector'
+import MessageGeneratorPage from './pages/generator/MessageGeneratorPage'
+import TemplateManagerPage from './pages/templates/TemplateManagerPage'
+import ValueListManagerPage from './pages/value-lists/ValueListManagerPage'
+import ScheduledRunsPage from './pages/schedules/ScheduledRunsPage'
+import { schedulerRuntime } from './engine/schedulerRuntime'
 
-const { Title, Text } = Typography
 const { Content, Sider } = Layout
-
-function MessageGeneratorPage() {
-  const [target, setTarget] = useState<{ setupId: string; queueName: string } | null>(null)
-
-  // Stable identity + reference-preserving update. An inline callback here has a
-  // new identity every render; TargetSelector's notify-effect depends on it, so an
-  // inline version re-fires the effect after every setTarget → infinite re-render
-  // loop ("Maximum update depth exceeded") once a target is selected.
-  const handleTargetSelected = useCallback((setupId: string, queueName: string) => {
-    setTarget((prev) =>
-      prev && prev.setupId === setupId && prev.queueName === queueName
-        ? prev
-        : { setupId, queueName }
-    )
-  }, [])
-
-  return (
-    <Space direction="vertical" style={{ width: '100%' }} data-testid="generator-page">
-      <Title level={3}>Queue Message Generator</Title>
-      <div data-testid="zone-a">
-        <TargetSelector onTargetSelected={handleTargetSelected} />
-      </div>
-      {target && (
-        <div data-testid="generator-workspace">
-          <Text type="secondary">Zone B — Message composer — Phase 2</Text>
-        </div>
-      )}
-    </Space>
-  )
-}
-function TemplateManagerPage() {
-  return <div><Title level={3}>Template Manager</Title><Text type="secondary">Coming soon — Phase 3</Text></div>
-}
-function ValueListManagerPage() {
-  return <div><Title level={3}>Value List Manager</Title><Text type="secondary">Coming soon — Phase 3</Text></div>
-}
 
 function Navigation() {
   const location = useLocation()
@@ -70,6 +37,12 @@ function Navigation() {
       key: '/generator',
       icon: <ThunderboltOutlined />,
       label: <Link to="/generator" data-testid="nav-generator">Message Generator</Link>,
+    },
+    {
+      key: '/generator/schedules',
+      icon: <FieldTimeOutlined />,
+      label: <Link to="/generator/schedules" data-testid="nav-generator-schedules">Scheduled Runs</Link>,
+      style: { paddingLeft: 40 },
     },
     {
       key: '/generator/templates',
@@ -101,6 +74,13 @@ function Navigation() {
 }
 
 export default function App() {
+  // The scheduler runs app-wide: schedules fire regardless of which screen is
+  // open, for as long as the app itself is open (design §7.1).
+  useEffect(() => {
+    schedulerRuntime.start()
+    return () => schedulerRuntime.stop()
+  }, [])
+
   return (
     <Router>
       <Layout data-testid="app-layout" style={{ height: '100vh' }}>
@@ -114,6 +94,7 @@ export default function App() {
               <Route path="/setups" element={<SetupsPage />} />
               <Route path="/setups/connect" element={<ConnectSetupPage />} />
               <Route path="/setups/:setupId" element={<SetupDetailPage />} />
+              <Route path="/generator/schedules" element={<ScheduledRunsPage />} />
               <Route path="/generator/templates" element={<TemplateManagerPage />} />
               <Route path="/generator/value-lists" element={<ValueListManagerPage />} />
             </Routes>

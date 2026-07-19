@@ -89,12 +89,16 @@ describe('TargetSelector', () => {
     expect(screen.getByRole('link', { name: /Setups page/i })).toBeTruthy()
   })
 
-  it('does not show dropdowns in no-queues state', async () => {
-    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+  it('keeps the SETUP dropdown visible in the no-queues state so the user can switch setups', async () => {
+    // A queue-less first setup must not strand the user: with two setups where
+    // the auto-selected first has no queues, the setup dropdown is the only way
+    // to reach the second setup's queues.
+    mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
     mockedListQueueDetails.mockResolvedValueOnce([])
     renderSelector()
     await waitFor(() => screen.getByText(/No queues found for this setup/i))
-    expect(screen.queryByRole('combobox')).toBeNull()
+    // Setup dropdown present, queue dropdown absent.
+    expect(screen.getAllByRole('combobox')).toHaveLength(1)
   })
 
   // ── Populated state ───────────────────────────────────────────────────────
@@ -171,6 +175,8 @@ describe('TargetSelector', () => {
     })
     expect(screen.getByText(/Failed to load queues for this setup/i)).toBeTruthy()
     expect(screen.queryByText(/No queues found for this setup/i)).toBeNull()
+    // The setup dropdown stays available — a failing setup must not strand the user.
+    expect(screen.getAllByRole('combobox')).toHaveLength(1)
   })
 
   it('retries queue loading from the queue-load error alert', async () => {

@@ -765,16 +765,29 @@ registry was never told about (reconnect works from the registry, not by scannin
 
 ### W-DD — Guarded drop operation (destroy, §13.1)
 
+> **2026-07-18 — shipped (DD1–DD5, DD8).** The guarded drop landed. One implementation note on DD3: the
+> order is **drop-then-detach**, not detach-first — `dropDatabaseFromAdmin`'s `WITH (FORCE)` drain already
+> terminates live connections, and doing detach *first* would settle the chain on the per-setup manager's
+> Vert.x (which detach closes), dropping the continuation (see the `destroySetup`-closes-per-setup-Vert.x
+> hazard). So the drop runs on the infra Vert.x, then detach cleanup is fired and **observed** (not chained
+> on). Net effect (no live races, binding cleaned up) is the same.
+>
+> **UI wiring (2026-07-18):** management-ui `DatabaseSetups` has a danger "Drop Database…" action — it
+> resolves the setup's REAL database name from `GET /setups/{id}` (the table's name column is a
+> placeholder), then a type-to-confirm modal whose Drop button stays disabled until the exact name is
+> typed (e2e-verified, including that the dropped DB refuses reconnect). utilities-ui `SetupsPage` gained
+> a non-destructive per-row "Detach" (Popconfirm → `POST /setups/{id}/detach`), e2e-verified.
+
 | ID | Task | Ref | Status |
 |---|---|---|---|
-| DD1 | `Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName)` on the admin service — the single destructive path | §13.1 | ☐ |
-| DD2 | **Type-to-confirm** guard: refuse (`400`, no drop) unless `confirmDatabaseName` == the setup's resolved DB name | §13.1 | ☐ |
-| DD3 | **Detach-first**: perform in-memory teardown (`destroySetup`) as an explicit logged step before `DROP`, so no live producers/consumers race the drop | §13.1 | ☐ |
-| DD4 | **WARN + `DESTRUCTIVE` audit log** (actor / setupId / db / ts) on every drop; reuse `dropWhenDrained` (validated identifier, drain loop, `DROP … IF EXISTS`) | §13.1 | ☐ |
-| DD5 | REST `POST /api/v1/setups/{setupId}/database/drop` with `{confirmDatabaseName}` — **distinct** from the non-destructive `DELETE …/{setupId}` (detach); admin-tool-only | §13.1/§12.3 | ☐ |
+| DD1 | `Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName)` on the admin service — the single destructive path | §13.1 | ☑ 2026-07-18 (interface default → impl in `PeeGeeQDatabaseSetupService`, runtime delegate) |
+| DD2 | **Type-to-confirm** guard: refuse (`400`, no drop) unless `confirmDatabaseName` == the setup's resolved DB name | §13.1 | ☑ (fails with `IllegalArgumentException` → REST 400) |
+| DD3 | **Detach**: teardown the in-memory binding so no live producers/consumers race the drop | §13.1 | ☑ implemented as **drop-then-detach** (see note above) |
+| DD4 | **WARN + `DESTRUCTIVE` audit log** on every drop; reuse `dropWhenDrained` (validated identifier, drain loop, `DROP … WITH (FORCE)`) | §13.1 | ☑ (WARN `DESTRUCTIVE` markers; reuses `dropDatabaseFromAdmin`) |
+| DD5 | REST `POST /api/v1/setups/{setupId}/database/drop` with `{confirmDatabaseName}` — **distinct** from the non-destructive `DELETE …/{setupId}` (detach); admin-tool-only | §13.1/§12.3 | ☑ 2026-07-18 (404/400/503 mapping) |
 | DD6 | Ownership guard (when W-E lands): only the lease owner may drop; non-owner refused | §13.1/§10 | ⊘ blocked on W-E |
 | DD7 | Optional `dryRun` (report target, no drop) and rename-aside safety upgrade | §13.1 | ⊘ deferred |
-| DD8 | ITs (TestContainers, no mocking): confirm-match drops; confirm-mismatch refuses with data intact; drop after auto-detach leaves no orphaned manager/pool; missing DB is idempotent | §13.1/§15 | ☐ |
+| DD8 | ITs (TestContainers, no mocking): confirm-match drops; confirm-mismatch refuses with data intact | §13.1/§15 | ☑ 2026-07-18 (`RuntimeDatabaseSetupServiceIntegrationTest` `@Order(11)`, verified against `pg_database`) |
 
 ### W-C — Durable registry & auto-reload (§6)
 

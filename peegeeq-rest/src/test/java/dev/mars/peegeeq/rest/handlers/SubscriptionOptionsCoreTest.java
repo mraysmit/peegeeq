@@ -29,12 +29,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * @since 2025-11-22
  * @version 1.0
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class SubscriptionOptionsIntegrationTest {
+public class SubscriptionOptionsCoreTest {
     
-    private static final Logger logger = LoggerFactory.getLogger(SubscriptionOptionsIntegrationTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(SubscriptionOptionsCoreTest.class);
     
     private Vertx vertx;
     private WebClient client;
