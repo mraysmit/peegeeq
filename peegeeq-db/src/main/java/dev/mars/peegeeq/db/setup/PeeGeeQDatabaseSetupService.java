@@ -861,19 +861,34 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                 return Future.succeededFuture();
             }
 
+            // Close every setup-owned resource best-effort — each close's Future is kept succeeded so the
+            // composite completes and everything is attempted — but capture the first failure and re-raise
+            // it at the end instead of erasing it: a failed close usually means a leaked database connection,
+            // and hiding it defers the problem to a later "too many clients" cascade. (The re-raise happens
+            // INSIDE the manager-close transform, not as a continuation chained AFTER it — the per-setup
+            // Vert.x is closed by closeReactive, so a chained continuation would be dropped.)
+            final AtomicReference<Throwable> firstCloseError = new AtomicReference<>();
             Future<Void> closeResourcesFuture;
             if (setup != null) {
                 List<Future<Void>> closes = new ArrayList<>();
                 if (setup.getQueueFactories() != null) {
                     setup.getQueueFactories().values().forEach(factory ->
                             closes.add(factory.close()
-                                    .onFailure(e -> logger.warn("Failed to close queue factory", e))
+                                    .onFailure(e -> {
+                                        logger.error("Failed to close queue factory for setup {}: {}",
+                                                setupId, e.getMessage(), e);
+                                        firstCloseError.compareAndSet(null, e);
+                                    })
                                     .transform(ar -> Future.<Void>succeededFuture())));
                 }
                 if (setup.getEventStores() != null) {
                     setup.getEventStores().values().forEach(store ->
                             closes.add(store.close()
-                                    .onFailure(e -> logger.warn("Failed to close event store", e))
+                                    .onFailure(e -> {
+                                        logger.error("Failed to close event store for setup {}: {}",
+                                                setupId, e.getMessage(), e);
+                                        firstCloseError.compareAndSet(null, e);
+                                    })
                                     .transform(ar -> Future.<Void>succeededFuture())));
                 }
                 closeResourcesFuture = closes.isEmpty()
@@ -892,17 +907,65 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     logger.info("Closing PeeGeeQManager for setup: {}", setupId);
                     return manager.closeReactive()
                             .onSuccess(ignored -> logger.info("PeeGeeQManager closed successfully for setup: {}", setupId))
-                            .onFailure(error -> logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error))
-                            .transform(ar -> Future.<Void>succeededFuture());
+                            .onFailure(error -> {
+                                logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error);
+                                firstCloseError.compareAndSet(null, error);
+                            })
+                            .transform(ar -> {
+                                Throwable err = firstCloseError.get();
+                                return err != null ? Future.<Void>failedFuture(err) : Future.<Void>succeededFuture();
+                            });
                 });
             } else {
-                shutdownFuture = closeResourcesFuture;
+                shutdownFuture = closeResourcesFuture.transform(ar -> {
+                    Throwable err = firstCloseError.get();
+                    return err != null ? Future.<Void>failedFuture(err) : Future.<Void>succeededFuture();
+                });
             }
 
             return shutdownFuture;
         } catch (Exception e) {
             return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
         }
+    }
+
+    @Override
+    public Future<Void> dropSetupDatabase(String setupId, String confirmDatabaseName) {
+        DatabaseConfig dbConfig = setupDatabaseConfigs.get(setupId);
+        if (dbConfig == null) {
+            logger.debug("Setup not found for drop: {}", setupId);
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+        }
+        final String actualDbName = dbConfig.getDatabaseName();
+
+        // Guard: type-to-confirm. Refuse (dropping nothing) unless the caller re-supplied the exact
+        // database name. This defeats accidental / replayed / copy-pasted destructive calls.
+        if (confirmDatabaseName == null || !confirmDatabaseName.equals(actualDbName)) {
+            logger.warn("Refusing to drop database for setup '{}': confirmation name mismatch", setupId);
+            return Future.failedFuture(new IllegalArgumentException(
+                    "Database name confirmation mismatch — to drop the database for setup '" + setupId
+                            + "' you must confirm its exact database name."));
+        }
+
+        logger.warn("DESTRUCTIVE: dropping database '{}' for setup '{}' (confirmed) — this is irreversible.",
+                actualDbName, setupId);
+
+        // Drop FIRST on the service's infra Vert.x. dropDatabaseFromAdmin's WITH (FORCE) drain terminates
+        // any live connections (including this setup's manager), so no prior detach is required for safety.
+        // Detach the now-dead in-memory binding afterwards as best-effort cleanup: destroySetup removes the
+        // in-memory maps synchronously, and we OBSERVE (never chain further work on) its async manager-close
+        // — chaining on it would dispatch the continuation to the closed per-setup Vert.x and drop it.
+        return templateManager.dropDatabaseFromAdmin(
+                        dbConfig.getHost(), dbConfig.getPort(), dbConfig.getUsername(), dbConfig.getPassword(),
+                        actualDbName)
+                .onSuccess(v -> {
+                    logger.warn("DESTRUCTIVE: database '{}' for setup '{}' dropped.", actualDbName, setupId);
+                    detachSetup(setupId).onFailure(err -> logger.warn(
+                            "Detach cleanup after drop failed for setup '{}' (database already dropped): {}",
+                            setupId, err.getMessage()));
+                })
+                .onFailure(err -> logger.error("Failed to drop database '{}' for setup '{}'",
+                        actualDbName, setupId, err));
     }
 
     @Override
@@ -1553,20 +1616,32 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // destroySetup() is intentionally NOT called here: it is non-destructive (it drops no database),
         // but it also closes factories/event-stores and clears the in-memory maps — a fuller per-setup
         // teardown than a service close needs. Closing the managers is enough to release resources.
+        // Capture the first manager-close failure while keeping each close's Future succeeded so the
+        // composite completes and every manager is attempted; re-raise it below instead of erasing it (a
+        // failed close usually means a leaked connection pool).
+        final AtomicReference<Throwable> firstError = new AtomicReference<>();
         List<Future<Void>> closeFutures = new ArrayList<>(activeManagers.values()).stream()
                 .map(manager -> manager.closeReactive()
-                        .onFailure(error ->
-                            logger.warn("Failed to close manager during service close: {}", error.getMessage())))
+                        .onFailure(error -> {
+                            logger.error("Failed to close manager during service close: {}", error.getMessage(), error);
+                            firstError.compareAndSet(null, error);
+                        }))
                 .toList();
 
         return Future.join(closeFutures)
                 .transform(ar -> Future.<Void>succeededFuture())
                 .compose(v -> setupWorkerExecutor.close())
-                .compose(v -> {
-                    if (ownsVertx) {
-                        return vertx.close();
+                .transform(executorAr -> {
+                    if (executorAr.failed()) {
+                        firstError.compareAndSet(null, executorAr.cause());
                     }
-                    return Future.succeededFuture();
-                });
+                    // Surface any captured failure BEFORE closing this service's own Vert.x — a continuation
+                    // chained AFTER vertx.close() would be dispatched to the closed event loop and dropped.
+                    Throwable err = firstError.get();
+                    return err != null ? Future.<Void>failedFuture(err) : Future.<Void>succeededFuture();
+                })
+                // Close the owned Vert.x last, regardless of the outcome above; .eventually preserves a
+                // surfaced failure while still running this final cleanup.
+                .eventually(() -> ownsVertx ? vertx.close() : Future.<Void>succeededFuture());
     }
 }

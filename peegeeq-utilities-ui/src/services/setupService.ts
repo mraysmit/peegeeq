@@ -20,6 +20,18 @@ export async function connectExisting(req: ConnectSetupRequest): Promise<void> {
 }
 
 /**
+ * Detach from a setup (non-destructive).
+ *
+ * POST /api/v1/setups/{setupId}/detach. Releases the in-memory binding and stops
+ * the manager; the database, its queues, event stores, and data are preserved and
+ * the setup can be reconnected later. Throws AxiosError on non-2xx; caller is
+ * responsible for error display.
+ */
+export async function detachSetup(setupId: string): Promise<void> {
+  await axios.post(getVersionedApiUrl(`setups/${setupId}/detach`))
+}
+
+/**
  * List all setup IDs currently connected in this PeeGeeQ instance.
  *
  * GET /api/v1/setups → { count: number, setupIds: string[] }

@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * All original functionality is preserved with enhanced test assertions and documentation.
  * Tests demonstrate comprehensive service discovery and management patterns.
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.CORE)
 public class ServiceDiscoveryExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(ServiceDiscoveryExampleTest.class);

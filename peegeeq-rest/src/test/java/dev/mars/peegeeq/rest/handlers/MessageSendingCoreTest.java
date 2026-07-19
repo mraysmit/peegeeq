@@ -16,9 +16,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test shows how the REST API would be used to send messages.
  */
 @Tag(TestCategories.CORE)
-class MessageSendingIntegrationTest {
+class MessageSendingCoreTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(MessageSendingIntegrationTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(MessageSendingCoreTest.class);
 
     @Test
     void testMessageRequestJsonSerialization() throws Exception {

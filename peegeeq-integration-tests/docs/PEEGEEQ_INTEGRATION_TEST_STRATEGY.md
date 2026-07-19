@@ -604,12 +604,12 @@ The `peegeeq-rest-client` module provides a Java REST client for all PeeGeeQ end
 | `SSEReconnectionIntegrationTest` | SSE reconnection handling |
 | `ConsumerGroupSubscriptionIntegrationTest` | Consumer group operations |
 | `SubscriptionLifecycleIntegrationTest` | Subscription lifecycle |
-| `SubscriptionOptionsIntegrationTest` | Subscription options configuration |
+| `SubscriptionOptionsCoreTest` | Subscription options configuration |
 | `DeadLetterRequeueIntegrationTest` | DLQ reprocessing |
 | `ManagementApiIntegrationTest` | Management API endpoints |
 | `SetupManagementIntegrationTest` | Setup CRUD operations |
 | `BatchMessageProcessingIntegrationTest` | Batch message operations |
-| `MessageSendingIntegrationTest` | Message sending operations |
+| `MessageSendingCoreTest` | Message sending operations |
 | `RealTimeStreamingIntegrationTest` | Real-time streaming |
 
 ### 7.7 Smoke Test Coverage Plan

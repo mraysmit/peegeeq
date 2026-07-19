@@ -17,11 +17,16 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+// Pure logic, zero database operations — CORE. Was untagged, which meant the
+// surefire groups filter excluded it from EVERY profile: it never ran at all.
+@Tag(TestCategories.CORE)
 class PgNativeConsumerGroupSafetyTest {
 
     @Test

@@ -7,7 +7,7 @@
  */
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import type { PublishError, RunConfig, RunState, RunStatus } from '../types/generator'
+import type { PublishError, RunConfig, RunState, RunStatus, RunSummary } from '../types/generator'
 
 const IDLE_STATE: RunState = {
   status: 'idle',
@@ -24,10 +24,14 @@ const IDLE_STATE: RunState = {
 interface GeneratorState {
   config: RunConfig | null
   runState: RunState
+  /** Terminal run summary (Zone E card + Download); set by the terminal engine
+   *  callbacks, cleared on startRun/resetRun (§11, added 2026-07-18). */
+  summary: RunSummary | null
   setConfig: (config: RunConfig) => void
   startRun: () => void
   stopRun: () => void
   resetRun: () => void
+  setSummary: (summary: RunSummary) => void
   tickUpdate: (
     sent: number,
     errors: PublishError[],
@@ -69,6 +73,7 @@ export const useGeneratorStore = create<GeneratorState>()(
       return {
         config: null,
         runState: { ...IDLE_STATE },
+        summary: null,
 
         setConfig: (config) => set({ config }),
 
@@ -77,6 +82,7 @@ export const useGeneratorStore = create<GeneratorState>()(
           if (!config) return
           rateSamples = []
           set({
+            summary: null,
             runState: {
               status: 'running',
               totalToSend: config.rate * config.durationSecs,
@@ -96,8 +102,10 @@ export const useGeneratorStore = create<GeneratorState>()(
 
         resetRun: () => {
           rateSamples = []
-          set({ runState: { ...IDLE_STATE } })
+          set({ runState: { ...IDLE_STATE }, summary: null })
         },
+
+        setSummary: (summary) => set({ summary }),
 
         tickUpdate: (sent, errors, consecErrors, elapsedMs) =>
           set((state) => ({

@@ -167,15 +167,32 @@ test.describe('Database Setup', () => {
 
       await page.keyboard.press('Escape')
     })
+
+    test('connect modal should show validation errors when submitted empty', async ({ page, databaseSetupsPage }) => {
+      await page.goto('/')
+      await databaseSetupsPage.goto()
+      await databaseSetupsPage.clickConnect()
+
+      const modal = page.locator('.ant-modal').filter({ hasText: 'Connect to Existing Setup' })
+      await expect(modal).toBeVisible()
+
+      // Submit without filling required fields
+      await page.locator('.ant-modal-footer .ant-btn-primary').click()
+
+      // Required field errors (Setup ID, Database Name, Password, Schema) must appear
+      await expect(modal.locator('.ant-form-item-explain-error').first()).toBeVisible({ timeout: 5000 })
+
+      await page.keyboard.press('Escape')
+    })
   })
 
   test.describe('Setup Actions', () => {
 
-    test('delete setup removes it from the list', async ({ page, databaseSetupsPage }) => {
-      // Real backend, no stub. Create a dedicated throwaway setup, delete it through
-      // the UI, and verify it is actually gone — both from the table and from the real
-      // GET /api/v1/setups response. Uses a unique id so it never touches SETUP_ID
-      // (which the rest of the suite depends on).
+    test('detach setup removes it from the active list', async ({ page, databaseSetupsPage }) => {
+      // Real backend, no stub. Create a dedicated throwaway setup, DETACH it through the
+      // UI (non-destructive), and verify it is gone from the active list — both from the
+      // table and from the real GET /api/v1/setups response. Uses a unique id so it never
+      // touches SETUP_ID (which the rest of the suite depends on).
       test.setTimeout(120000) // setup creation provisions a real database + migrations
 
       const dbConfig = JSON.parse(fs.readFileSync('testcontainers-db.json', 'utf8'))
@@ -209,16 +226,17 @@ test.describe('Database Setup', () => {
       const row = page.locator('.ant-table-row').filter({ hasText: throwawayId })
       await expect(row).toBeVisible({ timeout: 10000 })
 
-      // Delete through the UI: action menu → Delete Setup → confirm
+      // Detach through the UI: action menu → Detach Setup → confirm
       await databaseSetupsPage.getActionButton(throwawayId).click()
 
       const dropdown = page.locator('.ant-dropdown')
         .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
         .last()
       await expect(dropdown).toBeVisible()
-      await dropdown.getByText('Delete Setup').click()
+      await dropdown.getByText('Detach Setup').click()
 
-      const confirmBtn = page.locator('.ant-modal-confirm .ant-btn-dangerous')
+      // Detach is non-destructive, so the confirm OK is a primary (not danger) button.
+      const confirmBtn = page.locator('.ant-modal-confirm .ant-btn-primary')
       await expect(confirmBtn).toBeVisible({ timeout: 3000 })
       await confirmBtn.click()
 
@@ -226,12 +244,135 @@ test.describe('Database Setup', () => {
       await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
       await expect(row).not.toBeVisible({ timeout: 15000 })
 
-      // Verify against the real backend: the setup is actually deleted
+      // Verify against the real backend: the setup is detached (gone from the active list)
       await expect.poll(async () => {
         const resp = await page.request.get('/api/v1/setups')
         const body = await resp.json()
         return (body.setupIds ?? []).includes(throwawayId)
       }, { timeout: 15000 }).toBe(false)
+    })
+
+    test('drop database requires typing the exact database name and destroys the database', async ({ page, databaseSetupsPage }) => {
+      // Real backend, no stub. Create a dedicated throwaway setup, open the guarded Drop Database
+      // modal, verify the type-to-confirm guard (button disabled until the EXACT database name is
+      // typed), drop it, and prove against the real backend that the database is actually gone —
+      // a reconnect to the same coordinates must now fail.
+      test.setTimeout(120000)
+
+      const dbConfig = JSON.parse(fs.readFileSync('testcontainers-db.json', 'utf8'))
+      const dropId = `drop_test_${Date.now()}`
+      const dropDb = `drop_test_db_${Date.now()}`
+
+      const createResp = await page.request.post('/api/v1/database-setup/create', {
+        data: {
+          setupId: dropId,
+          databaseConfig: {
+            host: dbConfig.host,
+            port: dbConfig.port,
+            databaseName: dropDb,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            schema: TEST_SCHEMA,
+            templateDatabase: 'template0',
+            encoding: 'UTF8',
+          },
+          queues: [],
+          eventStores: [],
+        },
+        timeout: 90000,
+      })
+      if (!createResp.ok()) {
+        throw new Error(`Create throwaway setup failed: ${createResp.status()} ${await createResp.text()}`)
+      }
+
+      await page.goto('/database-setups')
+      await page.waitForLoadState('networkidle')
+
+      const row = page.locator('.ant-table-row').filter({ hasText: dropId })
+      await expect(row).toBeVisible({ timeout: 10000 })
+
+      // Open the Drop Database modal: action menu → Drop Database…
+      await databaseSetupsPage.getActionButton(dropId).click()
+      const dropdown = page.locator('.ant-dropdown')
+        .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
+        .last()
+      await expect(dropdown).toBeVisible()
+      await dropdown.getByText('Drop Database…').click()
+
+      const confirmInput = page.getByTestId('drop-database-confirm-input')
+      const dropBtn = page.getByTestId('drop-database-confirm-btn')
+      await expect(confirmInput).toBeVisible({ timeout: 5000 })
+
+      // Type-to-confirm guard: disabled empty, disabled on a wrong name, enabled on the exact name.
+      await expect(dropBtn).toBeDisabled()
+      await confirmInput.fill('definitely_not_the_db')
+      await expect(dropBtn).toBeDisabled()
+      await confirmInput.fill(dropDb)
+      await expect(dropBtn).toBeEnabled()
+      await dropBtn.click()
+
+      // Success toast, and the row disappears from the table
+      await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 30000 })
+      await expect(row).not.toBeVisible({ timeout: 15000 })
+
+      // Verify against the real backend: gone from the active list...
+      await expect.poll(async () => {
+        const resp = await page.request.get('/api/v1/setups')
+        const body = await resp.json()
+        return (body.setupIds ?? []).includes(dropId)
+      }, { timeout: 15000 }).toBe(false)
+
+      // ...and the database itself is destroyed — reconnecting to the same coordinates must fail
+      // (connect is non-destructive and requires the schema to exist).
+      const reconnectResp = await page.request.post('/api/v1/database-setup/connect', {
+        data: {
+          setupId: dropId,
+          databaseConfig: {
+            host: dbConfig.host,
+            port: dbConfig.port,
+            databaseName: dropDb,
+            username: dbConfig.username,
+            password: dbConfig.password,
+            schema: TEST_SCHEMA,
+            templateDatabase: 'template0',
+            encoding: 'UTF8',
+          },
+          queues: [],
+          eventStores: [],
+        },
+        timeout: 30000,
+      })
+      expect(reconnectResp.ok()).toBeFalsy()
+    })
+
+    test('drop database modal cancel closes without dropping anything', async ({ page, databaseSetupsPage }) => {
+      // Real backend. Open the guarded drop modal for SETUP_ID (safe: the drop button is
+      // never enabled — nothing is typed), cancel it, and verify the setup is untouched.
+      await page.goto('/database-setups')
+      await page.waitForLoadState('networkidle')
+
+      const row = page.locator('.ant-table-row').filter({ hasText: SETUP_ID })
+      await expect(row).toBeVisible({ timeout: 10000 })
+
+      await databaseSetupsPage.getActionButton(SETUP_ID).click()
+      const dropdown = page.locator('.ant-dropdown')
+        .filter({ hasNot: page.locator('.ant-dropdown-hidden') })
+        .last()
+      await expect(dropdown).toBeVisible()
+      await dropdown.getByText('Drop Database…').click()
+
+      const confirmInput = page.getByTestId('drop-database-confirm-input')
+      await expect(confirmInput).toBeVisible({ timeout: 5000 })
+      await expect(page.getByTestId('drop-database-confirm-btn')).toBeDisabled()
+
+      await page.locator('.ant-modal-footer .ant-btn', { hasText: 'Cancel' }).click()
+      await expect(confirmInput).not.toBeVisible({ timeout: 5000 })
+
+      // Nothing was dropped: the setup is still present and active on the real backend.
+      await expect(row).toBeVisible()
+      const resp = await page.request.get('/api/v1/setups')
+      const body = await resp.json()
+      expect(body.setupIds ?? []).toContain(SETUP_ID)
     })
 
     test('view details modal shows setup configuration', async ({ page, databaseSetupsPage }) => {
@@ -341,6 +482,37 @@ test.describe('Database Setup', () => {
 
       // Cleanup: non-destructive detach.
       await page.request.delete(`/api/v1/setups/${connectId}`)
+    })
+
+    test('connect to a nonexistent database shows error toast and keeps the modal open', async ({ page, databaseSetupsPage }) => {
+      // Real backend, no stub or injection: connecting to a database that does not exist is a
+      // genuine failure the backend refuses, so the error UX is exercised for real.
+      // The component logs the failure via console.error — remove the listener so the
+      // expected error does not pollute the output.
+      await page.removeAllListeners('console')
+
+      const dbConfig = JSON.parse(fs.readFileSync('testcontainers-db.json', 'utf8'))
+
+      await page.goto('/')
+      await databaseSetupsPage.goto()
+      await databaseSetupsPage.clickConnect()
+
+      const modal = page.locator('.ant-modal').filter({ hasText: 'Connect to Existing Setup' })
+      await modal.getByLabel('Setup ID').fill('does-not-exist')
+      await modal.getByLabel('Host').fill(dbConfig.host)
+      await modal.getByLabel('Port').fill(String(dbConfig.port))
+      await modal.getByLabel('Database Name').fill(`no_such_db_${Date.now()}`)
+      await modal.getByLabel('Username').fill(dbConfig.username)
+      await modal.getByLabel('Password').fill(dbConfig.password)
+      await modal.getByLabel('Schema').fill(TEST_SCHEMA)
+
+      await page.locator('.ant-modal-footer .ant-btn-primary').click()
+
+      // Error toast appears and the modal stays open — the failed connect did not dismiss it.
+      await expect(page.locator('.ant-message-error')).toBeVisible({ timeout: 30000 })
+      await expect(modal).toBeVisible()
+
+      await page.keyboard.press('Escape')
     })
   })
 })
