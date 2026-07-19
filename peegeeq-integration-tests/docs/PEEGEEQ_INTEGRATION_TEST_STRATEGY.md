@@ -1,6 +1,6 @@
 # PeeGeeQ Integration Test Strategy
 
-**Last Updated:** 2025-12-20
+**Last Updated:** 2026-07-19
 
 This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`.
 
@@ -97,7 +97,11 @@ PeeGeeQ uses JUnit 5 tags to categorize tests:
 ### 2.1 Unit Tests (`@Tag("core")`)
 
 - Test individual classes in isolation
-- Mock external dependencies
+- No external dependencies — a core test needs no database, no container, no network.
+  Per the project-wide **no-mocking policy** (see `PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md`),
+  this is achieved by testing code that does not require infrastructure, **not** by mocking it —
+  Mockito and mocked database connections are banned. Code that needs a database is tested
+  at the integration tier.
 - Fast execution (< 1 second per test)
 - Run by default with `mvn test`
 
@@ -365,6 +369,17 @@ This section provides a complete mapping of REST endpoints (from `PEEGEEQ_CALL_P
 | `DELETE /api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup()` | `NativeQueueSmokeTest` | `cleanupSetup()` | PARTIAL |
 | `POST /api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue()` | - | - | MISSING |
 | `POST /api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore()` | - | - | MISSING |
+
+**Setup lifecycle endpoints added 2026-07 (Phase S — see
+`peegeeq-utilities-ui/docs/PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md`):**
+
+| REST Endpoint | Handler Method | Test Class | Status |
+| :--- | :--- | :--- | :--- |
+| `POST /api/v1/database-setup/connect` | `DatabaseSetupHandler` → `connectToExistingSetup()` | `DatabaseSetupConnectIntegrationTest` (200 / schema-absent 400), `RuntimeDatabaseSetupServiceIntegrationTest` (reconstitution) | COVERED |
+| `POST /api/v1/setups/:setupId/detach` | `DatabaseSetupHandler` → `detachSetup()` (non-destructive, 204) | `SetupManagementIntegrationTest` | COVERED |
+| `POST /api/v1/setups/:setupId/database/drop` | `DatabaseSetupHandler` → `dropSetupDatabase()` (type-to-confirm; 200/400/404) | `SetupManagementIntegrationTest`, `RuntimeDatabaseSetupServiceIntegrationTest` | COVERED |
+| `POST /api/v1/database-setup/create` on an existing DB | refuses with **409** (`DatabaseCreationConflictException`), data intact | `RuntimeDatabaseSetupServiceIntegrationTest` | COVERED |
+| destroy against a dead database | completes instead of hanging | `DestroySetupDeadDatabaseIntegrationTest` (peegeeq-runtime) | COVERED |
 
 ### 6.2 Queue Operations (4 endpoints)
 
@@ -1030,7 +1045,7 @@ This section documents the implementation status of all REST endpoints as define
 | `peegeeq-native` | 12 tests | - | - |
 | `peegeeq-outbox` | 8 tests | - | - |
 | `peegeeq-bitemporal` | 10 tests | - | - |
-| `peegeeq-runtime` | 5 tests | - | - |
+| `peegeeq-runtime` | 7 test classes (incl. the 2026-07 setup-lifecycle chain and `DestroySetupDeadDatabaseIntegrationTest`) | - | - |
 
 ### 10.3 Endpoint Test Mapping
 

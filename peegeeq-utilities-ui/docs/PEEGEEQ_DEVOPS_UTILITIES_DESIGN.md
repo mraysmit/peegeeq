@@ -2,7 +2,8 @@
 
 **Author**: Mark Andrew Ray-Smith Cityline Ltd  
 **Created**: 2026-05-31  
-**Version**: 1.0  
+**Updated**: 2026-07-19 (as-built refresh: Phases B–F, S, and scheduled runs delivered; Part II brought in line with the code)  
+**Version**: 1.1  
 
 ## 1. Overview
 
@@ -257,6 +258,7 @@ A fixed left sidebar is present on every page (not repeated in each mockup):
 │  ▸ Tools           │
 │  ▸ Setups          │
 │  ▸ Message Generator
+│      Scheduled Runs│
 │      Templates     │
 │      Value Lists   │
 └────────────────────┘
@@ -290,7 +292,7 @@ System Overview
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Message Generator — route `/generator` (Zones A–E; unbuilt)
+#### Message Generator — route `/generator` (built — Phase B, 2026-07-18)
 
 ```
 Queue Message Generator
@@ -326,7 +328,7 @@ Queue Message Generator
     ▸ Recent errors (hidden when 0)
 ```
 
-#### Template Manager — route `/generator/templates` (unbuilt)
+#### Template Manager — route `/generator/templates` (built — Phase C, 2026-07-18)
 
 ```
 Template Manager                                    [+ New Template]  [Import]
@@ -340,7 +342,7 @@ Template Manager                                    [+ New Template]  [Import]
   (Import validates each entry; duplicate IDs are rejected with a named warning)
 ```
 
-#### Value List Manager — route `/generator/value-lists` (unbuilt)
+#### Value List Manager — route `/generator/value-lists` (built — Phase D, 2026-07-19)
 
 ```
 Value List Manager                                 [+ New List]  [Import JSON]
@@ -399,7 +401,7 @@ Setups
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Create Setup — route `/generator/setup/new` (built — **to be removed in Phase S**: provisioning is admin-tool-only; replaced by "Connect to existing setup")
+#### Create Setup — route `/generator/setup/new` (**removed 2026-07-17, Phase S.6**: provisioning is admin-tool-only; replaced by "Connect to existing setup" at `/setups/connect` — mockup retained for historical context)
 
 ```
 ← Back
@@ -419,7 +421,7 @@ Create Setup
 └──────────────────────────────────────────────────────────┘
 ```
 
-#### Create Queue — route `/setups/:setupId/queues/new` (built — **to be removed in Phase S**: provisioning is admin-tool-only; queues are created in the admin tool)
+#### Create Queue — route `/setups/:setupId/queues/new` (**removed 2026-07-17, Phase S.6**: provisioning is admin-tool-only; queues are created in the admin tool — mockup retained for historical context)
 
 ```
 ← Back
@@ -981,8 +983,9 @@ Note the original sketch was internally inconsistent: it capped `batchSize` at `
 AND shrank `tickMs` proportionally, so a tick never carried more than one batch and the
 "split into groups" branch was unreachable. The coherent form of that intent, specified here,
 is 1-second ticks carrying the full per-second quota, split into concurrently-fired groups.
-The currently-built engine is serial (sub-second single-batch ticks with an in-flight guard);
-bringing it up to this spec is a scheduled Phase B step.)*
+**Implemented 2026-07-18 (plan step B.0):** the built engine matches this specification —
+1 s ticks, concurrent `Promise.allSettled` fan-out, per-batch consecutive-error processing,
+whole-fan-out in-flight guard, caller-supplied run identity.)*
 
 ```
 given:
@@ -1161,12 +1164,14 @@ User edits template, sets rate/duration/guards
   -> resolveTemplate(template, { messageId: previewIndex, runId: newUUID(), ... })
      JSON shown in Modal — zero HTTP calls
 
-
-```
----------------------------------------------------------------
-                 if consecErrors >= maxConsecErrors (and > 0): auto-stop -> ERROR
----------------------------------------------------------------
-       Zone E counters updated every 500ms
+  [Start]
+  -> runStarter.startGeneratorRun(config): setConfig -> startRun() (generates runId)
+     -> engine.start(config, {runId, correlationId}, callbacks)
+  -> each 1 s tick: build quota via resolveTemplate
+     -> POST .../messages/batch per group, fired concurrently (Promise.allSettled)
+     -> onTick(sent, errors, consecErrors, elapsedMs) -> generatorStore.tickUpdate
+        if consecErrors >= maxConsecErrors (and > 0): auto-stop -> ERROR
+     Zone E counters at tick cadence; Elapsed on the panel's own 500 ms interval
 
   duration elapsed  ->  COMPLETED  ->  summary card + download button
   [Stop] pressed    ->  STOPPED    ->  summary card + download button
@@ -1177,14 +1182,10 @@ User edits template, sets rate/duration/guards
 
 ## 10. Type Definitions
 
----------------------------------------------------------------
 ### `src/types/generator.ts`
----------------------------------------------------------------
 
 ```typescript
 export type RunStatus = 'idle' | 'running' | 'completed' | 'stopped' | 'error'
----------------------------------------------------------------
-```
 
 /** A named list of string values used by {{list:name}} placeholder tokens. */
 export interface ValueList {
@@ -1496,74 +1497,87 @@ interface EngineCallbacks {
 }
 ```
 
-*(2026-07-18: `start` gained the `identity` parameter — see §11 "Run identity". The as-built
-engine still generates its own `runId`/`correlationId`; the identity parameter lands in plan step
-**B.0** together with the §7.1 concurrent fan-out upgrade, before the engine is wired to the
-UI in B.5.)*
+*(2026-07-18: `start` gained the `identity` parameter — see §11 "Run identity". Implemented
+in plan step **B.0** together with the §7.1 concurrent fan-out upgrade: the engine generates
+no ids of its own; the store's `startRun()` generates `runId` and the caller passes the
+identity in. Since the SCH.2 refactor, the single caller is `runStarter.startGeneratorRun` —
+shared by the Start button, the scheduler, and run-now.)*
 
 The engine is instantiated fresh for each run and discarded on completion. It holds no
 persistent state. The `generatorStore` owns all state; the engine only calls back into it.
 
 ---
 
-## 14. Proposed File Structure
+## 14. File Structure (as built, 2026-07-19)
 
 ```
 peegeeq-utilities-ui/
   docs/
-    PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md    (this document)
+    PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md          (this document)
+    PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md  (scheduled-runs feature design)
   src/
+    components/
+      TargetSelector.tsx                  (Zone A — setup/queue dropdowns)
     pages/
-      Overview.tsx                        (existing)
-      CreateSetupPage.tsx                 (Create Setup form — §6.4)
-      CreateQueuePage.tsx                 (Create Queue form — §6.5)
-      SetupDetailPage.tsx                 (setup detail + queue list/create/delete — §6.5)
+      Overview.tsx                        (per-setup master-detail — §6.6)
+      SetupsPage.tsx                      (setups list + per-row Detach)
+      SetupDetailPage.tsx                 (setup detail + queue list/delete)
+      ConnectSetupPage.tsx                (connect to existing setup — Phase S)
       generator/
         MessageGeneratorPage.tsx          (root page — assembles Zones A–E)
-        TargetSelector.tsx                (Zone A)
         RateControls.tsx                  (Zone B)
         TemplateEditor.tsx                (Zone C)
-        GeneratorActions.tsx              (Zone D)
+        GeneratorActions.tsx              (Zone D — Preview/Start/Stop/Schedule…)
+        ScheduleRunModal.tsx              (schedule-a-run modal — scheduled-runs §8.1)
         ProgressPanel.tsx                 (Zone E)
+      schedules/
+        ScheduledRunsPage.tsx             (Schedules / Run history / Templates tabs)
       templates/
-        TemplateManagerPage.tsx           (CRUD template list)
+        TemplateManagerPage.tsx           (CRUD template list — §6.2)
       value-lists/
         ValueListManagerPage.tsx          (CRUD value list manager — §6.3)
+    engine/
+      publicationEngine.ts                (concurrent fan-out tick loop — §7)
+      templateResolver.ts                 (resolveTemplate/resolveString/findMissingLists — §8)
+      runStarter.ts                       (shared run wiring — scheduled-runs §9)
+      schedulerRuntime.ts                 (scheduler check loop + lease — scheduled-runs §7)
     services/
-      apiConstants.ts                     (existing)
-      configService.ts                    (existing)
-      setupService.ts                     (create setup — §6.4)
-      queueService.ts                     (create/list/delete queues — §6.5)
+      apiConstants.ts
+      configService.ts                    (backend URL resolution)
+      setupService.ts                     (list/details/connect/detach — §12)
+      queueService.ts                     (list queue details, delete queue)
       publishService.ts                   (POST single + batch, with fallback)
       templateService.ts                  (localStorage CRUD + file import/export)
       valueListService.ts                 (localStorage CRUD + file import/export for lists)
-
-  ```
-  ---------------------------------------------------------------
-      valueListStore.ts                   (value list CRUD + snapshot for resolver)
-  ---------------------------------------------------------------
-    services/
-      valueListService.ts                 (localStorage CRUD + file import/export for lists)
+      scheduleService.ts                  (schedules/history/templates storage + import/export)
+    stores/
+      generatorStore.ts                   (run state + summary — §11)
+      templateStore.ts
+      valueListStore.ts                   (incl. snapshot() for the resolver)
+      scheduleStore.ts                    (schedules/history/schedule-templates CRUD)
+      utilitiesStore.ts                   (Overview data)
     types/
       generator.ts                        (MessageTemplate, ValueList, RunConfig, RunState, RunSummary, PublishError)
-      queue.ts                            (SetupInfo, QueueInfo, MessageRequest, BatchMessageRequest)
+      queue.ts                            (QueueSummary, MessageRequest, BatchMessageRequest)
+      setup.ts                            (ConnectSetupRequest, SetupDetails)
+      schedule.ts                         (ScheduledRun, ScheduleRunRecord, ScheduleTemplate)
 ```
 
 ---
 
-## 15. Navigation Changes
+## 15. Navigation (as built)
 
-  ---------------------------------------------------------------
-Two new sidebar entries added to `App.tsx`:
-  ---------------------------------------------------------------
+Sidebar entries in `App.tsx`:
 
-| Label             | Route                       | Icon                  | Position in sidebar     |
-|-------------------|-----------------------------|-----------------------|-------------------------|
-  ---------------------------------------------------------------
-  ```
-| Message Generator | `/generator`                | `ThunderboltOutlined` | Below Overview          |
-| Templates         | `/generator/templates`      | `FileTextOutlined`    | Below Message Generator |
-| Value Lists       | `/generator/value-lists`    | `UnorderedListOutlined` | Below Templates       |
+| Label             | Route                       | Icon                    | Position in sidebar     |
+|-------------------|-----------------------------|-------------------------|-------------------------|
+| Overview          | `/`                         | `HomeOutlined`          | First                   |
+| Tools             | `/tools`                    | `ToolOutlined`          | Below Overview          |
+| Setups            | `/setups`                   | `DatabaseOutlined`      | Below Tools             |
+| Message Generator | `/generator`                | `ThunderboltOutlined`   | Below Setups            |
+| Scheduled Runs    | `/generator/schedules`      | `FieldTimeOutlined`     | Below Message Generator |
+| Templates         | `/generator/templates`      | `FileTextOutlined`      | Below Scheduled Runs    |
+| Value Lists       | `/generator/value-lists`    | `UnorderedListOutlined` | Below Templates         |
 
 ---
 
@@ -1573,11 +1587,14 @@ Two new sidebar entries added to `App.tsx`:
 |------------------------|--------|-------------------------------------------------------------------|
 | List setups            | GET    | `/api/v1/setups`                                                  |
 | List queues for setup  | GET    | `/api/v1/setups/{setupId}/queues`  *(enriched with `queueDetails[]` — §6.5)* |
-| Create setup           | POST   | `/api/v1/database-setup/create`  *(Create Setup page — §6.4)*    |
-| Create queue           | POST   | `/api/v1/setups/{setupId}/queues`  *(Queue Management — §6.5; carries `implementationType`)* |
+| Connect existing setup | POST   | `/api/v1/database-setup/connect`  *(Phase S — non-destructive attach)* |
+| Detach setup           | POST   | `/api/v1/setups/{setupId}/detach`  *(Phase S — non-destructive, 204)* |
 | Delete queue           | DELETE | `/api/v1/management/queues/{setupId}/{queueName}`  *(verified against the live backend 2026-07-05 — the previously documented `/setups/{setupId}/queues/{queueName}` returns 404)* |
 | Publish single message | POST   | `/api/v1/queues/{setupId}/{queueName}/messages`                   |
 | Publish batch          | POST   | `/api/v1/queues/{setupId}/{queueName}/messages/batch`             |
+
+*(Removed 2026-07-17, Phase S.6: create setup `POST /database-setup/create` and create queue —
+provisioning is admin-tool-only; the utilities UI no longer calls either.)*
 
 ---
 
@@ -1597,7 +1614,15 @@ Two new sidebar entries added to `App.tsx`:
 
 ---
 
-## 18. Implementation Plan
+## 18. Implementation Plan *(historical — superseded)*
+
+> **Superseded.** This section is the original build-from-scratch plan. The live plan is
+> [PEEGEEQ_DEVOPS_UTILITIES_IMPLEMENTATION_PLAN.md](PEEGEEQ_DEVOPS_UTILITIES_IMPLEMENTATION_PLAN.md)
+> (Phases A–G, S/R/M, T), whose baseline table records what is built. As of 2026-07-19 all of
+> Phases 1–6 below are delivered — with two deliberate departures: provisioning (Phases 1/1B)
+> was later **removed** from this UI (Phase S: connect-only, admin-tool provisioning), and the
+> engine was upgraded to the §7.1 concurrent fan-out (plan step B.0). Retained unedited below
+> for historical context.
 
 Each phase is independently shippable and builds on the previous. Within each phase, items are
 ordered so that foundational pieces (types, services) come before the UI components that
@@ -2234,8 +2259,10 @@ where the two diverge.
 streams of test messages into PeeGeeQ queues**. It is deliberately a lightweight *test tool*,
 separate from and narrower than `peegeeq-management-ui`:
 
-- It assumes a setup and at least one queue may need to be created, and provides the minimum
-  create/list/delete surface to get there.
+- It only *targets* setups that already exist: it connects to an existing setup
+  (`/setups/connect`, Phase S) and detaches non-destructively. Provisioning — creating
+  setups and queues — is admin-tool-only (`peegeeq-management-ui`); the former create pages
+  were removed in S.6.
 - Lifecycle management, monitoring, consumer groups, message browsing, statistics dashboards,
   purge, and pause/resume are **out of scope** — those belong to `peegeeq-management-ui`.
 
@@ -2274,28 +2301,31 @@ Backend base URL defaults to `http://127.0.0.1:8088`, overridable via localStora
 
 ## 3. Layered architecture
 
-The module is organised in clear layers, with a fully-built foundation and a partially-built UI.
+The module is organised in clear layers. As of 2026-07-19 every layer is built: foundation,
+generator UI (Phases B–D), connect-only setup surface (Phase S), and scheduled runs.
 
 ```
   ┌─────────────────────────────────────────────────────────────┐
   │  Pages / Components (React + Ant Design)                     │
-  │  Overview, Setups, SetupDetail, CreateSetup, CreateQueue,   │
-  │  TargetSelector  — plus stubbed Generator/Templates/Lists   │
+  │  Overview · Setups · SetupDetail · ConnectSetup ·           │
+  │  TargetSelector · MessageGenerator (Zones A–E) ·            │
+  │  ScheduledRuns · TemplateManager · ValueListManager         │
   └───────────────┬─────────────────────────────────────────────┘
                   │ read/write
   ┌───────────────▼─────────────────────────────────────────────┐
   │  Stores (Zustand)                                            │
   │  generatorStore · templateStore · valueListStore ·          │
-  │  utilitiesStore                                             │
+  │  scheduleStore · utilitiesStore                             │
   └───────────────┬─────────────────────────────────────────────┘
                   │ call
   ┌───────────────▼──────────────────┐   ┌────────────────────────┐
   │  Engine                          │   │  Services              │
   │  publicationEngine               │   │  setupService          │
   │  templateResolver                │   │  queueService          │
-  │                                  │   │  publishService        │
-  │                                  │   │  templateService       │
+  │  runStarter                      │   │  publishService        │
+  │  schedulerRuntime                │   │  templateService       │
   │                                  │   │  valueListService      │
+  │                                  │   │  scheduleService       │
   │                                  │   │  configService         │
   └───────────────┬──────────────────┘   └───────────┬────────────┘
                   │                                   │
@@ -2306,33 +2336,59 @@ The module is organised in clear layers, with a fully-built foundation and a par
 ### 3.1 Foundation layer — implemented and unit-tested
 
 - **Types** — [generator.ts](../src/types/generator.ts) (`MessageTemplate`, `ValueList`,
-  `RunConfig`, `RunState`, `RunSummary`, `PublishError`, `RunStatus`),
+  `RunConfig`, `RateSettings`, `RunState`, `RunSummary`, `PublishError`, `RunStatus`),
   [queue.ts](../src/types/queue.ts) (`QueueImplementationType`, `QueueSummary`,
-  `CreateQueueRequest`, `MessageRequest`, `BatchMessageRequest`, `DEFAULT_QUEUE_CONFIG`),
-  [setup.ts](../src/types/setup.ts) (`DatabaseConfig`, `CreateSetupRequest`, `SetupDetails`,
-  `DEFAULT_DATABASE_CONFIG`).
+  `MessageRequest`, `BatchMessageRequest`, `DEFAULT_QUEUE_CONFIG`),
+  [setup.ts](../src/types/setup.ts) (`DatabaseConfig`, `ConnectSetupRequest`, `SetupDetails`,
+  `SetupSummary`, `DEFAULT_DATABASE_CONFIG`),
+  [schedule.ts](../src/types/schedule.ts) (`ScheduleSpec`, `ScheduleOutcome`, `ScheduledRun`,
+  `ScheduleRunRecord`, `ScheduleTemplate`).
 
 - **Template resolver** — [templateResolver.ts](../src/engine/templateResolver.ts). Pure,
   side-effect-free. `resolveTemplate(json, ctx)` substitutes all `{{...}}` tokens then
   `JSON.parse`s the result (parse errors are intentionally surfaced to the caller).
   `findMissingLists(json, lists)` reports `{{list:name}}` references that are missing or empty.
 
-- **Publication engine** — [publicationEngine.ts](../src/engine/publicationEngine.ts).
+- **Publication engine** — [publicationEngine.ts](../src/engine/publicationEngine.ts)
+  *(upgraded to the §7.1 concurrent spec in plan step B.0, 2026-07-18)*.
   A single-use factory `createPublicationEngine()` returning `{ start, stop }`. Internally:
-  - `batchSize = min(maxBatchSize, max(1, floor(rate)))`, `tickMs = (batchSize / rate) * 1000`.
-  - A `setInterval` tick guards against re-entrancy (`inFlight`) and completion (`finished`).
-  - Each tick builds one batch, calls `publishBatch`, and either increments `sent` and resets
-    the consecutive-error counter, or records a `PublishError` and increments it.
+  - 1-second ticks (`TICK_MS = 1000`); the first fan-out fires immediately at start.
+  - Each tick carries the full per-second quota (`rate` messages), split into
+    `ceil(rate / maxBatchSize)` batches fired concurrently via `Promise.allSettled`;
+    settled results are processed in batch order (consecutive-error semantics preserved).
+  - `start(config, identity, callbacks)` — the run identity (`runId`, `correlationId`) is
+    supplied by the caller; the engine generates no ids.
+  - An `inFlight` guard covers the whole fan-out; `stop()` waits for an in-flight fan-out to
+    settle so the STOPPED summary counts every server-acknowledged send.
+  - The async tick is wrapped (`runTick` + `.catch`) so a template-resolution failure during
+    batch construction terminates the run as ERROR — no unobserved rejection, no stuck RUNNING.
+  - Headers are resolved per message via `resolveString`, same as the payload.
   - Auto-stop: when `maxConsecErrors > 0` and the streak reaches it, the engine clears the
     timer and calls `onError` with an auto-stop reason.
   - Value lists are snapshotted once at `start()` from `useValueListStore` — mid-run changes are
     not reflected, matching the design.
 
+- **Run starter** — [runStarter.ts](../src/engine/runStarter.ts) *(SCH.2)*.
+  `startGeneratorRun(config, hooks?)` — the single run-wiring path shared by the Start
+  button, the scheduler, and run-now: refuses (returns null) while a run is active; the store
+  generates the runId; terminal callbacks settle the store once, then invoke
+  `hooks.onTerminal(summary, status, reason)`; returns a `stop()` handle.
+
+- **Scheduler runtime** — [schedulerRuntime.ts](../src/engine/schedulerRuntime.ts) *(SCH.3)*.
+  15 s check loop started from App mount; localStorage lease (30 s TTL, heartbeat, released
+  on `pagehide`) elects one firing tab; missed sweep at first lease acquisition with the app
+  start time as cutoff (never auto-fires); skip-and-record while a run is active; every
+  outcome appends a run-history record. See the scheduled-runs design §7.
+
 - **Services** —
-  - [setupService.ts](../src/services/setupService.ts): `createSetup` (120 s timeout),
-    `getSetups`, `getQueues`, `getSetupDetails`, `deleteSetup`.
+  - [setupService.ts](../src/services/setupService.ts) *(reshaped in Phase S: connect-only)*:
+    `getSetups`, `getQueues`, `getSetupDetails`, `connectExisting`, `detachSetup`.
+    `createSetup`/`deleteSetup` were removed in S.6 (provisioning is admin-tool-only).
   - [queueService.ts](../src/services/queueService.ts): `listQueueDetails` (uses additive
-    `queueDetails[]`, falls back to names-only), `createQueue`, `deleteQueue`.
+    `queueDetails[]`, falls back to names-only), `deleteQueue`. `createQueue` removed in S.6.
+  - [scheduleService.ts](../src/services/scheduleService.ts): localStorage CRUD for the three
+    schedule keys with per-entry Zod validation, the history bounds (200 entries / 20 errors
+    per entry) in the write path, `exportAllSchedules`, `importSchedulesFromFile`.
   - [publishService.ts](../src/services/publishService.ts): `publishSingle`, `publishBatch`
     (prefers batch endpoint; on HTTP 404 falls back to per-message single publish).
   - [templateService.ts](../src/services/templateService.ts) /
@@ -2348,30 +2404,43 @@ The module is organised in clear layers, with a fully-built foundation and a par
     localStorage; import with duplicate-ID skip.
   - [valueListStore.ts](../src/stores/valueListStore.ts): value-list CRUD, `snapshot()` for the
     resolver, `importList()` with overwrite/merge semantics.
-  - [utilitiesStore.ts](../src/stores/utilitiesStore.ts): the older Overview-page store — fetches
-    `management/overview`, `management/queues`, `management/consumer-groups`, and derives global
-    aggregates and chart series.
+  - [scheduleStore.ts](../src/stores/scheduleStore.ts): schedules/history/schedule-templates
+    CRUD; pure exported `computeNextRunAt`; `recordOutcome` (history append + scheduling-state
+    advance); `latestOutcomeFor` (the derived outcome column); `importSchedules` (duplicate-id
+    skip, `nextRunAt` recomputed); `recordManualRun` (Start-button terminals under
+    scheduleId `manual`).
+  - [utilitiesStore.ts](../src/stores/utilitiesStore.ts): the Overview-page store — per-setup /
+    per-queue data, no global aggregates (Phase E).
 
 - **Redux** — [store/index.ts](../src/store/index.ts) is a placeholder single-reducer store kept
   only to satisfy the Provider in `main.tsx`. All real state is Zustand.
 
-### 3.2 UI layer — partially implemented
+### 3.2 UI layer — fully implemented (2026-07-19)
 
-Working pages/components:
-- [SetupsPage.tsx](../src/pages/SetupsPage.tsx) — table of setups with create/delete/details.
-- [SetupDetailPage.tsx](../src/pages/SetupDetailPage.tsx) — setup detail, per-queue type badges
-  (green = native, orange = outbox), create-queue button, per-row delete with `Popconfirm`.
-- [CreateSetupPage.tsx](../src/pages/CreateSetupPage.tsx) — full-page create-setup form.
-- [CreateQueuePage.tsx](../src/pages/CreateQueuePage.tsx) — full-page create-queue form with
-  implementation-type select and a collapsed Advanced panel.
-- [TargetSelector.tsx](../src/components/TargetSelector.tsx) — Zone A of the generator (setup +
-  queue dropdowns), with empty/no-queues/error states.
-- [Overview.tsx](../src/pages/Overview.tsx) — dashboard (see §6 for the redesign gap).
+- [MessageGeneratorPage.tsx](../src/pages/generator/MessageGeneratorPage.tsx) — Zones A–E
+  assembled (Phase B): TargetSelector, RateControls, TemplateEditor, GeneratorActions
+  (Preview / Start / Stop / Schedule…), ProgressPanel. Start runs through `runStarter`;
+  terminals also record a manual-run history entry (scheduleId `manual`).
+- [ScheduledRunsPage.tsx](../src/pages/schedules/ScheduledRunsPage.tsx) — three tabs
+  (Schedules with Export all + Import, Run history with filters, Templates); see the
+  scheduled-runs design §8.2.
+- [TemplateManagerPage.tsx](../src/pages/templates/TemplateManagerPage.tsx) — template CRUD,
+  import/export, generator handoff (Phase C).
+- [ValueListManagerPage.tsx](../src/pages/value-lists/ValueListManagerPage.tsx) — value-list
+  CRUD, import with Overwrite/Merge/Cancel, referencing-template delete warning (Phase D).
+- [SetupsPage.tsx](../src/pages/SetupsPage.tsx) — table of setups with details and per-row
+  **Detach** (non-destructive; provisioning removed in S.6).
+- [SetupDetailPage.tsx](../src/pages/SetupDetailPage.tsx) — setup detail, per-queue type
+  badges, per-row queue delete with `Popconfirm`.
+- [ConnectSetupPage.tsx](../src/pages/ConnectSetupPage.tsx) — connect to an existing setup
+  (Phase S; replaced the removed Create Setup page).
+- [TargetSelector.tsx](../src/components/TargetSelector.tsx) — Zone A (setup + queue
+  dropdowns), with empty/no-queues/error states; the setup dropdown stays visible in the
+  no-queues and error states.
+- [Overview.tsx](../src/pages/Overview.tsx) — per-setup master-detail dashboard (Phase E).
 
-Stubbed (not yet built), in [App.tsx](../src/App.tsx):
-- **Message Generator page** renders only Zone A plus a `"Zone B — Message composer — Phase 2"`
-  placeholder.
-- **Template Manager** and **Value List Manager** pages render `"Coming soon — Phase 3"`.
+*(Removed 2026-07-17, S.6: `CreateSetupPage`, `CreateQueuePage` and their routes —
+provisioning is admin-tool-only.)*
 
 ---
 
@@ -2379,20 +2448,23 @@ Stubbed (not yet built), in [App.tsx](../src/App.tsx):
 
 Routes are declared in [App.tsx](../src/App.tsx):
 
-| Route                              | Component            | Notes                               |
-|------------------------------------|----------------------|-------------------------------------|
-| `/`                                | `Overview`           | Dashboard                           |
-| `/tools`                           | `Overview`           | Aliased to the same component       |
-| `/generator`                       | `MessageGeneratorPage` (inline) | Zone A only + Phase-2 stub |
-| `/setups`                          | `SetupsPage`         |                                     |
-| `/setups/:setupId`                 | `SetupDetailPage`    | Queue list / create / delete        |
-| `/setups/:setupId/queues/new`      | `CreateQueuePage`    |                                     |
-| `/generator/setup/new`             | `CreateSetupPage`    |                                     |
-| `/generator/templates`             | `TemplateManagerPage` (inline) | Phase-3 stub             |
-| `/generator/value-lists`           | `ValueListManagerPage` (inline) | Phase-3 stub            |
+| Route                              | Component               | Notes                            |
+|------------------------------------|-------------------------|----------------------------------|
+| `/`                                | `Overview`              | Per-setup master-detail          |
+| `/tools`                           | `Overview`              | Aliased to the same component    |
+| `/generator`                       | `MessageGeneratorPage`  | Zones A–E, fully built           |
+| `/generator/schedules`             | `ScheduledRunsPage`     | Schedules / Run history / Templates |
+| `/generator/templates`             | `TemplateManagerPage`   | Template CRUD + import/export    |
+| `/generator/value-lists`           | `ValueListManagerPage`  | Value-list CRUD + import/export  |
+| `/setups`                          | `SetupsPage`            | List + per-row Detach            |
+| `/setups/connect`                  | `ConnectSetupPage`      | Connect to existing setup (Phase S) |
+| `/setups/:setupId`                 | `SetupDetailPage`       | Queue list / delete              |
 
-Sidebar entries: Overview, Tools, Setups, Message Generator, Templates (indented), Value Lists
-(indented).
+*(Removed in S.6: `/setups/:setupId/queues/new` and `/generator/setup/new`.)*
+
+Sidebar entries: Overview, Tools, Setups, Message Generator, Scheduled Runs (indented),
+Templates (indented), Value Lists (indented). The scheduler runtime starts on App mount and
+stops on unmount.
 
 ---
 
@@ -2406,15 +2478,17 @@ All calls go through `getVersionedApiUrl(endpoint)` → `{base}/api/v1/{endpoint
 | Setup details          | GET    | `/api/v1/setups/{setupId}`                                   |
 | List queues (names)    | GET    | `/api/v1/setups/{setupId}/queues`                            |
 | List queues (details)  | GET    | `/api/v1/setups/{setupId}/queues` (reads `queueDetails[]`)   |
-| Create setup           | POST   | `/api/v1/database-setup/create`                             |
-| Delete setup           | DELETE | `/api/v1/database-setup/{setupId}`                          |
-| Create queue           | POST   | `/api/v1/setups/{setupId}/queues`                           |
+| Connect existing setup | POST   | `/api/v1/database-setup/connect`                            |
+| Detach setup           | POST   | `/api/v1/setups/{setupId}/detach`                           |
 | Delete queue           | DELETE | `/api/v1/management/queues/{setupId}/{queueName}`           |
 | Publish single         | POST   | `/api/v1/queues/{setupId}/{queueName}/messages`            |
 | Publish batch          | POST   | `/api/v1/queues/{setupId}/{queueName}/messages/batch`      |
 | Overview aggregates    | GET    | `/api/v1/management/overview`                               |
 | Management queues      | GET    | `/api/v1/management/queues`                                 |
 | Consumer groups        | GET    | `/api/v1/management/consumer-groups`                        |
+
+*(Removed in S.6: create setup, delete setup, create queue — provisioning and destructive
+setup operations are admin-tool-only; the safe removal is Detach.)*
 
 ---
 
@@ -2457,45 +2531,59 @@ Implementation notes:
 `idle | running | completed | stopped | error`.
 
 ```
-  idle ──start──▶ running ──duration elapsed──▶ completed
-                    │
-                    ├──stop()──────────────────▶ stopped
-                    │
-                    └──N consecutive errors────▶ error   (maxConsecErrors > 0)
+  idle ──start──▶ running ──duration elapsed──▶ completed ─┐
+                    │                                       │
+                    ├──stop()──────────────────▶ stopped ───┤
+                    │                                       │
+                    └──N consecutive errors────▶ error ─────┤
+                                                            │
+  idle ◀────[New run — summary card button → resetRun]──────┘
 ```
 
 Ownership split (design §7, §13):
 - **[generatorStore](../src/stores/generatorStore.ts)** owns all observable state (`config`,
-  `runState`). `startRun` initialises `runState` (status `running`, its own `runId`/`startedAt`),
-  `tickUpdate` applies per-tick counters, `transitionTo` applies terminal status, `resetRun`
-  returns to `IDLE_STATE`.
+  `runState`, `summary`). `startRun` initialises `runState` (status `running`, generates the
+  run's `runId`, sets `startedAt`), `tickUpdate` applies per-tick counters, `transitionTo`
+  applies terminal status, `setSummary` stores the terminal `RunSummary`, `resetRun` returns
+  to `IDLE_STATE`.
 - **[publicationEngine](../src/engine/publicationEngine.ts)** owns timing only. It is created
   fresh per run, holds no persistent state, and reports outcomes through `EngineCallbacks`
-  (`onTick`, `onComplete`, `onStop`, `onError`). The engine keeps its **own** `runId`,
-  `correlationId`, counters, and value-list snapshot for the duration of the run.
+  (`onTick`, `onComplete`, `onStop`, `onError`). The run identity is **passed in** —
+  `start(config, identity, callbacks)` — the engine generates no ids; it keeps only its
+  counters and the value-list snapshot for the duration of the run.
+- **[runStarter](../src/engine/runStarter.ts)** is the single wiring path (SCH.2): it calls
+  `setConfig` + `startRun()`, reads the store-generated `runId`, constructs the engine, wires
+  the callbacks, and settles the terminal state exactly once. The Start button, the
+  scheduler, and run-now all go through it; it refuses while a run is active.
 
-Timing model:
-- `batchSize = min(maxBatchSize, max(1, floor(rate)))`.
-- `tickMs = (batchSize / rate) * 1000` — one `setInterval` tick publishes one batch.
-- Re-entrancy guard `inFlight` ensures a slow request does not overlap the next tick; the tick
-  is a no-op while a batch is in flight or after `finished`.
+Timing model (§7.1 as respecified, implemented in B.0):
+- `TICK_MS = 1000`; the first fan-out fires immediately at start.
+- Each tick sends the full per-second quota: `rate` messages split into
+  `ceil(rate / maxBatchSize)` batches fired concurrently (`Promise.allSettled`), results
+  processed in batch order.
+- The `inFlight` guard covers the whole fan-out: a tick is skipped only while the previous
+  fan-out is still settling. `stop()` waits for an in-flight fan-out to settle.
 - Completion is checked at the **start** of each tick against `durationSecs * 1000`.
-
-> **Not yet wired.** No component currently constructs the engine or subscribes the store to its
-> callbacks. The generator page renders Zone A only. See §12.1.
 
 ---
 
 ## 8. Client-side persistence
 
-The app persists three things in `localStorage`. There is no backend persistence for templates
-or value lists in v1.
+The app persists in `localStorage`. There is no backend persistence for templates, value
+lists, or schedules in v1.
 
 | Key                                | Shape                        | Written by                          |
 |------------------------------------|------------------------------|-------------------------------------|
 | `peegeeq_msg_templates`            | `MessageTemplate[]`          | [templateService.saveAll](../src/services/templateService.ts) |
 | `peegeeq_value_lists`              | `Record<string, string[]>`   | [valueListService.saveAll](../src/services/valueListService.ts) |
+| `peegeeq_generator_schedules`      | `ScheduledRun[]`             | [scheduleService](../src/services/scheduleService.ts) |
+| `peegeeq_schedule_run_history`     | `ScheduleRunRecord[]` (newest first, 200-entry cap, 20 errors/entry) | [scheduleService](../src/services/scheduleService.ts) |
+| `peegeeq_schedule_templates`       | `ScheduleTemplate[]`         | [scheduleService](../src/services/scheduleService.ts) |
+| `peegeeq_scheduler_lease`          | `{ tabId, heartbeat }` (30 s TTL) | [schedulerRuntime](../src/engine/schedulerRuntime.ts) |
 | `peegeeq_utilities_backend_config` | `{ apiUrl: string }`         | [configService.saveBackendConfig](../src/services/configService.ts) |
+
+The three schedule keys load with per-entry Zod validation (one corrupt entry is dropped with
+a visible named warning, never the whole list).
 
 Conventions:
 - Loaders are defensive: corrupt or absent data returns `[]` / `{}` / the default config rather
@@ -2525,7 +2613,7 @@ mount ─▶ getSetups() ─▶ setups[]; auto-select first
         both selected ─▶ onTargetSelected(setupId, queueName)
 ```
 
-**Preview (design §6.1 Zone D — not yet built):**
+**Preview (design §6.1 Zone D — built, Phase B.3):**
 ```
 resolveTemplate(payloadSchema, { messageId: previewIndex, runId, correlationId, now, valueLists })
   ─▶ JSON shown in modal; zero HTTP calls; parse errors shown inline
@@ -2570,8 +2658,8 @@ form.validateFields() ─▶ createSetup | createQueue (axios POST)
   "not found" message.
 - **Overview** shows a top-level status `<Alert>` that flips to `error` when `utilitiesStore`
   records a fetch failure.
-- Per the project's no-error-swallowing rule, every catch should surface the error. One current
-  exception is noted in §12.6.
+- Per the project's no-error-swallowing rule, every catch surfaces the error. The one former
+  exception (silent queue-load failure) was resolved 2026-07-10 — see §12.6.
 
 ---
 
@@ -2596,10 +2684,13 @@ These are the material points where the code diverges from
 Part I (the functional design). None have been fixed here;
 this section records them so they are not lost.
 
-1. **Engine is not wired into the UI.** The generator UI does not instantiate
-   `publicationEngine` or drive `generatorStore`. Zones B–E (rate controls, template editor,
-   actions, progress) and the Template/Value-List manager pages (design §6.1–6.3) are not built.
-   State: *foundation complete, generator UI not assembled.*
+1. **Engine wiring — RESOLVED (Phase B, 2026-07-18; Phases C/D, 2026-07-18/19).** Zones B–E
+   are built and assembled in
+   [MessageGeneratorPage](../src/pages/generator/MessageGeneratorPage.tsx); the engine is
+   driven through [runStarter](../src/engine/runStarter.ts) with the store-generated run
+   identity. The Template Manager and Value List Manager pages are built. Scheduled runs
+   (2026-07-19) added the Scheduled Runs screen and the scheduler runtime on top of the same
+   wiring — see the scheduled-runs design.
 
 2. **Overview page — RESOLVED (Phase E).** [Overview.tsx](../src/pages/Overview.tsx) now renders
    the §6.6 design: a per-setup table with a per-setup detail card (queues + event stores), no
@@ -2635,10 +2726,13 @@ this section records them so they are not lost.
 
 ## 13. Testing
 
-Unit/component tests (Vitest) cover the resolver, engine, stores, services, and the built pages
-(`src/tests/unit/*`). E2E tests (Playwright, `src/tests/e2e/*`) use a page-object pattern and a
-Testcontainers-backed PostgreSQL global setup/teardown. npm scripts: `test:run`,
-`test:integration`, `test:e2e`, and the aggregate `test:all` / `test:ci`.
+Unit/component tests (Vitest) cover the resolver, engine, runStarter, schedulerRuntime,
+stores, services, and every built page (`src/tests/unit/*`) — 483 tests in 30 files as of
+2026-07-19. E2E tests (Playwright, `src/tests/e2e/*`) use a page-object pattern and a
+Testcontainers-backed PostgreSQL global setup/teardown — 68 tests across the projects,
+including `4-generator-run` (real publication) and `6-generator-schedules` (firing, lease,
+missed policy, import). npm scripts: `test:run`, `test:integration`, `test:e2e`, and the
+aggregate `test:all` / `test:ci`.
 
 Per the project standards, tests use no Mockito-style mocking; database interaction is via
 Testcontainers, and HTTP stubbing is likewise avoided.
