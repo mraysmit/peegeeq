@@ -139,4 +139,31 @@ test.describe('Connect to existing setup', () => {
     await expect(page.locator('.ant-alert-error')).toBeVisible({ timeout: 30000 })
     await expect(page.getByTestId('connect-setup-page')).toBeVisible()
   })
+
+  test('detaches a connected setup through the UI and it leaves the active list', async ({ page }) => {
+    // Serial: the first test left CONNECT_SETUP_ID connected. Detach it through the UI
+    // (non-destructive Popconfirm) and verify against the real GET /api/v1/setups.
+    await page.goto('/setups')
+
+    const row = page.locator(`tr:has-text("${CONNECT_SETUP_ID}")`)
+    await expect(row).toBeVisible({ timeout: 30000 })
+
+    await page.getByTestId(`detach-setup-${CONNECT_SETUP_ID}`).click()
+
+    // Detach is non-destructive — the Popconfirm OK is a plain primary button.
+    const confirmBtn = page.locator('.ant-popconfirm .ant-btn-primary')
+    await expect(confirmBtn).toBeVisible({ timeout: 5000 })
+    await confirmBtn.click()
+
+    // Success toast and the row disappears.
+    await expect(page.locator('.ant-message-success')).toBeVisible({ timeout: 15000 })
+    await expect(row).not.toBeVisible({ timeout: 15000 })
+
+    // Verify against the REAL backend: no longer in the active list.
+    await expect.poll(async () => {
+      const resp = await page.request.get(`${API_BASE_URL}/api/v1/setups`)
+      const body = await resp.json()
+      return (body.setupIds ?? []).includes(CONNECT_SETUP_ID)
+    }, { timeout: 15000 }).toBe(false)
+  })
 })

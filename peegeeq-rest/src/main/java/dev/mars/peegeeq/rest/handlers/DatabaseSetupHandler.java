@@ -249,6 +249,75 @@ public class DatabaseSetupHandler {
     }
 
     /**
+     * Non-destructively detaches a setup: stops the manager and releases the in-memory binding, but does
+     * NOT drop the database or schema — the data persists and the setup can be reconnected later. This is
+     * the safe "remove" for a connected setup; dropping the database is a separate, guarded operation.
+     * POST /api/v1/setups/:setupId/detach
+     */
+    public void detachSetup(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+
+        logger.info("Detaching database setup (non-destructive, data preserved): {}", setupId);
+
+        setupService.detachSetup(setupId)
+                .onSuccess(v -> {
+                    ctx.response()
+                            .setStatusCode(204) // No Content
+                            .end();
+
+                    logger.info("Database setup detached successfully (data preserved): {}", setupId);
+                })
+                .onFailure(err -> {
+                    logger.error("Failed to detach database setup: {}", setupId, err);
+                    sendError(ctx, 503, "Failed to detach setup: " + err.getMessage());
+                });
+    }
+
+    /**
+     * DESTRUCTIVE: drops the setup's database. The single guarded destroy path — separate from the
+     * non-destructive delete/detach. Requires a type-to-confirm body: {@code confirmDatabaseName} must
+     * match the setup's actual database name, else 400 (nothing dropped). Admin-tool-only.
+     * POST /api/v1/setups/:setupId/database/drop  body: { "confirmDatabaseName": "<exact db name>" }
+     */
+    public void dropSetupDatabase(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String confirmDatabaseName;
+        try {
+            JsonObject body = ctx.body().asJsonObject();
+            confirmDatabaseName = body != null ? body.getString("confirmDatabaseName") : null;
+        } catch (Exception e) {
+            sendError(ctx, 400, "Invalid request body: " + e.getMessage());
+            return;
+        }
+
+        logger.warn("DESTRUCTIVE: drop-database requested for setup '{}'", setupId);
+
+        setupService.dropSetupDatabase(setupId, confirmDatabaseName)
+                .onSuccess(v -> {
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("Content-Type", "application/json")
+                            .end(new JsonObject()
+                                    .put("setupId", setupId)
+                                    .put("message", "Database dropped successfully")
+                                    .encode());
+                    logger.warn("DESTRUCTIVE: database dropped for setup '{}'", setupId);
+                })
+                .onFailure(err -> {
+                    Throwable cause = err.getCause() != null ? err.getCause() : err;
+                    if (isSetupNotFoundError(cause)) {
+                        sendError(ctx, 404, "Setup not found: " + setupId);
+                    } else if (cause instanceof IllegalArgumentException) {
+                        // Type-to-confirm mismatch — nothing was dropped.
+                        sendError(ctx, 400, cause.getMessage());
+                    } else {
+                        logger.error("Failed to drop database for setup: {}", setupId, err);
+                        sendError(ctx, 503, "Failed to drop database: " + err.getMessage());
+                    }
+                });
+    }
+
+    /**
      * Gets the status of a database setup.
      * GET /api/v1/setups/:setupId/status
      */

@@ -5,7 +5,7 @@
  * checks rather than fixed values.
  */
 import { describe, it, expect } from 'vitest'
-import { resolveTemplate, findMissingLists } from '../../engine/templateResolver'
+import { resolveTemplate, resolveString, findMissingLists } from '../../engine/templateResolver'
 
 const BASE_CONTEXT = {
   messageId: 1,
@@ -142,5 +142,26 @@ describe('findMissingLists', () => {
   it('returns an empty array when there are no list tokens', () => {
     const result = findMissingLists('{"a":"{{messageId}}"}', {})
     expect(result).toEqual([])
+  })
+})
+
+describe('resolveString', () => {
+  it('substitutes tokens without JSON parsing — the result is a plain string', () => {
+    const result = resolveString('run={{runId}} msg={{messageId}}', BASE_CONTEXT)
+    expect(result).toBe('run=run-123 msg=00000001')
+  })
+
+  it('resolves {{uuid}} to a UUID inside a header-style value', () => {
+    const result = resolveString('{{uuid}}', BASE_CONTEXT)
+    expect(result).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/)
+  })
+
+  it('resolves {{list:name}} from the value lists and "" when missing', () => {
+    expect(resolveString('{{list:names}}', { ...BASE_CONTEXT, valueLists: { names: ['Mark'] } })).toBe('Mark')
+    expect(resolveString('{{list:absent}}', BASE_CONTEXT)).toBe('')
+  })
+
+  it('leaves text without tokens untouched', () => {
+    expect(resolveString('plain value', BASE_CONTEXT)).toBe('plain value')
   })
 })

@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.runtime;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Unit tests for PeeGeeQContext.
  * Tests context creation, accessors, and feature flags using real runtime.
  */
+@Tag(TestCategories.CORE)
 class PeeGeeQContextTest {
 
     @Test

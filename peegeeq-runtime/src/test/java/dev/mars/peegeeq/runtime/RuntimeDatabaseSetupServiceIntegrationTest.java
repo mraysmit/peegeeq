@@ -28,6 +28,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -55,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-@Tag("integration")
+@Tag(TestCategories.INTEGRATION)
 class RuntimeDatabaseSetupServiceIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(RuntimeDatabaseSetupServiceIntegrationTest.class);
@@ -649,6 +650,81 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
                 .compose(v -> setupService.destroySetup(setupIdA))
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);
+    }
+
+    @Test
+    @Order(11)
+    @DisplayName("dropSetupDatabase - guarded destroy: wrong confirm is non-destructive, correct confirm drops the DB")
+    void dropSetupDatabase_guardedDestroy(Vertx vertx, VertxTestContext ctx) {
+        // The single destructive path. A wrong type-to-confirm token must be refused with the database
+        // left intact; the exact database name must drop it. Verified against pg_database via a connection
+        // to the container's DEFAULT database (the setup's own DB is the one being dropped).
+        String schema = PostgreSQLTestConstants.TEST_SCHEMA;
+        String dbName = "drop_test_db_" + System.currentTimeMillis();
+        String setupId = "drop-" + System.currentTimeMillis();
+
+        DatabaseConfig dbConfig = new DatabaseConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .databaseName(dbName)
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema(schema)
+                .templateDatabase("template0")
+                .encoding("UTF8")
+                .build();
+        QueueConfig queue = new QueueConfig.Builder().queueName("dropq").maxRetries(3).build();
+        DatabaseSetupRequest createReq = new DatabaseSetupRequest(setupId, dbConfig, List.of(queue), List.of(), Map.of());
+
+        PgConnectionManager verifyMgr = new PgConnectionManager(vertx, null);
+        PgConnectionConfig adminConn = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .schema("public")
+                .build();
+
+        setupService.createCompleteSetup(createReq)
+                .compose(created -> {
+                    verifyMgr.getOrCreateReactivePool("verify-drop", adminConn,
+                            new PgPoolConfig.Builder().maxSize(1).build());
+                    // A wrong confirmation must be refused (IllegalArgumentException), dropping nothing.
+                    return setupService.dropSetupDatabase(setupId, "definitely-not-the-db").transform(ar -> {
+                        assertTrue(ar.failed(), "drop with a wrong confirmation must fail");
+                        boolean isArg = false;
+                        for (Throwable t = ar.cause(); t != null; t = t.getCause()) {
+                            if (t instanceof IllegalArgumentException) isArg = true;
+                        }
+                        assertTrue(isArg, "wrong-confirmation drop must fail with IllegalArgumentException, got: " + ar.cause());
+                        return Future.succeededFuture();
+                    });
+                })
+                // The database must still exist after the refused drop (non-destructive).
+                .compose(v -> dbExists(verifyMgr, dbName))
+                .map(exists -> {
+                    assertTrue(exists, "database must survive a wrong-confirmation drop");
+                    return (Void) null;
+                })
+                // The exact database name drops it.
+                .compose(v -> setupService.dropSetupDatabase(setupId, dbName))
+                // The database must now be gone.
+                .compose(v -> dbExists(verifyMgr, dbName))
+                .map(exists -> {
+                    assertFalse(exists, "database must be dropped after a confirmed drop");
+                    return (Void) null;
+                })
+                .eventually(() -> verifyMgr.close())
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+    }
+
+    private Future<Boolean> dbExists(PgConnectionManager mgr, String dbName) {
+        return mgr.withConnection("verify-drop", conn ->
+                conn.preparedQuery("SELECT 1 FROM pg_database WHERE datname = $1")
+                        .execute(Tuple.of(dbName))
+                        .map(rows -> rows.iterator().hasNext()));
     }
 
     @Test

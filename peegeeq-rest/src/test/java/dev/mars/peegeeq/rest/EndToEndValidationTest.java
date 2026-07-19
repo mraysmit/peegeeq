@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  */
-@Tag(TestCategories.INTEGRATION)
+@Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class EndToEndValidationTest {

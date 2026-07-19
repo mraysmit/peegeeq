@@ -9,15 +9,20 @@ import type { MessageTemplate } from '../types/generator'
 
 const STORAGE_KEY = 'peegeeq_msg_templates'
 
-const messageTemplateSchema = z.object({
+/**
+ * Exported for reuse by schedule schemas (a RunConfig embeds a template).
+ * Ranges match the editor's input bounds (feature §6.1 Zone C): imported files
+ * must not smuggle in values the UI cannot produce.
+ */
+export const messageTemplateSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string().optional(),
   messageType: z.string(),
   payloadSchema: z.string(),
   headers: z.record(z.string(), z.string()),
-  priority: z.number(),
-  delaySeconds: z.number(),
+  priority: z.number().int().min(1).max(10),
+  delaySeconds: z.number().min(0),
   messageGroup: z.string().optional(),
   createdAt: z.string(),
   updatedAt: z.string(),

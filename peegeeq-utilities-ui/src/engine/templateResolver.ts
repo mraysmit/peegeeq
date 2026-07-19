@@ -26,15 +26,12 @@ export interface TemplateContext {
 }
 
 /**
- * Resolve a template payload string into a parsed JSON object.
- *
- * Per-message tokens (including {{list:...}} lookups) and per-run tokens are
- * substituted, then the result is parsed with JSON.parse — surfacing template
- * authoring errors before publish time. The Preview action wraps this in a
- * try/catch and shows parse errors inline.
+ * Substitute all placeholder tokens in a template string. No parsing — the
+ * result is a plain string. Used directly for header values (§5.3: placeholders
+ * are valid in header values) and by {@link resolveTemplate} for payloads.
  */
-export function resolveTemplate(templateJson: string, context: TemplateContext): object {
-  const resolved = templateJson
+export function resolveString(template: string, context: TemplateContext): string {
+  return template
     .replace(/\{\{messageId\}\}/g, String(context.messageId).padStart(8, '0'))
     .replace(/\{\{sequenceId\}\}/g, String(context.messageId).padStart(8, '0'))
     .replace(/\{\{uuid\}\}/g, crypto.randomUUID())
@@ -50,8 +47,18 @@ export function resolveTemplate(templateJson: string, context: TemplateContext):
     .replace(/\{\{list:([A-Za-z0-9_-]+)\}\}/g, (_: string, name: string) =>
       pickFromList(name, context.valueLists)
     )
+}
 
-  return JSON.parse(resolved)
+/**
+ * Resolve a template payload string into a parsed JSON object.
+ *
+ * Per-message tokens (including {{list:...}} lookups) and per-run tokens are
+ * substituted, then the result is parsed with JSON.parse — surfacing template
+ * authoring errors before publish time. The Preview action wraps this in a
+ * try/catch and shows parse errors inline.
+ */
+export function resolveTemplate(templateJson: string, context: TemplateContext): object {
+  return JSON.parse(resolveString(templateJson, context))
 }
 
 /**

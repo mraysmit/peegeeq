@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.servicemanager.health;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.servicemanager.model.PeeGeeQInstance;
 import dev.mars.peegeeq.servicemanager.model.ServiceHealth;
@@ -29,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for HealthCheckResult.
  */
+@Tag(TestCategories.CORE)
 class HealthCheckResultTest {
 
     private PeeGeeQInstance createTestInstance() {

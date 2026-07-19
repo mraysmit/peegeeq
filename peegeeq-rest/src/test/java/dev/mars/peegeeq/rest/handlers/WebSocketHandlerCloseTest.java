@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.rest.handlers;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
@@ -32,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-12-31
  * @version 1.0
  */
+@Tag(TestCategories.CORE)
 class WebSocketHandlerCloseTest {
 
     @Test

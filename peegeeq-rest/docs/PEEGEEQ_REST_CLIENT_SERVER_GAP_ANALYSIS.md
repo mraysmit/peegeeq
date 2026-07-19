@@ -42,11 +42,11 @@ The peegeeq-rest module has comprehensive test coverage with 35+ test files orga
 | ConsumerGroupHandler | `ConsumerGroupHandlerTest.java`, `ConsumerGroupSubscriptionIntegrationTest.java` |
 | EventStoreHandler | `EventStoreEnhancementTest.java`, `EventStoreIntegrationTest.java` |
 | ManagementApiHandler | `ManagementApiHandlerTest.java` |
-| QueueHandler | `QueueHandlerUnitTest.java`, `MessageSendingIntegrationTest.java` |
+| QueueHandler | `QueueHandlerUnitTest.java`, `MessageSendingCoreTest.java` |
 | ServerSentEventsHandler | `ServerSentEventsHandlerTest.java`, `SSEStreamingPhase1IntegrationTest.java`, `SSEStreamingPhase2IntegrationTest.java`, `SSEStreamingPhase3IntegrationTest.java` |
 | WebSocketHandler | `WebSocketHandlerTest.java` |
 | WebhookSubscriptionHandler | `WebhookSubscriptionTest.java` |
-| SubscriptionHandler | `SubscriptionOptionsIntegrationTest.java`, `SubscriptionPersistenceAcrossRestartIntegrationTest.java` |
+| SubscriptionHandler | `SubscriptionOptionsCoreTest.java`, `SubscriptionPersistenceAcrossRestartIntegrationTest.java` |
 
 **Phase Tests:**
 

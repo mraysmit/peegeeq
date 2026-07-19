@@ -15,6 +15,8 @@
  */
 
 package dev.mars.peegeeq.runtime;
+import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Unit tests for PeeGeeQRuntime factory class.
  */
+@Tag(TestCategories.CORE)
 class PeeGeeQRuntimeTest {
 
     @Test
