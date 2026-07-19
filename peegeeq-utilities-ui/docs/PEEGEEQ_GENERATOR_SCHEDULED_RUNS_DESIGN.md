@@ -2,8 +2,10 @@
 
 **Author**: Mark Andrew Ray-Smith Cityline Ltd
 **Created**: 2026-07-19
-**Status**: IMPLEMENTED (v1, 2026-07-19 — SCH.1–SCH.7 complete; see the implementation plan
-for per-step evidence). One post-review model correction is recorded in §5 (schedules carry
+**Status**: IMPLEMENTED (v1, 2026-07-19 — SCH.1–SCH.7 complete, plus the two later phases
+shipped the same day as SCH.8: schedule import and manual-run history, both graduated from
+§4; see the implementation plan for per-step evidence). One post-review model correction is
+recorded in §5 (schedules carry
 scheduling state only); one design correction from end-to-end testing is recorded in §7.4/§7.5
 (the missed sweep runs at first lease acquisition with app start as the cutoff, and the lease
 is released on pagehide — the start-time-only sweep would have auto-fired after a reload).
@@ -68,12 +70,12 @@ Consequences, stated plainly:
 | R3 | A new **Scheduled Runs** screen lists all schedules: name, target, rate × duration, schedule description, next fire time, enabled state, last outcome. |
 | R4 | Actions per schedule: enable/disable, run now, delete (confirmed). Editing of the timing (next fire time, interval) in place; the run configuration itself is not editable — delete and re-schedule from the generator. |
 | R5 | A due schedule fires through the SAME engine path as the Start button: store-generated run id, acknowledged counts, terminal summary. |
-| R6 | Each firing records an outcome on the schedule: when, final status, total sent, total errors. The last summary is downloadable from the list. |
+| R6 | Each firing records an outcome — when, final status, total sent, total errors — **in the run history** (corrected at the §5 model review: the schedule itself stores no outcome; the table's outcome column is derived from the newest history record). The last summary is downloadable from the history. |
 | R7 | Only one run executes at a time (the engine and run state are singletons). A schedule that comes due while any run is active is **skipped** and records a skipped outcome; an interval schedule advances to its next slot. |
 | R8 | Missed schedules (due while the app was closed) NEVER auto-start on app open: they record a `missed` outcome and advance/disable (§7.4). |
 | R9 | Schedules persist in localStorage, like templates and value lists. Per-browser, per-origin — not shared between machines or users, and the UI says so. |
 | R10 | Zero backend changes. |
-| R11 | **Export all schedules as JSON** from the Scheduled Runs screen: one file containing the full `ScheduledRun[]` array (§5 shape — configs, timing, outcomes), downloadable as `schedules.json`. This is the escape hatch for R9's per-browser storage. Import of that file is a **later phase** (§4). |
+| R11 | **Export all schedules as JSON** from the Scheduled Runs screen: one file containing the full `ScheduledRun[]` array (§5 shape — configs, timing, outcomes), downloadable as `schedules.json`. This is the escape hatch for R9's per-browser storage. Import of that file was planned as a later phase and **shipped 2026-07-19** (§4). |
 | R12 | **Run history.** EVERY scheduled firing outcome — `completed`, `stopped`, `error`, `skipped`, `missed` — appends an entry to a run-history list, shown on the Scheduled Runs screen with a **filter** (by result, and by schedule name). History is bounded (§5), survives deletion of its schedule, and each fired entry keeps a downloadable summary. |
 | R13 | **Schedule templates.** A history entry or an existing schedule can be **saved as a named schedule template** (the frozen `RunConfig`). A new schedule (or an immediate run) can be created FROM a template — the schedule modal opens prefilled, only the timing needs choosing. Templates are listed on the Scheduled Runs screen with schedule-from / run-now / delete actions. |
 
@@ -202,8 +204,8 @@ On each check, for every enabled schedule with `nextRunAt <= now`, in `nextRunAt
    `skipped` outcome (R7), advance `nextRunAt` (§7.3), continue.
 2. Otherwise fire through the SHARED run-starter (§9): `setConfig(schedule.config)` →
    `startRun()` → engine with store-generated run id — identical to the Start button.
-3. On the terminal callback, record the outcome and summary on the schedule, then advance
-   `nextRunAt` (§7.3).
+3. On the terminal callback, append the outcome and summary to the run history, then advance
+   the schedule's `nextRunAt` (§7.3).
 
 **Every outcome — fired (completed/stopped/error), skipped, and missed (§7.4) — also
 appends a `ScheduleRunRecord` to the run history (R12).** The history is the run record —
@@ -386,5 +388,5 @@ screen and modal.
 | D5 | Snapshot semantics | Config+template frozen at scheduling; value lists at fire time (§6). |
 | D6 | Edit scope | Timing editable in the list; config changes = delete + re-schedule (R4). |
 | D7 | Export/import | Export-all as `schedules.json` shipped in v1 (R11); import shipped as the follow-on phase using that file as its format (§4). **Decided and completed 2026-07-19 (user).** |
-| D8 | Run history scope | Every scheduled-firing outcome recorded (R12), 200-entry FIFO cap, entries survive schedule deletion, per-entry stored errors capped at 20. Manual runs excluded in v1 (§4). **Requested 2026-07-19 (user); bounds are my proposal — confirm.** |
+| D8 | Run history scope | Every scheduled-firing outcome recorded (R12), 200-entry FIFO cap, entries survive schedule deletion, per-entry stored errors capped at 20. ~~Manual runs excluded in v1~~ — manual-run history shipped 2026-07-19 (§4): every Start-button terminal records under scheduleId `manual`. **Requested 2026-07-19 (user); bounds are my proposal — confirm.** |
 | D9 | Template model | `ScheduleTemplate` = named frozen `RunConfig`, no timing (§5). Created from schedule rows and history rows; consumed by prefil­led Schedule modal and template Run now (R13). **Requested 2026-07-19 (user); model is my proposal — confirm.** |

@@ -23,16 +23,17 @@ the current baseline and covers only what is left, plus the divergences recorded
 |---|---|---|
 | Types (`generator.ts`, `queue.ts`, `setup.ts`) | ✅ done | TD §3.1 |
 | Template resolver + `findMissingLists` | ✅ done | TD §3.1, §6 |
-| Publication engine (tick loop, auto-stop) | ✅ done, **not UI-wired** | TD §3.1, §7 |
+| Publication engine (concurrent fan-out, auto-stop, caller-supplied identity) | ✅ done and UI-wired (B.0/B.5) | TD §3.1, §7 |
 | Services (setup, queue, publish, template, valueList, config) | ✅ done | TD §3.1, §5 |
 | Stores (generator, template, valueList, utilities) | ✅ done | TD §3.1 |
 | Create Setup / Create Queue pages | ✅ **removed** (Phase S / S.6, 2026-07-17 — provisioning is admin-tool-only; replaced by ConnectSetupPage) | TD §3.2; S.6 |
 | Setups list + Setup detail (queue CRUD, badges) + per-row Detach | ✅ done | TD §3.2 |
 | TargetSelector (Zone A) | ✅ done | TD §3.2 |
 | Connect-to-existing-setup UI (ConnectSetupPage + service) | ✅ done (Phase S / S.5, 2026-07-17) | setup-db §12 |
-| Generator Zones B–E | ❌ stub only | feature §6.1 |
-| Template Manager page | ❌ stub only | feature §6.2 |
-| Value List Manager page | ❌ stub only | feature §6.3 |
+| Generator Zones B–E | ✅ done (Phase B, 2026-07-18) | feature §6.1 |
+| Template Manager page | ✅ done (Phase C, 2026-07-18) | feature §6.2 |
+| Value List Manager page | ✅ done (Phase D, 2026-07-19) | feature §6.3 |
+| Scheduled runs (screen, scheduler, history, templates, import) | ✅ done (2026-07-19 — own design + plan, SCH.0–SCH.8) | scheduled-runs docs |
 | Overview redesign (per-setup, no global aggregates) | ✅ done (per-setup table + detail card; connect CTA) | feature §6.6, TD §12.2 |
 
 ---
@@ -73,13 +74,14 @@ Phase S (Setup connect: manual attach)     ── ✅ DONE 2026-07-18 (S.0–S.6
       │                                       (DECIDED: S lands BEFORE B — setups are provisioned by
       │                                        the admin tool, NOT by the generator; connecting to an
       │                                        existing setup is the generator's only path to a target)
-      ├── Phase B (Generator UI: Zones B–E)  ── after S; wires engine + generatorStore
-      │     ├── Phase C (Template Manager)    ── parallelisable with B
-      │     └── Phase D (Value List Manager)  ── parallelisable with B, C
+      ├── Phase B (Generator UI: Zones B–E)  ── ✅ DONE 2026-07-18 (B.0–B.6; engine wired via runStarter)
+      │     ├── Phase C (Template Manager)    ── ✅ DONE 2026-07-18
+      │     └── Phase D (Value List Manager)  ── ✅ DONE 2026-07-19
       └── Phase R (Durable registry + auto-reload) ── after S; persists bindings, reconnects on boot
              └── Phase M (Management DB: estate control plane) ── after R; org-wide + single-owner leases
 Phase E (Overview redesign)                ── independent (done)
-Phase F (Integration + E2E + screenshots)  ── after B/C/D/E land
+Phase F (Integration + E2E + screenshots)  ── ✅ DONE 2026-07-19 (F.1–F.4; F.5 full gate = user's call)
+Scheduled runs (own design + plan)         ── ✅ DONE 2026-07-19 (SCH.0–SCH.8; graduated from §3 non-goals)
 Phase G (Generation tool suite, §19)       ── after B; most tools client-only, no backend
 Phase T (Backend telemetry, peegeeq-db/rest) ── gates only the two telemetry-heavy G tools:
       └─ required by  G.2 (native-vs-outbox)  and  G.1b (rich breaking-point)
@@ -272,8 +274,9 @@ docs (rolling window, documented in types + TD §12.5).
 ## Phase B — Generator page UI (Zones B–E)
 
 **Goal:** assemble the full generator so a user can configure a run, preview a message, start and
-stop it, and watch live progress. This is the phase that finally **wires the engine into the UI**
-(TD §7 "Not yet wired"). Corresponds to feature §18 Phase 3.
+stop it, and watch live progress. This is the phase that finally **wired the engine into the
+UI** (closing what TD §7 recorded as "Not yet wired" — since resolved there). Corresponds to
+feature §18 Phase 3.
 
 *Prerequisite: **Phase S** (decided). Setup provisioning belongs to the **admin tool**, not the
 generator — the generator only *targets* setups. Connecting to an existing setup
@@ -406,7 +409,7 @@ existing global-setup; no extra work is needed for the Playwright steps themselv
 | F.1 | ✅ **DONE** (delivered through B/C/D TDD) — unit suite 217 tests: resolver incl. `resolveString`/header resolution, engine incl. fan-out/identity/run-time-failure/stop-settle, stores incl. `summary`, all five zone components, both manager pages. | feature §18 6.1–6.3 |
 | F.2 | ✅ **DONE** — `4-generator-run` e2e: full run (start → acknowledged counters → COMPLETED summary → New run) + stop flow, real backend. Download is unit-tested (blob content); browser download event not e2e-asserted. | feature §18 6.5 |
 | F.3 | ✅ **DONE** — e2e: template save → manager list → reopen round-trip; value-list create → generator resolve → delete round-trip. Duplicate/delete/import paths covered at unit level with real localStorage. | feature §6.2, §6.3 |
-| F.4 | ✅ **DONE 2026-07-19** — screenshots spec rewritten for the connect-only, fully-built UI (old spec drove the removed Create Setup/Queue pages); 12 fresh PNGs incl. the assembled generator, preview modal, real-run summary, detach/connect flows; Appendix A rewritten; 15 stale PNGs removed. | feature Appendix A |
+| F.4 | ✅ **DONE 2026-07-19** — screenshots spec rewritten for the connect-only, fully-built UI (old spec drove the removed Create Setup/Queue pages); 12 fresh PNGs incl. the assembled generator, preview modal, real-run summary, detach/connect flows; Appendix A rewritten; 15 stale PNGs removed. *Extended same day to 16 shots (13–16: schedule modal, Scheduled Runs tabs) with the scheduled-runs feature — Appendix A §A.3.* | feature Appendix A |
 | F.5 | Full module gate (final check, **user's call**): `mvn test -pl :peegeeq-utilities-ui -Pall-tests`. | reference test commands |
 
 **Acceptance:** targeted suites green; screenshots reflect the built pages; the module gate passes.
@@ -633,4 +636,7 @@ lease takeover on owner death with **no duplicate maintenance jobs** running; `m
   runs on client-side metering plus the telemetry/endpoints PeeGeeQ already exposes, so the utilities-ui
   UI work never blocks on backend changes.
 - Anything in the feature design's "Non-Goals (v1)" (§3) and "Future Work" (§17) — consumer
-  panel, scheduled runs, Monaco editor, auth, Web Worker — stays out of this plan.
+  panel, Monaco editor, auth, Web Worker — stays out of this plan. **Scheduled runs graduated
+  from §3 on 2026-07-19** and shipped under its own design + implementation plan
+  ([PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md](PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md)),
+  not this one.
