@@ -32,7 +32,7 @@ Database setups are the foundational resource in PeeGeeQ. A setup represents an 
 - **Setup ID**: A unique identifier for the messaging environment (e.g., "orders-service", "payments-prod")
 - **Isolation**: Each setup has isolated queues and event stores - messages in one setup cannot be accessed from another
 - **Lifecycle**: Setups go through states: CREATING → ACTIVE → (optionally) FAILED
-- **Resource Management**: Destroying a setup cleans up all associated database tables and connections
+- **Resource Management (changed 2026-07, Phase S)**: Deleting/detaching a setup releases its in-memory binding and connections but **never drops tables or data** — the setup can be reconnected later. The single destructive operation is the guarded [Drop Setup Database](#drop-setup-database-destructive).
 
 **When to Use Multiple Setups:**
 - Separate environments (dev, staging, prod)
@@ -49,6 +49,12 @@ Creates a complete database setup with queues and event stores. This is the prim
 3. Sets up LISTEN/NOTIFY channels for real-time message delivery
 4. Initializes connection pools and factory instances
 5. Returns immediately with CREATING status, then transitions to ACTIVE when ready
+
+**Create never destroys (changed 2026-07-17).** If the target database already exists, create
+**refuses** with `409 Conflict` and touches nothing — it never drops or overwrites. To attach to an
+existing setup, use [Connect to Existing Setup](#connect-to-existing-setup); to recreate, drop the
+database first via the separate guarded [Drop Setup Database](#drop-setup-database-destructive)
+operation, then create.
 
 **Endpoint:** `POST /api/v1/database-setup/create`
 **Alternative:** `POST /api/v1/setups` (RESTful alias)
@@ -120,23 +126,72 @@ Creates a complete database setup with queues and event stores. This is the prim
 | Status | Condition | Response |
 |:-------|:----------|:---------|
 | `400 Bad Request` | Invalid setupId format or missing required fields | `{"error": "setupId must be alphanumeric"}` |
-| `409 Conflict` | Setup with this ID already exists | `{"error": "Setup 'my-setup' already exists"}` |
-| `500 Internal Server Error` | Database connection or table creation failed | `{"error": "Failed to create tables: connection refused"}` |
+| `409 Conflict` | The setup's database already exists — create refuses, data intact. The message is actionable: attach with `POST /api/v1/database-setup/connect`, or drop the database first (a separate, guarded operation) to recreate. | `{"error": "Setup already exists: my-setup. Use POST /api/v1/database-setup/connect to attach, or drop the database first (a separate, guarded operation) to recreate."}` |
+| `503 Service Unavailable` | Database connection or table creation failed | `{"error": "Failed to create setup 'my-setup': connection refused"}` |
 
 ---
 
-### Destroy Database Setup
+### Connect to Existing Setup
 
-Destroys a database setup and cleans up all associated resources. This is a destructive operation that cannot be undone.
+Non-destructively attaches to a setup whose database and schema already exist — for example after a
+backend restart, or to reach a setup provisioned by another instance. Added 2026-07 (Phase S); the
+inverse operation is [Detach Setup](#detach-setup-non-destructive).
+
+**What This Endpoint Does:**
+1. Validates the PeeGeeQ schema exists (it is **never** created here — a bare database fails with 400)
+2. Reconstitutes the setup's queues and event stores from its self-describing registry tables
+   (`peegeeq_setup_metadata` + `peegeeq_object_registry`) — each object's exact kind
+   (native / outbox / bitemporal) and configuration are recovered from the database, not the request
+3. Starts the setup's manager (non-destructive) and registers the reconstituted factories
+4. Touches no data — nothing is created, dropped, or modified
+
+**Endpoint:** `POST /api/v1/database-setup/connect`
+**Handler:** `DatabaseSetupHandler.connectToExistingSetup()`
+**Service:** `DatabaseSetupService.connectToExistingSetup()`
+
+**Request Body:** the same DTO as [Create Database Setup](#create-database-setup), with two
+differences in meaning:
+
+| Aspect | Create | Connect |
+|:-------|:-------|:--------|
+| `setupId` | a new arbitrary label | the **expected** id — validated against the value recovered from `peegeeq_setup_metadata` |
+| `queues` / `eventStores` | authored by the caller | **ignored** — contents are reconstituted from the schema, never from the request |
+| `databaseConfig.password` | stored in the created setup's runtime config | used to connect, **never persisted** |
+
+**Response:** `200 OK`
+```json
+{
+  "setupId": "string",
+  "status": "ACTIVE",
+  "queueCount": 0,
+  "eventStoreCount": 0,
+  "message": "Database setup connected successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `400 Bad Request` | PeeGeeQ schema absent / not a PeeGeeQ database / recovered setupId does not match the request |
+| `503 Service Unavailable` | Connection or authentication failure |
+
+---
+
+### Delete Setup (non-destructive teardown)
+
+Releases a setup's in-memory binding and stops its manager. **Changed 2026-07 (Phase S): this
+operation does NOT drop the database or any tables** — the data persists and the setup can be
+reconnected later with [Connect to Existing Setup](#connect-to-existing-setup). The only operation
+that destroys data is the separate, guarded
+[Drop Setup Database](#drop-setup-database-destructive).
 
 **What This Endpoint Does:**
 1. Stops all active consumers and producers for this setup
 2. Closes all SSE and WebSocket connections
-3. Drops all PostgreSQL tables created for this setup
-4. Releases connection pool resources
-5. Removes setup from the active registry
-
-**Warning:** All messages in queues and all events in event stores will be permanently deleted.
+3. Closes the setup's factories, manager, and connection pools
+4. Removes the setup from the active in-memory registry
+5. Leaves every database artifact — tables, messages, events — untouched
 
 **Endpoint:** `DELETE /api/v1/database-setup/:setupId`
 **Alternative:** `DELETE /api/v1/setups/:setupId` (RESTful alias)
@@ -147,9 +202,87 @@ Destroys a database setup and cleans up all associated resources. This is a dest
 
 | Parameter | Type | Required | Description |
 |:----------|:-----|:---------|:------------|
-| `setupId` | string | Yes | The unique identifier of the setup to destroy |
+| `setupId` | string | Yes | The unique identifier of the setup to tear down |
 
 **Response:** `204 No Content`
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `503 Service Unavailable` | A resource close genuinely failed (close failures are surfaced, not swallowed — a leaked connection is reported, not hidden) |
+
+---
+
+### Detach Setup (non-destructive)
+
+The explicit, self-describing route for releasing a connected setup — the inverse of
+[Connect to Existing Setup](#connect-to-existing-setup). Semantically identical to the
+non-destructive Delete above; use this route when the intent is "stop managing this setup here,
+keep its data".
+
+**Endpoint:** `POST /api/v1/setups/:setupId/detach`
+**Handler:** `DatabaseSetupHandler.detachSetup()`
+**Service:** `DatabaseSetupService.detachSetup()`
+
+**Path Parameters:**
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `setupId` | string | Yes | The setup to detach |
+
+**Response:** `204 No Content` — the binding is released; the database is untouched.
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `503 Service Unavailable` | A resource close genuinely failed |
+
+---
+
+### Drop Setup Database (DESTRUCTIVE)
+
+**The single destructive path.** Drops the setup's PostgreSQL database — irreversible. Deliberately
+separate from create/delete/detach (none of which can destroy data) and guarded by a
+type-to-confirm token, so a replayed request, a copy-pasted setupId, or an automation re-apply
+cannot trigger it by accident. Intended for admin tooling only. Every drop is logged at WARN with a
+`DESTRUCTIVE` marker.
+
+**Endpoint:** `POST /api/v1/setups/:setupId/database/drop`
+**Handler:** `DatabaseSetupHandler.dropSetupDatabase()`
+**Service:** `DatabaseSetupService.dropSetupDatabase(setupId, confirmDatabaseName)`
+
+**Request Body:**
+```json
+{
+  "confirmDatabaseName": "string"
+}
+```
+
+| Parameter | Type | Required | Description |
+|:----------|:-----|:---------|:------------|
+| `confirmDatabaseName` | string | Yes | Type-to-confirm token: must equal the setup's **actual** database name exactly, or the operation refuses with 400 and nothing is dropped |
+
+**Behaviour:** drains live connections (`DROP DATABASE … WITH (FORCE)`), then detaches the now-dead
+in-memory binding. "Recreate" is a sequence — this operation followed by create — never a create
+argument.
+
+**Response:** `200 OK`
+```json
+{
+  "setupId": "string",
+  "message": "Database dropped successfully"
+}
+```
+
+**Error Responses:**
+
+| Status | Condition |
+|:-------|:----------|
+| `400 Bad Request` | `confirmDatabaseName` does not match the setup's database name — **nothing dropped** |
+| `404 Not Found` | Unknown setup |
+| `503 Service Unavailable` | Drop failed (infrastructure error) |
 
 ---
 

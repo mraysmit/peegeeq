@@ -394,7 +394,7 @@ public interface PeeGeeQClient extends AutoCloseable {
 
 ## 4. Implementation vs Documentation Gap Analysis
 
-This section compares the `peegeeq-rest` module implementation against `docs/tasks/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`.
+This section compares the `peegeeq-rest` module implementation against `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` and `docs/PEEGEEQ_REST_API_REFERENCE.md`.
 
 ### 4.1 Implementation Gaps (Code Missing or Incomplete)
 
@@ -480,7 +480,7 @@ Comparing `PeeGeeQRestServer.java` routes (lines 171-279) against documentation:
 
 ### 4.4 Call Propagation Document Accuracy - RESOLVED (December 2025)
 
-The `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` document now accurately reflects the implementation:
+The `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` (in `docs-design/peegeeq-call-propagation/`) document now accurately reflects the implementation:
 
 | Documented Path | Implementation Status |
 |:----------------|:----------------------|
@@ -488,7 +488,7 @@ The `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` document now accurately reflects the im
 | `EventStoreHandler.getEvent()` -> `BiTemporalEventStore.get()` | **IMPLEMENTED** - placeholder removed |
 | `EventStoreHandler.getStats()` -> `BiTemporalEventStore.getStats()` | **IMPLEMENTED** - placeholder removed |
 
-See `docs/tasks/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` for the updated call propagation documentation.
+See `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` for the updated call propagation documentation.
 
 ---
 
@@ -513,7 +513,7 @@ This is inconsistent with the handler organization pattern.
 | ~~HIGH~~ | EventStoreHandler returns mock data for queries | **RESOLVED** | Placeholder methods removed, real implementations added |
 | ~~HIGH~~ | ManagementApiHandler uses random data for consumer groups | **RESOLVED** | Now uses `SubscriptionService.listSubscriptions()` |
 | ~~HIGH~~ | ConsumerGroupHandler uses in-memory storage instead of QueueFactory | **RESOLVED** | Refactored to use `QueueFactory.createConsumerGroup()`, `ConsumerGroup.addConsumer()`, `ConsumerGroup.removeConsumer()`, `ConsumerGroup.close()`. Old in-memory classes removed. |
-| ~~LOW~~ | Call Propagation document inaccuracies | **RESOLVED** | `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` updated |
+| ~~LOW~~ | Call Propagation document inaccuracies | **RESOLVED** | `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` (in `docs-design/peegeeq-call-propagation/`) updated |
 
 **REMAINING Gaps:**
 
@@ -612,7 +612,7 @@ This is inconsistent with the handler organization pattern.
 
 ## 7. References
 
-- `docs/tasks/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` - Architecture and call propagation paths
+- `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` - Architecture and call propagation paths
 - `docs/PEEGEEQ_REST_API_REFERENCE.md` - Complete REST API documentation
 - `peegeeq-management-ui/src/api/PeeGeeQClient.ts` - TypeScript client implementation
 - `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java` - REST server routes
