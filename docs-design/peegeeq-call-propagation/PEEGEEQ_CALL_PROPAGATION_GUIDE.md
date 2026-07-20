@@ -1080,7 +1080,7 @@ This section provides a complete traceability grid showing the call path from RE
 
 | Section | Category | Total Endpoints | Implemented | Placeholder | Partial |
 | :--- | :--- | :---: | :---: | :---: | :---: |
-| 9.1 | Setup Operations | 7 | 7 | 0 | 0 |
+| 9.1 | Setup Operations | 10 | 10 | 0 | 0 |
 | 9.2 | Queue Operations | 4 | 4 | 0 | 0 |
 | 9.3 | Consumer Group Operations | 6 | 6 | 0 | 0 |
 | 9.4 | Event Store Operations | 8 | 8 | 0 | 0 |
@@ -1089,7 +1089,7 @@ This section provides a complete traceability grid showing the call path from RE
 | 9.7 | Health Check Operations | 3 | 3 | 0 | 0 |
 | 9.8 | Management API Operations | 9 | 9 | 0 | 0 |
 | 9.10 | Webhook Subscription Operations | 3 | 3 | 0 | 0 |
-| **Total** | | **52** | **52** | **0** | **0** |
+| **Total** | | **55** | **55** | **0** | **0** |
 
 **Status Legend:**
 - **IMPLEMENTED**: Fully functional, calls actual service implementations
@@ -1115,6 +1115,21 @@ This section provides a complete traceability grid showing the call path from RE
 | `DELETE /api/v1/setups/:setupId` | `DatabaseSetupHandler.deleteSetup()` | `DatabaseSetupService.destroySetup()` | `PeeGeeQDatabaseSetupService.destroySetup()` | `peegeeq-db` | **IMPLEMENTED** |
 | `POST /api/v1/setups/:setupId/queues` | `DatabaseSetupHandler.addQueue()` | `DatabaseSetupService.addQueue()` | `PeeGeeQDatabaseSetupService.addQueue()` | `peegeeq-db` | **IMPLEMENTED** |
 | `POST /api/v1/setups/:setupId/eventstores` | `DatabaseSetupHandler.addEventStore()` | `DatabaseSetupService.addEventStore()` | `PeeGeeQDatabaseSetupService.addEventStore()` | `peegeeq-db` | **IMPLEMENTED** |
+| `POST /api/v1/database-setup/connect` | `DatabaseSetupHandler.connectToExistingSetup()` | `DatabaseSetupService.connectToExistingSetup()` | `PeeGeeQDatabaseSetupService.connectToExistingSetup()` | `peegeeq-db` | **IMPLEMENTED** (2026-07) |
+| `POST /api/v1/setups/:setupId/detach` | `DatabaseSetupHandler.detachSetup()` | `DatabaseSetupService.detachSetup()` | default → `PeeGeeQDatabaseSetupService.destroySetup()` (non-destructive) | `peegeeq-db` | **IMPLEMENTED** (2026-07) |
+| `POST /api/v1/setups/:setupId/database/drop` | `DatabaseSetupHandler.dropSetupDatabase()` | `DatabaseSetupService.dropSetupDatabase()` | `PeeGeeQDatabaseSetupService.dropSetupDatabase()` | `peegeeq-db` | **IMPLEMENTED** (2026-07) |
+
+**Setup lifecycle notes (July 2026, Phase S):**
+- `createCompleteSetup` **refuses** an existing database with `DatabaseCreationConflictException`
+  → REST **409**; the create path never drops. Destruction is exclusively the type-to-confirm
+  `dropSetupDatabase` operation.
+- `destroySetup` / `DELETE /setups/:setupId` is **non-destructive** — it releases the in-memory
+  binding and closes resources, dropping nothing; `detachSetup` is the explicit route with the
+  same semantics.
+- `connectToExistingSetup` reconstitutes queues/event stores (exact kind + config) from the
+  per-schema registry tables `peegeeq_setup_metadata` + `peegeeq_object_registry`, written
+  transactionally at creation.
+- Full design: `peegeeq-utilities-ui/docs/PEEGEEQ_ADMIN_SETUP_LIFECYCLE_AND_MANAGEMENT_DB.md`.
 
 ### 9.2 Queue Operations
 
