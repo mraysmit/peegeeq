@@ -89,7 +89,7 @@ Four transactional patterns based on database deployment architecture and consis
 
 ### Architectural Foundation
 
-This design aligns with the PeeGeeQ layered architecture documented in `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md`:
+This design aligns with the PeeGeeQ layered architecture documented in `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`:
 - **peegeeq-api** - Pure contracts layer (interfaces: `ConnectionProvider`, `EventStore`, `OutboxProducer`)
 - **peegeeq-runtime** - Composition layer that wires together all implementations
 - **peegeeq-rest** - REST layer that exposes `peegeeq-runtime` services over HTTP
@@ -518,7 +518,7 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
 
 This design exposes this proven pattern through the core REST API to provide transactional capabilities to all REST clients.
 
-**Note on Transaction Participation:** The `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` document states that `appendInTransaction()` is "intentionally internal for coordinating with other database operations within a single transaction. Not a REST gap." This design **extends** that capability by creating generic REST endpoints that coordinate transactions server-side, making the transactional pattern accessible to REST clients without exposing raw `SqlConnection` objects over HTTP. This is a **new capability**, not a gap closure.
+**Note on Transaction Participation:** The `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` document states that `appendInTransaction()` is "intentionally internal for coordinating with other database operations within a single transaction. Not a REST gap." This design **extends** that capability by creating generic REST endpoints that coordinate transactions server-side, making the transactional pattern accessible to REST clients without exposing raw `SqlConnection` objects over HTTP. This is a **new capability**, not a gap closure.
 
 ---
 
@@ -767,7 +767,7 @@ private Future<Void> executeStep(SagaStep step, SagaState state) {
 
 ### Architectural Compliance
 
-This design strictly adheres to the PeeGeeQ layered architecture principles documented in `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md`:
+This design strictly adheres to the PeeGeeQ layered architecture principles documented in `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`:
 
 **1. peegeeq-api (Pure Contracts)** - No changes required
 - Existing interfaces: `ConnectionProvider`, `EventStore`, `OutboxProducer`
@@ -964,7 +964,7 @@ Future<Order> save(Order order, SqlConnection connection) {
 
 ### Relationship to Existing REST API
 
-This design **extends** the existing PeeGeeQ REST API documented in `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9 (Call Propagation Paths Grid).
+This design **extends** the existing PeeGeeQ REST API documented in `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9 (Call Propagation Paths Grid).
 
 **Existing REST API (49 endpoints across 10 categories):**
 - Section 9.1: Setup Operations (7 endpoints)
@@ -1410,7 +1410,7 @@ Content-Type: application/json
 - Integration tests with TestContainers
 - API documentation
 - Performance baseline
-- **Update `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md`** to add Section 9.11 (Transactional Operations)
+- **Update `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`** to add Section 9.11 (Transactional Operations)
 
 ### Phase 2: Core Endpoints (Week 3-4)
 
@@ -4316,7 +4316,7 @@ When `transactionRolledBack: true`:
 ### Architecture Documentation
 
 1. **PeeGeeQ Call Propagation Design**
-   - **Path:** `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md`
+   - **Path:** `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md`
    - **Content:** Layered architecture rules, module responsibilities, dependency rules, call propagation paths
    - **Relevance:** Defines the architectural principles this design adheres to
    - **Key Sections:**
@@ -4901,7 +4901,7 @@ if (!response.ok) {
 
 ## Appendix D: Proposed Call Propagation Grid Entry
 
-This appendix shows how the transactional REST API endpoints will be documented in `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9.11.
+This appendix shows how the transactional REST API endpoints will be documented in `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9.11.
 
 ### 9.11 Transactional Operations
 

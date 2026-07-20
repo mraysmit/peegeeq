@@ -2,7 +2,7 @@
 
 **Last Updated:** 2026-07-19
 
-This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`.
+This document defines the integration test strategy for PeeGeeQ, aligned with the layered hexagonal architecture described in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` (located at `docs-design/peegeeq-call-propagation/`; formerly referenced as `PEEGEEQ_CALL_PROPAGATION_DESIGN.md`).
 
 **Quick Navigation:**
 - [Section 1: Architecture Overview](#1-architecture-overview) - Layer structure and test boundaries
@@ -356,7 +356,7 @@ Run with: `mvn test -pl peegeeq-integration-tests -Psmoke-tests`
 
 ## 6. Endpoint Coverage Matrix
 
-This section provides a complete mapping of REST endpoints (from `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9) to their test coverage status.
+This section provides a complete mapping of REST endpoints (from `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9) to their test coverage status.
 
 ### 6.1 Setup Operations (7 endpoints)
 
@@ -788,7 +788,7 @@ This section documents the current smoke test coverage and the plan for comprehe
 
 ## 8. Layer Verification Patterns
 
-This section describes how to verify that calls propagate correctly through each layer, aligned with `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9.
+This section describes how to verify that calls propagate correctly through each layer, aligned with `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9.
 
 ### 8.1 Layer Propagation Verification
 
@@ -889,7 +889,7 @@ void testHealthServicePropagation(VertxTestContext testContext) {
 
 ### 8.5 Tracing Call Paths
 
-For each endpoint, trace the call path as documented in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9:
+For each endpoint, trace the call path as documented in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9:
 
 **Queue Operations (Section 9.2):**
 ```
@@ -1016,7 +1016,7 @@ target/surefire-reports/
 
 ## 10. Implementation Status
 
-This section documents the implementation status of all REST endpoints as defined in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9.
+This section documents the implementation status of all REST endpoints as defined in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9.
 
 **Summary (December 2025):** All 46 core REST endpoints are fully implemented. The implementation status has been reconciled with the Call Propagation Design document.
 
@@ -1069,7 +1069,7 @@ This section documents placeholder implementations and known limitations that af
 
 ### 11.1 Management API Placeholder Methods
 
-The following `ManagementApiHandler` methods return placeholder data instead of real values. These are documented in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9.8:
+The following `ManagementApiHandler` methods return placeholder data instead of real values. These are documented in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9.8:
 
 | Method | Current Behavior | Required API Extension |
 | :--- | :--- | :--- |
@@ -1092,7 +1092,7 @@ void testGetSystemOverview_returnsValidStructure() {
 
 ### 11.2 OutboxFactory Consumer Config
 
-The `OutboxFactory.createConsumer(topic, payloadType, config)` method ignores the `config` parameter and uses default configuration. This is a known limitation documented in `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 10.10.
+The `OutboxFactory.createConsumer(topic, payloadType, config)` method ignores the `config` parameter and uses default configuration. This is a known limitation documented in `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 10.10.
 
 **Impact on Tests:**
 
@@ -1169,4 +1169,4 @@ When writing new tests, always verify the complete call path:
 3. **Adapter Layer**: Verify implementation executed (via database state)
 4. **Database Layer**: Verify data persisted correctly (via stats or query endpoints)
 
-Reference `PEEGEEQ_CALL_PROPAGATION_DESIGN.md` Section 9 for the exact call path for each endpoint.
+Reference `PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9 for the exact call path for each endpoint.
