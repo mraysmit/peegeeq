@@ -18,6 +18,13 @@ export interface BatchResponse {
 }
 
 /**
+ * Every publish request times out. Without one, a hung socket keeps the
+ * engine's in-flight fan-out unsettled until the OS timeout — and Stop waits
+ * for that settle, so the run would show RUNNING long after Stop was pressed.
+ */
+export const PUBLISH_TIMEOUT_MS = 30_000
+
+/**
  * Publish a single message.
  *
  * POST /api/v1/queues/{setupId}/{queueName}/messages
@@ -29,7 +36,8 @@ export async function publishSingle(
 ): Promise<MessageResponse> {
   const res = await axios.post<MessageResponse>(
     getVersionedApiUrl(`queues/${setupId}/${queueName}/messages`),
-    req
+    req,
+    { timeout: PUBLISH_TIMEOUT_MS }
   )
   return res.data ?? {}
 }
@@ -50,7 +58,8 @@ export async function publishBatch(
   try {
     const res = await axios.post<{ messagesSent?: number; count?: number }>(
       getVersionedApiUrl(`queues/${setupId}/${queueName}/messages/batch`),
-      req
+      req,
+      { timeout: PUBLISH_TIMEOUT_MS }
     )
     const data = res.data ?? {}
     const sent = data.messagesSent ?? data.count ?? req.messages.length

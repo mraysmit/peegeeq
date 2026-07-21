@@ -9,9 +9,12 @@
  *   `skipped` and advances (D4). At most one schedule fires per check — after
  *   the first firing the run is active, so later due schedules skip.
  * - Fire-time missing value lists are recorded in the outcome detail (§6).
- * - A localStorage lease elects one firing tab (§7.5): a tab fires only while
- *   it holds the lease; an expired lease (no heartbeat within the TTL) is
- *   taken over. Heartbeats renew on every check.
+ * - The Web Locks API elects one firing tab (§7.5, corrected 2026-07-21 from a
+ *   localStorage lease, whose acquire was not atomic — two tabs could both
+ *   win and double-fire): the first tab to acquire the exclusive lock is the
+ *   executor for as long as it lives; the browser releases the lock when the
+ *   tab dies, so a waiting tab takes over immediately — no TTL, no heartbeat,
+ *   no pagehide handling.
  * - No failure is silent (§10): a schedule that cannot be processed records an
  *   `error` outcome and is disabled; a failed check is reported and the next
  *   check still runs.
@@ -25,9 +28,10 @@ import { useValueListStore } from '../stores/valueListStore'
 import type { RunConfig } from '../types/generator'
 import type { ScheduledRun, ScheduleOutcome } from '../types/schedule'
 
-export const CHECK_INTERVAL_MS = 15_000
-export const LEASE_TTL_MS = 30_000
-const LEASE_KEY = 'peegeeq_scheduler_lease'
+// Defined in a UI-free module so the Playwright specs can import them;
+// re-exported here for all existing importers.
+export { CHECK_INTERVAL_MS, SCHEDULER_LOCK_NAME } from './schedulerConstants'
+import { CHECK_INTERVAL_MS, SCHEDULER_LOCK_NAME } from './schedulerConstants'
 
 export interface SchedulerRuntime {
   start(): void
@@ -59,38 +63,51 @@ export function outcomeFromRun(
   }
 }
 
-export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): SchedulerRuntime {
+export function createSchedulerRuntime(): SchedulerRuntime {
   let timer: ReturnType<typeof setInterval> | null = null
-  // D3 under lease contention: the missed sweep runs at the FIRST successful
-  // lease acquisition, with app start as the cutoff. Running it only at start
-  // was a defect — after a reload the previous page's lease can still be
-  // alive, the sweep would be skipped, and the overdue schedule would fire on
-  // the first post-takeover check (an auto-start, which D3 forbids).
+  // D3 under lock contention: the missed sweep runs at the FIRST successful
+  // lock acquisition, with app start as the cutoff. Running it only at start
+  // was a defect — after a reload the previous page can still hold the lock,
+  // the sweep would be skipped, and the overdue schedule would fire on the
+  // first post-takeover check (an auto-start, which D3 forbids).
   let startedAtMs = 0
   let startupSweepDone = false
+  let isLeader = false
+  let abortAcquire: AbortController | null = null
+  let releaseLock: (() => void) | null = null
 
   /**
-   * Acquire or renew the firing lease. Returns false when another live tab
-   * holds it. localStorage has no compare-and-set; the write-then-read-back
-   * check resolves near-simultaneous writes to a single winner.
+   * Request the executor lock. The request resolves when this tab is granted
+   * the exclusive lock — possibly much later, when the holding tab dies or
+   * stops. While granted, every check runs; before that, checks return early.
    */
-  function holdsLease(): boolean {
-    try {
-      const now = Date.now()
-      const raw = localStorage.getItem(LEASE_KEY)
-      if (raw) {
-        const lease = JSON.parse(raw) as { tabId?: string; heartbeat?: number }
-        const alive = typeof lease.heartbeat === 'number' && now - lease.heartbeat <= LEASE_TTL_MS
-        if (alive && lease.tabId !== tabId) return false
-      }
-      localStorage.setItem(LEASE_KEY, JSON.stringify({ tabId, heartbeat: now }))
-      const readBack = JSON.parse(localStorage.getItem(LEASE_KEY) ?? '{}') as { tabId?: string }
-      return readBack.tabId === tabId
-    } catch (error) {
-      // Without a working lease this tab must not fire — another tab might.
-      console.error('Scheduler lease unavailable; this tab will not fire schedules:', error)
-      return false
+  function acquireLeadership(): void {
+    if (!('locks' in navigator)) {
+      // Without mutual exclusion this tab must not fire — another tab might
+      // fire the same schedule. Said once, loudly; checks stay inert.
+      console.error('Web Locks API unavailable; scheduled runs will not fire from this tab')
+      message.error('Scheduled runs cannot fire: this browser does not support the Web Locks API.')
+      return
     }
+    abortAcquire = new AbortController()
+    navigator.locks
+      .request(SCHEDULER_LOCK_NAME, { mode: 'exclusive', signal: abortAcquire.signal }, () => {
+        // Granted: this tab is the executor until stop() or tab death. The
+        // browser releases the lock automatically when the page goes away, so
+        // a waiting tab takes over immediately — no TTL, no heartbeat.
+        isLeader = true
+        check() // first-acquisition duties run now: missed sweep, then due schedules
+        return new Promise<void>((resolve) => {
+          releaseLock = resolve
+        })
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === 'AbortError') return // stop() before grant — the normal cancel path
+        console.error('Scheduler lock request failed:', error)
+        message.error(
+          `Scheduler lock request failed: ${error instanceof Error ? error.message : String(error)}`
+        )
+      })
   }
 
   function outcome(
@@ -105,7 +122,7 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
   /**
    * D3: schedules already overdue when the app STARTED are recorded as missed —
    * never fired. `cutoffMs` is the app start time; schedules becoming due after
-   * it (while waiting for the lease) fire normally.
+   * it (while waiting for the lock) fire normally.
    */
   function markOverdueAsMissed(cutoffMs: number): void {
     const now = new Date()
@@ -125,21 +142,6 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
     }
   }
 
-  function releaseLease(): void {
-    try {
-      const raw = localStorage.getItem(LEASE_KEY)
-      if (raw && (JSON.parse(raw) as { tabId?: string }).tabId === tabId) {
-        localStorage.removeItem(LEASE_KEY)
-      }
-    } catch (error) {
-      console.error('Scheduler lease release failed (another tab will take over on expiry):', error)
-    }
-  }
-
-  // On navigation/reload the browser does not run React unmount cleanup, so the
-  // lease would stay alive for its full TTL and stall the next page's scheduler.
-  const onPageHide = () => releaseLease()
-
   function processDue(schedule: ScheduledRun, now: Date): void {
     const advanceTo = computeNextRunAt(schedule.schedule, now)
 
@@ -153,6 +155,9 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
     const note = fireTimeMissingListsNote(schedule.config)
     const handle = startGeneratorRun(schedule.config, {
       onTerminal: (summary, status, reason) => {
+        // History only — the schedule advanced at fire time. Advancing here
+        // again would silently discard any slot that came due during the run
+        // (which must record a skip instead, per R7).
         const detail = [note, reason].filter(Boolean).join('; ') || undefined
         useScheduleStore
           .getState()
@@ -160,7 +165,10 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
             schedule.id,
             outcome(status as 'completed' | 'stopped' | 'error', summary.totalSent, summary.totalErrors, detail),
             summary,
-            computeNextRunAt(schedule.schedule, new Date())
+            undefined,
+            // Fire-time snapshot: keeps the record valid if the schedule is
+            // deleted while the run executes.
+            { scheduleName: schedule.name, config: schedule.config }
           )
       },
     })
@@ -169,12 +177,18 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
       useScheduleStore
         .getState()
         .recordOutcome(schedule.id, outcome('skipped', 0, 0, 'Skipped — another run was active'), null, advanceTo)
+      return
     }
+    // Advance AT FIRE TIME so the in-flight run's schedule is no longer due.
+    // Without this, any run outlasting one 15-second check is found due again,
+    // sees its own run as "another run", records a false skipped row, and a
+    // one-shot is consumed prematurely by that skip.
+    useScheduleStore.getState().advanceSchedule(schedule.id, advanceTo)
   }
 
   function check(): void {
     try {
-      if (!holdsLease()) return
+      if (!isLeader) return
       if (!startupSweepDone) {
         markOverdueAsMissed(startedAtMs)
         startupSweepDone = true
@@ -217,9 +231,11 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
       if (timer !== null) return
       startedAtMs = Date.now()
       startupSweepDone = false
+      isLeader = false
       useScheduleStore.getState().loadFromStorage()
-      window.addEventListener('pagehide', onPageHide)
-      check()
+      // The first check runs inside the lock grant (acquireLeadership), not
+      // here — before the grant this tab must not fire anything.
+      acquireLeadership()
       timer = setInterval(check, CHECK_INTERVAL_MS)
     },
 
@@ -228,8 +244,11 @@ export function createSchedulerRuntime(tabId: string = crypto.randomUUID()): Sch
         clearInterval(timer)
         timer = null
       }
-      window.removeEventListener('pagehide', onPageHide)
-      releaseLease()
+      isLeader = false
+      releaseLock?.() // releases a HELD lock — a waiting tab takes over immediately
+      releaseLock = null
+      abortAcquire?.abort() // cancels a still-PENDING request
+      abortAcquire = null
     },
   }
 }

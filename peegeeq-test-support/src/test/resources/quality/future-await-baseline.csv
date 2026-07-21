@@ -25,4 +25,3 @@ peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ZombieVertxReproA.java,2
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ZombieVertxReproB.java,2
 peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/RestApiExampleTest.java,1
 peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/RestApiStreamingExampleTest.java,8
-peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/ServiceDiscoveryExampleTest.java,7

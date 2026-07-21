@@ -172,6 +172,32 @@ describe('scheduleStore', () => {
     expect(loadHistory()[0].scheduleName).toBe('Nightly load')
   })
 
+  it('recordOutcome for a DELETED schedule records the outcome from the fire-time snapshot', () => {
+    // The schedule is deleted while its run executes; the terminal callback
+    // supplies the fire-time snapshot so the record is complete and VALID —
+    // a record built from `{} as RunConfig` fails schema validation and the
+    // outcome is silently lost.
+    const schedule = makeSchedule()
+    useScheduleStore.getState().addSchedule(schedule)
+    useScheduleStore.getState().removeSchedule(schedule.id)
+
+    useScheduleStore
+      .getState()
+      .recordOutcome(schedule.id, makeOutcome('completed'), makeSummary(), undefined, {
+        scheduleName: schedule.name,
+        config: schedule.config,
+      })
+
+    expect(useScheduleStore.getState().history).toHaveLength(1)
+    const record = useScheduleStore.getState().history[0]
+    expect(record.scheduleName).toBe('Nightly load')
+    expect(record.target).toEqual({ setupId: 's1', queueName: 'orders' })
+    expect(record.config).toEqual(schedule.config)
+    // The record survives a reload — it passes the per-entry validation.
+    expect(loadHistory()).toHaveLength(1)
+    expect(loadHistory()[0].outcome.result).toBe('completed')
+  })
+
   it('appendHistoryRecord supports schedule-less firings (template run-now)', () => {
     useScheduleStore.getState().appendHistoryRecord({
       scheduleId: 'template:tp-1',

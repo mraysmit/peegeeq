@@ -11,19 +11,16 @@ import {
   Descriptions,
   List,
   Empty,
-  Popconfirm,
-  message,
 } from 'antd'
 import {
   ArrowLeftOutlined,
   ReloadOutlined,
-  DeleteOutlined,
   DatabaseOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
 } from '@ant-design/icons'
 import { getSetupDetails } from '../services/setupService'
-import { listQueueDetails, deleteQueue } from '../services/queueService'
+import { listQueueDetails } from '../services/queueService'
 import type { SetupDetails } from '../types/setup'
 import type { QueueSummary } from '../types/queue'
 
@@ -51,7 +48,6 @@ export default function SetupDetailPage() {
   const [queueSummaries, setQueueSummaries] = useState<QueueSummary[]>([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [deletingQueue, setDeletingQueue] = useState<string | null>(null)
 
   const loadDetails = useCallback(async () => {
     if (!setupId) return
@@ -71,19 +67,6 @@ export default function SetupDetailPage() {
       setLoading(false)
     }
   }, [setupId])
-
-  const handleDeleteQueue = async (queueName: string) => {
-    setDeletingQueue(queueName)
-    try {
-      await deleteQueue(setupId, queueName)
-      message.success(`Queue "${queueName}" deleted`)
-      await loadDetails()
-    } catch {
-      message.error(`Failed to delete queue "${queueName}"`)
-    } finally {
-      setDeletingQueue(null)
-    }
-  }
 
   useEffect(() => {
     loadDetails()
@@ -164,29 +147,11 @@ export default function SetupDetailPage() {
                   size="small"
                   bordered
                   dataSource={queues}
+                  // Read-only listing: queue deletion was removed from this UI
+                  // (2026-07-21, user decision) — destructive queue operations
+                  // go through the admin REST path only.
                   renderItem={(queue) => (
-                    <List.Item
-                      actions={[
-                        <Popconfirm
-                          key="delete"
-                          title={`Delete queue "${queue.name}"?`}
-                          description="This cannot be undone."
-                          onConfirm={() => handleDeleteQueue(queue.name)}
-                          okText="Delete"
-                          okType="danger"
-                          cancelText="Cancel"
-                        >
-                          <Button
-                            type="text"
-                            danger
-                            size="small"
-                            icon={<DeleteOutlined />}
-                            loading={deletingQueue === queue.name}
-                            data-testid={`delete-queue-${queue.name}`}
-                          />
-                        </Popconfirm>,
-                      ]}
-                    >
+                    <List.Item>
                       <Space>
                         {queue.name}
                         {queue.implementationType && (

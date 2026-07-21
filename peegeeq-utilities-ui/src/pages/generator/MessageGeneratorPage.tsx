@@ -13,14 +13,14 @@
  *   the store — the page never double-writes the terminal transition.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Card, Space, Typography } from 'antd'
+import { Card, Space, Typography, message } from 'antd'
 import TargetSelector from '../../components/TargetSelector'
 import RateControls, { RATE_DEFAULTS } from './RateControls'
 import TemplateEditor, { blankTemplate } from './TemplateEditor'
 import GeneratorActions from './GeneratorActions'
 import ScheduleRunModal from './ScheduleRunModal'
 import ProgressPanel from './ProgressPanel'
-import { startGeneratorRun } from '../../engine/runStarter'
+import { startGeneratorRun, stopActiveRun } from '../../engine/runStarter'
 import type { RunHandle } from '../../engine/runStarter'
 import { useGeneratorStore } from '../../stores/generatorStore'
 import { useTemplateStore } from '../../stores/templateStore'
@@ -71,6 +71,13 @@ export default function MessageGeneratorPage() {
     )
   }, [])
 
+  // Clearing disables Start until the selector reports a valid pair again —
+  // a queue-load failure on a newly selected setup must not leave Start armed
+  // with the previous setup's target.
+  const handleTargetCleared = useCallback(() => {
+    setTarget((prev) => (prev === null ? prev : null))
+  }, [])
+
   // Stop a still-running run when the page unmounts (navigation away). The
   // engine's onStop settles the store, so the run reports STOPPED, not limbo.
   useEffect(() => {
@@ -97,10 +104,17 @@ export default function MessageGeneratorPage() {
           .recordManualRun(config, status as 'completed' | 'stopped' | 'error', summary, reason)
       },
     })
+    if (runHandleRef.current === null) {
+      // A scheduled run can start in the window between render (Start still
+      // enabled) and this click. The refusal must not be silent.
+      message.error('Cannot start — another run is active.')
+    }
   }
 
   function handleStop() {
-    runHandleRef.current?.stop()
+    // Global stop: the RUNNING state shown here may belong to a scheduler or
+    // "Run now" run — the page-local ref only reaches runs this page started.
+    stopActiveRun()
   }
 
   /** The config the schedule modal freezes — assembled identically to Start. */
@@ -123,7 +137,7 @@ export default function MessageGeneratorPage() {
 
       <Card title="Target" size="small">
         <div data-testid="zone-a">
-          <TargetSelector onTargetSelected={handleTargetSelected} />
+          <TargetSelector onTargetSelected={handleTargetSelected} onTargetCleared={handleTargetCleared} />
         </div>
       </Card>
 

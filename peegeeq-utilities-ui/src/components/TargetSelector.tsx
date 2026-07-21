@@ -9,9 +9,16 @@ const { Text } = Typography
 
 export interface TargetSelectorProps {
   onTargetSelected: (setupId: string, queueName: string) => void
+  /**
+   * Fired whenever no valid setup+queue pair is selected — on mount, while a
+   * setup switch is loading, when a queue load fails, and when a setup has no
+   * queues. Required: without it the parent keeps the LAST valid pair and
+   * Start publishes to a setup the UI no longer shows.
+   */
+  onTargetCleared: () => void
 }
 
-export default function TargetSelector({ onTargetSelected }: TargetSelectorProps) {
+export default function TargetSelector({ onTargetSelected, onTargetCleared }: TargetSelectorProps) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -33,8 +40,13 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
       } else {
         setSelectedSetup(null)
       }
-    } catch {
-      setLoadError('Failed to load setups. Please check your connection.')
+    } catch (error) {
+      // The alert carries the actual cause (HTTP status, network refusal) —
+      // a generic line alone hides what went wrong.
+      console.error('Failed to load setups:', error)
+      setLoadError(
+        `Failed to load setups: ${error instanceof Error ? error.message : String(error)}. Check your connection.`
+      )
     } finally {
       setLoading(false)
     }
@@ -54,12 +66,15 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
       } else {
         setSelectedQueue(null)
       }
-    } catch {
+    } catch (error) {
       // Surface the failure — an unreachable backend must not masquerade as an
-      // empty setup (no-error-swallowing rule).
+      // empty setup (no-error-swallowing rule). The cause is shown, not hidden.
+      console.error('Failed to load queues:', error)
       setQueues([])
       setSelectedQueue(null)
-      setQueueLoadError('Failed to load queues for this setup. Please check your connection.')
+      setQueueLoadError(
+        `Failed to load queues for this setup: ${error instanceof Error ? error.message : String(error)}. Check your connection.`
+      )
     }
   }, [])
 
@@ -73,12 +88,15 @@ export default function TargetSelector({ onTargetSelected }: TargetSelectorProps
     }
   }, [selectedSetup, loadQueues])
 
-  // Notify parent whenever both setup and queue are selected
+  // Notify the parent on every selection change: a valid pair selects, anything
+  // else CLEARS — the parent must never keep a stale pair the UI no longer shows.
   useEffect(() => {
     if (selectedSetup && selectedQueue) {
       onTargetSelected(selectedSetup, selectedQueue)
+    } else {
+      onTargetCleared()
     }
-  }, [selectedSetup, selectedQueue, onTargetSelected])
+  }, [selectedSetup, selectedQueue, onTargetSelected, onTargetCleared])
 
   function handleSetupChange(value: string) {
     setSelectedSetup(value)

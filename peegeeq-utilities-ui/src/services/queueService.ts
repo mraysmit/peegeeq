@@ -42,11 +42,6 @@ export async function createQueue(setupId: string, req: CreateQueueRequest): Pro
   await axios.post(getVersionedApiUrl(`setups/${setupId}/queues`), req)
 }
 
-/**
- * Delete a queue from a setup.
- *
- * DELETE /api/v1/management/queues/{setupId}/{queueName}
- */
-export async function deleteQueue(setupId: string, queueName: string): Promise<void> {
-  await axios.delete(getVersionedApiUrl(`management/queues/${setupId}/${queueName}`))
-}
+// Queue DELETION was removed from this UI (2026-07-21, user decision): the
+// utilities console lists queues read-only; destructive queue operations go
+// through the admin REST path only.

@@ -35,12 +35,13 @@ const mockedGetSetups = vi.mocked(getSetups)
 const mockedListQueueDetails = vi.mocked(listQueueDetails)
 
 function renderSelector(
-  onTargetSelected = vi.fn<(setupId: string, queueName: string) => void>()
+  onTargetSelected = vi.fn<(setupId: string, queueName: string) => void>(),
+  onTargetCleared = vi.fn<() => void>()
 ) {
   return render(
     <MemoryRouter>
       <ConfigProvider>
-        <TargetSelector onTargetSelected={onTargetSelected} />
+        <TargetSelector onTargetSelected={onTargetSelected} onTargetCleared={onTargetCleared} />
       </ConfigProvider>
     </MemoryRouter>
   )
@@ -166,6 +167,22 @@ describe('TargetSelector', () => {
     })
   })
 
+  it('shows the underlying CAUSE in the setups load error, not only a generic line', async () => {
+    mockedGetSetups.mockRejectedValueOnce(new Error('connect ECONNREFUSED 127.0.0.1:8080'))
+    renderSelector()
+    await waitFor(() => {
+      expect(screen.getByText(/ECONNREFUSED/)).toBeTruthy()
+    })
+  })
+
+  it('shows the underlying CAUSE in the queue load error', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockRejectedValueOnce(new Error('HTTP 503 from backend'))
+    renderSelector()
+    await waitFor(() => screen.getByTestId('queue-load-error'))
+    expect(screen.getByText(/HTTP 503 from backend/)).toBeTruthy()
+  })
+
   it('shows a queue-load error alert (not the no-queues state) when listQueueDetails fails', async () => {
     mockedGetSetups.mockResolvedValueOnce(['setup-a'])
     mockedListQueueDetails.mockRejectedValueOnce(new Error('queues unavailable'))
@@ -245,5 +262,56 @@ describe('TargetSelector', () => {
     renderSelector(onTargetSelected)
     await waitFor(() => screen.getByTestId('queue-load-error'))
     expect(onTargetSelected).not.toHaveBeenCalled()
+  })
+
+  // ── Stale-target clearing ─────────────────────────────────────────────────
+  // Without a clear signal the parent keeps the LAST valid pair: switching to a
+  // setup whose queues fail to load (or which has none) leaves Start enabled
+  // and publishing to the previously shown setup.
+
+  it('clears the target when switching to a setup whose queue load fails', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
+    mockedListQueueDetails.mockImplementation((setupId: string) =>
+      setupId === 'setup-a'
+        ? Promise.resolve([{ name: 'orders', implementationType: 'native' }])
+        : Promise.reject(new Error('queues unavailable'))
+    )
+    const onTargetSelected = vi.fn()
+    const onTargetCleared = vi.fn()
+    renderSelector(onTargetSelected, onTargetCleared)
+
+    await waitFor(() => expect(onTargetSelected).toHaveBeenCalledWith('setup-a', 'orders'))
+    onTargetCleared.mockClear()
+
+    // The setup dropdown is the first combobox (the queue one is second/absent).
+    await userEvent.click(screen.getAllByRole('combobox')[0])
+    await userEvent.click(await screen.findByTitle('setup-b'))
+
+    await waitFor(() => screen.getByTestId('queue-load-error'))
+    expect(onTargetCleared).toHaveBeenCalled()
+    expect(onTargetSelected).not.toHaveBeenCalledWith('setup-b', expect.anything())
+  })
+
+  it('clears the target when switching to a setup that has no queues', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
+    mockedListQueueDetails.mockImplementation((setupId: string) =>
+      setupId === 'setup-a'
+        ? Promise.resolve([{ name: 'orders', implementationType: 'native' }])
+        : Promise.resolve([])
+    )
+    const onTargetSelected = vi.fn()
+    const onTargetCleared = vi.fn()
+    renderSelector(onTargetSelected, onTargetCleared)
+
+    await waitFor(() => expect(onTargetSelected).toHaveBeenCalledWith('setup-a', 'orders'))
+    onTargetCleared.mockClear()
+
+    // The setup dropdown is the first combobox (the queue one is second/absent).
+    await userEvent.click(screen.getAllByRole('combobox')[0])
+    await userEvent.click(await screen.findByTitle('setup-b'))
+
+    await waitFor(() => screen.getByText(/No queues found for this setup/i))
+    expect(onTargetCleared).toHaveBeenCalled()
+    expect(onTargetSelected).not.toHaveBeenCalledWith('setup-b', expect.anything())
   })
 })

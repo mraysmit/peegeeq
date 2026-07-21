@@ -5,6 +5,7 @@
  * backend persistence in v1.
  */
 import { z } from 'zod'
+import { persistJson } from './storagePersist'
 import type { MessageTemplate } from '../types/generator'
 
 const STORAGE_KEY = 'peegeeq_msg_templates'
@@ -43,7 +44,7 @@ export function loadAll(): MessageTemplate[] {
 
 /** Overwrite all templates in localStorage. */
 export function saveAll(templates: MessageTemplate[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(templates))
+  persistJson(STORAGE_KEY, templates, 'message templates')
 }
 
 /** Trigger a browser download of a Blob built from `content`. */
