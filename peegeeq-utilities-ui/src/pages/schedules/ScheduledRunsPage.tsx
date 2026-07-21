@@ -98,6 +98,7 @@ interface TimingDraft {
 interface TemplateDraft {
   name: string
   config: RunConfig
+  error?: string
 }
 
 export default function ScheduledRunsPage() {
@@ -111,7 +112,6 @@ export default function ScheduledRunsPage() {
   const [timingDraft, setTimingDraft] = useState<TimingDraft | null>(null)
   const [templateDraft, setTemplateDraft] = useState<TemplateDraft | null>(null)
   const [scheduleFromConfig, setScheduleFromConfig] = useState<RunConfig | null>(null)
-  const runHandleRef = useRef<ReturnType<typeof startGeneratorRun>>(null)
   const importInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
@@ -133,14 +133,20 @@ export default function ScheduledRunsPage() {
       message.error('Cannot run now — another run is active.')
       return
     }
-    runHandleRef.current = handle
-    message.success('Run started — progress is on the Message Generator screen.')
+    // The handle is deliberately not kept: stopping goes through the global
+    // stopActiveRun path (the Stop button on the Message Generator screen).
+    message.success('Run started — stop and progress are on the Message Generator screen.')
   }
 
   function saveTiming(): void {
     if (!timingDraft) return
     const schedule = schedules.find((s) => s.id === timingDraft.scheduleId)
-    if (!schedule) return
+    if (!schedule) {
+      // A silent return left the modal open with a dead Save button.
+      message.error('The schedule no longer exists — it may have been deleted in another tab.')
+      setTimingDraft(null)
+      return
+    }
     if (timingDraft.runAtLocal === '') {
       setTimingDraft({ ...timingDraft, error: 'A time is required.' })
       return
@@ -185,7 +191,11 @@ export default function ScheduledRunsPage() {
   function saveTemplateDraft(): void {
     if (!templateDraft) return
     const name = templateDraft.name.trim()
-    if (name === '') return
+    if (name === '') {
+      // A silent return made the Save button appear dead.
+      setTemplateDraft({ ...templateDraft, error: 'A template name is required.' })
+      return
+    }
     useScheduleStore.getState().saveAsTemplate(name, templateDraft.config)
     message.success(`Template "${name}" saved.`)
     setTemplateDraft(null)
@@ -623,8 +633,9 @@ export default function ScheduledRunsPage() {
             <Input
               id="template-draft-name"
               value={templateDraft.name}
-              onChange={(e) => setTemplateDraft({ ...templateDraft, name: e.target.value })}
+              onChange={(e) => setTemplateDraft({ ...templateDraft, name: e.target.value, error: undefined })}
             />
+            {templateDraft.error && <Alert type="error" showIcon message={templateDraft.error} />}
           </div>
         )}
       </Modal>

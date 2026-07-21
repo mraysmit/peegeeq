@@ -5,6 +5,7 @@
  * Record<string, string[]>. They back the {{list:name}} placeholder tokens.
  */
 import { readFileText } from './templateService'
+import { persistJson } from './storagePersist'
 
 const STORAGE_KEY = 'peegeeq_value_lists'
 
@@ -25,7 +26,7 @@ export function loadAll(): Record<string, string[]> {
 
 /** Overwrite all value lists in localStorage. */
 export function saveAll(lists: Record<string, string[]>): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(lists))
+  persistJson(STORAGE_KEY, lists, 'value lists')
 }
 
 /** Download a single list as `{name}.json` containing the value array. */

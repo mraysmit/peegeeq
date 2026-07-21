@@ -57,16 +57,31 @@ interface ScheduleState {
   removeSchedule: (id: string) => void
   setEnabled: (id: string, enabled: boolean) => void
   /**
+   * Scheduling state only, no history record: set nextRunAt (a consumed
+   * one-shot — null — is disabled). The scheduler calls this AT FIRE TIME so
+   * an in-flight run's schedule is no longer due; without it, a run outlasting
+   * one check cycle is found due again and records a false self-skip.
+   */
+  advanceSchedule: (scheduleId: string, advanceTo: string | null) => void
+  /**
    * Record a firing result: appends the history record (the run record).
    * `advanceTo` optionally sets the schedule's nextRunAt (and disables a
    * consumed one-shot when null) in the same write — scheduling state only;
-   * the schedule carries no outcome fields.
+   * the schedule carries no outcome fields. Used by the missed/skipped paths;
+   * a fired run advances at fire time via advanceSchedule and records its
+   * terminal outcome here WITHOUT advanceTo.
+   *
+   * `fallback` is the fire-time snapshot (name + config), used when the
+   * schedule was deleted while its run executed: the record is then built
+   * from the snapshot so it passes the per-entry history validation — a
+   * record with an empty config stub fails it and the outcome is lost.
    */
   recordOutcome: (
     scheduleId: string,
     outcome: ScheduleOutcome,
     summary: RunSummary | null,
-    advanceTo?: string | null
+    advanceTo?: string | null,
+    fallback?: { scheduleName: string; config: RunConfig }
   ) => void
   /** History append without a schedule (template run-now). The id is generated here. */
   appendHistoryRecord: (record: Omit<ScheduleRunRecord, 'id'>) => void
@@ -140,14 +155,33 @@ export const useScheduleStore = create<ScheduleState>()(
           return { schedules }
         }),
 
-      recordOutcome: (scheduleId, outcome, summary, advanceTo) =>
+      advanceSchedule: (scheduleId, advanceTo) =>
+        set((state) => {
+          const schedules = state.schedules.map((s) =>
+            s.id === scheduleId
+              ? {
+                  ...s,
+                  nextRunAt: advanceTo,
+                  enabled: advanceTo === null ? false : s.enabled,
+                  updatedAt: new Date().toISOString(),
+                }
+              : s
+          )
+          saveAllSchedules(schedules)
+          return { schedules }
+        }),
+
+      recordOutcome: (scheduleId, outcome, summary, advanceTo, fallback) =>
         set((state) => {
           const schedule = state.schedules.find((s) => s.id === scheduleId)
-          if (!schedule) {
-            // The schedule was deleted while its run was still executing. The
-            // run's result still goes into the history; only the scheduling-state
-            // advance is impossible. The console error names the missing id.
-            console.error(`recordOutcome: schedule ${scheduleId} not found; recording history only`)
+          if (!schedule && !fallback) {
+            // No schedule and no fire-time snapshot: the record below carries
+            // an empty config stub, fails the per-entry history validation on
+            // the re-read, and the outcome is LOST. Every caller that can
+            // outlive its schedule must pass the snapshot.
+            console.error(
+              `recordOutcome: schedule ${scheduleId} not found and no fire-time snapshot given; the outcome cannot be recorded validly`
+            )
           }
 
           // Scheduling state only: advance nextRunAt; a consumed one-shot
@@ -167,16 +201,18 @@ export const useScheduleStore = create<ScheduleState>()(
               : state.schedules
           if (schedule && advanceTo !== undefined) saveAllSchedules(schedules)
 
+          // Deleted-schedule path: build the record from the fire-time snapshot.
+          const config = schedule?.config ?? fallback?.config
           const record: ScheduleRunRecord = {
             id: crypto.randomUUID(),
             scheduleId,
-            scheduleName: schedule?.name ?? scheduleId,
-            target: schedule
-              ? { setupId: schedule.config.setupId, queueName: schedule.config.queueName }
+            scheduleName: schedule?.name ?? fallback?.scheduleName ?? scheduleId,
+            target: config
+              ? { setupId: config.setupId, queueName: config.queueName }
               : { setupId: '', queueName: '' },
             outcome,
             summary,
-            config: schedule?.config ?? ({} as RunConfig),
+            config: config ?? ({} as RunConfig),
           }
           const history = [record, ...state.history]
           saveHistory(history)

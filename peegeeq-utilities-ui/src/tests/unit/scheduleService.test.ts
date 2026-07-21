@@ -8,10 +8,14 @@
  * - the history write path enforces the D8 bounds: 200 entries FIFO (oldest
  *   dropped), stored summary errors capped at 20
  * - exportAllSchedules downloads the full ScheduledRun[] as schedules.json
+ * - a storage write failure (quota exceeded, storage disabled) is surfaced and
+ *   contained — it must not propagate as an uncaught exception into the click
+ *   handler or scheduler that triggered the save
  *
  * No mocks: real localStorage. URL.createObjectURL polyfilled for export (jsdom).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { message } from 'antd'
 import {
   loadAllSchedules,
   saveAllSchedules,
@@ -133,6 +137,44 @@ describe('scheduleService', () => {
     expect(loadAllSchedules()).toEqual([])
     localStorage.setItem('peegeeq_generator_schedules', '{"not":"an array"}')
     expect(loadAllSchedules()).toEqual([])
+  })
+
+  it('reports dropped entries to the USER, not only the console', () => {
+    // Dropped entries are user data (their schedules); a console-only report
+    // is invisible to them.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const messageError = vi.spyOn(message, 'error').mockImplementation((() => {}) as never)
+    localStorage.setItem(
+      'peegeeq_generator_schedules',
+      JSON.stringify([makeSchedule({ name: 'Good one' }), { id: 'bad', name: 'Broken entry' }])
+    )
+
+    loadAllSchedules()
+
+    expect(messageError).toHaveBeenCalled()
+    expect(String(messageError.mock.calls[0][0])).toContain('Broken entry')
+  })
+
+  // ── Storage write failures (quota) ────────────────────────────────────────
+
+  it('a storage write failure is surfaced and contained, not thrown into the caller', () => {
+    // QuotaExceededError out of a zustand set() reaches the triggering click
+    // handler (or the scheduler's terminal callback) as an uncaught exception.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+    })
+
+    expect(() => saveAllSchedules([makeSchedule()])).not.toThrow()
+    expect(() => saveHistory([makeRecord()])).not.toThrow()
+    expect(() => saveTemplates([makeScheduleTemplate()])).not.toThrow()
+    expect(consoleError).toHaveBeenCalledTimes(3)
+
+    setItem.mockRestore()
+    // With storage working again, the next write succeeds normally.
+    const schedules = [makeSchedule()]
+    saveAllSchedules(schedules)
+    expect(loadAllSchedules()).toEqual(schedules)
   })
 
   // ── History (D8 bounds) ───────────────────────────────────────────────────

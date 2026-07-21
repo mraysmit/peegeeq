@@ -11,7 +11,9 @@
  * Zod for shape, download via Blob + object URL.
  */
 import { z } from 'zod'
+import { message } from 'antd'
 import { messageTemplateSchema, readFileText } from './templateService'
+import { persistJson } from './storagePersist'
 import type { ScheduledRun, ScheduleRunRecord, ScheduleTemplate } from '../types/schedule'
 
 const SCHEDULES_KEY = 'peegeeq_generator_schedules'
@@ -107,11 +109,13 @@ function loadValidated<T>(key: string, schema: z.ZodType<T>, describe: (raw: unk
     const parsed = JSON.parse(raw)
     if (!Array.isArray(parsed)) return []
     const valid: T[] = []
+    const dropped: string[] = []
     parsed.forEach((entry, i) => {
       const result = schema.safeParse(entry)
       if (result.success) {
         valid.push(result.data)
       } else {
+        dropped.push(describe(entry, i))
         console.error(
           `Dropped invalid entry from ${key}: ${describe(entry, i)} — ${result.error.issues
             .map((iss) => iss.message)
@@ -119,9 +123,19 @@ function loadValidated<T>(key: string, schema: z.ZodType<T>, describe: (raw: unk
         )
       }
     })
+    if (dropped.length > 0) {
+      // Dropped entries are the user's data — a console-only report is
+      // invisible to them (promoted 2026-07-21).
+      message.error(
+        `Dropped ${dropped.length} invalid entr${dropped.length === 1 ? 'y' : 'ies'} from ${key}: ${dropped.join(', ')}`
+      )
+    }
     return valid
   } catch (error) {
     console.error(`Failed to load ${key}:`, error)
+    message.error(
+      `Failed to load ${key} from browser storage: ${error instanceof Error ? error.message : String(error)}`
+    )
     return []
   }
 }
@@ -138,7 +152,7 @@ export function loadAllSchedules(): ScheduledRun[] {
 }
 
 export function saveAllSchedules(schedules: ScheduledRun[]): void {
-  localStorage.setItem(SCHEDULES_KEY, JSON.stringify(schedules))
+  persistJson(SCHEDULES_KEY, schedules, 'schedules')
 }
 
 // ── History (D8 bounds enforced on write) ───────────────────────────────────
@@ -159,7 +173,7 @@ export function saveHistory(records: ScheduleRunRecord[]): void {
         }
       : record
   )
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(bounded))
+  persistJson(HISTORY_KEY, bounded, 'the run history')
 }
 
 // ── Templates ───────────────────────────────────────────────────────────────
@@ -169,7 +183,7 @@ export function loadTemplates(): ScheduleTemplate[] {
 }
 
 export function saveTemplates(templates: ScheduleTemplate[]): void {
-  localStorage.setItem(TEMPLATES_KEY, JSON.stringify(templates))
+  persistJson(TEMPLATES_KEY, templates, 'schedule templates')
 }
 
 // ── Import (the D7 later phase: consumes the R11 export format) ─────────────

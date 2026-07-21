@@ -251,11 +251,46 @@ describe('TemplateEditor', () => {
     })
   })
 
+  it('warns visibly when two header rows share a key — last-wins must not be silent', async () => {
+    // toRecord collapses duplicate keys to the last row's value; both rows stay
+    // visible in the editor, so without a warning one value is silently lost.
+    renderEditor() // starts with the 'source' header
+    await userEvent.click(screen.getByRole('button', { name: /Add header/i }))
+    await userEvent.type(screen.getByTestId('header-key-1'), 'source')
+
+    const warning = await screen.findByTestId('duplicate-header-warning')
+    expect(warning.textContent).toContain('source')
+
+    // Renaming the row resolves the collision and clears the warning.
+    await userEvent.type(screen.getByTestId('header-key-1'), '2') // now "source2"
+    await waitFor(() => {
+      expect(screen.queryByTestId('duplicate-header-warning')).toBeNull()
+    })
+  })
+
   it('caps headers at 20 pairs', async () => {
     const headers = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${i}`, `v${i}`]))
     renderEditor(makeTemplate({ headers }))
     const addButton = screen.getByRole('button', { name: /Add header/i })
     expect((addButton as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  // ── Save feedback and pristine-blank dirtiness ───────────────────────────
+
+  it('Save reports success', async () => {
+    renderEditor()
+    await userEvent.click(screen.getByRole('button', { name: /^Save$/i }))
+    await waitFor(() => {
+      expect(screen.getByText(/Template "Order created" saved/i)).toBeTruthy()
+    })
+  })
+
+  it('New on a PRISTINE blank template does not ask to discard', async () => {
+    // isDirty treated any unstored template as dirty, so pressing New twice on
+    // an untouched blank raised a spurious "Unsaved changes" confirm.
+    renderEditor(blankTemplate())
+    await userEvent.click(screen.getByRole('button', { name: /^New$/i }))
+    expect(document.querySelector('.ant-modal-confirm')).toBeNull()
   })
 
   // ── Placeholder reference ────────────────────────────────────────────────

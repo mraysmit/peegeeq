@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import axios from 'axios'
-import { listQueueDetails, createQueue, deleteQueue } from '../../services/queueService'
+import { listQueueDetails, createQueue } from '../../services/queueService'
 import type { CreateQueueRequest } from '../../types/queue'
 
 vi.mock('axios')
@@ -117,23 +117,6 @@ describe('queueService', () => {
     })
   })
 
-  // ── deleteQueue ──────────────────────────────────────────────────────────────
-
-  describe('deleteQueue', () => {
-    it('DELETEs /api/v1/management/queues/{setupId}/{queueName}', async () => {
-      mockedAxios.delete = vi.fn().mockResolvedValueOnce({ data: {}, status: 200 })
-
-      await deleteQueue('my-setup', 'orders')
-
-      expect(mockedAxios.delete).toHaveBeenCalledWith(
-        expect.stringContaining('/management/queues/my-setup/orders')
-      )
-    })
-
-    it('rejects on network error', async () => {
-      mockedAxios.delete = vi.fn().mockRejectedValueOnce(new Error('Network Error'))
-
-      await expect(deleteQueue('my-setup', 'orders')).rejects.toThrow('Network Error')
-    })
-  })
+  // deleteQueue was removed with the queue-delete feature (2026-07-21):
+  // the utilities console lists queues read-only.
 })

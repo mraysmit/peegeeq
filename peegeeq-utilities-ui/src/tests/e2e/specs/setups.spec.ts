@@ -201,6 +201,14 @@ test.describe('Setup detail page', () => {
     await expect(setupsPage.getDetailQueues()).toBeVisible({ timeout: 10000 })
   })
 
+  test('detail page offers NO queue-delete affordance (feature removed 2026-07-21, user decision)', async ({ page, setupsPage }) => {
+    // Queue listing is read-only in this UI; queue deletion goes through the
+    // admin REST path, not the utilities console.
+    await setupsPage.gotoDetail(SETUP_ID)
+    await expect(setupsPage.getDetailQueues()).toBeVisible({ timeout: 10000 })
+    await expect(page.locator('[data-testid^="delete-queue-"]')).toHaveCount(0)
+  })
+
   test('detail page shows the Event stores section', async ({ page, setupsPage }) => {
     await setupsPage.gotoDetail(SETUP_ID)
     await expect(setupsPage.getDetailEventStores()).toBeVisible({ timeout: 10000 })

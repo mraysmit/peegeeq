@@ -966,15 +966,15 @@ Future<Order> save(Order order, SqlConnection connection) {
 
 This design **extends** the existing PeeGeeQ REST API documented in `docs-design/peegeeq-call-propagation/PEEGEEQ_CALL_PROPAGATION_GUIDE.md` Section 9 (Call Propagation Paths Grid).
 
-**Existing REST API (49 endpoints across 10 categories):**
-- Section 9.1: Setup Operations (7 endpoints)
+**Existing REST API (55 endpoints across 9 categories — counts follow the §9 grid, updated 2026-07 for the Phase S setup-lifecycle endpoints):**
+- Section 9.1: Setup Operations (10 endpoints)
 - Section 9.2: Queue Operations (4 endpoints)
 - Section 9.3: Consumer Group Operations (6 endpoints)
 - Section 9.4: Event Store Operations (8 endpoints)
 - Section 9.5: Dead Letter Queue Operations (6 endpoints)
 - Section 9.6: Subscription Lifecycle Operations (6 endpoints)
 - Section 9.7: Health Check Operations (3 endpoints)
-- Section 9.8: Management API Operations (6 endpoints)
+- Section 9.8: Management API Operations (9 endpoints)
 - Section 9.10: Webhook Subscription Operations (3 endpoints)
 
 **New Generic Transactional API (this design):**
@@ -982,7 +982,7 @@ This design **extends** the existing PeeGeeQ REST API documented in `docs-design
 - **Purpose:** Coordinate domain operations + event + outbox via generic mechanisms
 - **Pattern 1:** Callback hook pattern for same database (ACID)
 - **Pattern 2:** Saga orchestration for separate databases (eventual consistency)
-- **Backward Compatibility:** No changes to existing 49 endpoints
+- **Backward Compatibility:** No changes to existing 55 endpoints
 - **Generic Design:** No domain-specific concepts in PeeGeeQ
 
 **Key Difference:**

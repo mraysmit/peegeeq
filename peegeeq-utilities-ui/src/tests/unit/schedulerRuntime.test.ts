@@ -12,8 +12,10 @@
  *   with two schedules due in one check, the earliest fires and the second
  *   records `skipped`
  * - fire-time missing value lists are recorded in the outcome detail (§6)
- * - the localStorage lease: a non-holding tab never fires; an expired lease is
- *   taken over (§7.5)
+ * - the Web Locks executor election (§7.5): a tab that does not hold the lock
+ *   never fires; a waiting tab takes over when the holder releases (the
+ *   browser releases automatically on tab death; jsdom gets the polyfill in
+ *   vitest.setup.ts, shared by all runtimes in the process like real tabs)
  * - a corrupt schedule cannot break the check: it records an `error` outcome,
  *   is disabled, and later schedules still process (§10)
  *
@@ -21,7 +23,7 @@
  * in the engine tests; everything else is the real stores, runStarter, engine.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createSchedulerRuntime, CHECK_INTERVAL_MS } from '../../engine/schedulerRuntime'
+import { createSchedulerRuntime, CHECK_INTERVAL_MS, SCHEDULER_LOCK_NAME } from '../../engine/schedulerRuntime'
 import { useScheduleStore } from '../../stores/scheduleStore'
 import { useGeneratorStore } from '../../stores/generatorStore'
 import { useValueListStore } from '../../stores/valueListStore'
@@ -80,12 +82,15 @@ describe('schedulerRuntime', () => {
     vi.useFakeTimers()
     vi.setSystemTime(BASE_TIME)
     localStorage.clear()
+    // Clear any lock a failed earlier test left held (polyfill state is shared
+    // across the file, like real same-origin tabs share the lock manager).
+    ;(globalThis as { __resetWebLocks?: () => void }).__resetWebLocks?.()
     useScheduleStore.setState({ schedules: [], history: [], templates: [] })
     useGeneratorStore.getState().resetRun()
     useGeneratorStore.setState({ config: null })
     useValueListStore.setState({ lists: [], selected: null })
     mockedPublishBatch.mockResolvedValue({ messagesSent: 5 })
-    runtime = createSchedulerRuntime('tab-under-test')
+    runtime = createSchedulerRuntime()
   })
 
   afterEach(() => {
@@ -115,15 +120,17 @@ describe('schedulerRuntime', () => {
     }
   })
 
-  it('records the overdue duration in the missed detail', () => {
+  it('records the overdue duration in the missed detail', async () => {
     useScheduleStore.getState().addSchedule(makeSchedule(-90_000))
     runtime.start()
+    await vi.advanceTimersByTimeAsync(0) // lock grant resolves on a microtask
     expect(history()[0].outcome.detail).toContain('90s')
   })
 
-  it('a future schedule is untouched by start', () => {
+  it('a future schedule is untouched by start', async () => {
     useScheduleStore.getState().addSchedule(makeSchedule(60_000))
     runtime.start()
+    await vi.advanceTimersByTimeAsync(0)
     expect(history()).toHaveLength(0)
     expect(useScheduleStore.getState().schedules[0].enabled).toBe(true)
   })
@@ -216,13 +223,88 @@ describe('schedulerRuntime', () => {
     expect(results['Second due']).toBe('skipped')
   })
 
-  // ── §7.5: the lease ───────────────────────────────────────────────────────
+  // ── Fire-time advance: a run outlasting one check must not self-skip ─────
 
-  it('a tab that does not hold the lease never fires and never records', async () => {
-    const holder = createSchedulerRuntime('tab-holder')
-    const bystander = createSchedulerRuntime('tab-bystander')
-    holder.start() // takes the lease
-    bystander.start()
+  it('a one-shot whose run outlasts one check cycle records exactly one outcome — no bogus self-skip', async () => {
+    // Run duration 40 s spans the checks at t=30 s and t=45 s. Without a
+    // fire-time advance the schedule is still "due" at those checks, sees its
+    // OWN run as "another run", and records a false skipped row.
+    const schedule = makeSchedule(10_000, { config: makeConfig({ durationSecs: 40 }) })
+    useScheduleStore.getState().addSchedule(schedule)
+    runtime.start()
+
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS) // t=15s: fires
+    expect(mockedPublishBatch).toHaveBeenCalled()
+
+    // Mid-run checks at t=30s and t=45s: the fired slot is consumed — nothing recorded.
+    await vi.advanceTimersByTimeAsync(2 * CHECK_INTERVAL_MS)
+    expect(history()).toHaveLength(0)
+
+    await vi.advanceTimersByTimeAsync(15_000) // run completes at ~t=55s
+    expect(history()).toHaveLength(1)
+    expect(history()[0].outcome.result).toBe('completed')
+
+    const stored = useScheduleStore.getState().schedules[0]
+    expect(stored.nextRunAt).toBeNull()
+    expect(stored.enabled).toBe(false)
+  })
+
+  it('an interval schedule advances at fire time and stays enabled through a long run', async () => {
+    const spec: ScheduleSpec = {
+      kind: 'interval',
+      firstRunAt: new Date(BASE_TIME.getTime() + 10_000).toISOString(),
+      everyMinutes: 10,
+    }
+    useScheduleStore
+      .getState()
+      .addSchedule(makeSchedule(10_000, { schedule: spec, config: makeConfig({ durationSecs: 40 }) }))
+    runtime.start()
+
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS) // t=15s: fires
+    // Advanced AT FIRE TIME: next slot is already in the future, schedule enabled.
+    const midRun = useScheduleStore.getState().schedules[0]
+    expect(midRun.enabled).toBe(true)
+    expect(midRun.nextRunAt).toBe(new Date(BASE_TIME.getTime() + 10_000 + 600_000).toISOString())
+
+    await vi.advanceTimersByTimeAsync(2 * CHECK_INTERVAL_MS) // mid-run checks: no skip rows
+    expect(history()).toHaveLength(0)
+
+    await vi.advanceTimersByTimeAsync(15_000) // run completes
+    expect(history()).toHaveLength(1)
+    expect(history()[0].outcome.result).toBe('completed')
+    // Terminal must NOT re-advance: the fire-time slot stands.
+    expect(useScheduleStore.getState().schedules[0].nextRunAt).toBe(
+      new Date(BASE_TIME.getTime() + 10_000 + 600_000).toISOString()
+    )
+  })
+
+  it('a schedule deleted DURING its run still records the terminal outcome', async () => {
+    const schedule = makeSchedule(10_000, {
+      name: 'Deleted mid-run',
+      config: makeConfig({ durationSecs: 40 }),
+    })
+    useScheduleStore.getState().addSchedule(schedule)
+    runtime.start()
+
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS) // t=15s: fires
+    expect(mockedPublishBatch).toHaveBeenCalled()
+    useScheduleStore.getState().removeSchedule(schedule.id) // user deletes mid-run
+
+    await vi.advanceTimersByTimeAsync(45_000) // run completes
+    expect(history()).toHaveLength(1)
+    const record = history()[0]
+    expect(record.outcome.result).toBe('completed')
+    expect(record.scheduleName).toBe('Deleted mid-run')
+    expect(record.config.queueName).toBe('orders') // fire-time snapshot, not an empty stub
+  })
+
+  // ── §7.5: single executor via the Web Locks API ───────────────────────────
+
+  it('a tab that does not hold the lock never fires and never records', async () => {
+    const holder = createSchedulerRuntime()
+    const bystander = createSchedulerRuntime()
+    holder.start() // acquires the exclusive lock
+    bystander.start() // queued behind it
 
     useScheduleStore.getState().addSchedule(makeSchedule(10_000))
     await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS)
@@ -234,20 +316,20 @@ describe('schedulerRuntime', () => {
     bystander.stop()
   })
 
-  it('takes over an expired lease and fires', async () => {
-    localStorage.setItem(
-      'peegeeq_scheduler_lease',
-      JSON.stringify({ tabId: 'dead-tab', heartbeat: BASE_TIME.getTime() - 120_000 })
-    )
-    useScheduleStore.getState().addSchedule(makeSchedule(10_000))
-    runtime.start()
+  it('a waiting tab takes over when the holder stops, and fires', async () => {
+    const holder = createSchedulerRuntime()
+    holder.start()
+    runtime.start() // queued behind the holder
+    await vi.advanceTimersByTimeAsync(0)
 
-    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS)
+    useScheduleStore.getState().addSchedule(makeSchedule(10_000))
+    holder.stop() // releases → the waiting runtime acquires (as on tab death)
+
+    await vi.advanceTimersByTimeAsync(CHECK_INTERVAL_MS) // due at 10 s, check at 15 s
     await vi.advanceTimersByTimeAsync(1500)
 
+    expect(history()).toHaveLength(1)
     expect(history()[0].outcome.result).toBe('completed')
-    const lease = JSON.parse(localStorage.getItem('peegeeq_scheduler_lease')!)
-    expect(lease.tabId).toBe('tab-under-test')
   })
 
   // ── §10: a corrupt schedule cannot break the check ────────────────────────
@@ -285,48 +367,54 @@ describe('schedulerRuntime', () => {
     expect(consoleError).toHaveBeenCalled()
   })
 
-  // ── D3 under lease contention (the reload case) ───────────────────────────
+  // ── D3 under lock contention (the reload case) ────────────────────────────
 
-  it('an overdue-at-start schedule is marked missed at FIRST lease acquisition — never fired', async () => {
-    // A previous page's lease is still alive (reload within the TTL). The
-    // missed sweep must wait for the lease and still apply, with app start as
-    // the cutoff — the overdue schedule must never fire.
-    localStorage.setItem(
-      'peegeeq_scheduler_lease',
-      JSON.stringify({ tabId: 'previous-page', heartbeat: BASE_TIME.getTime() - 5_000 })
+  it('an overdue-at-start schedule is marked missed at FIRST lock acquisition — never fired', async () => {
+    // A previous page still holds the lock (reload where the old renderer has
+    // not gone away yet). The missed sweep must wait for the lock and still
+    // apply, with app start as the cutoff — the overdue schedule never fires.
+    let releasePrevious!: () => void
+    const previousPage = navigator.locks.request(
+      SCHEDULER_LOCK_NAME,
+      () => new Promise<void>((resolve) => { releasePrevious = resolve })
     )
+    await vi.advanceTimersByTimeAsync(0) // the previous page now holds the lock
+
     useScheduleStore.getState().addSchedule(makeSchedule(-60_000, { name: 'Overdue at start' }))
     runtime.start()
 
-    // No lease yet: nothing recorded, nothing fired.
+    // Lock still foreign-held two checks in: nothing recorded, nothing fired.
+    await vi.advanceTimersByTimeAsync(2 * CHECK_INTERVAL_MS)
     expect(history()).toHaveLength(0)
 
-    // The foreign lease expires 25 s in; the check at 30 s acquires and sweeps.
-    await vi.advanceTimersByTimeAsync(3 * CHECK_INTERVAL_MS)
+    releasePrevious() // the old page finally goes away
+    await previousPage
+    await vi.advanceTimersByTimeAsync(0) // grant → first-acquisition sweep
     expect(mockedPublishBatch).not.toHaveBeenCalled()
     expect(history()).toHaveLength(1)
     expect(history()[0].outcome.result).toBe('missed')
   })
 
-  it('a schedule becoming due AFTER start fires normally once the lease is acquired', async () => {
-    localStorage.setItem(
-      'peegeeq_scheduler_lease',
-      JSON.stringify({ tabId: 'previous-page', heartbeat: BASE_TIME.getTime() - 5_000 })
+  it('a schedule becoming due AFTER start fires normally once the lock is acquired', async () => {
+    let releasePrevious!: () => void
+    const previousPage = navigator.locks.request(
+      SCHEDULER_LOCK_NAME,
+      () => new Promise<void>((resolve) => { releasePrevious = resolve })
     )
+    await vi.advanceTimersByTimeAsync(0)
+
     useScheduleStore.getState().addSchedule(makeSchedule(20_000, { name: 'Due after start' }))
     runtime.start()
 
-    await vi.advanceTimersByTimeAsync(3 * CHECK_INTERVAL_MS) // lease acquired at ~30 s; due since 20 s
+    await vi.advanceTimersByTimeAsync(2 * CHECK_INTERVAL_MS) // due since 20 s, lock still foreign-held
+    expect(history()).toHaveLength(0)
+
+    releasePrevious()
+    await previousPage
+    await vi.advanceTimersByTimeAsync(0) // grant → due after app start → fires
     await vi.advanceTimersByTimeAsync(1500)
 
     expect(history()[0].outcome.result).toBe('completed')
-  })
-
-  it('releases the lease on pagehide so a reload recovers immediately', () => {
-    runtime.start()
-    expect(localStorage.getItem('peegeeq_scheduler_lease')).not.toBeNull()
-    window.dispatchEvent(new Event('pagehide'))
-    expect(localStorage.getItem('peegeeq_scheduler_lease')).toBeNull()
   })
 
   // ── Lifecycle ─────────────────────────────────────────────────────────────
