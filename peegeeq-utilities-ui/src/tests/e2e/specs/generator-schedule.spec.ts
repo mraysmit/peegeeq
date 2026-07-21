@@ -1,5 +1,14 @@
 import { test, expect } from '../page-objects'
 import * as fs from 'fs'
+import { CHECK_INTERVAL_MS } from '../../../engine/schedulerConstants'
+
+/**
+ * Negative assertions ("nothing fires") have no event to poll for — they must
+ * let real check cycles elapse. The wait is derived from the REAL cycle
+ * constant plus a settle margin, never a hard-coded number that silently
+ * breaks when the cycle length changes.
+ */
+const TWO_CHECK_CYCLES_MS = 2 * CHECK_INTERVAL_MS + 5_000
 
 /**
  * Scheduled generator runs E2E — real backend, real publishing (SCH.7).
@@ -169,7 +178,7 @@ test.describe('Scheduled generator runs', () => {
     await expect(page.getByTestId('history-row-1')).toBeVisible()
   })
 
-  test('two open tabs fire a due schedule exactly ONCE (the lease, §7.5)', async ({ page, context }) => {
+  test('two open tabs fire a due schedule exactly ONCE (the Web Locks executor, §7.5)', async ({ page, context }) => {
     test.setTimeout(180000)
 
     // Tab A (the fixture page) creates a schedule due shortly.
@@ -183,7 +192,7 @@ test.describe('Scheduled generator runs', () => {
     await page.getByRole('button', { name: /Create schedule/i }).click()
 
     // Tab B: a second real tab in the same browser context — same
-    // localStorage, its own scheduler competing for the lease.
+    // localStorage, its own scheduler competing for the Web Locks lock.
     const pageB = await context.newPage()
     await pageB.goto('/generator/schedules')
     await expect(pageB.getByTestId('scheduled-runs-page')).toBeVisible()
@@ -203,7 +212,7 @@ test.describe('Scheduled generator runs', () => {
 
     // Two more check cycles pass in both tabs: the count must stay 1 — no
     // double-firing, no replay of the consumed slot.
-    await page.waitForTimeout(35_000)
+    await page.waitForTimeout(TWO_CHECK_CYCLES_MS)
     const finalCount = await page.evaluate(() => {
       const raw = localStorage.getItem('peegeeq_schedule_run_history')
       const records = raw ? (JSON.parse(raw) as Array<{ scheduleName: string }>) : []
@@ -301,7 +310,7 @@ test.describe('Scheduled generator runs', () => {
     await expect(page.getByTestId('schedule-row-Imported past')).not.toContainText('(in ')
 
     // Two check cycles pass: no firing of the imported backlog, no history rows.
-    await page.waitForTimeout(35_000)
+    await page.waitForTimeout(TWO_CHECK_CYCLES_MS)
     const historyCount = await page.evaluate(() => {
       const raw = localStorage.getItem('peegeeq_schedule_run_history')
       return raw ? (JSON.parse(raw) as unknown[]).length : 0
@@ -316,12 +325,16 @@ test.describe('Scheduled generator runs', () => {
     await page.getByLabel(/Payload/i).fill('{"id":"{{messageId}}"}')
     await page.getByRole('button', { name: /Schedule…/ }).click()
     await page.getByLabel(/Schedule name/i).fill('Missed while closed')
+    const dueAtMs = Date.now() + 4_000
     await page.locator('#schedule-run-at').fill(localDatetime(4_000))
     await page.getByRole('button', { name: /Create schedule/i }).click()
 
-    // Close the app (navigate away from the origin) across the due time.
+    // Close the app (navigate away from the origin) across the due time. The
+    // wait is on the actual condition — the schedule being overdue — not a
+    // guessed fixed delay. One extra second clears the datetime-local's
+    // whole-second granularity.
     await page.goto('about:blank')
-    await page.waitForTimeout(8_000)
+    await expect.poll(() => Date.now(), { timeout: 15_000 }).toBeGreaterThan(dueAtMs + 1_000)
 
     // Reopen: the schedule is overdue. It must be marked MISSED — never fired.
     await page.goto('/generator/schedules')

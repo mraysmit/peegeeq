@@ -90,6 +90,13 @@ export default defineConfig({
       testMatch: '**/websocket-sse-connection.spec.ts',
       use: chromeMaximized,
     },
+    // Quick test: Database Setups details-failure row (standalone — all backend
+    // traffic is route-intercepted fault injection; no setup dependencies)
+    {
+      name: 'database-setups-details-failure',
+      testMatch: '**/database-setups-details-failure.spec.ts',
+      use: chromeMaximized,
+    },
     // Quick test: System Metrics SSE – validates /api/v1/sse/metrics versioned URL (standalone)
     {
       name: 'system-metrics-sse',

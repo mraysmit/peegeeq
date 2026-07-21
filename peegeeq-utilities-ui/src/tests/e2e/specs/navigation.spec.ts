@@ -110,7 +110,8 @@ test.describe('Navigation', () => {
       await page.goto('/generator')
       await page.waitForLoadState('load')
 
-      // Ant Design Menu adds ant-menu-item-selected to the active item's li
+      // Flat menu (2026-07-21): every page is a plain top-level item, so the
+      // active route's li carries ant-menu-item-selected.
       const activeItem = page.locator('.ant-menu-item-selected')
       await expect(activeItem).toContainText('Message Generator')
     })

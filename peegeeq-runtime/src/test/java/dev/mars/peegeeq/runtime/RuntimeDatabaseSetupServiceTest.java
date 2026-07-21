@@ -20,6 +20,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
+import dev.mars.peegeeq.api.setup.SetupNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -115,47 +116,57 @@ class RuntimeDatabaseSetupServiceTest {
     }
 
     // ========================================================================
-    // Service Access Tests (without database - just verify methods exist)
+    // Service Access Tests (no database: the delegate answers these paths
+    // synchronously from its in-memory registry, so the OUTCOME is assertable
+    // — replaced 2026-07-21; the previous assertNotNull(future) versions could
+    // never fail while the signatures compiled, and their DisplayNames named
+    // the banned CompletableFuture type)
     // ========================================================================
 
     @Test
-    @DisplayName("getAllActiveSetupIds - returns CompletableFuture")
-    void getAllActiveSetupIds_returnsCompletableFuture() {
+    @DisplayName("getAllActiveSetupIds - completes with the empty set when no setups are active")
+    void getAllActiveSetupIds_noActiveSetups_completesEmpty() {
         // When
         var future = service.getAllActiveSetupIds();
 
-        // Then
-        assertNotNull(future, "Should return a CompletableFuture");
+        // Then: answered synchronously from the in-memory registry.
+        assertTrue(future.succeeded(), "Expected a synchronously succeeded Future");
+        assertTrue(future.result().isEmpty(), "A fresh runtime has no active setups");
     }
 
     @Test
-    @DisplayName("getSetupStatus - returns CompletableFuture for unknown setup")
-    void getSetupStatus_returnsCompletableFuture() {
+    @DisplayName("getSetupStatus - fails with SetupNotFoundException for an unknown setup")
+    void getSetupStatus_unknownSetup_failsWithSetupNotFound() {
         // When
         var future = service.getSetupStatus("unknown-setup-id");
 
         // Then
-        assertNotNull(future, "Should return a CompletableFuture");
+        assertTrue(future.failed(), "Expected a synchronously failed Future");
+        assertInstanceOf(SetupNotFoundException.class, future.cause());
+        assertTrue(future.cause().getMessage().contains("unknown-setup-id"),
+                "The failure must name the missing setup");
     }
 
     @Test
-    @DisplayName("getSetupResult - returns CompletableFuture for unknown setup")
-    void getSetupResult_returnsCompletableFuture() {
+    @DisplayName("getSetupResult - fails with SetupNotFoundException for an unknown setup")
+    void getSetupResult_unknownSetup_failsWithSetupNotFound() {
         // When
         var future = service.getSetupResult("unknown-setup-id");
 
         // Then
-        assertNotNull(future, "Should return a CompletableFuture");
+        assertTrue(future.failed(), "Expected a synchronously failed Future");
+        assertInstanceOf(SetupNotFoundException.class, future.cause());
     }
 
     @Test
-    @DisplayName("destroySetup - returns CompletableFuture for unknown setup")
-    void destroySetup_returnsCompletableFuture() {
+    @DisplayName("destroySetup - succeeds idempotently for an unknown setup")
+    void destroySetup_unknownSetup_succeedsIdempotently() {
         // When
         var future = service.destroySetup("unknown-setup-id");
 
-        // Then
-        assertNotNull(future, "Should return a CompletableFuture");
+        // Then: destroy releases the in-memory binding; an unknown or
+        // already-destroyed setup is a no-op success, not a failure.
+        assertTrue(future.succeeded(), "destroy of an unknown setup must succeed idempotently");
     }
 
     // ========================================================================

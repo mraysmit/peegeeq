@@ -12,7 +12,7 @@
  * such as `"amount": {{random:500}}`.
  */
 import { useEffect, useState } from 'react'
-import { Alert, Button, Collapse, Input, InputNumber, Modal, Select, Space } from 'antd'
+import { Alert, Button, Collapse, Input, InputNumber, Modal, Select, Space, message } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useTemplateStore } from '../../stores/templateStore'
 import { resolveTemplate } from '../../engine/templateResolver'
@@ -75,13 +75,16 @@ function toRecord(rows: HeaderRow[]): Record<string, string> {
 }
 
 /**
- * Dirty = content differs from the stored counterpart. Timestamps are excluded:
- * updatedAt is re-stamped by Save, and createdAt carries no user edit — dirtiness
- * is a statement about content, not about when objects were constructed.
+ * Dirty = content differs from the stored counterpart. Timestamps and id are
+ * excluded: updatedAt is re-stamped by Save, createdAt carries no user edit,
+ * and blankTemplate() generates a new id per call — dirtiness is a statement
+ * about content, not about when or with which id objects were constructed.
+ * An UNSTORED template compares against a blank: a pristine blank is NOT
+ * dirty, so New on it must not raise a spurious discard confirm.
  */
 function isDirty(value: MessageTemplate, stored: MessageTemplate | undefined): boolean {
-  if (!stored) return true
-  const content = (t: MessageTemplate) => JSON.stringify({ ...t, createdAt: '', updatedAt: '' })
+  const content = (t: MessageTemplate) => JSON.stringify({ ...t, id: '', createdAt: '', updatedAt: '' })
+  if (!stored) return content(value) !== content(blankTemplate())
   return content(value) !== content(stored)
 }
 
@@ -132,6 +135,7 @@ export default function TemplateEditor({ value, onChange, disabled = false }: Te
     } else {
       store.add(value)
     }
+    message.success(`Template "${value.name}" saved.`)
   }
 
   function exportWorkingCopy() {
@@ -164,6 +168,15 @@ export default function TemplateEditor({ value, onChange, disabled = false }: Te
     setHeaderRows(rows)
     onChange({ ...value, headers: toRecord(rows) })
   }
+
+  // toRecord collapses duplicate keys to the LAST row's value while every row
+  // stays visible in the editor — without a warning, one value is silently lost
+  // from what Start/Save/Preview use.
+  const keyCounts = new Map<string, number>()
+  for (const row of headerRows) {
+    if (row.key !== '') keyCounts.set(row.key, (keyCounts.get(row.key) ?? 0) + 1)
+  }
+  const duplicateHeaderKeys = [...keyCounts.entries()].filter(([, n]) => n > 1).map(([k]) => k)
 
   return (
     <div data-testid="template-editor">
@@ -301,6 +314,15 @@ export default function TemplateEditor({ value, onChange, disabled = false }: Te
               />
             </Space>
           ))}
+          {duplicateHeaderKeys.length > 0 && (
+            <div data-testid="duplicate-header-warning">
+              <Alert
+                type="warning"
+                showIcon
+                message={`Duplicate header keys: ${duplicateHeaderKeys.join(', ')} — only the last row's value is used.`}
+              />
+            </div>
+          )}
           <Button
             icon={<PlusOutlined />}
             onClick={() => updateHeaderRows([...headerRows, { key: '', value: '' }])}

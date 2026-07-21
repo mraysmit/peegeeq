@@ -7,8 +7,9 @@ shipped the same day as SCH.8: schedule import and manual-run history, both grad
 §4; see the implementation plan for per-step evidence). One post-review model correction is
 recorded in §5 (schedules carry
 scheduling state only); one design correction from end-to-end testing is recorded in §7.4/§7.5
-(the missed sweep runs at first lease acquisition with app start as the cutoff, and the lease
-is released on pagehide — the start-time-only sweep would have auto-fired after a reload).
+(the missed sweep runs at first lock acquisition with app start as the cutoff — the
+start-time-only sweep would have auto-fired after a reload; §7.5 records the 2026-07-21
+replacement of the localStorage lease with the Web Locks API).
 **Version**: 1.0
 
 Companion implementation plan:
@@ -57,7 +58,7 @@ Consequences, stated plainly:
 
 - A schedule does NOT fire if the app is closed, the machine is asleep, or the tab is
   discarded by the browser. The UI must never imply otherwise.
-- Firing happens in whichever open tab wins the scheduler lease (§7.5). Two open tabs must
+- Firing happens in whichever open tab holds the scheduler lock (§7.5). Two open tabs must
   not double-fire.
 - Times are the browser's local timezone.
 
@@ -96,7 +97,7 @@ Consequences, stated plainly:
   `manual`, named "Manual run — {template} @ {queue}", with the frozen config and full
   summary — filterable and template-savable like any scheduled firing. Zone E behaviour is
   unchanged; the history entry is additional.
-- Cross-tab live sync of the schedules list (the lease prevents double-firing; the list
+- Cross-tab live sync of the schedules list (the lock prevents double-firing; the list
   refreshes on navigation).
 
 ## 5. Data model
@@ -204,8 +205,13 @@ On each check, for every enabled schedule with `nextRunAt <= now`, in `nextRunAt
    `skipped` outcome (R7), advance `nextRunAt` (§7.3), continue.
 2. Otherwise fire through the SHARED run-starter (§9): `setConfig(schedule.config)` →
    `startRun()` → engine with store-generated run id — identical to the Start button.
-3. On the terminal callback, append the outcome and summary to the run history, then advance
-   the schedule's `nextRunAt` (§7.3).
+   `nextRunAt` advances AT FIRE TIME (§7.3) — corrected 2026-07-21: advancing only at the
+   terminal callback left the fired slot "due" at every check during the run, so any run
+   outlasting one 15-second check recorded a false self-skip and a one-shot was consumed
+   by that skip mid-run.
+3. On the terminal callback, append the outcome and summary to the run history. The
+   terminal callback does NOT advance — re-advancing there would silently discard a slot
+   that came due during the run, which must record a skip instead (R7).
 
 **Every outcome — fired (completed/stopped/error), skipped, and missed (§7.4) — also
 appends a `ScheduleRunRecord` to the run history (R12).** The history is the run record —
@@ -232,27 +238,34 @@ advances per §7.3. A one-shot is consumed (disabled); an interval schedule move
 future slot. The user resumes deliberately: Run now, or wait for the next slot.
 
 *Corrected during end-to-end testing (2026-07-19):* the sweep runs at the scheduler's
-**first successful lease acquisition**, with the app start time as the cutoff — not only at
-start. Running it only at start was a defect: after a reload, the previous page's lease can
-still be alive, the start-time sweep is skipped, and the first post-takeover check would
+**first successful lock acquisition**, with the app start time as the cutoff — not only at
+start. Running it only at start was a defect: after a reload, the previous page can still
+hold the lock, the start-time sweep is skipped, and the first post-takeover check would
 have FIRED the overdue schedule. Schedules becoming due after start (while waiting for the
-lease) fire normally.
+lock) fire normally.
 
 While the app is RUNNING, a schedule firing up to ~15 s after its due time is normal firing
 lag (§7.1 check interval), not a missed run — this rule concerns app start only.
 
 ### 7.5 Two open tabs
 
-A `localStorage` lease (`peegeeq_scheduler_lease`: tab id + heartbeat timestamp, 30 s TTL)
-elects one firing tab. A tab only fires if it holds the lease; it takes an expired lease over.
-This prevents double-firing without cross-tab messaging. The schedules LIST is readable from
-any tab; mutations go through the store and re-read storage on navigation (§4 non-goal:
-no live sync).
+The **Web Locks API** elects one firing tab: each tab's scheduler requests the exclusive
+lock `peegeeq_scheduler` and holds it for as long as the tab lives; only the holder fires.
+The browser releases the lock automatically when the holding page goes away (close, reload,
+crash), so a waiting tab takes over immediately — no TTL, no heartbeat, no `pagehide`
+handling. The schedules LIST is readable from any tab; mutations go through the store and
+re-read storage on navigation (§4 non-goal: no live sync).
 
-*Added during end-to-end testing (2026-07-19):* the page releases its own lease on the
-browser `pagehide` event. Browser navigation does not run React unmount cleanup, so without
-this a reload left the dead page's lease alive for its full TTL and stalled the new page's
-scheduler (including the §7.4 missed sweep) for up to 30 seconds.
+*Corrected 2026-07-21 (post-review, user decision):* v1 used a `localStorage` lease
+(tab id + heartbeat, 30 s TTL, released on `pagehide`). Its acquire was not atomic —
+`localStorage` has no compare-and-set, and two tabs passing the write-then-read-back check
+in the same window could both fire a due schedule. The lease mechanism is deleted, not kept
+alongside. A browser without the Web Locks API gets no firing tab and says so
+(`message.error`) — firing without mutual exclusion risks double-publishing.
+
+*Known limit (unchanged by the lock):* the run-active guard is per-tab state. The executor
+tab cannot see a MANUAL run active in another tab, so a scheduled firing can overlap a
+manual run started elsewhere. The lock serialises scheduled firings only.
 
 ### 7.6 Interaction with a user mid-flow
 
@@ -358,7 +371,7 @@ publish boundary):
    catch-up bursts.
 3. schedulerRuntime: fires a due schedule through the run flow (publish boundary mocked as in
    engine tests); skips + records when a run is active; app start marks every overdue
-   schedule missed and NEVER auto-fires (§7.4); lease prevents a non-holder from firing;
+   schedule missed and NEVER auto-fires (§7.4); the lock prevents a non-holder from firing;
    check-escape surfaces an error outcome.
 4. runStarter: refuses while active; wires callbacks; page behaviour unchanged.
 5. Schedule modal: validation (name, past times), snapshot capture, missing-list warning.

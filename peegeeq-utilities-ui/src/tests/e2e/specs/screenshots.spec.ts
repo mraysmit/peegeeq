@@ -74,7 +74,17 @@ test.describe('UI documentation screenshots', () => {
     await request.delete(`${API_BASE_URL}/api/v1/setups/${DEMO_SETUP_ID}`)
   })
 
+  /**
+   * Pre-capture settle, centralised (2026-07-21, replacing 16 scattered magic
+   * numbers): antd entrance motions and font/layout settling expose no
+   * completion event to await, so capture waits one fixed motion-settle
+   * interval AFTER the caller's own visibility assertion. Screenshot capture
+   * only — this is not a synchronisation pattern for assertions.
+   */
+  const CAPTURE_SETTLE_MS = 500
+
   async function shot(page: import('@playwright/test').Page, name: string) {
+    await page.waitForTimeout(CAPTURE_SETTLE_MS)
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({ path: path.join(SHOTS_DIR, name), fullPage: true })
   }
@@ -94,13 +104,11 @@ test.describe('UI documentation screenshots', () => {
     await page.goto('/')
     await page.waitForLoadState('load')
     await expect(page.getByTestId('app-layout')).toBeVisible()
-    await page.waitForTimeout(800)
     await shot(page, '01-overview.png')
 
     // ── 02 Tools ───────────────────────────────────────────────────────────
     await page.goto('/tools')
     await page.waitForLoadState('load')
-    await page.waitForTimeout(500)
     await shot(page, '02-tools.png')
 
     // ── 03 Value List Manager — populated, edit panel open ─────────────────
@@ -111,7 +119,6 @@ test.describe('UI documentation screenshots', () => {
     await page.getByRole('button', { name: /^Save$/ }).click()
     await expect(page.getByTestId('list-count-first_names')).toContainText('4')
     await page.getByTestId('list-edit-first_names').click()
-    await page.waitForTimeout(300)
     await shot(page, '03-value-lists.png')
     await page.getByRole('button', { name: /^Cancel$/ }).click()
 
@@ -124,13 +131,16 @@ test.describe('UI documentation screenshots', () => {
       .getByLabel(/Payload/i)
       .fill('{\n  "orderId": "ORD-{{messageId}}",\n  "customer": "{{list:first_names}}",\n  "amount": {{random:500}},\n  "timestamp": "{{timestamp}}"\n}')
     await page.getByRole('button', { name: /^Save$/ }).click()
-    await page.waitForTimeout(500)
+    // Save now shows a success toast; let its lifecycle finish (appear →
+    // auto-dismiss) so the capture shows the settled page, not a transient
+    // notice over the heading. Event-driven — no fixed wait.
+    await expect(page.locator('.ant-message-notice')).toBeVisible()
+    await expect(page.locator('.ant-message-notice')).toHaveCount(0, { timeout: 8000 })
     await shot(page, '04-message-generator.png')
 
     // ── 05 Generator — preview modal ───────────────────────────────────────
     await page.getByRole('button', { name: /^Preview$/ }).click()
     await expect(page.getByTestId('preview-modal')).toBeVisible()
-    await page.waitForTimeout(300)
     await shot(page, '05-generator-preview.png')
     await page.locator('.ant-modal-footer').getByRole('button', { name: /^Close$/ }).click()
 
@@ -139,26 +149,71 @@ test.describe('UI documentation screenshots', () => {
     await page.getByLabel(/Duration \(seconds\)/i).fill('2')
     await page.getByRole('button', { name: /^Start$/ }).click()
     await expect(page.getByTestId('summary-card')).toBeVisible({ timeout: 20000 })
-    await page.waitForTimeout(300)
     await shot(page, '06-generator-run-summary.png')
     await page.getByRole('button', { name: /New run/ }).click()
+
+    // ── 17 Generator — run IN PROGRESS (live counters + Stop) ──────────────
+    await page.getByLabel(/Duration \(seconds\)/i).fill('60')
+    await page.getByRole('button', { name: /^Start$/ }).click()
+    await expect(page.getByTestId('run-progress')).toBeVisible({ timeout: 10000 })
+    // At least one tick's sends acknowledged, so the counters show real numbers.
+    await expect(page.getByTestId('sent-counter')).toContainText(/Sent: [1-9]/, { timeout: 10000 })
+    await shot(page, '17-generator-running.png')
+    await page.getByRole('button', { name: /^Stop$/ }).click()
+    await expect(page.getByTestId('summary-card')).toBeVisible({ timeout: 10000 })
+    await page.getByRole('button', { name: /New run/ }).click()
+
+    // ── 20 Generator — duplicate header key warning ────────────────────────
+    await page.getByRole('button', { name: /Add header/i }).click()
+    await page.getByTestId('header-key-0').fill('trace')
+    await page.getByTestId('header-value-0').fill('{{uuid}}')
+    await page.getByRole('button', { name: /Add header/i }).click()
+    await page.getByTestId('header-key-1').fill('trace')
+    await page.getByTestId('header-value-1').fill('{{runId}}')
+    await expect(page.getByTestId('duplicate-header-warning')).toBeVisible()
+    await shot(page, '20-duplicate-header-warning.png')
+    await page.getByTestId('header-remove-1').click()
+    await page.getByTestId('header-remove-0').click()
+
+    // ── 23 Generator — placeholder reference panel expanded ────────────────
+    await page.getByText(/Placeholder reference/i).click()
+    await expect(page.getByText('{{randomAlpha:N}}')).toBeVisible()
+    await shot(page, '23-placeholder-reference.png')
+    await page.getByText(/Placeholder reference/i).click() // collapse again
+
+    // ── 21 Generator — rate advisory (non-blocking warning above threshold) ─
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('600')
+    await expect(page.getByTestId('rate-warning')).toBeVisible()
+    await shot(page, '21-rate-advisory.png')
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('5') // back under threshold — advisory clears
+
+    // ── 25 Generator — preview with missing value list warning (§6) ────────
+    await page.getByLabel(/Payload/i).fill('{"vip": "{{list:vip_names}}"}')
+    await page.getByRole('button', { name: /^Preview$/ }).click()
+    await expect(page.getByTestId('missing-lists-warning')).toBeVisible()
+    await shot(page, '25-preview-missing-list.png')
+    await page.locator('.ant-modal-footer').getByRole('button', { name: /^Close$/ }).click()
+
+    // ── 22 Generator — payload validation error (resolve-then-parse, §8) ───
+    await page.getByLabel(/Payload/i).fill('{"broken": }')
+    await page.getByLabel(/Payload/i).blur()
+    await expect(page.getByTestId('payload-error')).toBeVisible()
+    await shot(page, '22-payload-validation-error.png')
+    // Left invalid deliberately — the schedule flow (13) refills the payload.
 
     // ── 07 Template Manager — populated ────────────────────────────────────
     await page.goto('/generator/templates')
     await expect(page.getByRole('link', { name: 'Demo order template' })).toBeVisible()
-    await page.waitForTimeout(300)
     await shot(page, '07-templates.png')
 
     // ── 08 Setups list — populated ─────────────────────────────────────────
     await page.goto('/setups')
     await expect(page.locator(`tr:has-text("${DEMO_SETUP_ID}")`)).toBeVisible({ timeout: 15000 })
-    await page.waitForTimeout(500)
     await shot(page, '08-setups-list.png')
 
     // ── 09 Detach setup — confirmation popover (non-destructive copy) ──────
     await page.getByTestId(`detach-setup-${DEMO_SETUP_ID}`).click()
     await expect(page.getByText(`Detach setup "${DEMO_SETUP_ID}"?`)).toBeVisible()
-    await page.waitForTimeout(300)
     await shot(page, '09-detach-setup-confirm.png')
     await page.keyboard.press('Escape')
 
@@ -170,7 +225,6 @@ test.describe('UI documentation screenshots', () => {
     await page.getByLabel('Database name').fill('peegeeq_production')
     await page.getByLabel('Database password').fill('example-password')
     await page.getByText('Connection details').click()
-    await page.waitForTimeout(300)
     await shot(page, '10-connect-setup.png')
     await page.getByTestId('back-button').click()
 
@@ -179,15 +233,10 @@ test.describe('UI documentation screenshots', () => {
     await page.waitForURL(`**/setups/${DEMO_SETUP_ID}`)
     await expect(page.getByTestId('setup-detail-queues')).toBeVisible({ timeout: 20000 })
     await expect(page.locator(`text=${DEMO_QUEUE_NAME}`)).toBeVisible({ timeout: 20000 })
-    await page.waitForTimeout(500)
     await shot(page, '11-setup-detail.png')
 
-    // ── 12 Delete queue — confirmation popover ─────────────────────────────
-    await page.getByTestId(`delete-queue-${DEMO_QUEUE_NAME}`).click()
-    await expect(page.getByText(`Delete queue "${DEMO_QUEUE_NAME}"?`)).toBeVisible()
-    await page.waitForTimeout(300)
-    await shot(page, '12-delete-queue-confirm.png')
-    await page.keyboard.press('Escape')
+    // (12-delete-queue-confirm was retired with the queue-delete feature,
+    // removed 2026-07-21 — the queues list is read-only in this UI.)
 
     // ── 13 Schedule-a-run modal (filled) ───────────────────────────────────
     await page.goto('/generator')
@@ -210,30 +259,70 @@ test.describe('UI documentation screenshots', () => {
       .fill(
         `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}T${pad(future.getHours())}:${pad(future.getMinutes())}`
       )
-    await page.waitForTimeout(300)
     await shot(page, '13-schedule-run-modal.png')
+
+    // ── 24 Schedule modal — INTERVAL mode (repeat every N minutes) ─────────
+    await page.getByRole('radio', { name: /Repeat every N minutes/i }).click()
+    await page
+      .locator('#schedule-first-run-at')
+      .fill(
+        `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}T${pad(future.getHours())}:${pad(future.getMinutes())}`
+      )
+    await page.getByLabel(/Every \(minutes\)/i).fill('15')
+    await shot(page, '24-schedule-interval-mode.png')
+    // Back to the once schedule that the rest of the flow expects.
+    await page.getByRole('radio', { name: /Run once/i }).click()
+    await page
+      .locator('#schedule-run-at')
+      .fill(
+        `${future.getFullYear()}-${pad(future.getMonth() + 1)}-${pad(future.getDate())}T${pad(future.getHours())}:${pad(future.getMinutes())}`
+      )
     await page.getByRole('button', { name: /Create schedule/i }).click()
 
     // ── 14 Scheduled Runs — Schedules tab with a schedule ──────────────────
     await page.goto('/generator/schedules')
     await expect(page.getByTestId('schedule-row-Nightly soak run')).toBeVisible()
-    await page.waitForTimeout(300)
     await shot(page, '14-scheduled-runs.png')
+
+    // ── 18 Scheduled Runs — edit-timing modal (R4 in-place timing edit) ────
+    await page.locator('[data-testid^="schedule-edit-timing-"]').click()
+    await expect(page.locator('#edit-timing-run-at')).toBeVisible()
+    await shot(page, '18-schedule-edit-timing.png')
+    await page.keyboard.press('Escape')
 
     // ── 15 Scheduled Runs — run history after a real firing (run-now) ──────
     await page.locator('[data-testid^="schedule-run-now-"]').click()
     await page.getByRole('tab', { name: /Run history/ }).click()
     await expect(page.getByTestId('history-row-0')).toContainText('COMPLETED', { timeout: 30000 })
-    await page.waitForTimeout(300)
     await shot(page, '15-schedule-run-history.png')
 
-    // ── 16 Scheduled Runs — Templates tab ──────────────────────────────────
+    // ── 26 Run history — result filter applied ─────────────────────────────
+    await page.getByTestId('history-result-filter').locator('.ant-select').click()
+    await page.locator('.ant-select-dropdown').getByTitle('Completed').click()
+    await expect(page.getByTestId('history-row-0')).toContainText('COMPLETED')
+    await shot(page, '26-history-filter.png')
+    await page.getByTestId('history-result-filter').locator('.ant-select').click()
+    await page.locator('.ant-select-dropdown').getByTitle('All results').click()
+
+    // ── 19 Scheduled Runs — save-as-template naming modal ──────────────────
     await page.getByTestId('history-row-0').getByRole('button', { name: /Save as template/i }).click()
+    await expect(page.locator('#template-draft-name')).toBeVisible()
+    await shot(page, '19-schedule-save-as-template.png')
+
+    // ── 16 Scheduled Runs — Templates tab ──────────────────────────────────
     await page.getByRole('button', { name: /Save template/i }).click()
     await page.getByRole('tab', { name: /Templates/ }).click()
     await expect(page.locator('[data-testid^="template-row-"]')).toBeVisible()
-    await page.waitForTimeout(300)
     await shot(page, '16-schedule-templates.png')
+
+    // ── 27 Value list delete — referencing-templates warning ───────────────
+    // "Demo order template" (saved at 04) references {{list:first_names}}, so
+    // the delete confirm names it. Runs LAST: cancelled, nothing is deleted.
+    await page.goto('/generator/value-lists')
+    await page.getByTestId('list-delete-first_names').click()
+    await expect(page.getByTestId('delete-references-warning')).toBeVisible()
+    await shot(page, '27-value-list-delete-references.png')
+    await page.locator('.ant-modal-confirm').getByRole('button', { name: /^Cancel$/ }).click()
 
     // Clean up all demo localStorage state so reruns start clean.
     await page.evaluate(() => {

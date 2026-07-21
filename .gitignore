@@ -22,6 +22,11 @@ target/test-logs/
 ### TestContainers auto-generated files ###
 peegeeq-management-ui/testcontainers-db.json
 peegeeq-management-ui/.testcontainers-state.json
+peegeeq-utilities-ui/testcontainers-db.json
+peegeeq-utilities-ui/.testcontainers-backend-db-port
+
+### Vite build output (rebuilt from src; never committed — management-ui precedent) ###
+peegeeq-utilities-ui/dist/
 
 ### Prevent test files in root directory ###
 # Test SQL files should go in test resources

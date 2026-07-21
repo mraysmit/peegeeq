@@ -847,7 +847,9 @@ no database migration is required.)
 
 - `src/types/queue.ts` — `QueueImplementationType`, `CreateQueueRequest`, `QueueSummary` (§10).
 - `src/services/queueService.ts` — `createQueue(setupId, req)`, `deleteQueue(setupId, name)`,
-  `listQueueDetails(setupId): Promise<QueueSummary[]>`.
+  `listQueueDetails(setupId): Promise<QueueSummary[]>`. *(`deleteQueue` and the per-row delete
+  button were removed 2026-07-21, user decision — queue listing is read-only in this UI,
+  restoring the §"omitted" rule that destructive operations belong in management-ui.)*
 - `src/pages/CreateQueuePage.tsx` (route `/setups/:setupId/queues/new`) — full-page form:
   queue name + **implementation type `Select` (native / outbox)** + a collapsed "Advanced"
   panel (`maxRetries`, `visibilityTimeoutSeconds`, `batchSize`, `deadLetterEnabled`,
@@ -1408,8 +1410,8 @@ detachSetup(setupId: string): Promise<void>              // POST /api/v1/setups/
 
 ```typescript
 listQueueDetails(setupId: string): Promise<QueueSummary[]>  // names + implementationType
-deleteQueue(setupId: string, queueName: string): Promise<void>
-  // DELETE /api/v1/management/queues/{setupId}/{queueName}  (verified contract, §16)
+// deleteQueue removed 2026-07-21 (user decision): queue listing is read-only
+// in this UI; the backend DELETE endpoint remains for admin tooling (§16).
 ```
 
 ### `src/services/publishService.ts`
@@ -1545,7 +1547,7 @@ peegeeq-utilities-ui/
       apiConstants.ts
       configService.ts                    (backend URL resolution)
       setupService.ts                     (list/details/connect/detach — §12)
-      queueService.ts                     (list queue details, delete queue)
+      queueService.ts                     (list queue details — read-only since 2026-07-21)
       publishService.ts                   (POST single + batch, with fallback)
       templateService.ts                  (localStorage CRUD + file import/export)
       valueListService.ts                 (localStorage CRUD + file import/export for lists)
@@ -2196,9 +2198,33 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Generator preview](screenshots/05-generator-preview.png)
 
+#### 23 — Placeholder reference panel (every §5.3 token, expanded)
+
+![Placeholder reference](screenshots/23-placeholder-reference.png)
+
+#### 21 — Rate advisory (non-blocking warning above the msg/s threshold)
+
+![Rate advisory](screenshots/21-rate-advisory.png)
+
+#### 25 — Preview with a missing value list (§6 pre-flight warning, resolves to "")
+
+![Preview missing list](screenshots/25-preview-missing-list.png)
+
+#### 22 — Payload validation error (resolve-then-parse on blur, §8)
+
+![Payload validation error](screenshots/22-payload-validation-error.png)
+
 #### 06 — Generator completed-run summary (real publication, acknowledged counts)
 
 ![Run summary](screenshots/06-generator-run-summary.png)
+
+#### 17 — Generator run IN PROGRESS (live counters, progress bar, Stop enabled)
+
+![Run in progress](screenshots/17-generator-running.png)
+
+#### 20 — Duplicate header key warning (last-wins is visible, never silent)
+
+![Duplicate header warning](screenshots/20-duplicate-header-warning.png)
 
 #### 09 — Detach setup, confirmation popover (non-destructive)
 
@@ -2208,9 +2234,9 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Connect setup](screenshots/10-connect-setup.png)
 
-#### 12 — Delete queue, confirmation popover
+#### 27 — Delete value list, referencing-templates warning (tokens resolve to "" after deletion)
 
-![Delete queue confirm](screenshots/12-delete-queue-confirm.png)
+![Value list delete references](screenshots/27-value-list-delete-references.png)
 
 ### A.3 Scheduled runs (see PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md)
 
@@ -2218,13 +2244,29 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Schedule run modal](screenshots/13-schedule-run-modal.png)
 
+#### 24 — Schedule-a-run modal, interval mode (repeat every N minutes, browser-only execution note)
+
+![Schedule interval mode](screenshots/24-schedule-interval-mode.png)
+
 #### 14 — Scheduled Runs, Schedules tab (`/generator/schedules`)
 
 ![Scheduled runs](screenshots/14-scheduled-runs.png)
 
+#### 18 — Edit-timing modal (in-place timing edit; config changes go through delete + re-schedule)
+
+![Edit timing](screenshots/18-schedule-edit-timing.png)
+
 #### 15 — Scheduled Runs, run history after a real firing
 
 ![Schedule run history](screenshots/15-schedule-run-history.png)
+
+#### 19 — Save-as-template naming modal (from a history row)
+
+![Save as template](screenshots/19-schedule-save-as-template.png)
+
+#### 26 — Run history with the result filter applied (bounded 200-entry history)
+
+![History filter](screenshots/26-history-filter.png)
 
 #### 16 — Scheduled Runs, Templates tab
 
@@ -2385,7 +2427,8 @@ generator UI (Phases B–D), connect-only setup surface (Phase S), and scheduled
     `getSetups`, `getQueues`, `getSetupDetails`, `connectExisting`, `detachSetup`.
     `createSetup`/`deleteSetup` were removed in S.6 (provisioning is admin-tool-only).
   - [queueService.ts](../src/services/queueService.ts): `listQueueDetails` (uses additive
-    `queueDetails[]`, falls back to names-only), `deleteQueue`. `createQueue` removed in S.6.
+    `queueDetails[]`, falls back to names-only). `createQueue` removed in S.6; `deleteQueue`
+    removed 2026-07-21 (user decision — the queues list is read-only in this UI).
   - [scheduleService.ts](../src/services/scheduleService.ts): localStorage CRUD for the three
     schedule keys with per-entry Zod validation, the history bounds (200 entries / 20 errors
     per entry) in the write path, `exportAllSchedules`, `importSchedulesFromFile`.

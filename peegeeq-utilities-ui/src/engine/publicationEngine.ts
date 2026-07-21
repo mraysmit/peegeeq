@@ -12,6 +12,7 @@
  * owns it; the engine generates none of the ids. Progress and terminal outcomes are
  * reported through {@link EngineCallbacks}.
  */
+import { message } from 'antd'
 import type {
   RunConfig,
   RunSummary,
@@ -239,7 +240,15 @@ export function createPublicationEngine(): PublicationEngine {
       // onError — an unobserved rejection would leave the run stuck in RUNNING.
       const runTick = () =>
         tick().catch((error: unknown) => {
-          if (finished) return
+          if (finished) {
+            // tick() only rejects after `finished` when a TERMINAL CALLBACK
+            // threw (store settle, run-history write — e.g. a storage quota
+            // error). The run's outcome may be unrecorded; that must be
+            // reported, never dropped.
+            console.error('Run terminal callback failed:', error)
+            message.error(`Run finished but recording its outcome failed: ${messageOf(error)}`)
+            return
+          }
           finished = true
           clear()
           inFlight = false
