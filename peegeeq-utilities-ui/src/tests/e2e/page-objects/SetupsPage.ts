@@ -123,10 +123,4 @@ export class SetupsPage extends BasePage {
     return this.getQueueRow(queueName).locator('.ant-tag')
   }
 
-  /**
-   * The per-row delete button for a named queue.
-   */
-  getDeleteQueueButton(queueName: string): Locator {
-    return this.page.getByTestId(`delete-queue-${queueName}`)
-  }
 }

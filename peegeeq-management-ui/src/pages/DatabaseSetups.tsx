@@ -42,9 +42,10 @@ interface DatabaseSetup {
     databaseName: string
     host: string
     port: number
-    queues: number
-    eventStores: number
-    status: 'active' | 'creating' | 'failed'
+    /** null = details lookup failed — count unknown, rendered as "—", never a fabricated 0 */
+    queues: number | null
+    eventStores: number | null
+    status: 'active' | 'creating' | 'failed' | 'unavailable'
     createdAt: string
 }
 
@@ -83,15 +84,18 @@ const DatabaseSetups = () => {
                                 createdAt: new Date().toISOString()
                             }
                         } catch {
+                            // Surface the failure on the row itself: UNAVAILABLE with unknown
+                            // counts — a failed details lookup must not masquerade as a
+                            // healthy empty setup (no-error-swallowing rule).
                             return {
                                 key: setupId,
                                 setupId: setupId,
                                 databaseName: setupId,
                                 host: 'localhost',
                                 port: 5432,
-                                queues: 0,
-                                eventStores: 0,
-                                status: 'active' as const,
+                                queues: null,
+                                eventStores: null,
+                                status: 'unavailable' as const,
                                 createdAt: new Date().toISOString()
                             }
                         }
@@ -339,21 +343,21 @@ const DatabaseSetups = () => {
             title: 'Queues',
             dataIndex: 'queues',
             key: 'queues',
-            render: (count: number) => <Tag color="blue">{count}</Tag>,
+            render: (count: number | null) => (count === null ? <Tag>—</Tag> : <Tag color="blue">{count}</Tag>),
         },
         {
             title: 'Event Stores',
             dataIndex: 'eventStores',
             key: 'eventStores',
-            render: (count: number) => <Tag color="purple">{count}</Tag>,
+            render: (count: number | null) => (count === null ? <Tag>—</Tag> : <Tag color="purple">{count}</Tag>),
         },
         {
             title: 'Status',
             dataIndex: 'status',
             key: 'status',
             render: (status: string) => {
-                const colors = { active: 'green', creating: 'orange', failed: 'red' }
-                const icons = { active: <CheckCircleOutlined />, creating: null, failed: <ExclamationCircleOutlined /> }
+                const colors = { active: 'green', creating: 'orange', failed: 'red', unavailable: 'orange' }
+                const icons = { active: <CheckCircleOutlined />, creating: null, failed: <ExclamationCircleOutlined />, unavailable: <ExclamationCircleOutlined /> }
                 return (
                     <Tag color={colors[status as keyof typeof colors]} icon={icons[status as keyof typeof icons]}>
                         {status.toUpperCase()}

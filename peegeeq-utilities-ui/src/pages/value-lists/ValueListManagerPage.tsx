@@ -91,7 +91,13 @@ export default function ValueListManagerPage() {
       }
       store.add({ name, values, createdAt: now, updatedAt: now })
     } else if (name === panel.originalName) {
-      const existing = store.lists.find((l) => l.name === name)!
+      const existing = store.lists.find((l) => l.name === name)
+      if (!existing) {
+        // Deleted behind the open panel (e.g. in another tab): writing
+        // {...undefined, values} would store a nameless malformed entry.
+        setPanel({ ...panel, error: `The list "${name}" no longer exists — it may have been deleted elsewhere.` })
+        return
+      }
       store.update({ ...existing, values })
     } else {
       if (collides) {

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import axios from 'axios'
-import { publishBatch, publishSingle } from '../../services/publishService'
+import { publishBatch, publishSingle, PUBLISH_TIMEOUT_MS } from '../../services/publishService'
 import type { BatchMessageRequest, MessageRequest } from '../../types/queue'
 
 vi.mock('axios')
@@ -34,7 +34,11 @@ describe('publishService', () => {
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
         expect.stringContaining('/queues/setup-1/orders/messages'),
-        SINGLE
+        SINGLE,
+        // Every publish carries a timeout: a hung socket must not keep the
+        // engine's in-flight fan-out (which Stop waits for) unsettled until
+        // the OS timeout.
+        expect.objectContaining({ timeout: PUBLISH_TIMEOUT_MS })
       )
       expect(res.messageId).toBe('m1')
     })
@@ -48,7 +52,8 @@ describe('publishService', () => {
 
       expect(mockedAxios.post).toHaveBeenCalledWith(
         expect.stringContaining('/queues/setup-1/orders/messages/batch'),
-        BATCH
+        BATCH,
+        expect.objectContaining({ timeout: PUBLISH_TIMEOUT_MS })
       )
       expect(res.messagesSent).toBe(2)
     })
@@ -80,7 +85,8 @@ describe('publishService', () => {
       expect(mockedAxios.post).toHaveBeenCalledTimes(3)
       expect(mockedAxios.post).toHaveBeenLastCalledWith(
         expect.stringContaining('/queues/setup-1/orders/messages'),
-        BATCH.messages[1]
+        BATCH.messages[1],
+        expect.objectContaining({ timeout: PUBLISH_TIMEOUT_MS })
       )
     })
 

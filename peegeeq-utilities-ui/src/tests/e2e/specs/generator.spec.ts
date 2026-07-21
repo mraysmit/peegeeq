@@ -38,6 +38,7 @@ test.describe('Generator Pages', () => {
       await page.goto('/generator')
       await page.waitForLoadState('load')
 
+      // Flat menu (2026-07-21): every page is a plain top-level item.
       const activeItem = page.locator('.ant-menu-item-selected')
       await expect(activeItem).toContainText('Message Generator')
     })

@@ -61,10 +61,21 @@ describe('resolveTemplate', () => {
     expect(result.a).toBe(result.b)
   })
 
-  it('generates a fresh {{uuid}} on each resolveTemplate call', () => {
-    const a = resolveTemplate('{"u":"{{uuid}}"}', BASE_CONTEXT) as { u: string }
-    const b = resolveTemplate('{"u":"{{uuid}}"}', BASE_CONTEXT) as { u: string }
+  it('generates a fresh {{uuid}} per MESSAGE (per context) — not per call', () => {
+    // The engine builds one context object per message; the context IS the
+    // message identity for {{uuid}}.
+    const a = resolveTemplate('{"u":"{{uuid}}"}', { ...BASE_CONTEXT }) as { u: string }
+    const b = resolveTemplate('{"u":"{{uuid}}"}', { ...BASE_CONTEXT }) as { u: string }
     expect(a.u).not.toBe(b.u)
+  })
+
+  it('payload and headers of the SAME message share one {{uuid}} — a header can correlate with its payload', () => {
+    // Corrected 2026-07-21: the uuid was per resolveString CALL, so a
+    // message's headers carried a different uuid than its payload.
+    const context = { ...BASE_CONTEXT }
+    const payload = resolveTemplate('{"id":"{{uuid}}"}', context) as { id: string }
+    const header = resolveString('{{uuid}}', context)
+    expect(header).toBe(payload.id)
   })
 
   it('resolves {{random:N}} to an integer in [0, N)', () => {

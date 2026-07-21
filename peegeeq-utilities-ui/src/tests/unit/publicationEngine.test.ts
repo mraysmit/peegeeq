@@ -71,6 +71,25 @@ describe('publicationEngine', () => {
     vi.restoreAllMocks()
   })
 
+  it('a throwing terminal callback is surfaced, never swallowed', async () => {
+    // e.g. recordOutcome hits a localStorage quota error inside onComplete.
+    // The runTick catch used to see `finished === true` and drop the error —
+    // the run's outcome went unrecorded with no report anywhere.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    const cbs = callbacks()
+    cbs.onComplete.mockImplementation(() => {
+      throw new Error('quota exceeded')
+    })
+    const engine = createPublicationEngine()
+
+    engine.start(makeConfig({ durationSecs: 1 }), IDENTITY, cbs)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(cbs.onComplete).toHaveBeenCalled()
+    expect(consoleError).toHaveBeenCalledWith('Run terminal callback failed:', expect.any(Error))
+  })
+
   it('fires the first fan-out immediately at start', async () => {
     mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
     const cbs = callbacks()

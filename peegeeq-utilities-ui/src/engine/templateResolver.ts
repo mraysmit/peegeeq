@@ -26,6 +26,25 @@ export interface TemplateContext {
 }
 
 /**
+ * {{uuid}} is per-MESSAGE (§5.3: "Fresh UUID for each individual message"):
+ * one value shared by EVERY occurrence in the message — payload and headers
+ * alike, so a header can correlate with its payload. Payload and headers are
+ * resolved by separate calls sharing one context object per message, so the
+ * value is memoised per context (corrected 2026-07-21: it was per CALL, giving
+ * a message's headers a different uuid than its payload).
+ */
+const contextUuids = new WeakMap<TemplateContext, string>()
+
+function uuidFor(context: TemplateContext): string {
+  let uuid = contextUuids.get(context)
+  if (uuid === undefined) {
+    uuid = crypto.randomUUID()
+    contextUuids.set(context, uuid)
+  }
+  return uuid
+}
+
+/**
  * Substitute all placeholder tokens in a template string. No parsing — the
  * result is a plain string. Used directly for header values (§5.3: placeholders
  * are valid in header values) and by {@link resolveTemplate} for payloads.
@@ -34,7 +53,7 @@ export function resolveString(template: string, context: TemplateContext): strin
   return template
     .replace(/\{\{messageId\}\}/g, String(context.messageId).padStart(8, '0'))
     .replace(/\{\{sequenceId\}\}/g, String(context.messageId).padStart(8, '0'))
-    .replace(/\{\{uuid\}\}/g, crypto.randomUUID())
+    .replace(/\{\{uuid\}\}/g, () => uuidFor(context))
     .replace(/\{\{timestamp\}\}/g, context.now.toISOString())
     .replace(/\{\{unixMs\}\}/g, String(context.now.getTime()))
     .replace(/\{\{correlationId\}\}/g, context.correlationId)

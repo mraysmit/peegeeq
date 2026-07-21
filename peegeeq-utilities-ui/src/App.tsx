@@ -33,6 +33,8 @@ function Navigation() {
       icon: <DatabaseOutlined />,
       label: <Link to="/setups" data-testid="nav-setups">Setups</Link>,
     },
+    // Flat menu, no nesting and no indent (2026-07-21, user decision): every
+    // page is a plain top-level entry.
     {
       key: '/generator',
       icon: <ThunderboltOutlined />,
@@ -42,19 +44,16 @@ function Navigation() {
       key: '/generator/schedules',
       icon: <FieldTimeOutlined />,
       label: <Link to="/generator/schedules" data-testid="nav-generator-schedules">Scheduled Runs</Link>,
-      style: { paddingLeft: 40 },
     },
     {
       key: '/generator/templates',
       icon: <FileTextOutlined />,
       label: <Link to="/generator/templates" data-testid="nav-generator-templates">Templates</Link>,
-      style: { paddingLeft: 40 },
     },
     {
       key: '/generator/value-lists',
       icon: <UnorderedListOutlined />,
       label: <Link to="/generator/value-lists" data-testid="nav-generator-value-lists">Value Lists</Link>,
-      style: { paddingLeft: 40 },
     },
   ]
 

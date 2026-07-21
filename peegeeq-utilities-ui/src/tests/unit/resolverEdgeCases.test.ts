@@ -31,9 +31,9 @@ describe('repeated occurrences within one message', () => {
   })
 
   it('{{uuid}} repeats the SAME uuid at every occurrence within one resolution', () => {
-    // Verified behaviour: the uuid is computed once per resolveString call, so
-    // all occurrences in one message share it. §5.3 requires per-MESSAGE
-    // freshness, which this satisfies; per-occurrence freshness is not promised.
+    // The uuid is memoised per CONTEXT (one context = one message), so all
+    // occurrences in one message share it — payload and headers alike. §5.3
+    // requires per-MESSAGE freshness; per-occurrence freshness is not promised.
     const [a, b] = resolveString('{{uuid}}|{{uuid}}', BASE).split('|')
     expect(a).toMatch(UUID)
     expect(a).toBe(b)
