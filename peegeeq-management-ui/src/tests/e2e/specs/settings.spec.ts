@@ -22,7 +22,9 @@ test.describe('Settings', () => {
   test.describe('Backend Configuration', () => {
     test.afterEach(async ({ page }) => {
       // Always reset API URL to default after each test to prevent state leaking
-      // into other spec files (localStorage persists across specs with withReuse)
+      // into other spec files. localStorage persists across specs because the
+      // whole run shares one browser context and origin — nothing to do with
+      // the database container's lifetime.
       await page.goto('/settings')
       await page.waitForLoadState('load')
       await page.evaluate(() => localStorage.removeItem('peegeeq_backend_config'))
