@@ -1,6 +1,6 @@
 /**
  * Zustand store for scheduled generator runs
- * (PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md §5, §7.3 — SCH.1).
+ * (PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md Part III §5, §7.3 — SCH.1).
  *
  * Holds the three collections (schedules, run history, schedule templates) and
  * writes through to localStorage via the scheduleService on every mutation,

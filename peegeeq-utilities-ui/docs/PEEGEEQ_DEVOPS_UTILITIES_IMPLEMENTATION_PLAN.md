@@ -9,7 +9,8 @@ documents and should be read alongside them:
 
 - [PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md](PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md) — the design document:
   **Part I** is the functional/feature design ("§6.1" references point into it); **Part II** is the
-  technical design / as-built state ("TD §12" references point into it).
+  technical design / as-built state ("TD §12" references point into it); **Part III** is the
+  scheduled-runs feature design (Phase SCH references point into it).
 
 The feature design's own §18 plan is written as build-from-scratch (Phases 1, 1B, 2, 3, 4, 5, 6).
 Phases 1, 1B, and 2 are **already implemented** in the codebase. This plan therefore starts from
@@ -33,7 +34,7 @@ the current baseline and covers only what is left, plus the divergences recorded
 | Generator Zones B–E | ✅ done (Phase B, 2026-07-18) | feature §6.1 |
 | Template Manager page | ✅ done (Phase C, 2026-07-18) | feature §6.2 |
 | Value List Manager page | ✅ done (Phase D, 2026-07-19) | feature §6.3 |
-| Scheduled runs (screen, scheduler, history, templates, import) | ✅ done (2026-07-19 — own design + plan, SCH.0–SCH.8) | scheduled-runs docs |
+| Scheduled runs (screen, scheduler, history, templates, import) | ✅ done (2026-07-19, SCH.0–SCH.8; hardened SCH.9 2026-07-21) | Phase SCH; design Part III |
 | Overview redesign (per-setup, no global aggregates) | ✅ done (per-setup table + detail card; connect CTA) | feature §6.6, TD §12.2 |
 
 ---
@@ -81,7 +82,8 @@ Phase S (Setup connect: manual attach)     ── ✅ DONE 2026-07-18 (S.0–S.6
              └── Phase M (Management DB: estate control plane) ── after R; org-wide + single-owner leases
 Phase E (Overview redesign)                ── independent (done)
 Phase F (Integration + E2E + screenshots)  ── ✅ DONE 2026-07-19 (F.1–F.4; F.5 full gate = user's call)
-Scheduled runs (own design + plan)         ── ✅ DONE 2026-07-19 (SCH.0–SCH.8; graduated from §3 non-goals)
+Phase SCH (Scheduled generator runs)       ── ✅ DONE 2026-07-19 (SCH.0–SCH.8; graduated from Part I §3
+      │                                        non-goals) + SCH.9 hardening 2026-07-21; design Part III
 Phase G (Generation tool suite, §19)       ── after B; most tools client-only, no backend
 Phase T (Backend telemetry, peegeeq-db/rest) ── gates only the two telemetry-heavy G tools:
       └─ required by  G.2 (native-vs-outbox)  and  G.1b (rich breaking-point)
@@ -242,7 +244,7 @@ management-ui's proven layer, copied file-for-file with only path/origin edits:
 | Operation | Method + path | Body / notes |
 |---|---|---|
 | Create queue | `POST /api/v1/management/queues` | `{ setup, name, type, ...config }` → **201**; response echoes `implementationType`. This is management-ui's `useCreateQueueMutation` contract. |
-| Delete queue | `DELETE /api/v1/management/queues/{setupId}/{queueName}` | → **200**. utilities-ui `deleteQueue` **already matches this**. |
+| Delete queue | `DELETE /api/v1/management/queues/{setupId}/{queueName}` | → **200**. utilities-ui's `deleteQueue` matched this contract. *(Removed 2026-07-21, user decision: the queue list here is read-only; this UI no longer calls the endpoint. The endpoint itself is unchanged and management-ui owns it.)* |
 | List queues | `GET /api/v1/setups/{setupId}/queues` | Returns `count`, `queues[]`, and `queueDetails:[{name,implementationType}]`. |
 | Create setup | `POST /api/v1/database-setup/create` | Verified working end-to-end from the UI (→ 201, provisions a DB). |
 | Queue name rule | — | Must match `[A-Za-z_][A-Za-z0-9_]*` — **no hyphens** (backend returns 400). |
@@ -250,6 +252,7 @@ management-ui's proven layer, copied file-for-file with only path/origin edits:
 > The earlier "delete-queue endpoint mismatch" (TD §12.3) is now **resolved by verification**:
 > utilities-ui's code path is correct; the design doc §16 path (`/setups/{id}/queues/{name}`) is the
 > one that is wrong (404). Fix the doc, not the code.
+> *(Moot since 2026-07-21 — utilities-ui calls no delete-queue endpoint at all.)*
 
 ---
 
@@ -265,9 +268,10 @@ four items are recorded as RESOLVED in TD §12 (items 3–6).
 | A.3 | [TargetSelector.tsx](../src/components/TargetSelector.tsx) | ✅ done — queue-fetch failure surfaces as an error `Alert` with Retry (`data-testid="queue-load-error"`), distinct from the no-queues empty state; covered by unit tests. | TD §12.6 |
 | A.4 | [generatorStore.ts](../src/stores/generatorStore.ts) | ✅ done — `currentRate` is a true rolling 1-second window in the store (per-run samples in the store closure, cumulative fallback on first tick); the engine computes no rate of its own (`buildSummary.avgRate` is cumulative **by design** — it is the summary average). | TD §12.5 |
 
-**Acceptance (met):** delete-queue verified against the live backend; the Queue dropdown shows
-each queue's type; a queue-load failure is visible with retry; `currentRate` semantics match the
-docs (rolling window, documented in types + TD §12.5).
+**Acceptance (met):** delete-queue verified against the live backend *(the delete feature was
+later removed — 2026-07-21, user decision)*; the Queue dropdown shows each queue's type; a
+queue-load failure is visible with retry; `currentRate` semantics match the docs (rolling
+window, documented in types + TD §12.5).
 
 ---
 
@@ -623,6 +627,231 @@ lease takeover on owner death with **no duplicate maintenance jobs** running; `m
 
 ---
 
+## Phase SCH — Scheduled generator runs
+
+**Merged into this plan 2026-07-22** (previously
+`PEEGEEQ_GENERATOR_SCHEDULED_RUNS_IMPLEMENTATION_PLAN.md`, now deleted).
+
+**Design:** **Part III** of
+[PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md](PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md). Every `§n`, `Rn`
+and `Dn` reference in this phase points into Part III.
+
+**Status**: ✅ COMPLETE 2026-07-19 — all steps SCH.0–SCH.7 done, plus SCH.8 (the later
+phases: schedule import + manual-run history, implemented on user request the same day).
+**Post-review hardening 2026-07-21 — SCH.9 at the end of this phase.** The per-step evidence
+below is a dated record of what was built on 2026-07-19; where the review changed that code
+the row carries a *superseded* note. Three mechanisms below no longer describe the shipped
+UI: the `localStorage` lease (replaced by the Web Locks API), advancing `nextRunAt` at the
+terminal callback (moved to fire time), and the page-local stop handle (moved into
+`runStarter`).
+
+Ground rules are the **Cross-cutting rules** above, unchanged: strict TDD (failing tests
+first, including every failure mode of every called dependency), no mocks beyond the
+sanctioned engine publish boundary, no error swallowing, no fire-and-forget async, mirror
+existing module patterns (templateStore/templateService are the model for the store/service
+pair), banned-pattern grep per step, one phase at a time with tests green before the next.
+
+### Per-step evidence
+
+SCH.1 ✅ DONE 2026-07-19 (24 tests red→green; three storage keys with per-entry validation +
+D8 bounds in the service write path; `computeNextRunAt` pure and directly tested; model
+corrected at user review: schedules carry scheduling state only, outcomes live in history,
+table derives via `latestOutcomeFor`).
+
+SCH.2 ✅ DONE 2026-07-19 (7 runStarter tests red→green; wiring relocated from
+MessageGeneratorPage without contract change; existing page/engine tests untouched and green;
+full suite 248/248, build clean, generator e2e 28/28 re-verified).
+
+SCH.3 ✅ DONE 2026-07-19 (14 scheduler tests red→green: no-auto-start-on-open with missed
+records, firing/skip/interval-advance, fire-time missing-list detail, lease non-holder +
+expired-lease takeover, two-layer corrupt-schedule defence — storage validation drops on
+load, the runtime catch records error + disables for in-memory corruption; full suite
+434/434, build clean). *(Superseded 2026-07-21: the two lease tests are now Web Locks tests —
+a non-holder never fires, and a waiting runtime takes over when the holder releases, as on
+tab death. jsdom has no Web Locks API, so `vitest.setup.ts` installs a process-wide polyfill.)*
+
+SCH.4 ✅ DONE 2026-07-19 (12 modal tests + 3 Zone D tests red→green: capture summary,
+execution-constraint note, prefilled name, name/time/past-time validation, frozen deep-copy
+config on save with correct nextRunAt, interval spec, non-blocking missing-list warning,
+cancel stores nothing; interval-below-1 proven unreachable via the input's min bound with
+storage-level Zod as the non-UI guard; Zone D Schedule… button enabled as Start; page
+assembles the config and owns the modal; full suite 449/449, build clean).
+
+SCH.5 ✅ DONE 2026-07-19 (17 page tests red→green covering all three tabs: schedule rows +
+derived outcome column + enable toggle + Export-all + run-now (fires without consuming the
+slot; refused with a message while active) + edit-timing (revives a consumed one-shot) +
+save-as-template + delete-with-history-surviving; history filters (result + name), download
+only on fired entries, re-schedule prefilled from the frozen record config, 200-bound
+caption; template schedule-from/run-now-under-template-name/delete. Shared helpers
+(fireTimeMissingListsNote, outcomeFromRun) exported from schedulerRuntime, its 14 tests
+unchanged and green. Full suite 466/466, build clean).
+
+SCH.6 ✅ DONE 2026-07-19 (2 App tests red→green: Scheduled Runs sidebar entry navigates to
+the screen; scheduler starts on App mount and stops on unmount, observed through its lease
+key *(superseded 2026-07-21: the test observes the Web Locks lock via `navigator.locks.query`,
+and the axios boundary is stubbed so the App-wiring test stops emitting ECONNREFUSED noise)*.
+Route + nav entry + schedulerRuntime lifecycle added to App.tsx. Full unit suite
+468/468, build clean, full browser suite 63/63 re-verified against the changed sidebar and
+the now-mounted scheduler).
+
+SCH.7 ✅ DONE 2026-07-19. E2E project `6-generator-schedules` (real backend, own throwaway
+setup): the full journey — schedule 10 s ahead via the UI, fires while on the Scheduled Runs
+screen, history row with server-acknowledged 10/0, one-shot consumed, result filter,
+save-as-template, re-schedule prefilled from the frozen config, template run-now recorded
+under the template name, deletes with history surviving — plus the D3 test: a schedule due
+while the app is closed (about:blank across the due time) is recorded MISSED with 0/0 and
+never fires. **The D3 e2e caught a real defect**: the missed sweep ran only at start, so a
+reload within the lease TTL skipped it and the post-takeover check auto-fired the overdue
+schedule. Fixed test-first (3 new scheduler unit tests): sweep at first lease acquisition
+with app start as the cutoff, lease released on pagehide; design §7.4/§7.5 corrected.
+*(Superseded 2026-07-21: the lease is deleted. The sweep now runs at first WEB LOCK
+acquisition, still with app start as the cutoff; the browser releases the lock on tab death,
+so there is no `pagehide` handling.)*
+De-flaked `--repeat-each=2 --retries=0`. Screenshots 13–16 added (modal, schedules tab,
+history after a real firing, templates tab) and Appendix A extended; Part I §3 non-goal
+graduated. Unit 471/471.
+
+Coverage extension (user request, 2026-07-19): two further e2e tests — (a) the two-tab
+executor election *(the lease then; the Web Locks lock since 2026-07-21)* with two REAL tabs
+sharing real storage: a due schedule fires exactly once, and the
+count stays 1 through two further check cycles in both tabs; (b) an interval schedule
+fires twice at its one-minute slots with the schedule staying enabled between firings.
+Project re-de-flaked `--repeat-each=2 --retries=0` (33/33). Schedule import, deferred here
+as the D7 later phase, shipped the same day as SCH.8 (below).
+
+### Dependency order
+
+```
+SCH.0  Design review (user)            ── gates everything; D1–D6 sign-off
+SCH.1  Types + service + store          ── pure data layer, no UI
+SCH.2  runStarter extraction            ── refactor, no behaviour change
+SCH.3  schedulerRuntime                 ── depends on SCH.1 + SCH.2
+SCH.4  Schedule… modal (Zone D)         ── depends on SCH.1
+SCH.5  Scheduled Runs screen + route    ── depends on SCH.1; run-now uses SCH.2
+SCH.6  App wiring                       ── mounts SCH.3; adds nav + route for SCH.5
+SCH.7  E2E + screenshots + doc close-out
+```
+
+SCH.4 and SCH.5 are parallelisable after SCH.1; everything else is sequential.
+
+### Steps
+
+| Step | Files | What | Verification |
+|---|---|---|---|
+| SCH.0 | design doc | User reviews Part III §12 decisions D1–D6. **No code before sign-off** — D1 (client-side execution) shapes every later step. | User review. |
+| SCH.1 | `src/types/schedule.ts`, `src/services/scheduleService.ts`, `src/stores/scheduleStore.ts` | ALL §5 types: `ScheduledRun`/`ScheduleOutcome`/`ScheduleRunRecord`/`ScheduleTemplate`; service = localStorage CRUD for the three keys (`peegeeq_generator_schedules`, `peegeeq_schedule_run_history`, `peegeeq_schedule_templates`) with per-entry Zod validation (mirror templateService, incl. the dropped-entry warning path), the **200-entry FIFO cap + 20-error cap** on history writes (D8), and `exportAllSchedules()` → `schedules.json` (R11); store = zustand CRUD for schedules/history/templates + `recordOutcome` (appends the history record — the run record — and advances SCHEDULING state only; corrected 2026-07-19: the schedule carries no outcome fields, the table derives its outcome column via `latestOutcomeFor`) + `saveAsTemplate` + `computeNextRunAt` (§7.3 — pure function, exported for direct testing). | Unit: CRUD round-trips for all three; corrupt-entry drop visible not silent; history cap drops oldest; history entry survives schedule deletion; export blob parses back; §7.3 cases — one-shot consumption, interval advance past missed slots, no catch-up. |
+| SCH.2 | `src/engine/runStarter.ts`, `src/pages/generator/MessageGeneratorPage.tsx` | Extract the engine wiring from `handleStart` into `startGeneratorRun(config, hooks?)` (§9): active-run guard returns null; store-generated run id; callbacks to `tickUpdate`/`transitionTo`/`setSummary`; terminal hook; returned `stop()` handle. Page delegates to it; unmount-stop preserved. Pure relocation — no contract change. *(Superseded 2026-07-21: the active handle moved from the page into the module, with `stopActiveRun()` exported — a page-local ref left Stop a no-op for scheduler-started and run-now runs. Page unmount still stops only page-started runs, so a scheduled run survives navigation. `engine.start` is wrapped: a synchronous throw settles the store to ERROR instead of leaving it stuck RUNNING.)* | Unit: new runStarter tests (refusal while active; terminal hook fires; callbacks wired — publish boundary mocked as in engine tests). ALL existing page + engine tests stay green unmodified. |
+| SCH.3 | `src/engine/schedulerRuntime.ts` | §7 in full: 15 s check; due-schedule firing via runStarter; skip-and-record while active (D4); §7.4 on start — every overdue schedule records `missed` and advances, **app open never auto-fires** (D3); §7.5 localStorage lease with heartbeat *(superseded 2026-07-21 — Web Locks exclusive lock `peegeeq_scheduler`, held for the tab's lifetime; no Web Locks support means no firing, said loudly)*; §10 check-escape → surfaced message + `error` outcome. `start()`/`stop()` for App mount/unmount and tests. *(Superseded 2026-07-21: `nextRunAt` advances AT FIRE TIME via the new `advanceSchedule` action — advancing only at the terminal callback left the fired slot due during the run, so any run outlasting one 15 s check recorded a false self-skip and consumed a one-shot mid-run. `recordOutcome` also takes a fire-time `{scheduleName, config}` snapshot: a schedule deleted mid-run previously produced a record with an empty config stub that failed per-entry validation on re-read, silently losing the outcome.)* | Unit (fake timers): fire-on-due while running; app start with overdue schedules marks missed and fires NOTHING; skip records outcome and advances; every outcome kind (fired/skipped/missed) appends its history record (R12, via SCH.1's `recordOutcome`); lock non-holder never fires, waiting tab takes over on release; escape surfaces. |
+| SCH.4 | `src/pages/generator/ScheduleRunModal.tsx`, `GeneratorActions.tsx` | Zone D **Schedule…** button (enabled as Start: idle + target) opening the §8.1 modal: name (prefilled), once/interval picker, past-time rejection, capture summary line, client-side-execution note, missing-list warning (same scan surface as Start), save = full-config snapshot into the store (D5). | Unit: validation paths; snapshot equals the current working state; missing-list warning; disabled without target. Existing Zone D tests green. |
+| SCH.5 | `src/pages/schedules/ScheduledRunsPage.tsx` | §8.2 in full — three tabs. **Schedules**: table + enable toggle, run-now (via runStarter; visible refusal while active; records history), edit-timing modal (D6), save-as-template, delete confirm, **Export all** (R11; disabled when empty), empty state. **Run history**: filterable table (result filter + name search), download on fired entries, save-as-template, re-schedule (prefilled modal), 200-cap caption. **Templates**: table with Schedule… (prefilled modal), run-now (records history under the template name), delete confirm, empty state. Page-level execution-constraint banner. | Unit: §11 test groups 6–8 — schedules tab behaviours; every-outcome-kind history append, filters, cap, survival after schedule deletion, download-only-on-fired; template save/prefill (frozen config, not working state)/run-now/delete. |
+| SCH.6 | `src/App.tsx` | Route `/generator/schedules`, sidebar entry, `schedulerRuntime.start()` on App mount (stop on unmount). | Unit: nav + route render. Full unit suite green; build clean. |
+| SCH.7 | e2e spec + project, `screenshots.spec.ts`, the design doc | E2E (real backend): schedule ~10 s ahead via the UI → fires while on the Scheduled Runs screen → **history row appears with real acknowledged counts and passes the result filter** → save the entry as a template → schedule-from-template (prefilled modal) → run-now from the template → delete schedule and template, history rows survive. Screenshot addendum (all three tabs + modal). Graduate "scheduled runs" from Part I §3 Non-Goals; mark plan rows done. | Full e2e suite green incl. new project, de-flaked `--repeat-each=2 --retries=0`; screenshots regenerated. |
+
+### Risks and their controls
+
+| Risk | Control |
+|---|---|
+| Unbounded localStorage growth from history | D8: 200-entry FIFO cap + 20-error cap per stored summary, enforced in the service write path and tested in SCH.1. |
+| Double-firing with two open tabs | §7.5 Web Locks executor election *(the lease until 2026-07-21, whose acquire was not atomic)*; a dedicated SCH.3 test proves a non-holder never fires. |
+| Firing collides with a manual run | D4 skip-and-record; §7.2 rule 1 test. |
+| Timer-driven code is flake-prone to test | All SCH.3 tests use fake timers; `computeNextRunAt` is a pure exported function tested without timers. |
+| The refactor (SCH.2) silently changes Start behaviour | Zero modifications to existing page/engine tests allowed in SCH.2 — they are the regression harness. |
+| User misreads schedules as server-side | The §8.1 modal note and §8.2 banner state the constraint; the design forbids UI copy implying otherwise. |
+| localStorage schedule corrupt/stale after upgrades | Per-entry Zod validation with visible dropped-entry warnings (SCH.1). |
+
+### Out of scope (recorded, not planned)
+
+Backend/unattended execution, cron grammar, config editing in place, full per-schedule run
+history, cross-tab live list sync — all per Part III §4. Backend execution, if ever wanted,
+is a separate project that reuses the Part III §5 schedule model and replaces its §7.
+
+### SCH.8 — the later phases (graduated from Out of scope)
+
+**SCH.8 ✅ DONE 2026-07-19 — implemented on user request:**
+1. *Schedule import*: `importSchedulesFromFile` (per-entry Zod incl. range rules, named
+   rejects, array-or-single) + `scheduleStore.importSchedules` (duplicate-id skip against
+   storage AND within the batch, named; `nextRunAt` recomputed — past one-shot arrives
+   consumed, past interval advances, an imported backlog never fires) + the Import button on
+   the Schedules tab (fire-and-forget-guarded). 10 unit tests red→green; e2e: import via the
+   real file input, future schedule live, past one-shot consumed, zero firings across two
+   check cycles.
+2. *Manual-run history*: `scheduleStore.recordManualRun` — every Start-button terminal
+   records a history entry (`scheduleId: "manual"`, frozen config copy, full summary);
+   wired in MessageGeneratorPage's terminal hook. 2 unit tests red→green; e2e: the
+   generator-run journey asserts the manual record with acknowledged counts (15).
+Screenshots regenerated (Schedules tab now shows Import; history includes manual runs).
+Unit 483/483. Remaining exclusions are DECISIONS, not deferrals: backend execution (D1),
+cron (D2), in-place config editing (D6), cross-tab live list sync (Part III §4).
+
+### SCH.9 — post-review hardening (2026-07-21)
+
+**SCH.9 ✅ DONE 2026-07-21** — a full review of the shipped feature produced the corrections
+below. Each was written test-first. They change mechanisms SCH.2/SCH.3/SCH.7 built, so the
+rows above carry *superseded* notes pointing here.
+
+**Scheduler correctness**
+
+1. *Fire-time advance.* `nextRunAt` advances when the schedule fires, through the new
+   `scheduleStore.advanceSchedule`; the terminal callback records history only. Advancing at
+   the terminal left the fired slot due at every check during the run: a run outlasting one
+   15 s check recorded a false self-skip, and a one-shot was consumed mid-run by that skip.
+   Part III §7.2 corrected.
+2. *Outcome of a schedule deleted mid-run.* `recordOutcome` takes a fire-time snapshot
+   parameter (`{scheduleName, config}`). Reading the schedule at terminal time produced an
+   empty config stub for a deleted schedule, which then failed the per-entry history
+   validation on re-read — the run outcome was silently lost. The scheduler passes its
+   closure-held snapshot.
+3. *Stop reaches every run.* `runStarter` holds the active handle at module level and exports
+   `stopActiveRun()`. The page-local ref meant scheduler-started and run-now runs showed
+   RUNNING with a Stop that did nothing. Page unmount still stops only page-started runs, so
+   a scheduled run survives navigation.
+4. *Synchronous start failure.* `engine.start` is wrapped; a throw settles the store to ERROR
+   instead of leaving it RUNNING with no engine until a reload.
+5. *Terminal-callback exceptions.* `publicationEngine`'s `runTick` catch no longer swallows
+   exceptions thrown by TERMINAL callbacks (a storage-quota error while recording the outcome,
+   for one). They surface via `console.error` + `message.error`.
+6. *Publish timeout.* `PUBLISH_TIMEOUT_MS` (30 s) on both publish endpoints — a hung socket
+   kept the in-flight fan-out that Stop awaits unsettled until the OS timeout.
+7. *Per-message `{{uuid}}`.* Memoised per context, so a message's payload and headers share
+   one uuid. They previously differed, breaking correlation.
+
+**Cross-tab executor election — REPLACED (user decision)**
+
+The `localStorage` lease (TTL + heartbeat + `pagehide` release) is **deleted, not kept
+alongside**: its acquire was not atomic, so two tabs could both pass the write-then-read-back
+check and double-fire. The Web Locks API now elects one executor per origin — a hold-forever
+exclusive lock named `peegeeq_scheduler`, released by the browser on tab death. The D3 missed
+sweep still runs at first acquisition with app start as the cutoff. A browser without Web
+Locks gets no firing tab and is told so. Part III §7.5 rewritten.
+
+*Known limit, documented:* the run-active guard is per-tab, so a scheduled firing can overlap
+a MANUAL run started in another tab. The lock serialises scheduled firings only.
+
+**Error surfacing**
+
+`services/storagePersist.persistJson` is the shared `localStorage` write path (5 call sites
+across the schedule, template and value-list services): quota and disabled-storage failures
+are reported instead of throwing uncaught into a click handler or the scheduler terminal
+path. `scheduleService.loadValidated` surfaces dropped invalid entries and load failures to
+the user — they are user data. `ScheduledRunsPage`: `saveTiming` on a vanished schedule
+reports and closes the modal; a blank template name shows an inline error instead of a dead
+Save button.
+
+**Test infrastructure**
+
+`vitest.setup.ts` installs a Web Locks polyfill for jsdom (exclusive FIFO, `ifAvailable`,
+pending-abort, `query`) shared process-wide the way real same-origin tabs share the browser's
+lock manager, plus `__resetWebLocks` between tests. New UI-free
+[schedulerConstants.ts](../src/engine/schedulerConstants.ts) lets the Playwright specs derive
+their negative-assertion waits from the real check cycle — the two 35 s waits became
+`2 × CHECK_INTERVAL_MS + 5 s`, and the app-closed wait polls the actual overdue condition.
+`AppScheduledRuns.test` stubs the axios boundary (App wiring only), removing ECONNREFUSED
+noise from every unit run.
+
+Test counts are deliberately not recorded here — run the suites for current numbers.
+
+---
+
 ## Notes on scope boundaries
 
 - **Backend changes are not expected** in Phases A–F: the Phase 1B backend work (per-queue
@@ -635,8 +864,7 @@ lease takeover on owner death with **no duplicate maintenance jobs** running; `m
   spec'd in the connect and management-DB docs. Everything else — all of Phases A–F and most of G —
   runs on client-side metering plus the telemetry/endpoints PeeGeeQ already exposes, so the utilities-ui
   UI work never blocks on backend changes.
-- Anything in the feature design's "Non-Goals (v1)" (§3) and "Future Work" (§17) — consumer
-  panel, Monaco editor, auth, Web Worker — stays out of this plan. **Scheduled runs graduated
-  from §3 on 2026-07-19** and shipped under its own design + implementation plan
-  ([PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md](PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md)),
-  not this one.
+- Anything in the feature design's "Non-Goals (v1)" (Part I §3) and "Future Work" (Part I
+  §17) — consumer panel, Monaco editor, auth, Web Worker — stays out of this plan.
+  **Scheduled runs graduated from Part I §3 on 2026-07-19** and shipped as **Phase SCH**
+  above, against design Part III.
