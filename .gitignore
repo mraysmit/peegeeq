@@ -20,9 +20,14 @@ target/test-logs/
 !package-lock.json
 
 ### TestContainers auto-generated files ###
+# Per-session state: container port, backend DB port, container id. Committing any
+# of these hands a fresh clone a stale port to connect to.
 peegeeq-management-ui/testcontainers-db.json
+peegeeq-management-ui/scripts/testcontainers-db.json
 peegeeq-management-ui/.testcontainers-state.json
+peegeeq-management-ui/.testcontainers-backend-db-port
 peegeeq-utilities-ui/testcontainers-db.json
+peegeeq-utilities-ui/.testcontainers-state.json
 peegeeq-utilities-ui/.testcontainers-backend-db-port
 
 ### Vite build output (rebuilt from src; never committed — management-ui precedent) ###

@@ -297,7 +297,16 @@ async function globalSetup() {
       const backendProc = spawn(
         mvnCmd,
         [
-          'exec:java', '-pl', 'peegeeq-rest',
+          // process-resources BEFORE exec:java, deliberately. exec:java runs whatever
+          // is already in target/classes; it neither compiles nor copies resources.
+          // A JDT language-server restart (forced by every redhat.java extension
+          // update) re-imports the projects, clears target/classes and writes .class
+          // files WITHOUT the resources - redhat-developer/vscode-java#2857. The REST
+          // server then finds no conf/rest-server.json, gets no allowedOrigins, and
+          // aborts with "allowedOrigins must be provided and non-empty" (observed
+          // 2026-07-22). Running the resources phase here makes the suite independent
+          // of whatever the IDE last did to target/.
+          'process-resources', 'exec:java', '-pl', 'peegeeq-rest',
           `-DPEEGEEQ_DATABASE_HOST=${connectionInfo.host}`,
           `-DPEEGEEQ_DATABASE_PORT=${connectionInfo.port}`,
           `-DPEEGEEQ_DATABASE_NAME=${connectionInfo.database}`,
