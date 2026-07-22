@@ -49,7 +49,7 @@ render the row as UNAVAILABLE with "—" counts, never as a fabricated healthy
 `ACTIVE / 0 queues / 0 event stores`. Review any new fault-injection spec against the
 data-versus-failure distinction above before adding one.
 
-## CRITICAL CONCEPT: Container Reuse
+## CRITICAL CONCEPT: Container port vs. backend connection
 
 ### The Problem
 
@@ -59,23 +59,34 @@ When running Playwright e2e tests with a separate backend process:
 2. Backend reads connection details from `testcontainers-db.json` ONCE when it starts
 3. Backend stays connected to that specific port (e.g., 33265)
 
-**What happens if you create fresh containers for each test run:**
+The container gets a NEW random host port on every run, so a backend left running
+from a previous session is pooled against a port that no longer exists:
+
 - Test run 1: Container on port 33265, backend connected to 33265 ✅
 - Test run 2: NEW container on port 33287, backend STILL connected to 33265 ❌
-- Backend and tests are using DIFFERENT databases
-- Tests fail with confusing errors
+- Backend and tests are using DIFFERENT databases; writes return 503
 
-### The Solution: Container Reuse + API Cleanup
+### The Solution: restart the backend when the port moves
 
-Use `.withReuse()` on TestContainers + clean database state via API:
+This module does **not** use `.withReuse()` — [global-setup-testcontainers.ts](../src/tests/global-setup-testcontainers.ts)
+starts a fresh container each run and reconciles the backend instead:
+
+1. `.testcontainers-backend-db-port` records the DB port the backend was started with.
+2. On each run, if a backend is already healthy on 8088, the recorded port is compared
+   with the current container's port.
+3. Mismatch — or no record at all, meaning the backend was started outside this setup —
+   kills the backend on 8088 and restarts it against the new port. A stale CORS config
+   triggers the same restart.
+
+So an already-running backend is only left alone when it is already pointed at the
+current container. Neither file is committed; both are per-session state.
+
+*(`peegeeq-utilities-ui` takes the other approach and does call `.withReuse()`. Both are
+valid; do not assume one module's behaviour from the other.)*
+
+Database state is additionally cleaned via the API before tests run:
 
 ```typescript
-// In global-setup-testcontainers.ts
-const postgresContainer = await new PostgreSqlContainer('postgres:15.13-alpine3.20')
-  .withReuse()  // CRITICAL: Reuse container so backend stays connected
-  .start()
-
-// Clean up database state via API before tests run
 const setupsResponse = await fetch(`${API_BASE_URL}/api/v1/setups`)
 const setupsData = await setupsResponse.json()
 for (const setupId of setupsData.setupIds) {
@@ -97,11 +108,15 @@ cd peegeeq-management-ui/scripts
 ```
 
 This script:
-1. Starts PostgreSQL container with `.withReuse()`
+1. Starts a PostgreSQL container
 2. Container gets a port (e.g., 33265)
 3. Writes connection details to `testcontainers-db.json`
 4. Starts backend connected to that container
 5. Backend stays connected to port 33265
+
+`testcontainers-db.json` is generated per session and is **not** committed — if you are
+looking at one from an old run, delete it and let the script regenerate it. Pointing the
+backend at a port from a previous session is the failure described above.
 
 **LEAVE THIS TERMINAL RUNNING** - backend must stay running for all tests.
 

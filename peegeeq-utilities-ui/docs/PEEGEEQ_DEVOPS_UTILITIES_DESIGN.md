@@ -986,9 +986,7 @@ Setup: staging-tenant-2
 - **Consumer groups and stats are only shown if present.**
 - **If no setups exist:** show a prominent empty state with a call to action to create a setup.
 
-#### [Placeholder for updated screenshot — to be replaced after UI implementation]
-
-<!-- ![Overview](screenshots/01-overview.png) -->
+The built Overview page is in Appendix A.1, shot 01.
 
 ---
 
@@ -2829,10 +2827,16 @@ this section records them so they are not lost.
 Unit/component tests (Vitest) cover the resolver, engine, runStarter, schedulerRuntime,
 stores, services, and every built page (`src/tests/unit/*`). E2E tests (Playwright,
 `src/tests/e2e/*`) use a page-object pattern and a Testcontainers-backed PostgreSQL global
-setup/teardown. Projects: `1-navigation`, `2-overview`, `3-generator`, `4-generator-run`
-(real publication), `5-setups`, `connect`, `6-generator-schedules` (firing, Web Locks
-executor election, missed policy, import) and `take-screenshots`. npm scripts: `test:run`,
-`test:integration`, `test:e2e`, and the aggregate `test:all` / `test:ci`.
+setup/teardown. Projects in [playwright.config.ts](../playwright.config.ts): `1-navigation`,
+`2-overview`, `3-generator`, `4-generator-run` (real publication), `5-setups`, `connect`,
+`6-generator-schedules` (firing, Web Locks executor election, missed policy, import).
+npm scripts: `test:run`, `test:integration`, `test:e2e`, and the aggregate
+`test:all` / `test:ci`.
+
+`screenshots.spec.ts` is deliberately NOT matched by any project in that config — it runs
+only under [playwright.screenshots.config.ts](../playwright.screenshots.config.ts) (project
+`screenshots`, tall 1440×2200 viewport for full-page captures). See Appendix A for the
+regeneration command.
 
 Test counts are deliberately NOT recorded here — they go stale on every commit and a
 document is not state. Run the suites for the current numbers.
