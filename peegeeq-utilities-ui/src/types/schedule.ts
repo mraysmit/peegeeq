@@ -1,6 +1,6 @@
 /**
  * Type definitions for scheduled generator runs
- * (PEEGEEQ_GENERATOR_SCHEDULED_RUNS_DESIGN.md §5).
+ * (PEEGEEQ_DEVOPS_UTILITIES_DESIGN.md Part III §5).
  *
  * Pure type/interface declarations with no runtime behaviour, mirroring
  * src/types/generator.ts.

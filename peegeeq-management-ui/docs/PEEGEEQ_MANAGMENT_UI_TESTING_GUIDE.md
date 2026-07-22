@@ -23,6 +23,32 @@ PeeGeeQ adopts a "Production-Grade Testing" philosophy. Since PeeGeeQ is a datab
 - ❌ Component tests with mocked Ant Design
 - ❌ RTK Query tests with mocked endpoints
 
+### The one sanctioned exception: fault injection
+
+Decision 2026-06-15. A healthy backend will not produce a 500, a malformed payload, or a
+failed lookup on demand, so error-path UI code is unreachable from a real backend. Those
+paths are exercised by **injecting the failure** with `page.route(...)` — deliberate fault
+injection, not data mocking. The distinction is strict: a spec may fake a *failure* the
+backend cannot be made to produce; it may never fake *data* the backend can serve.
+
+Every such spec declares the exception in a header comment beginning
+`NO-MOCK POLICY EXCEPTION (fault injection)`, naming the failure it injects and why a real
+backend cannot produce it. To list them:
+
+```powershell
+Select-String -Path src/tests/e2e/specs/*.spec.ts -Pattern "NO-MOCK POLICY EXCEPTION"
+```
+
+A spec is not listed here by name — the grep is the source of truth, a list in a document is
+not. Some of these specs intercept every backend call and run standalone (no TestContainers);
+others inject one failure into an otherwise real session.
+
+The most recent addition is `database-setups-details-failure.spec.ts` (its own project,
+standalone, added 2026-07-21): a per-setup `GET /api/v1/setups/:setupId` returning 500 must
+render the row as UNAVAILABLE with "—" counts, never as a fabricated healthy
+`ACTIVE / 0 queues / 0 event stores`. Review any new fault-injection spec against the
+data-versus-failure distinction above before adding one.
+
 ## CRITICAL CONCEPT: Container Reuse
 
 ### The Problem
