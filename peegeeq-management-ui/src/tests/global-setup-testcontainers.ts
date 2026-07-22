@@ -12,8 +12,19 @@ import * as path from 'path'
  * 2. Exports connection details to a file for the backend to use
  * 3. Waits for the backend to be healthy before running tests
  *
- * The container uses reuse mode, so it persists across test runs.
- * Manual cleanup is required (docker stop) when you're done testing.
+ * Container lifetime: a FRESH container per run — this setup does NOT call
+ * `.withReuse()` (peegeeq-utilities-ui does). A fresh container gets a new
+ * random host port every run, which historically broke an already-running
+ * backend still pooled against the previous port (writes returned 503). That
+ * is handled below rather than by reuse: BACKEND_DB_PORT_FILE records the DB
+ * port the backend was started with, and if it does not match the current
+ * container's port — or the record is missing — the backend on 8088 is killed
+ * and restarted against the new port. A stale CORS config triggers the same
+ * restart. So the backend is only left running when it is already pointed at
+ * the current container.
+ *
+ * The container is torn down by global-teardown; no manual `docker stop` is
+ * needed for it.
  */
 
 // Store container info in a file so teardown can access it
@@ -300,7 +311,16 @@ async function globalSetup() {
       const backendProc = spawn(
         mvnCmd,
         [
-          'exec:java', '-pl', 'peegeeq-rest',
+          // process-resources BEFORE exec:java, deliberately. exec:java runs whatever
+          // is already in target/classes; it neither compiles nor copies resources.
+          // A JDT language-server restart (forced by every redhat.java extension
+          // update) re-imports the projects, clears target/classes and writes .class
+          // files WITHOUT the resources - redhat-developer/vscode-java#2857. The REST
+          // server then finds no conf/rest-server.json, gets no allowedOrigins, and
+          // aborts with "allowedOrigins must be provided and non-empty" (observed
+          // 2026-07-22). Running the resources phase here makes the suite independent
+          // of whatever the IDE last did to target/.
+          'process-resources', 'exec:java', '-pl', 'peegeeq-rest',
           `-DPEEGEEQ_DATABASE_HOST=${connectionInfo.host}`,
           `-DPEEGEEQ_DATABASE_PORT=${connectionInfo.port}`,
           `-DPEEGEEQ_DATABASE_NAME=${connectionInfo.database}`,

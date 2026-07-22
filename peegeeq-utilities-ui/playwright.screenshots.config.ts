@@ -1,6 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
 /**
+ * Tall viewport so full-page screenshots capture all content: the app layout is
+ * height:100vh with an internally-scrolling content area, so `fullPage` alone
+ * only ever yields one viewport's worth.
+ */
+const CAPTURE_VIEWPORT = { width: 1440, height: 2200 }
+
+/**
  * Dedicated Playwright configuration for capturing documentation screenshots.
  *
  * This config is intentionally separate from `playwright.config.ts` so the
@@ -31,15 +38,18 @@ export default defineConfig({
     waitForLoadState: 'load',
     actionTimeout: 15 * 1000,
     navigationTimeout: 30 * 1000,
-    /* Tall viewport so full-page screenshots capture all content (the app
-       layout is height:100vh with an internally-scrolling content area). */
-    viewport: { width: 1440, height: 2200 },
   },
   projects: [
     {
       name: 'screenshots',
       testMatch: '**/screenshots.spec.ts',
-      use: { ...devices['Desktop Chrome'], headless: true },
+      /* CAPTURE_VIEWPORT must come AFTER the devices spread: devices['Desktop
+         Chrome'] carries its own 1280x720 viewport, and a project-level `use`
+         overrides the config-level one wholesale. Declaring the tall viewport
+         at config level (as this file did until 2026-07-22) was silently
+         discarded, so full-page captures were clipped at 720px and pages like
+         the Message Generator cut off mid-payload. */
+      use: { ...devices['Desktop Chrome'], headless: true, viewport: CAPTURE_VIEWPORT },
     },
   ],
   webServer: [
