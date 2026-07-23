@@ -1,18 +1,20 @@
 /**
  * Tests for publishService.ts (§12 of the feature design).
  *
- * Uses real axios with vi.mock to intercept HTTP at the adapter level.
- * No mocking of business logic — only the network boundary.
+ * axios is FULLY mocked (vi.mock('axios')) — no real HTTP happens here. What
+ * these tests pin: the URL shape, the request body, the timeout option, and
+ * the response-field mapping. What they do NOT verify: real wire behaviour or
+ * real backend failure semantics — that lives in the e2e suite
+ * (generator-run.spec.ts for success, generator-failure.spec.ts for failure).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import axios from 'axios'
-import { publishBatch, publishSingle, PUBLISH_TIMEOUT_MS } from '../../services/publishService'
-import type { BatchMessageRequest, MessageRequest } from '../../types/queue'
+import { publishBatch, PUBLISH_TIMEOUT_MS } from '../../services/publishService'
+import type { BatchMessageRequest } from '../../types/queue'
 
 vi.mock('axios')
 const mockedAxios = vi.mocked(axios, true)
 
-const SINGLE: MessageRequest = { payload: { a: 1 } }
 const BATCH: BatchMessageRequest = {
   messages: [{ payload: { a: 1 } }, { payload: { b: 2 } }],
 }
@@ -26,24 +28,6 @@ describe('publishService', () => {
     vi.restoreAllMocks()
   })
 
-  describe('publishSingle', () => {
-    it('POSTs to /api/v1/queues/{setupId}/{queueName}/messages', async () => {
-      mockedAxios.post = vi.fn().mockResolvedValueOnce({ data: { messageId: 'm1' } })
-
-      const res = await publishSingle('setup-1', 'orders', SINGLE)
-
-      expect(mockedAxios.post).toHaveBeenCalledWith(
-        expect.stringContaining('/queues/setup-1/orders/messages'),
-        SINGLE,
-        // Every publish carries a timeout: a hung socket must not keep the
-        // engine's in-flight fan-out (which Stop waits for) unsettled until
-        // the OS timeout.
-        expect.objectContaining({ timeout: PUBLISH_TIMEOUT_MS })
-      )
-      expect(res.messageId).toBe('m1')
-    })
-  })
-
   describe('publishBatch', () => {
     it('POSTs to the batch endpoint and returns messagesSent', async () => {
       mockedAxios.post = vi.fn().mockResolvedValueOnce({ data: { messagesSent: 2 } })
@@ -53,6 +37,9 @@ describe('publishService', () => {
       expect(mockedAxios.post).toHaveBeenCalledWith(
         expect.stringContaining('/queues/setup-1/orders/messages/batch'),
         BATCH,
+        // Every publish carries a timeout: a hung socket must not keep the
+        // engine's in-flight fan-out (which Stop waits for) unsettled until
+        // the OS timeout.
         expect.objectContaining({ timeout: PUBLISH_TIMEOUT_MS })
       )
       expect(res.messagesSent).toBe(2)
@@ -66,39 +53,25 @@ describe('publishService', () => {
       expect(res.messagesSent).toBe(2)
     })
 
-    it('falls back to single publishing when the batch endpoint returns 404', async () => {
-      const notFound = Object.assign(new Error('Not Found'), {
-        isAxiosError: true,
-        response: { status: 404 },
-      })
-      mockedAxios.isAxiosError = vi.fn().mockReturnValue(true) as unknown as typeof axios.isAxiosError
-      mockedAxios.post = vi
-        .fn()
-        .mockRejectedValueOnce(notFound) // batch 404
-        .mockResolvedValueOnce({ data: { messageId: 'm1' } }) // single 1
-        .mockResolvedValueOnce({ data: { messageId: 'm2' } }) // single 2
-
-      const res = await publishBatch('setup-1', 'orders', BATCH)
-
-      expect(res.messagesSent).toBe(2)
-      // 1 batch attempt + 2 single fallbacks
-      expect(mockedAxios.post).toHaveBeenCalledTimes(3)
-      expect(mockedAxios.post).toHaveBeenLastCalledWith(
-        expect.stringContaining('/queues/setup-1/orders/messages'),
-        BATCH.messages[1],
-        expect.objectContaining({ timeout: PUBLISH_TIMEOUT_MS })
-      )
-    })
-
-    it('rethrows non-404 errors without falling back', async () => {
+    it('propagates an HTTP error to the caller — no fallback, no swallowing', async () => {
       const serverError = Object.assign(new Error('Server Error'), {
         isAxiosError: true,
         response: { status: 500 },
       })
-      mockedAxios.isAxiosError = vi.fn().mockReturnValue(true) as unknown as typeof axios.isAxiosError
       mockedAxios.post = vi.fn().mockRejectedValueOnce(serverError)
 
       await expect(publishBatch('setup-1', 'orders', BATCH)).rejects.toThrow('Server Error')
+      expect(mockedAxios.post).toHaveBeenCalledTimes(1)
+    })
+
+    it('propagates a 404 like any other error — the per-message fallback is deleted', async () => {
+      const notFound = Object.assign(new Error('Not Found'), {
+        isAxiosError: true,
+        response: { status: 404 },
+      })
+      mockedAxios.post = vi.fn().mockRejectedValueOnce(notFound)
+
+      await expect(publishBatch('setup-1', 'orders', BATCH)).rejects.toThrow('Not Found')
       expect(mockedAxios.post).toHaveBeenCalledTimes(1)
     })
   })

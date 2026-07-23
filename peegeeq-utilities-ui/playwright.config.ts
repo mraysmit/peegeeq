@@ -129,6 +129,25 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['3-generator'],
     },
+    // Publish FAILURE (2026-07-23) — a real mid-run backend fault (setup
+    // detached while publishing): error counter, auto-stop, ERROR settle,
+    // error history record. Owns its own throwaway setup + queue.
+    {
+      name: '7-generator-failure',
+      testMatch: '**/generator-failure.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
+    // Target-selection FAILURE (2026-07-23) — real faults on the two GET
+    // paths: a dead backend URL (genuine network refusal) for the setups
+    // load + Retry recovery, and a mid-session detach for the stale-setup
+    // queue-load error + Start disarm. Owns two throwaway setups.
+    {
+      name: '8-target-failure',
+      testMatch: '**/target-failure.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */
