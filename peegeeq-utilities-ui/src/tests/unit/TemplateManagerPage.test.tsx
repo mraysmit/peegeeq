@@ -153,6 +153,7 @@ describe('TemplateManagerPage', () => {
   it('Import appends valid new templates', async () => {
     renderPage()
     const incoming = [makeTemplate({ id: 'tpl-new', name: 'Imported' })]
+    await userEvent.click(screen.getByRole('button', { name: /Import/ }))
     await userEvent.upload(screen.getByTestId('template-import-input'), importFile(JSON.stringify(incoming)))
 
     await waitFor(() => {
@@ -166,6 +167,7 @@ describe('TemplateManagerPage', () => {
     useTemplateStore.getState().add(makeTemplate({ id: 'tpl-1', name: 'Original', messageType: 'v1' }))
     renderPage()
     const incoming = [makeTemplate({ id: 'tpl-1', name: 'Clobber attempt', messageType: 'v2' })]
+    await userEvent.click(screen.getByRole('button', { name: /Import/ }))
     await userEvent.upload(screen.getByTestId('template-import-input'), importFile(JSON.stringify(incoming)))
 
     await waitFor(() => {
@@ -179,6 +181,7 @@ describe('TemplateManagerPage', () => {
 
   it('Import surfaces named errors for schema-invalid entries and bad JSON', async () => {
     renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /Import/ }))
     await userEvent.upload(
       screen.getByTestId('template-import-input'),
       importFile(JSON.stringify([{ id: 'x', name: 'Broken entry' }]))
@@ -186,6 +189,8 @@ describe('TemplateManagerPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/Broken entry/)).toBeTruthy()
     })
+
+    await userEvent.click(screen.getByRole('button', { name: /Import/ }))
 
     await userEvent.upload(screen.getByTestId('template-import-input'), importFile('not json at all'))
     await waitFor(() => {
