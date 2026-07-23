@@ -1,17 +1,15 @@
 /**
  * Message publishing against the PeeGeeQ REST API (§12 of the feature design).
  *
- * Prefers the batch endpoint and transparently falls back to single-message
- * publishing when the batch endpoint is unavailable (HTTP 404 on older
- * backend versions).
+ * One endpoint: the batch publish. Any HTTP failure propagates to the caller
+ * (the publication engine), which counts it against the consecutive-error
+ * guard. (A 404→per-message fallback for "older backend versions" was deleted
+ * 2026-07-23: no older backend has ever existed — the scenario was invented,
+ * and the fallback was untestable end-to-end.)
  */
 import axios from 'axios'
 import { getVersionedApiUrl } from './configService'
-import type { BatchMessageRequest, MessageRequest } from '../types/queue'
-
-export interface MessageResponse {
-  messageId?: string
-}
+import type { BatchMessageRequest } from '../types/queue'
 
 export interface BatchResponse {
   messagesSent: number
@@ -25,54 +23,21 @@ export interface BatchResponse {
 export const PUBLISH_TIMEOUT_MS = 30_000
 
 /**
- * Publish a single message.
- *
- * POST /api/v1/queues/{setupId}/{queueName}/messages
- */
-export async function publishSingle(
-  setupId: string,
-  queueName: string,
-  req: MessageRequest
-): Promise<MessageResponse> {
-  const res = await axios.post<MessageResponse>(
-    getVersionedApiUrl(`queues/${setupId}/${queueName}/messages`),
-    req,
-    { timeout: PUBLISH_TIMEOUT_MS }
-  )
-  return res.data ?? {}
-}
-
-/**
  * Publish a batch of messages.
  *
  * POST /api/v1/queues/{setupId}/{queueName}/messages/batch
- *
- * If the batch endpoint returns 404 (older backend), falls back to publishing
- * each message individually via {@link publishSingle}.
  */
 export async function publishBatch(
   setupId: string,
   queueName: string,
   req: BatchMessageRequest
 ): Promise<BatchResponse> {
-  try {
-    const res = await axios.post<{ messagesSent?: number; count?: number }>(
-      getVersionedApiUrl(`queues/${setupId}/${queueName}/messages/batch`),
-      req,
-      { timeout: PUBLISH_TIMEOUT_MS }
-    )
-    const data = res.data ?? {}
-    const sent = data.messagesSent ?? data.count ?? req.messages.length
-    return { messagesSent: sent }
-  } catch (error) {
-    if (axios.isAxiosError(error) && error.response?.status === 404) {
-      let sent = 0
-      for (const message of req.messages) {
-        await publishSingle(setupId, queueName, message)
-        sent++
-      }
-      return { messagesSent: sent }
-    }
-    throw error
-  }
+  const res = await axios.post<{ messagesSent?: number; count?: number }>(
+    getVersionedApiUrl(`queues/${setupId}/${queueName}/messages/batch`),
+    req,
+    { timeout: PUBLISH_TIMEOUT_MS }
+  )
+  const data = res.data ?? {}
+  const sent = data.messagesSent ?? data.count ?? req.messages.length
+  return { messagesSent: sent }
 }

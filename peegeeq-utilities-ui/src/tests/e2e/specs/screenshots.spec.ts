@@ -83,8 +83,48 @@ test.describe('UI documentation screenshots', () => {
    */
   const CAPTURE_SETTLE_MS = 500
 
+  /**
+   * The app layout is height:100vh with an INTERNALLY scrolling content area,
+   * so `fullPage: true` alone only ever captures one viewport's worth — any
+   * fixed viewport height clips pages taller than it. Instead, each capture
+   * measures the tallest scrollable content on the page (the app's content
+   * area, or an open modal's wrap) and grows the viewport to fit before
+   * shooting. Width stays constant so layout/wrapping never changes between
+   * shots; only the height adapts.
+   */
+  const SHOT_WIDTH = 1440
+  const SHOT_MIN_HEIGHT = 900
+  const SHOT_MAX_HEIGHT = 4000 // sanity bound; no current page approaches this
+
   async function shot(page: import('@playwright/test').Page, name: string) {
     await page.waitForTimeout(CAPTURE_SETTLE_MS)
+    // ALWAYS measure from the base height. In a 100vh layout the document's
+    // scrollHeight equals the viewport height, so measuring at an inherited
+    // tall viewport reads the previous shot's height as "content" and the
+    // sizes ratchet upward, bloating later captures with whitespace.
+    const current = page.viewportSize()
+    if (!current || current.height !== SHOT_MIN_HEIGHT || current.width !== SHOT_WIDTH) {
+      await page.setViewportSize({ width: SHOT_WIDTH, height: SHOT_MIN_HEIGHT })
+      await page.waitForTimeout(CAPTURE_SETTLE_MS)
+    }
+    // Bottom edge of the tallest OVERFLOWING element (position + full content
+    // height) — the app's internal content scroller, or an open modal's wrap.
+    // Non-overflowing pages report 0 and capture at the base height.
+    const contentBottom = await page.evaluate(() => {
+      let max = 0
+      for (const el of document.querySelectorAll<HTMLElement>('*')) {
+        if (el.scrollHeight > el.clientHeight + 1) {
+          const top = el.getBoundingClientRect().top + window.scrollY
+          if (top + el.scrollHeight > max) max = top + el.scrollHeight
+        }
+      }
+      return Math.ceil(max)
+    })
+    const height = Math.min(Math.max(SHOT_MIN_HEIGHT, contentBottom + 24), SHOT_MAX_HEIGHT)
+    if (height !== SHOT_MIN_HEIGHT) {
+      await page.setViewportSize({ width: SHOT_WIDTH, height })
+      await page.waitForTimeout(CAPTURE_SETTLE_MS) // re-layout settle after resize
+    }
     await page.evaluate(() => window.scrollTo(0, 0))
     await page.screenshot({ path: path.join(SHOTS_DIR, name), fullPage: true })
   }
@@ -116,6 +156,10 @@ test.describe('UI documentation screenshots', () => {
     await page.getByRole('button', { name: /New List/i }).click()
     await page.getByLabel(/List name/i).fill('first_names')
     await page.getByLabel(/Values \(one per line\)/i).fill('Mark\nDave\nJanet\nAna')
+
+    // ── 31 Value List Manager — New List entry form (before save) ──────────
+    await shot(page, '31-value-list-new-form.png')
+
     await page.getByRole('button', { name: /^Save$/ }).click()
     await expect(page.getByTestId('list-count-first_names')).toContainText('4')
     await page.getByTestId('list-edit-first_names').click()
@@ -161,6 +205,11 @@ test.describe('UI documentation screenshots', () => {
     await shot(page, '17-generator-running.png')
     await page.getByRole('button', { name: /^Stop$/ }).click()
     await expect(page.getByTestId('summary-card')).toBeVisible({ timeout: 10000 })
+
+    // ── 29 Generator — STOPPED run summary (06 shows COMPLETED) ────────────
+    await expect(page.getByTestId('summary-card')).toContainText('STOPPED')
+    await shot(page, '29-generator-stopped-summary.png')
+
     await page.getByRole('button', { name: /New run/ }).click()
 
     // ── 20 Generator — duplicate header key warning ────────────────────────
@@ -194,17 +243,39 @@ test.describe('UI documentation screenshots', () => {
     await shot(page, '25-preview-missing-list.png')
     await page.locator('.ant-modal-footer').getByRole('button', { name: /^Close$/ }).click()
 
+    // ── 28 Generator — Start pre-flight: missing value lists confirm ───────
+    // Payload still references {{list:vip_names}} — Start warns (Proceed/Cancel,
+    // §5.5 non-blocking pre-flight) instead of starting silently.
+    await page.getByRole('button', { name: /^Start$/ }).click()
+    await expect(page.locator('.ant-modal-confirm')).toContainText('Missing value lists')
+    await shot(page, '28-start-preflight-missing-lists.png')
+    await page.locator('.ant-modal-confirm').getByRole('button', { name: /^Cancel$/ }).click()
+
     // ── 22 Generator — payload validation error (resolve-then-parse, §8) ───
     await page.getByLabel(/Payload/i).fill('{"broken": }')
     await page.getByLabel(/Payload/i).blur()
     await expect(page.getByTestId('payload-error')).toBeVisible()
     await shot(page, '22-payload-validation-error.png')
+
+    // ── 30 Generator — unsaved-changes discard confirm (dirty guard) ───────
+    // The broken payload above makes the working copy dirty; New must confirm
+    // before discarding, never silently replace.
+    await page.getByRole('button', { name: /^New$/ }).click()
+    await expect(page.locator('.ant-modal-confirm')).toContainText('Unsaved changes')
+    await shot(page, '30-template-discard-confirm.png')
+    await page.locator('.ant-modal-confirm').getByRole('button', { name: /^Cancel$/ }).click()
     // Left invalid deliberately — the schedule flow (13) refills the payload.
 
     // ── 07 Template Manager — populated ────────────────────────────────────
     await page.goto('/generator/templates')
     await expect(page.getByRole('link', { name: 'Demo order template' })).toBeVisible()
     await shot(page, '07-templates.png')
+
+    // ── 32 Template Manager — delete confirmation (Popconfirm) ─────────────
+    await page.locator('[data-testid^="template-delete-"]').first().click()
+    await expect(page.getByText(/Delete template "Demo order template"\?/)).toBeVisible()
+    await shot(page, '32-template-delete-confirm.png')
+    await page.locator('.ant-popover').getByRole('button', { name: /^Cancel$/ }).click()
 
     // ── 08 Setups list — populated ─────────────────────────────────────────
     await page.goto('/setups')
@@ -226,6 +297,17 @@ test.describe('UI documentation screenshots', () => {
     await page.getByLabel('Database password').fill('example-password')
     await page.getByText('Connection details').click()
     await shot(page, '10-connect-setup.png')
+
+    // ── 34 Connect setup — failed connect, inline error (failure honesty) ──
+    // Point the form at the REAL container but a database that does not exist:
+    // the backend genuinely fails and the page surfaces the cause inline.
+    await page.getByLabel('Host').fill(dbConfig.host)
+    await page.getByLabel('Port').fill(String(dbConfig.port))
+    await page.getByLabel('Database name').fill(`nonexistent_db_${Date.now()}`)
+    await page.getByTestId('connect-button').click()
+    await expect(page.locator('.ant-alert-error')).toBeVisible({ timeout: 30000 })
+    await shot(page, '34-connect-setup-error.png')
+
     await page.getByTestId('back-button').click()
 
     // ── 11 Setup detail — with queue ───────────────────────────────────────
@@ -237,6 +319,13 @@ test.describe('UI documentation screenshots', () => {
 
     // (12-delete-queue-confirm was retired with the queue-delete feature,
     // removed 2026-07-21 — the queues list is read-only in this UI.)
+
+    // ── 33 Scheduled Runs — Schedules tab EMPTY state ──────────────────────
+    // Before any schedule exists: the empty state explains the feature and
+    // points at the generator's Schedule… button.
+    await page.goto('/generator/schedules')
+    await expect(page.getByTestId('schedules-empty')).toBeVisible()
+    await shot(page, '33-schedules-empty-state.png')
 
     // ── 13 Schedule-a-run modal (filled) ───────────────────────────────────
     await page.goto('/generator')
@@ -323,6 +412,23 @@ test.describe('UI documentation screenshots', () => {
     await expect(page.getByTestId('delete-references-warning')).toBeVisible()
     await shot(page, '27-value-list-delete-references.png')
     await page.locator('.ant-modal-confirm').getByRole('button', { name: /^Cancel$/ }).click()
+
+    // ── 35 Value list import — collision modal (Overwrite / Merge / Cancel) ─
+    // The import contract (valueListService.importFromFile): the file is a
+    // JSON ARRAY of strings, and the list NAME comes from the FILENAME. A file
+    // named first_names.json therefore collides with the existing list and
+    // opens the Overwrite/Merge/Cancel modal (merge de-duplicates).
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'first_names.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from(JSON.stringify(['Zoe', 'Rui', 'Mark'])),
+    })
+    await expect(page.getByTestId('import-collision-modal')).toBeVisible()
+    await shot(page, '35-value-list-import-collision.png')
+    await page
+      .locator('.ant-modal:has([data-testid="import-collision-modal"])')
+      .getByRole('button', { name: /^Cancel$/ })
+      .click()
 
     // Clean up all demo localStorage state so reruns start clean.
     await page.evaluate(() => {
