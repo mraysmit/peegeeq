@@ -10,9 +10,10 @@
  * collisions offer Overwrite / Merge / Cancel; merge de-duplicates (store
  * semantics). Values are one per line; blank lines ignored, whitespace trimmed.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Input, Modal, Space, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, EditOutlined, ExportOutlined, ImportOutlined, PlusOutlined } from '@ant-design/icons'
+import ImportFileDialog from '../../components/ImportFileDialog'
 import { useValueListStore } from '../../stores/valueListStore'
 import { useTemplateStore } from '../../stores/templateStore'
 import { exportList, extractListNames, importFromFile } from '../../services/valueListService'
@@ -56,7 +57,7 @@ export default function ValueListManagerPage() {
   const loadTemplates = useTemplateStore((s) => s.loadFromStorage)
   const [panel, setPanel] = useState<PanelState | null>(null)
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(null)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   useEffect(() => {
     loadLists()
@@ -241,27 +242,31 @@ export default function ValueListManagerPage() {
         >
           New List
         </Button>
-        <Button icon={<ImportOutlined />} onClick={() => fileInputRef.current?.click()}>
+        <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
           Import JSON file
         </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,application/json"
-          style={{ display: 'none' }}
-          data-testid="value-list-import-input"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) {
-              // Never fire-and-forget: anything escaping handleImport surfaces.
-              handleImport(file).catch((error: unknown) =>
-                message.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`)
-              )
-            }
-            e.target.value = '' // allow re-importing the same file
-          }}
-        />
       </Space>
+
+      <ImportFileDialog
+        open={importOpen}
+        title="Import value list"
+        hint={
+          <>
+            A JSON array of strings, e.g. <code>["Zoe", "Rui"]</code> (numbers are coerced to
+            strings). The list is named after the file: <code>first_names.json</code> imports
+            as <code>first_names</code>.
+          </>
+        }
+        inputTestId="value-list-import-input"
+        onFile={(file) => {
+          setImportOpen(false)
+          // Never fire-and-forget: anything escaping handleImport surfaces.
+          handleImport(file).catch((error: unknown) =>
+            message.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`)
+          )
+        }}
+        onClose={() => setImportOpen(false)}
+      />
 
       <Table
         rowKey="name"

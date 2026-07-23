@@ -8,12 +8,13 @@
  * templateService.importFromFile); duplicate IDs are rejected with a NAMED
  * warning — no silent overwrites.
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Button, Popconfirm, Space, Table, Tooltip, Typography, message } from 'antd'
 import { CopyOutlined, DeleteOutlined, EditOutlined, ExportOutlined, ImportOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
+import ImportFileDialog from '../../components/ImportFileDialog'
 import { useTemplateStore } from '../../stores/templateStore'
 import { exportTemplate, importFromFile } from '../../services/templateService'
 import type { MessageTemplate } from '../../types/generator'
@@ -28,7 +29,7 @@ export default function TemplateManagerPage() {
   const navigate = useNavigate()
   const templates = useTemplateStore((s) => s.templates)
   const loadFromStorage = useTemplateStore((s) => s.loadFromStorage)
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   useEffect(() => {
     loadFromStorage()
@@ -149,27 +150,31 @@ export default function TemplateManagerPage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openInGenerator(null)}>
           New Template
         </Button>
-        <Button icon={<ImportOutlined />} onClick={() => fileInputRef.current?.click()}>
+        <Button icon={<ImportOutlined />} onClick={() => setImportOpen(true)}>
           Import
         </Button>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept=".json,application/json"
-          style={{ display: 'none' }}
-          data-testid="template-import-input"
-          onChange={(e) => {
-            const file = e.target.files?.[0]
-            if (file) {
-              // Never fire-and-forget: anything escaping handleImport surfaces.
-              handleImport(file).catch((error: unknown) =>
-                message.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`)
-              )
-            }
-            e.target.value = '' // allow re-importing the same file
-          }}
-        />
       </Space>
+
+      <ImportFileDialog
+        open={importOpen}
+        title="Import templates"
+        hint={
+          <>
+            A template export (<code>.json</code>): one template object or an array of
+            templates. Entries are validated individually; entries with existing IDs are
+            skipped, never overwritten.
+          </>
+        }
+        inputTestId="template-import-input"
+        onFile={(file) => {
+          setImportOpen(false)
+          // Never fire-and-forget: anything escaping handleImport surfaces.
+          handleImport(file).catch((error: unknown) =>
+            message.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`)
+          )
+        }}
+        onClose={() => setImportOpen(false)}
+      />
       <Table
         rowKey="id"
         columns={columns}

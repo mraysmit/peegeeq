@@ -277,6 +277,12 @@ test.describe('UI documentation screenshots', () => {
     await shot(page, '32-template-delete-confirm.png')
     await page.locator('.ant-popover').getByRole('button', { name: /^Cancel$/ }).click()
 
+    // ── 37 Template Manager — the in-app import dialog ─────────────────────
+    await page.getByRole('button', { name: /Import/ }).click()
+    await expect(page.getByTestId('import-file-dialog')).toBeVisible()
+    await shot(page, '37-template-import-dialog.png')
+    await page.locator('.ant-modal:has([data-testid="import-file-dialog"])').getByRole('button', { name: /^Cancel$/ }).click()
+
     // ── 08 Setups list — populated ─────────────────────────────────────────
     await page.goto('/setups')
     await expect(page.locator(`tr:has-text("${DEMO_SETUP_ID}")`)).toBeVisible({ timeout: 15000 })
@@ -373,6 +379,12 @@ test.describe('UI documentation screenshots', () => {
     await expect(page.getByTestId('schedule-row-Nightly soak run')).toBeVisible()
     await shot(page, '14-scheduled-runs.png')
 
+    // ── 38 Scheduled Runs — the in-app import dialog (schedules.json) ──────
+    await page.getByRole('button', { name: /^Import$/ }).click()
+    await expect(page.getByTestId('import-file-dialog')).toBeVisible()
+    await shot(page, '38-schedule-import-dialog.png')
+    await page.locator('.ant-modal:has([data-testid="import-file-dialog"])').getByRole('button', { name: /^Cancel$/ }).click()
+
     // ── 18 Scheduled Runs — edit-timing modal (R4 in-place timing edit) ────
     await page.locator('[data-testid^="schedule-edit-timing-"]').click()
     await expect(page.locator('#edit-timing-run-at')).toBeVisible()
@@ -413,12 +425,17 @@ test.describe('UI documentation screenshots', () => {
     await shot(page, '27-value-list-delete-references.png')
     await page.locator('.ant-modal-confirm').getByRole('button', { name: /^Cancel$/ }).click()
 
+    // ── 36 Value list import — the in-app file-choosing dialog ─────────────
+    await page.getByRole('button', { name: /Import JSON file/ }).click()
+    await expect(page.getByTestId('import-file-dialog')).toBeVisible()
+    await shot(page, '36-value-list-import-dialog.png')
+
     // ── 35 Value list import — collision modal (Overwrite / Merge / Cancel) ─
     // The import contract (valueListService.importFromFile): the file is a
     // JSON ARRAY of strings, and the list NAME comes from the FILENAME. A file
     // named first_names.json therefore collides with the existing list and
     // opens the Overwrite/Merge/Cancel modal (merge de-duplicates).
-    await page.locator('input[type="file"]').setInputFiles({
+    await page.getByTestId('value-list-import-input').setInputFiles({
       name: 'first_names.json',
       mimeType: 'application/json',
       buffer: Buffer.from(JSON.stringify(['Zoe', 'Rui', 'Mark'])),
