@@ -223,6 +223,7 @@ describe('ValueListManagerPage', () => {
 
   it('Import adds a new list named after the file', async () => {
     renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /Import JSON file/ }))
     await userEvent.upload(
       screen.getByTestId('value-list-import-input'),
       importFile('["Mark","Dave"]', 'first_names.json')
@@ -237,6 +238,7 @@ describe('ValueListManagerPage', () => {
     renderPage()
 
     // Merge de-duplicates.
+    await userEvent.click(screen.getByRole('button', { name: /Import JSON file/ }))
     await userEvent.upload(
       screen.getByTestId('value-list-import-input'),
       importFile('["Mark","Dave"]', 'first_names.json')
@@ -248,6 +250,7 @@ describe('ValueListManagerPage', () => {
     })
 
     // Overwrite replaces.
+    await userEvent.click(screen.getByRole('button', { name: /Import JSON file/ }))
     await userEvent.upload(
       screen.getByTestId('value-list-import-input'),
       importFile('["Solo"]', 'first_names.json')
@@ -259,6 +262,7 @@ describe('ValueListManagerPage', () => {
     })
 
     // Cancel changes nothing.
+    await userEvent.click(screen.getByRole('button', { name: /Import JSON file/ }))
     await userEvent.upload(
       screen.getByTestId('value-list-import-input'),
       importFile('["Ignored"]', 'first_names.json')
@@ -272,10 +276,13 @@ describe('ValueListManagerPage', () => {
 
   it('Import surfaces named errors for invalid files and a warning for coerced numbers', async () => {
     renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /Import JSON file/ }))
     await userEvent.upload(screen.getByTestId('value-list-import-input'), importFile('not json'))
     await waitFor(() => {
       expect(screen.getByText(/not valid JSON/i)).toBeTruthy()
     })
+
+    await userEvent.click(screen.getByRole('button', { name: /Import JSON file/ }))
 
     await userEvent.upload(
       screen.getByTestId('value-list-import-input'),

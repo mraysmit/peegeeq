@@ -15,7 +15,7 @@
  * The outcome column derives from the run history (latestOutcomeFor) — the
  * schedule itself carries scheduling state only.
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Alert,
   Button,
@@ -38,6 +38,7 @@ import { computeNextRunAt, useScheduleStore } from '../../stores/scheduleStore'
 import { useValueListStore } from '../../stores/valueListStore'
 import { exportAllSchedules, importSchedulesFromFile } from '../../services/scheduleService'
 import ScheduleRunModal from '../generator/ScheduleRunModal'
+import ImportFileDialog from '../../components/ImportFileDialog'
 import type { RunConfig, RunSummary } from '../../types/generator'
 import type {
   ScheduledRun,
@@ -112,7 +113,7 @@ export default function ScheduledRunsPage() {
   const [timingDraft, setTimingDraft] = useState<TimingDraft | null>(null)
   const [templateDraft, setTemplateDraft] = useState<TemplateDraft | null>(null)
   const [scheduleFromConfig, setScheduleFromConfig] = useState<RunConfig | null>(null)
-  const importInputRef = useRef<HTMLInputElement | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   useEffect(() => {
     loadFromStorage()
@@ -452,25 +453,29 @@ export default function ScheduledRunsPage() {
                   >
                     Export all
                   </Button>
-                  <Button onClick={() => importInputRef.current?.click()}>Import</Button>
-                  <input
-                    ref={importInputRef}
-                    type="file"
-                    accept=".json,application/json"
-                    style={{ display: 'none' }}
-                    data-testid="schedule-import-input"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0]
-                      if (file) {
-                        // Never fire-and-forget: anything escaping handleImport surfaces.
-                        handleImport(file).catch((error: unknown) =>
-                          message.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`)
-                        )
-                      }
-                      e.target.value = '' // allow re-importing the same file
-                    }}
-                  />
+                  <Button onClick={() => setImportOpen(true)}>Import</Button>
                 </Space>
+                <ImportFileDialog
+                  open={importOpen}
+                  title="Import schedules"
+                  hint={
+                    <>
+                      A <code>schedules.json</code> export: one schedule or the full array.
+                      Entries are validated individually and existing IDs are skipped; past
+                      one-shots arrive consumed and past interval slots are not replayed — an
+                      imported backlog never fires.
+                    </>
+                  }
+                  inputTestId="schedule-import-input"
+                  onFile={(file) => {
+                    setImportOpen(false)
+                    // Never fire-and-forget: anything escaping handleImport surfaces.
+                    handleImport(file).catch((error: unknown) =>
+                      message.error(`Import failed: ${error instanceof Error ? error.message : String(error)}`)
+                    )
+                  }}
+                  onClose={() => setImportOpen(false)}
+                />
                 {schedules.length === 0 && (
                   <Alert
                     type="info"
