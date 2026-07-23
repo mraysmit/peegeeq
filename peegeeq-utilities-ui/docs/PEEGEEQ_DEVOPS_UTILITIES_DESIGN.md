@@ -1439,10 +1439,9 @@ listQueueDetails(setupId: string): Promise<QueueSummary[]>  // names + implement
 ```typescript
 publishBatch(setupId: string, queueName: string, req: BatchMessageRequest): Promise<BatchResponse>
   // POST /api/v1/queues/{setupId}/{queueName}/messages/batch
-  // Falls back to POST .../messages (single) if batch returns 404
-
-publishSingle(setupId: string, queueName: string, req: MessageRequest): Promise<MessageResponse>
-  // POST /api/v1/queues/{setupId}/{queueName}/messages
+  // 30 s timeout; any HTTP failure propagates to the engine.
+  // (publishSingle and the 404 fallback deleted 2026-07-23 — the "older
+  // backend" they served never existed.)
 ```
 
 ### `src/services/templateService.ts`
@@ -1612,12 +1611,13 @@ Sidebar entries in `App.tsx`:
 | List queues for setup  | GET    | `/api/v1/setups/{setupId}/queues`  *(enriched with `queueDetails[]` — §6.5)* |
 | Connect existing setup | POST   | `/api/v1/database-setup/connect`  *(Phase S — non-destructive attach)* |
 | Detach setup           | POST   | `/api/v1/setups/{setupId}/detach`  *(Phase S — non-destructive, 204)* |
-| Delete queue           | DELETE | `/api/v1/management/queues/{setupId}/{queueName}`  *(verified against the live backend 2026-07-05 — the previously documented `/setups/{setupId}/queues/{queueName}` returns 404)* |
-| Publish single message | POST   | `/api/v1/queues/{setupId}/{queueName}/messages`                   |
 | Publish batch          | POST   | `/api/v1/queues/{setupId}/{queueName}/messages/batch`             |
 
 *(Removed 2026-07-17, Phase S.6: create setup `POST /database-setup/create` and create queue —
-provisioning is admin-tool-only; the utilities UI no longer calls either.)*
+provisioning is admin-tool-only; the utilities UI no longer calls either. Removed 2026-07-21:
+delete queue `DELETE /api/v1/management/queues/{setupId}/{queueName}` — the queue list is
+read-only in this UI. Removed 2026-07-23: publish single `POST .../messages` — it existed only
+as the 404 fallback for a backend version that never existed.)*
 
 ---
 
@@ -2263,7 +2263,39 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Value list delete references](screenshots/27-value-list-delete-references.png)
 
+#### 28 — Start pre-flight: missing value lists confirm (Proceed/Cancel, §5.5 — warns, never blocks)
+
+![Start pre-flight missing lists](screenshots/28-start-preflight-missing-lists.png)
+
+#### 29 — Generator STOPPED-run summary (Stop mid-run; 06 shows the COMPLETED variant)
+
+![Stopped run summary](screenshots/29-generator-stopped-summary.png)
+
+#### 30 — Unsaved-changes discard confirm (dirty working copy is never silently replaced)
+
+![Template discard confirm](screenshots/30-template-discard-confirm.png)
+
+#### 31 — Value List Manager, New List entry form (name + one value per line, before save)
+
+![Value list new form](screenshots/31-value-list-new-form.png)
+
+#### 32 — Template Manager, delete confirmation (Popconfirm names the template)
+
+![Template delete confirm](screenshots/32-template-delete-confirm.png)
+
+#### 34 — Connect setup, failed connect with inline error (real backend failure, cause shown)
+
+![Connect setup error](screenshots/34-connect-setup-error.png)
+
+#### 35 — Value list import, collision modal (Overwrite / Merge / Cancel; merge de-duplicates)
+
+![Value list import collision](screenshots/35-value-list-import-collision.png)
+
 ### A.3 Scheduled runs (Part III)
+
+#### 33 — Scheduled Runs, Schedules tab empty state (points at the generator's Schedule… button)
+
+![Schedules empty state](screenshots/33-schedules-empty-state.png)
 
 #### 13 — Schedule-a-run modal, filled (`/generator`, Zone D "Schedule…")
 
@@ -2468,8 +2500,10 @@ generator UI (Phases B–D), connect-only setup surface (Phase S), and scheduled
   - [scheduleService.ts](../src/services/scheduleService.ts): localStorage CRUD for the three
     schedule keys with per-entry Zod validation, the history bounds (200 entries / 20 errors
     per entry) in the write path, `exportAllSchedules`, `importSchedulesFromFile`.
-  - [publishService.ts](../src/services/publishService.ts): `publishSingle`, `publishBatch`
-    (prefers batch endpoint; on HTTP 404 falls back to per-message single publish).
+  - [publishService.ts](../src/services/publishService.ts): `publishBatch` only, with a
+    30 s timeout; any HTTP failure propagates to the engine's consecutive-error guard.
+    *(`publishSingle` and the 404→per-message fallback were deleted 2026-07-23: the
+    "older backend versions" the fallback claimed to serve never existed.)*
   - [templateService.ts](../src/services/templateService.ts) /
     [valueListService.ts](../src/services/valueListService.ts): localStorage CRUD plus
     Zod-validated file import and browser-download export.
@@ -2567,7 +2601,6 @@ All calls go through `getVersionedApiUrl(endpoint)` → `{base}/api/v1/{endpoint
 | List queues (details)  | GET    | `/api/v1/setups/{setupId}/queues` (reads `queueDetails[]`)   |
 | Connect existing setup | POST   | `/api/v1/database-setup/connect`                            |
 | Detach setup           | POST   | `/api/v1/setups/{setupId}/detach`                           |
-| Publish single         | POST   | `/api/v1/queues/{setupId}/{queueName}/messages`            |
 | Publish batch          | POST   | `/api/v1/queues/{setupId}/{queueName}/messages/batch`      |
 | Overview aggregates    | GET    | `/api/v1/management/overview`                               |
 | Management queues      | GET    | `/api/v1/management/queues`                                 |
@@ -2829,7 +2862,19 @@ stores, services, and every built page (`src/tests/unit/*`). E2E tests (Playwrig
 `src/tests/e2e/*`) use a page-object pattern and a Testcontainers-backed PostgreSQL global
 setup/teardown. Projects in [playwright.config.ts](../playwright.config.ts): `1-navigation`,
 `2-overview`, `3-generator`, `4-generator-run` (real publication), `5-setups`, `connect`,
-`6-generator-schedules` (firing, Web Locks executor election, missed policy, import).
+`6-generator-schedules` (firing, Web Locks executor election, missed policy, import),
+`7-generator-failure` (a REAL mid-run backend fault — the target setup is detached while
+publishing — asserting the error counter, the consecutive-error auto-stop, the ERROR
+terminal state, and the error history record; added 2026-07-23 because every prior e2e
+exercised the backend on its success path only), and `8-target-failure` (real faults on
+the two GET paths: a dead backend URL via the app's own config mechanism for the
+setups-load error + Retry recovery, and a mid-session detach for the stale-setup
+queue-load error + Start disarm; added 2026-07-23).
+
+The one backend-facing behaviour that remains unit-only is the publish TIMEOUT
+(`PUBLISH_TIMEOUT_MS` and Stop waiting on a hung in-flight fan-out): a genuinely hung
+socket cannot be produced honestly against a healthy local backend, and HTTP stubbing is
+banned in this module. Stated as a known gap, not covered.
 npm scripts: `test:run`, `test:integration`, `test:e2e`, and the aggregate
 `test:all` / `test:ci`.
 
