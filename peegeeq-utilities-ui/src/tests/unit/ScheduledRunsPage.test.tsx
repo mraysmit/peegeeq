@@ -250,6 +250,7 @@ describe('ScheduledRunsPage', () => {
     renderPage()
     const future = new Date(Date.now() + 3600_000).toISOString()
     const incoming = [makeSchedule({ id: 'imp-1', name: 'Imported schedule', schedule: { kind: 'once', runAt: future }, nextRunAt: future })]
+    await userEvent.click(screen.getByRole('button', { name: /^Import$/ }))
     await userEvent.upload(
       screen.getByTestId('schedule-import-input'),
       new File([JSON.stringify(incoming)], 'schedules.json', { type: 'application/json' })
@@ -264,6 +265,7 @@ describe('ScheduledRunsPage', () => {
     const existing = makeSchedule({ id: 'dup-1', name: 'Original' })
     useScheduleStore.getState().addSchedule(existing)
     renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /^Import$/ }))
     await userEvent.upload(
       screen.getByTestId('schedule-import-input'),
       new File([JSON.stringify([makeSchedule({ id: 'dup-1', name: 'Clobber attempt' })])], 'schedules.json', {
@@ -279,6 +281,7 @@ describe('ScheduledRunsPage', () => {
 
   it('Import surfaces named errors for invalid entries and bad files', async () => {
     renderPage()
+    await userEvent.click(screen.getByRole('button', { name: /^Import$/ }))
     await userEvent.upload(
       screen.getByTestId('schedule-import-input'),
       new File([JSON.stringify([{ id: 'x', name: 'Broken entry' }])], 'schedules.json', { type: 'application/json' })
@@ -288,6 +291,7 @@ describe('ScheduledRunsPage', () => {
     })
     expect(loadAllSchedules()).toHaveLength(0)
 
+    await userEvent.click(screen.getByRole('button', { name: /^Import$/ }))
     await userEvent.upload(
       screen.getByTestId('schedule-import-input'),
       new File(['not json'], 'bad.json', { type: 'application/json' })

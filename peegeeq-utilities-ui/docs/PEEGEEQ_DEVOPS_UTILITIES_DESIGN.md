@@ -2287,9 +2287,17 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Connect setup error](screenshots/34-connect-setup-error.png)
 
+#### 36 — Value list import, in-app file-choosing dialog (format hint + drop zone; added 2026-07-23 — imports no longer pop the native picker from a hidden input)
+
+![Value list import dialog](screenshots/36-value-list-import-dialog.png)
+
 #### 35 — Value list import, collision modal (Overwrite / Merge / Cancel; merge de-duplicates)
 
 ![Value list import collision](screenshots/35-value-list-import-collision.png)
+
+#### 37 — Template import, in-app file-choosing dialog (one template or an array; existing IDs skipped)
+
+![Template import dialog](screenshots/37-template-import-dialog.png)
 
 ### A.3 Scheduled runs (Part III)
 
@@ -2308,6 +2316,10 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 #### 14 — Scheduled Runs, Schedules tab (`/generator/schedules`)
 
 ![Scheduled runs](screenshots/14-scheduled-runs.png)
+
+#### 38 — Schedule import, in-app file-choosing dialog (`schedules.json`; past slots never fire)
+
+![Schedule import dialog](screenshots/38-schedule-import-dialog.png)
 
 #### 18 — Edit-timing modal (in-place timing edit; config changes go through delete + re-schedule)
 

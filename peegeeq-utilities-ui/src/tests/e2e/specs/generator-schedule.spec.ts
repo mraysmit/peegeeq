@@ -294,6 +294,8 @@ test.describe('Scheduled generator runs', () => {
     ]
 
     await page.goto('/generator/schedules')
+    // The import input lives inside the in-app file dialog (2026-07-23).
+    await page.getByRole('button', { name: /^Import$/ }).click()
     await page.getByTestId('schedule-import-input').setInputFiles({
       name: 'schedules.json',
       mimeType: 'application/json',
