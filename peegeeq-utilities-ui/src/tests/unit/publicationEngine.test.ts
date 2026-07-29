@@ -8,7 +8,8 @@
  * - the caller supplies RunIdentity (runId, correlationId); the engine generates none of the ids
  * - per-batch consecutive-error counting in batch order; any success resets the streak
  * - the in-flight guard covers the whole fan-out: ticks are skipped until it settles
- * - sent counts server-acknowledged messagesSent
+ * - sent counts server-acknowledged messages only (publishBatch's messagesSent),
+ *   and a 207 partial success counts its acknowledged sends AND its rejection
  *
  * Uses fake timers to drive the tick loop deterministically. publishService is
  * the one boundary that is mocked: an in-browser tick loop cannot call a real
@@ -76,7 +77,7 @@ describe('publicationEngine', () => {
     // The runTick catch used to see `finished === true` and drop the error —
     // the run's outcome went unrecorded with no report anywhere.
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const cbs = callbacks()
     cbs.onComplete.mockImplementation(() => {
       throw new Error('quota exceeded')
@@ -91,7 +92,7 @@ describe('publicationEngine', () => {
   })
 
   it('fires the first fan-out immediately at start', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const cbs = callbacks()
     const engine = createPublicationEngine()
 
@@ -106,7 +107,7 @@ describe('publicationEngine', () => {
   })
 
   it('splits the per-second quota into batches of at most maxBatchSize', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const engine = createPublicationEngine()
 
     engine.start(makeConfig({ rate: 25, maxBatchSize: 10, durationSecs: 5 }), IDENTITY, callbacks())
@@ -121,7 +122,7 @@ describe('publicationEngine', () => {
   })
 
   it('uses the supplied RunIdentity — generates none of the ids', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const cbs = callbacks()
     const engine = createPublicationEngine()
 
@@ -138,7 +139,7 @@ describe('publicationEngine', () => {
   })
 
   it('assigns sequential messageIds across the concurrent groups of a tick', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const engine = createPublicationEngine()
 
     engine.start(makeConfig({ rate: 20, maxBatchSize: 10, durationSecs: 5 }), IDENTITY, callbacks())
@@ -153,7 +154,7 @@ describe('publicationEngine', () => {
   })
 
   it('transitions to COMPLETED when the duration elapses, having sent every quota', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const cbs = callbacks()
     const engine = createPublicationEngine()
 
@@ -171,7 +172,7 @@ describe('publicationEngine', () => {
   })
 
   it('stop() halts the loop and reports STOPPED', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const cbs = callbacks()
     const engine = createPublicationEngine()
 
@@ -190,7 +191,7 @@ describe('publicationEngine', () => {
     // Decision 2026-07-18 (a): the summary is the run's record — stop must not
     // discard server-acknowledged messages from a fan-out that was in flight.
     mockedPublishBatch.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ messagesSent: 10 }), 1500))
+      () => new Promise((resolve) => setTimeout(() => resolve({ messagesSent: 10, messagesFailed: 0 }), 1500))
     )
     const cbs = callbacks()
     const engine = createPublicationEngine()
@@ -218,7 +219,7 @@ describe('publicationEngine', () => {
   it('skips ticks while the previous fan-out is still in flight', async () => {
     // Each fan-out takes 2.5 s to settle; ticks at t=1000/2000 must be skipped.
     mockedPublishBatch.mockImplementation(
-      () => new Promise((resolve) => setTimeout(() => resolve({ messagesSent: 10 }), 2500))
+      () => new Promise((resolve) => setTimeout(() => resolve({ messagesSent: 10, messagesFailed: 0 }), 2500))
     )
     const engine = createPublicationEngine()
 
@@ -261,7 +262,7 @@ describe('publicationEngine', () => {
     mockedPublishBatch.mockImplementation(() =>
       call++ % 2 === 0
         ? Promise.reject(new Error('boom'))
-        : Promise.resolve({ messagesSent: 10 })
+        : Promise.resolve({ messagesSent: 10, messagesFailed: 0 })
     )
     const cbs = callbacks()
     const engine = createPublicationEngine()
@@ -282,7 +283,7 @@ describe('publicationEngine', () => {
   })
 
   it('resolves placeholders in header values per message (§5.3)', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const engine = createPublicationEngine()
     const template = {
       ...makeTemplate(),
@@ -310,7 +311,7 @@ describe('publicationEngine', () => {
     // resolveTemplate throws (JSON.parse) inside the tick. The engine must
     // surface this through onError, not swallow it as an unhandled rejection
     // leaving the run stuck in RUNNING (the fire-and-forget failure mode).
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const cbs = callbacks()
     const engine = createPublicationEngine()
 
@@ -353,12 +354,80 @@ describe('publicationEngine', () => {
     expect(cbs.onComplete).toHaveBeenCalledOnce()
   })
 
+  it('counts a 207 partial success as BOTH its acknowledged sends and an error', async () => {
+    // The server accepted 6 of 10 and rejected 4 (HTTP 207 — a 2xx, so axios
+    // resolves and publishBatch returns normally). Counting the whole batch as
+    // sent was the defect; dropping the whole batch would understate real
+    // publishes. Both counts must be truthful.
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 6, messagesFailed: 4 })
+    const cbs = callbacks()
+    const engine = createPublicationEngine()
+
+    engine.start(makeConfig({ rate: 10, maxBatchSize: 10, durationSecs: 1 }), IDENTITY, cbs)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    const summary = cbs.onComplete.mock.calls[0][0] as RunSummary
+    expect(summary.totalSent).toBe(6)
+    expect(summary.totalErrors).toBe(1)
+    const error = (summary.errors as PublishError[])[0]
+    expect(error.messageIndex).toBe(1)
+    expect(error.message).toContain('rejected 4 of 10')
+    // A 207 is not an HTTP failure — there is no error status to report.
+    expect(error.httpStatus).toBeUndefined()
+  })
+
+  it('a fully successful batch after a partial one resets the streak', async () => {
+    // The §6.1 reset rule keys on a CLEAN batch. A 207 must not reset it.
+    let call = 0
+    mockedPublishBatch.mockImplementation(() =>
+      call++ % 2 === 0
+        ? Promise.resolve({ messagesSent: 5, messagesFailed: 5 })
+        : Promise.resolve({ messagesSent: 10, messagesFailed: 0 })
+    )
+    const cbs = callbacks()
+    const engine = createPublicationEngine()
+
+    engine.start(
+      makeConfig({ rate: 20, maxBatchSize: 10, durationSecs: 1, maxConsecErrors: 2 }),
+      IDENTITY,
+      cbs
+    )
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(cbs.onError).not.toHaveBeenCalled()
+    const summary = cbs.onComplete.mock.calls[0][0] as RunSummary
+    expect(summary.totalSent).toBe(15)
+    expect(summary.totalErrors).toBe(1)
+  })
+
+  it('auto-stops on a streak of 207 partial failures — the guard sees them', async () => {
+    // Before the fix the guard derived its "last failure" from rejected
+    // promises only, so a run failing exclusively via 207 would never auto-stop.
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 0, messagesFailed: 10 })
+    const cbs = callbacks()
+    const engine = createPublicationEngine()
+
+    engine.start(
+      makeConfig({ rate: 20, maxBatchSize: 10, durationSecs: 10, maxConsecErrors: 2 }),
+      IDENTITY,
+      cbs
+    )
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(cbs.onError).toHaveBeenCalledOnce()
+    const [summary, reason] = cbs.onError.mock.calls[0] as [RunSummary, string]
+    expect(summary.finalStatus).toBe('error')
+    expect(summary.totalSent).toBe(0)
+    expect(reason).toContain('Auto-stopped')
+    expect(reason).toContain('rejected 10 of 10')
+  })
+
   it('records the first messageId of the failed batch as the error messageIndex', async () => {
     // First group succeeds, second group (ids 11–20) fails.
     let call = 0
     mockedPublishBatch.mockImplementation(() =>
       call++ === 0
-        ? Promise.resolve({ messagesSent: 10 })
+        ? Promise.resolve({ messagesSent: 10, messagesFailed: 0 })
         : Promise.reject(Object.assign(new Error('boom'), { response: { status: 503 } }))
     )
     const cbs = callbacks()

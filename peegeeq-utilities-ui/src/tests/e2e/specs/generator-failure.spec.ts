@@ -11,10 +11,18 @@ import * as fs from 'fs'
  *
  * Fault production follows the connect-setup.spec.ts precedent: make the REAL
  * backend fail by giving it a genuinely bad situation — here, the target setup
- * is DETACHED via the admin REST path while a run is publishing to it. Every
- * subsequent batch genuinely fails at the server; nothing is intercepted.
+ * is TORN DOWN via `DELETE /api/v1/setups/{id}` (the admin REST path) while a
+ * run is publishing to it. Every subsequent batch genuinely fails at the
+ * server; nothing is intercepted.
  *
- * No assertion on a specific HTTP status: what a real publish-to-detached-
+ * Note on naming (corrected 2026-07-29): this route is `deleteSetup` →
+ * `destroySetup`, NOT the separate `POST /api/v1/setups/{id}/detach` →
+ * `detachSetup`. Both are non-destructive to the database and both make the
+ * setup unresolvable, so either produces the fault this spec needs — but the
+ * comments previously said "detach" while the code called delete, which sends
+ * a reader to the wrong handler.
+ *
+ * No assertion on a specific HTTP status: what a real publish-to-torn-down
  * setup returns is exactly the reality this spec observes — the UI contract
  * under test is "errors surface, the guard auto-stops, the run settles as
  * ERROR and is recorded", regardless of status code.
@@ -69,7 +77,7 @@ test.describe('Generator publish failure', () => {
   })
 
   test.afterAll(async ({ request }) => {
-    // The test detaches the setup itself; this is cleanup for the failure
+    // The test tears the setup down itself; this is cleanup for the failure
     // paths where it did not get that far. A 404 here is fine.
     await request.delete(`${API_BASE_URL}/api/v1/setups/${SETUP_ID}`)
   })
@@ -85,11 +93,11 @@ test.describe('Generator publish failure', () => {
     await expect(page.locator('#target-queue-select')).toBeVisible({ timeout: 15000 })
   })
 
-  test('detaching the target mid-run: errors surface, the guard auto-stops, the run settles as ERROR', async ({ page, request }) => {
+  test('tearing down the target mid-run: errors surface, the guard auto-stops, the run settles as ERROR', async ({ page, request }) => {
     test.setTimeout(90000)
 
     // A long run so the fault lands mid-flight, with the auto-stop guard at 5:
-    // after the detach, five consecutive failed batches (~5 ticks ≈ 5 s) must
+    // after the teardown, five consecutive failed batches (~5 ticks ≈ 5 s) must
     // terminate the run — wide enough to observe the error counter climbing,
     // short enough to keep the test fast.
     await page.getByLabel(/Rate \(msg\/s\)/i).fill('5')
@@ -99,7 +107,7 @@ test.describe('Generator publish failure', () => {
     await page.getByLabel(/Payload/i).fill('{"id":"{{messageId}}"}')
 
     // Healthy first: real acknowledged sends before the fault, so the failure
-    // observed later is unambiguously caused by the detach.
+    // observed later is unambiguously caused by the teardown.
     await page.getByRole('button', { name: /^Start$/ }).click()
     await expect(page.getByTestId('run-status')).toContainText('RUNNING')
     await expect.poll(async () => {
@@ -108,10 +116,10 @@ test.describe('Generator publish failure', () => {
       return match ? Number(match[1]) : 0
     }, { timeout: 10000 }).toBeGreaterThan(0)
 
-    // The REAL fault: detach the setup the run is publishing to.
-    const detach = await request.delete(`${API_BASE_URL}/api/v1/setups/${SETUP_ID}`)
-    if (!detach.ok()) {
-      throw new Error(`Mid-run detach failed: ${detach.status()} ${await detach.text()}`)
+    // The REAL fault: tear down the setup the run is publishing to.
+    const teardown = await request.delete(`${API_BASE_URL}/api/v1/setups/${SETUP_ID}`)
+    if (!teardown.ok()) {
+      throw new Error(`Mid-run teardown failed: ${teardown.status()} ${await teardown.text()}`)
     }
 
     // Errors surface in the UI while still running (error counter + list are

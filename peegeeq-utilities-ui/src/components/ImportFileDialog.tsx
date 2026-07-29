@@ -48,6 +48,15 @@ export default function ImportFileDialog({
       title={title}
       open={open}
       onCancel={onClose}
+      // Unmount the body and footer on close (2026-07-29). Without this, antd
+      // keeps a closed Modal mounted and merely hides it, so this dialog's
+      // "Cancel" and its file input stayed in the DOM after the parent closed
+      // it — and every import flow opens a SECOND modal (the collision prompt)
+      // that also has a "Cancel". Two identically-named buttons made the
+      // collision prompt unaddressable by name. It also stops a chosen File
+      // being retained by a hidden input after the dialog is done with it.
+      // `destroyOnHidden` is the antd 5.25+ name; `destroyOnClose` is deprecated.
+      destroyOnHidden
       footer={[
         <Button key="cancel" onClick={onClose}>
           Cancel
