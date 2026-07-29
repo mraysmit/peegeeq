@@ -89,7 +89,7 @@ describe('schedulerRuntime', () => {
     useGeneratorStore.getState().resetRun()
     useGeneratorStore.setState({ config: null })
     useValueListStore.setState({ lists: [], selected: null })
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 5 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 5, messagesFailed: 0 })
     runtime = createSchedulerRuntime()
   })
 

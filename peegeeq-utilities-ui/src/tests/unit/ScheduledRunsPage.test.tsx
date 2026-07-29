@@ -97,7 +97,7 @@ describe('ScheduledRunsPage', () => {
     useGeneratorStore.getState().resetRun()
     useGeneratorStore.setState({ config: null })
     useValueListStore.setState({ lists: [], selected: null })
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 5 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 5, messagesFailed: 0 })
     // Modal containers are recreated per confirm; the antd message holder is a
     // SINGLETON — removing it detaches the reference and later messages render
     // nowhere, so it must be left in place.

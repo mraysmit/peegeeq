@@ -246,15 +246,40 @@ class BatchMessageProcessingIntegrationTest {
             .sendJsonObject(batchRequest)
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
-                logger.info("Batch message response status: {}", status);
-
-                // Accept 200, 201, or 207 (multi-status)
-                assertTrue(status == 200 || status == 201 || status == 207,
-                    "Batch should be processed, got: " + status);
-
                 JsonObject body = response.bodyAsJsonObject();
                 assertNotNull(body, "Response body should not be null");
-                logger.info("Batch response: {}", body.encode());
+                logger.info("Batch response ({}): {}", status, body.encode());
+
+                // Every message in this batch is valid against a healthy backend, so
+                // the outcome is fully successful — not merely "processed". Accepting
+                // 207 here (as this test previously did) would pass even if every
+                // message had failed.
+                assertEquals(200, status, "All four messages should be accepted: " + body.encode());
+
+                assertEquals(4, body.getInteger("totalMessages"), "totalMessages");
+                assertEquals(4, body.getLong("successfulMessages"), "successfulMessages");
+                assertEquals(0, body.getLong("failedMessages"), "failedMessages");
+
+                // messageIds carries ONLY real ids. It previously also carried
+                // "FAILED:<reason>" strings, which the handler then counted by prefix
+                // matching (audit entry #90, TYPED-ERASURE). This is the regression
+                // guard: a caller must never receive an error text where an id belongs.
+                JsonArray messageIds = body.getJsonArray("messageIds");
+                assertNotNull(messageIds, "messageIds must be present");
+                assertEquals(4, messageIds.size(), "one id per accepted message");
+                for (int i = 0; i < messageIds.size(); i++) {
+                    String id = messageIds.getString(i);
+                    assertNotNull(id, "message id at " + i + " must not be null");
+                    assertFalse(id.isBlank(), "message id at " + i + " must not be blank");
+                    assertFalse(id.startsWith("FAILED:"),
+                        "messageIds must never contain an error marker, got: " + id);
+                }
+
+                // Present and empty on the clean path — the shape does not change with
+                // the outcome, so a caller can read it unconditionally.
+                JsonArray failures = body.getJsonArray("failures");
+                assertNotNull(failures, "failures must be present even when nothing failed");
+                assertTrue(failures.isEmpty(), "failures must be empty: " + failures.encode());
 
                 testContext.completeNow();
             })));
