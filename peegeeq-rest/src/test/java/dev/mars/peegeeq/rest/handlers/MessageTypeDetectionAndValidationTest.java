@@ -285,46 +285,17 @@ class MessageTypeDetectionAndValidationTest {
         assertDoesNotThrow(() -> batchRequest.validate());
     }
 
-    @Test
-    void testExpectedBatchApiUsage() {
-        // This test documents how the batch API would be used
-        
-        // Example curl command for batch sending:
-        /*
-        curl -X POST http://localhost:8080/api/v1/queues/my-setup/orders/messages/batch \
-          -H "Content-Type: application/json" \
-          -d '{
-            "messages": [
-              {
-                "payload": {"orderId": "12345", "amount": 99.99},
-                "priority": 5,
-                "messageType": "OrderCreated"
-              },
-              {
-                "payload": {"orderId": "12346", "amount": 149.99},
-                "priority": 3,
-                "delaySeconds": 30,
-                "messageType": "OrderCreated"
-              }
-            ],
-            "failOnError": false,
-            "maxBatchSize": 100
-          }'
-        */
-        
-        // Expected response:
-        /*
-        {
-          "message": "Batch messages processed",
-          "queueName": "orders",
-          "setupId": "my-setup",
-          "totalMessages": 2,
-          "successfulMessages": 2,
-          "failedMessages": 0,
-          "messageIds": ["uuid1", "uuid2"]
-        }
-        */
-        
-        assertTrue(true, "Batch API usage documented");
-    }
+    // Removed 2026-07-29: testExpectedBatchApiUsage.
+    //
+    // It executed no code and ended in `assertTrue(true, "Batch API usage documented")` —
+    // the CRITICAL placeholder-test antipattern (PEEGEEQ_TESTING_STANDARDS_ANTIPATTERNS.md,
+    // first entry: "assert a meaningful postcondition, or be deleted if it tests nothing").
+    // Its body was two commented-out blocks showing a sample request and response.
+    //
+    // Deleted rather than rewritten because it was also actively misleading: the
+    // commented "expected response" no longer matched the endpoint (it predated both
+    // the `failures` array and the correction that keeps error text out of
+    // `messageIds`), and a comment cannot fail when the contract moves. The real
+    // contract is asserted against a live backend in
+    // BatchMessageProcessingIntegrationTest.testBatchMessageProcessing.
 }

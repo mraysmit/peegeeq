@@ -132,3 +132,39 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: () => false,
   }),
 })
+
+// `<a download>` activation (browser API polyfill for jsdom).
+//
+// jsdom does not implement the `download` attribute. It sees only an anchor with
+// an href, so a programmatic click runs the hyperlink activation behaviour and
+// tries to NAVIGATE — which jsdom cannot do, so it writes
+// "Not implemented: navigation (except hash changes)" to virtualConsole (stderr)
+// from a queued task, after the assertion has already passed. Same failure shape
+// as the getComputedStyle case above: real behaviour is missing, so jsdom falls
+// through to its not-implemented path.
+//
+// A real browser dispatches the click and then SAVES the file; it does not
+// navigate. This reproduces that: the click event is still dispatched, so
+// listeners and `vi.spyOn(HTMLAnchorElement.prototype, 'click')` observe it
+// exactly as before, but the default action is suppressed so jsdom's navigation
+// path is never reached. Anchors without `download` are untouched and keep
+// jsdom's native behaviour.
+//
+// Covers the six export/download helpers (templateService, valueListService,
+// scheduleService, TemplateEditor, ProgressPanel, ScheduledRunsPage), so no test
+// needs its own local anchor stub to keep the output clean.
+function preventAnchorNavigation(event: Event): void {
+  event.preventDefault()
+}
+
+const nativeAnchorClick = HTMLAnchorElement.prototype.click
+HTMLAnchorElement.prototype.click = function click(this: HTMLAnchorElement): void {
+  if (!this.hasAttribute('download')) {
+    nativeAnchorClick.call(this)
+    return
+  }
+  // `once` removes the listener after it fires; it is registered before dispatch
+  // so it runs ahead of jsdom's post-dispatch activation check.
+  this.addEventListener('click', preventAnchorNavigation, { once: true })
+  this.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+}
