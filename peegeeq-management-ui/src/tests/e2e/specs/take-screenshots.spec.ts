@@ -487,18 +487,18 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await page.keyboard.press('Escape')
   })
 
-  test('06c delete setup error toast (503)', async ({ page }) => {
-    // Intercept DELETE to inject a 503 so the error toast is visible
-    await page.route('**/api/v1/database-setup/**', (route) => {
-      if (route.request().method() === 'DELETE') {
-        route.fulfill({
-          status: 503,
-          contentType: 'application/json',
-          body: JSON.stringify({ error: 'Cannot delete setup: service unavailable', timestamp: new Date().toISOString() }),
-        })
-      } else {
-        route.continue()
-      }
+  test('06c drop database error toast (503)', async ({ page }) => {
+    // Intercept ONLY the drop POST to inject a 503 so the error toast is visible.
+    // The route glob matches /api/v1/setups/<id>/database/drop exclusively — the
+    // name-resolution GET (/api/v1/setups/<id>) is a different path and passes
+    // through untouched, so the modal arms with the REAL database name. The 503
+    // means the real drop never executes.
+    await page.route('**/api/v1/setups/*/database/drop', (route) => {
+      route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Cannot drop database: service unavailable', timestamp: new Date().toISOString() }),
+      })
     })
     await page.goto('/database-setups')
     await expect(page.locator('.ant-table')).toBeVisible({ timeout: 15000 })
@@ -507,13 +507,20 @@ test.describe('PeeGeeQ UI Screenshots', () => {
     await expect(row).toBeVisible({ timeout: 10000 })
     await row.locator('.anticon-more').click()
     await expect(page.locator('.ant-dropdown:not(.ant-dropdown-hidden)')).toBeVisible({ timeout: 5000 })
-    await page.locator('.ant-dropdown-menu-item').filter({ hasText: 'Delete' }).click()
-    await expect(page.locator('.ant-modal-confirm-btns')).toBeVisible({ timeout: 5000 })
-    await page.locator('.ant-modal-confirm-btns .ant-btn-dangerous').click()
-    await expect(page.locator('.ant-message-error').filter({ hasText: 'Cannot delete setup' }).first()).toBeVisible({ timeout: 5000 })
+    await page.locator('.ant-dropdown-menu-item').filter({ hasText: 'Drop Database' }).click()
+    // The Drop modal opens after the name-resolution GET resolves. Its confirm
+    // button is disabled until the typed text equals the real database name
+    // (type-to-confirm guard), so read the name from the input placeholder and type it.
+    const confirmInput = page.getByTestId('drop-database-confirm-input')
+    await expect(confirmInput).toBeVisible({ timeout: 10000 })
+    const databaseName = await confirmInput.getAttribute('placeholder')
+    await confirmInput.fill(databaseName ?? '')
+    await page.getByTestId('drop-database-confirm-btn').click()
+    await expect(page.locator('.ant-message-error').filter({ hasText: 'Cannot drop database' }).first()).toBeVisible({ timeout: 5000 })
     await page.waitForTimeout(400)
-    await page.screenshot({ path: path.join(DIR, '06c-delete-setup-error-toast.png') })
+    await page.screenshot({ path: path.join(DIR, '06c-drop-database-error-toast.png') })
     await page.unrouteAll()
+    await page.keyboard.press('Escape')
   })
 
   // ── 4. Event Stores ───────────────────────────────────────────────────────
