@@ -2,6 +2,8 @@ package dev.mars.peegeeq.db.setup;
 
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.EventStoreFactory;
+import dev.mars.peegeeq.api.credentials.CredentialProvider;
+import dev.mars.peegeeq.api.credentials.SuppliedCredentialProvider;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
@@ -33,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -73,6 +76,12 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
     private final DatabaseTemplateManager templateManager;
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
 
+    // Durable binding registry (Phase R) — null when no registry database is configured, in which
+    // case persistBinding requests and reloadPersistedSetups fail loudly instead of no-op'ing.
+    private final SetupBindingRegistry bindingRegistry;
+    private final CredentialProvider credentialProvider;
+    private Future<Void> registryReadyFuture;
+
     // Serialises object config (QueueConfig / EventStoreConfig) into the self-describing object registry.
     // JavaTimeModule so Duration fields (e.g. QueueConfig.visibilityTimeout) round-trip cleanly.
     private final ObjectMapper registryMapper = new ObjectMapper().registerModule(new JavaTimeModule());
@@ -109,6 +118,23 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      *                                  or null if EventStore support is not needed
      */
     public PeeGeeQDatabaseSetupService(Function<PeeGeeQManager, EventStoreFactory> eventStoreFactoryProvider) {
+        this(eventStoreFactoryProvider, null, null);
+    }
+
+    /**
+     * Creates a setup service with an optional durable binding registry (Phase R).
+     *
+     * @param eventStoreFactoryProvider optional EventStore factory provider (see the 1-arg constructor)
+     * @param registryDatabase          coordinates of the bootstrap registry database holding
+     *                                  {@code peegeeq_setup_bindings}, or null to run without a
+     *                                  registry (persistBinding requests then fail loudly)
+     * @param credentialProvider        resolves persisted {@code credential_ref}s at reload time;
+     *                                  null selects the supplied-at-connect core default, which
+     *                                  cannot resolve references
+     */
+    public PeeGeeQDatabaseSetupService(Function<PeeGeeQManager, EventStoreFactory> eventStoreFactoryProvider,
+                                       DatabaseConfig registryDatabase,
+                                       CredentialProvider credentialProvider) {
         this.eventStoreFactoryProvider = Optional.ofNullable(eventStoreFactoryProvider);
 
         // If we're inside a Vert.x context, reuse the owning Vertx instance; otherwise
@@ -118,11 +144,19 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         this.vertx = (ctx != null) ? ctx.owner() : Vertx.vertx();
         this.setupWorkerExecutor = this.vertx.createSharedWorkerExecutor("peegeeq-setup-worker", 20);
         this.templateManager = new DatabaseTemplateManager(vertx);
+        this.bindingRegistry = (registryDatabase != null)
+                ? new SetupBindingRegistry(this.vertx, registryDatabase) : null;
+        this.credentialProvider = (credentialProvider != null)
+                ? credentialProvider : new SuppliedCredentialProvider();
 
         if (this.eventStoreFactoryProvider.isPresent()) {
             logger.info("Database setup service initialized with EventStore factory provider");
         } else {
             logger.info("Database setup service initialized without EventStore support");
+        }
+        if (this.bindingRegistry != null) {
+            logger.info("Durable setup-binding registry configured (schema '{}', database '{}')",
+                    registryDatabase.getSchema(), registryDatabase.getDatabaseName());
         }
     }
 
@@ -256,9 +290,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         // activeManagers.put(req.getSetupId(), manager); // Already added in Step 3
                     }
 
-                    // Record resolved queue kinds in the object registry, then return the setup result.
+                    // Record resolved queue kinds in the object registry, persist the durable
+                    // binding when the caller opted in, then return the setup result.
                     final DatabaseSetupResult finalResult = result;
                     return persistQueueRegistry(req.getDatabaseConfig(), queueConfigs, resolvedKinds)
+                            .compose(v -> maybePersistBinding(req, finalResult.getSetupId()))
                             .map(finalResult);
                 })
                 .transform(ar -> {
@@ -377,6 +413,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         return result;
                     }
                 })
+                // Persist the binding for the RECOVERED id when the caller opted in. A persist
+                // failure fails the connect; the transform below then detaches the setup, so the
+                // outcome is atomic — attached-and-remembered, or neither.
+                .compose(result -> maybePersistBinding(request, result.getSetupId()).map(result))
                 .transform(ar -> {
                     if (ar.succeeded()) {
                         return Future.succeededFuture(ar.result());
@@ -927,6 +967,117 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         } catch (Exception e) {
             return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
         }
+    }
+
+    @Override
+    public Future<Void> detachSetup(String setupId) {
+        // Detach = stop + forget: release the in-memory binding (destroySetup is non-destructive),
+        // then remove the durable registry row so the setup does not resurrect on the next reload.
+        return destroySetup(setupId).compose(v -> {
+            if (bindingRegistry == null) {
+                return Future.succeededFuture();
+            }
+            return registryReady().compose(r -> bindingRegistry.deleteBinding(setupId));
+        });
+    }
+
+    @Override
+    public Future<SetupReloadReport> reloadPersistedSetups() {
+        if (bindingRegistry == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "reloadPersistedSetups requires a configured binding registry"));
+        }
+        List<String> reconnected = new ArrayList<>();
+        Map<String, String> skipped = new LinkedHashMap<>();
+        return registryReady()
+                .compose(v -> bindingRegistry.listBindings())
+                .compose(bindings -> {
+                    logger.info("Reloading {} persisted setup binding(s)", bindings.size());
+                    Future<Void> chain = Future.succeededFuture();
+                    for (SetupBinding binding : bindings) {
+                        chain = chain.compose(x -> reloadOne(binding)
+                                .onSuccess(reconnected::add)
+                                // Skip-and-log is the reload contract: one bad binding (database
+                                // unreachable, schema gone, credential unresolvable) must not abort
+                                // the others. The failure is recorded as report data, not erased.
+                                .transform(ar -> {
+                                    if (ar.failed()) {
+                                        String reason = deepestMessage(ar.cause());
+                                        logger.error("Skipping persisted setup '{}' during reload: {}",
+                                                binding.setupId(), reason, ar.cause());
+                                        skipped.put(binding.setupId(), reason);
+                                    }
+                                    return Future.<Void>succeededFuture();
+                                }));
+                    }
+                    return chain;
+                })
+                .map(v -> new SetupReloadReport(reconnected, skipped));
+    }
+
+    /** Resolves the binding's credential and re-establishes the setup via connectToExistingSetup. */
+    private Future<String> reloadOne(SetupBinding binding) {
+        return credentialProvider.resolvePassword(binding.credentialRef())
+                .compose(password -> {
+                    DatabaseConfig config = new DatabaseConfig.Builder()
+                            .host(binding.host())
+                            .port(binding.port())
+                            .databaseName(binding.databaseName())
+                            .username(binding.username())
+                            .password(password)
+                            .schema(binding.schemaName())
+                            .sslEnabled(binding.sslEnabled())
+                            .build();
+                    DatabaseSetupRequest request = new DatabaseSetupRequest(
+                            binding.setupId(), config, List.of(), List.of(), Map.of());
+                    return connectToExistingSetup(request).map(DatabaseSetupResult::getSetupId);
+                });
+    }
+
+    /**
+     * Lazily ensures the binding-registry schema exists (idempotent CREATE ... IF NOT EXISTS).
+     * Memoised so the DDL round-trip runs once per service instance; a failed attempt is retried
+     * on the next call rather than cached. Only called when {@link #bindingRegistry} is non-null.
+     */
+    private synchronized Future<Void> registryReady() {
+        if (registryReadyFuture == null || registryReadyFuture.failed()) {
+            registryReadyFuture = bindingRegistry.ensureSchema();
+        }
+        return registryReadyFuture;
+    }
+
+    /**
+     * Persists the setup's binding when the request opted in. Requested persistence without a
+     * configured registry fails loudly — a "remembered" setup whose binding was silently never
+     * written would violate the no-error-swallowing rule. Runs after the setup is ACTIVE; a
+     * persist failure fails the operation, whose existing failure path then detaches the setup,
+     * making the outcome atomic: active-and-persisted, or neither.
+     */
+    private Future<Void> maybePersistBinding(DatabaseSetupRequest request, String setupId) {
+        if (!request.isPersistBinding()) {
+            return Future.succeededFuture();
+        }
+        if (bindingRegistry == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "persistBinding was requested for setup '" + setupId
+                            + "' but no binding registry is configured on this service"));
+        }
+        DatabaseConfig db = request.getDatabaseConfig();
+        SetupBinding binding = new SetupBinding(setupId, db.getHost(), db.getPort(),
+                db.getDatabaseName(), db.getSchema(), db.getUsername(), db.isSslEnabled(),
+                request.getCredentialRef());
+        return registryReady().compose(v -> bindingRegistry.saveBinding(binding));
+    }
+
+    /** Deepest non-blank message in the cause chain — the most specific reason for a skip entry. */
+    private static String deepestMessage(Throwable error) {
+        String message = null;
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t.getMessage() != null && !t.getMessage().isBlank()) {
+                message = t.getMessage();
+            }
+        }
+        return (message != null) ? message : error.getClass().getSimpleName();
     }
 
     @Override
