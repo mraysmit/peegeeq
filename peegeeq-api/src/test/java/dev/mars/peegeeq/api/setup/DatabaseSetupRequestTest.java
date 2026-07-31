@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.api.setup;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.database.DatabaseConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import dev.mars.peegeeq.api.database.QueueConfig;
@@ -83,6 +84,106 @@ class DatabaseSetupRequestTest {
         assertTrue(request.getEventStores().isEmpty());
         assertNotNull(request.getAdditionalProperties());
         assertTrue(request.getAdditionalProperties().isEmpty());
+    }
+
+    @Test
+    void testPersistBindingDefaultsToFalse() {
+        DatabaseConfig dbConfig = new DatabaseConfig("host", 5432, "db", "user", "pass", "schema", false, null, null, null);
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+            "setup-no-persist", dbConfig, List.of(), List.of(), Map.of());
+
+        assertFalse(request.isPersistBinding(),
+            "persistBinding must default to false — remembering a binding is opt-in per request");
+    }
+
+    @Test
+    void testPersistBindingExplicitlyEnabled() {
+        DatabaseConfig dbConfig = new DatabaseConfig("host", 5432, "db", "user", "pass", "schema", false, null, null, null);
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+            "setup-persist", dbConfig, List.of(), List.of(), Map.of(), true);
+
+        assertTrue(request.isPersistBinding());
+    }
+
+    @Test
+    void testCredentialRefDefaultsToNull() {
+        DatabaseConfig dbConfig = new DatabaseConfig("host", 5432, "db", "user", "pass", "schema", false, null, null, null);
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+            "setup-no-ref", dbConfig, List.of(), List.of(), Map.of(), true);
+
+        assertNull(request.getCredentialRef(),
+            "credentialRef must default to null — supplied-at-connect mode has no reference");
+    }
+
+    @Test
+    void testCredentialRefCarriedVerbatim() {
+        DatabaseConfig dbConfig = new DatabaseConfig("host", 5432, "db", "user", "pass", "schema", false, null, null, null);
+
+        DatabaseSetupRequest request = new DatabaseSetupRequest(
+            "setup-ref", dbConfig, List.of(), List.of(), Map.of(), true, "vault://team/setup-db");
+
+        assertEquals("vault://team/setup-db", request.getCredentialRef(),
+            "the credential reference is opaque and must be carried verbatim");
+    }
+
+    @Test
+    void testJsonWithCredentialRefDeserialises() throws Exception {
+        String json = """
+            {
+              "setupId": "json-ref-setup",
+              "databaseConfig": {
+                "host": "localhost", "port": 5432, "databaseName": "db",
+                "username": "user", "password": "pass", "schema": "s"
+              },
+              "persistBinding": true,
+              "credentialRef": "vault://team/json-db"
+            }
+            """;
+
+        DatabaseSetupRequest request = new ObjectMapper().readValue(json, DatabaseSetupRequest.class);
+
+        assertTrue(request.isPersistBinding());
+        assertEquals("vault://team/json-db", request.getCredentialRef());
+    }
+
+    @Test
+    void testJsonWithoutPersistBindingDeserialisesToFalse() throws Exception {
+        String json = """
+            {
+              "setupId": "json-setup",
+              "databaseConfig": {
+                "host": "localhost", "port": 5432, "databaseName": "db",
+                "username": "user", "password": "pass", "schema": "s"
+              }
+            }
+            """;
+
+        DatabaseSetupRequest request = new ObjectMapper().readValue(json, DatabaseSetupRequest.class);
+
+        assertEquals("json-setup", request.getSetupId());
+        assertFalse(request.isPersistBinding(),
+            "existing clients that do not send persistBinding must keep today's behaviour");
+    }
+
+    @Test
+    void testJsonWithPersistBindingTrueDeserialises() throws Exception {
+        String json = """
+            {
+              "setupId": "json-persist-setup",
+              "databaseConfig": {
+                "host": "localhost", "port": 5432, "databaseName": "db",
+                "username": "user", "password": "pass", "schema": "s"
+              },
+              "persistBinding": true
+            }
+            """;
+
+        DatabaseSetupRequest request = new ObjectMapper().readValue(json, DatabaseSetupRequest.class);
+
+        assertTrue(request.isPersistBinding());
     }
 
     @Test
