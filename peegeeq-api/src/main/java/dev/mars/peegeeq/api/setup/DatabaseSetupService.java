@@ -103,6 +103,30 @@ public interface DatabaseSetupService extends ServiceProvider {
                 new UnsupportedOperationException("dropSetupDatabase is not supported by this implementation"));
     }
 
+    /**
+     * Re-establishes every setup recorded in the durable binding registry by calling
+     * {@link #connectToExistingSetup} per persisted binding.
+     *
+     * <p>Resilient by contract: a binding that cannot be re-established (database unreachable,
+     * schema absent, credential unresolvable) is logged, recorded in the report's skipped
+     * entries, and skipped — it never aborts the reload of the other bindings and never fails
+     * the returned Future on its own. The returned {@link SetupReloadReport} accounts for every
+     * binding read from the registry.
+     *
+     * <p>Callable from any layer: embedders invoke it directly after constructing the service;
+     * the REST server invokes the same method at startup. It does not depend on any UI.
+     *
+     * <p>The default implementation fails with {@link UnsupportedOperationException}: an
+     * implementation without a configured binding registry must refuse loudly rather than return
+     * an empty report that reads as "registry checked, nothing to reload".
+     *
+     * @return a Future completing with the per-binding reload outcome
+     */
+    default Future<SetupReloadReport> reloadPersistedSetups() {
+        return Future.failedFuture(
+                new UnsupportedOperationException("reloadPersistedSetups is not supported by this implementation"));
+    }
+
     Future<DatabaseSetupStatus> getSetupStatus(String setupId);
     Future<DatabaseSetupResult> getSetupResult(String setupId);
     Future<Void> addQueue(String setupId, QueueConfig queueConfig);

@@ -86,4 +86,29 @@ class DatabaseSetupServiceTest {
         assertTrue(closeFuture.succeeded(), "Default close() must return a pre-succeeded Future");
         assertNull(closeFuture.result(), "Void future result must be null");
     }
+
+    @Test
+    void defaultReloadPersistedSetupsFailsAsUnsupported() {
+        // Implementations without a durable binding registry must refuse loudly, never
+        // return an empty report that reads as "registry checked, nothing to reload".
+        DatabaseSetupService service = new DatabaseSetupService() {
+            @Override public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) { return Future.succeededFuture(null); }
+            @Override public Future<Void> destroySetup(String setupId) { return Future.succeededFuture(); }
+            @Override public Future<DatabaseSetupStatus> getSetupStatus(String setupId) { return Future.succeededFuture(DatabaseSetupStatus.ACTIVE); }
+            @Override public Future<DatabaseSetupResult> getSetupResult(String setupId) { return Future.succeededFuture(null); }
+            @Override public Future<Void> addQueue(String setupId, QueueConfig queueConfig) { return Future.succeededFuture(); }
+            @Override public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) { return Future.succeededFuture(); }
+            @Override public Future<Void> removeEventStore(String setupId, String storeName) { return Future.succeededFuture(); }
+            @Override public Future<Set<String>> getAllActiveSetupIds() { return Future.succeededFuture(Collections.emptySet()); }
+            @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) { return null; }
+        };
+
+        Future<SetupReloadReport> reloadFuture = service.reloadPersistedSetups();
+        assertNotNull(reloadFuture);
+        assertTrue(reloadFuture.failed(), "Default reloadPersistedSetups() must fail");
+        assertInstanceOf(UnsupportedOperationException.class, reloadFuture.cause());
+    }
 }
