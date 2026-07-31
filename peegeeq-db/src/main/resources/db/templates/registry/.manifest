@@ -1,0 +1,5 @@
+# Durable setup-binding registry (Phase R / W-C).
+# Applied against the backend's bootstrap registry database — NOT part of a setup's schema,
+# so this directory is deliberately absent from the base template manifest.
+01-schema.sql
+02-setup-bindings.sql
