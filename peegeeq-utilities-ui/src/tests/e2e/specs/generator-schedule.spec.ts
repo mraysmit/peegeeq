@@ -40,11 +40,24 @@ function readDbConfig(): DbConnectionInfo {
   return { host: raw.host, port: raw.port, username: raw.username, password: raw.password }
 }
 
-/** datetime-local string (browser local time) `offsetMs` from now. */
+/**
+ * datetime-local string (browser local time) `offsetMs` from now.
+ *
+ * Seconds are emitted ONLY when non-zero. The `datetime-local` inputs carry no
+ * `step`, so their granularity is the 60 s default and Chrome normalises a
+ * trailing `:00` away — `…T00:22:00` is retained as `…T00:22`. Playwright's
+ * `fill()` compares the value it set against the value the browser kept and
+ * throws `Error: Malformed value` on any difference, so a target time landing
+ * exactly on a minute boundary failed about 1 run in 60. Observed 2026-08-02
+ * (`fill("2026-08-02T00:22:00")`), fixed here rather than retried away.
+ */
 function localDatetime(offsetMs: number): string {
   const d = new Date(Date.now() + offsetMs)
   const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const hhmm = `${pad(d.getHours())}:${pad(d.getMinutes())}`
+  const seconds = d.getSeconds()
+  return seconds === 0 ? `${date}T${hhmm}` : `${date}T${hhmm}:${pad(seconds)}`
 }
 
 test.describe.configure({ mode: 'serial' })

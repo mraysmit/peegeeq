@@ -6,7 +6,8 @@
     "node": true
   },
   "extends": [
-    "eslint:recommended"
+    "eslint:recommended",
+    "plugin:@typescript-eslint/eslint-recommended"
   ],
   "ignorePatterns": [
     "dist",
@@ -26,6 +27,7 @@
       "warn",
       { "allowConstantExport": true }
     ],
+    "no-unused-vars": "off",
     "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_" }]
   }
 }
