@@ -14,7 +14,7 @@
  */
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Button, Card, Empty, Popconfirm, Space, Table, Typography, message } from 'antd'
+import { Button, Card, Empty, Popconfirm, Space, Table, Tag, Typography, message } from 'antd'
 import { DeleteOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import relativeTime from 'dayjs/plugin/relativeTime'
@@ -31,6 +31,23 @@ const { Title, Text } = Typography
 /** Derived at render time from the stored config — never a stored field. */
 function describeRun(config: RunConfig): string {
   return `${config.rate} msg/s × ${config.durationSecs} s = ${config.rate * config.durationSecs} · "${config.template.name}"`
+}
+
+/**
+ * How a scenario replays, derived from its own shape (G.3d).
+ *
+ * A profile is described by its phases, NOT by the base config's flat rate:
+ * that rate is never used when the profile runs, so showing it would describe a
+ * run that never happens.
+ */
+function describeScenario(scenario: Scenario): string {
+  if (scenario.mode === 'profile') {
+    const phases = scenario.phases ?? []
+    const messages = phases.reduce((sum, p) => sum + p.rate * p.durationSecs, 0)
+    const seconds = phases.reduce((sum, p) => sum + p.durationSecs, 0)
+    return `${phases.length} phase${phases.length === 1 ? '' : 's'} · ${seconds} s · ${messages} messages`
+  }
+  return describeRun(scenario.config)
 }
 
 export default function ToolsPage() {
@@ -86,10 +103,22 @@ export default function ToolsPage() {
       ),
     },
     {
+      title: 'Mode',
+      key: 'mode',
+      render: (record: Scenario) => (
+        <Tag
+          data-testid={`scenario-mode-${record.id}`}
+          color={record.mode === 'profile' ? 'geekblue' : 'default'}
+        >
+          {record.mode === 'profile' ? 'Profile' : 'Flat rate'}
+        </Tag>
+      ),
+    },
+    {
       title: 'Run',
       key: 'run',
       render: (record: Scenario) => (
-        <span data-testid={`scenario-run-${record.id}`}>{describeRun(record.config)}</span>
+        <span data-testid={`scenario-run-${record.id}`}>{describeScenario(record)}</span>
       ),
     },
     {

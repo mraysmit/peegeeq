@@ -15,7 +15,7 @@
  * per message; the missing-list scan covers payload AND header values.
  */
 import { useState } from 'react'
-import { Alert, Button, InputNumber, Modal, Space } from 'antd'
+import { Alert, Button, InputNumber, Modal, Space, Tooltip } from 'antd'
 import { findMissingLists, resolveString, resolveTemplate } from '../../engine/templateResolver'
 import { useValueListStore } from '../../stores/valueListStore'
 import type { MessageTemplate, RunStatus } from '../../types/generator'
@@ -31,6 +31,14 @@ interface GeneratorActionsProps {
   onStop: () => void
   /** Opens the schedule modal (SCH.4); enabled under the same conditions as Start. */
   onSchedule: () => void
+  /**
+   * Extra reason Start must stay disabled (G.3c: Profile mode with no phases).
+   * Carried as a REASON, not a boolean, so the disabled button explains itself
+   * in a tooltip instead of refusing silently.
+   */
+  startBlockedReason?: string
+  /** When set, Schedule is disabled and this explains why (G.3c: Profile mode). */
+  scheduleBlockedReason?: string
 }
 
 interface PreviewState {
@@ -47,6 +55,8 @@ export default function GeneratorActions({
   onStart,
   onStop,
   onSchedule,
+  startBlockedReason,
+  scheduleBlockedReason,
 }: GeneratorActionsProps) {
   const [preview, setPreview] = useState<PreviewState | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
@@ -124,15 +134,26 @@ export default function GeneratorActions({
           style={{ width: 120 }}
         />
         <Button onClick={buildPreview}>Preview</Button>
-        <Button type="primary" disabled={status !== 'idle' || !targetSelected} onClick={startWithPreflight}>
-          Start
-        </Button>
+        <Tooltip title={startBlockedReason}>
+          <Button
+            type="primary"
+            disabled={status !== 'idle' || !targetSelected || startBlockedReason !== undefined}
+            onClick={startWithPreflight}
+          >
+            Start
+          </Button>
+        </Tooltip>
         <Button danger disabled={status !== 'running'} onClick={onStop}>
           Stop
         </Button>
-        <Button disabled={status !== 'idle' || !targetSelected} onClick={onSchedule}>
-          Schedule…
-        </Button>
+        <Tooltip title={scheduleBlockedReason}>
+          <Button
+            disabled={status !== 'idle' || !targetSelected || scheduleBlockedReason !== undefined}
+            onClick={onSchedule}
+          >
+            Schedule…
+          </Button>
+        </Tooltip>
       </Space>
 
       {previewError && (
