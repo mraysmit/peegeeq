@@ -29,6 +29,7 @@ import dev.mars.peegeeq.rest.dto.BatchMessageRequest;
 import dev.mars.peegeeq.rest.dto.MessageRequest;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -38,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * Handler for queue operation REST endpoints.
@@ -61,6 +63,37 @@ public class QueueHandler {
         this.setupService = setupService;
         this.objectMapper = objectMapper;
         this.vertx = vertx;
+    }
+
+    /**
+     * The outcome of one message within a batch: either a real message id, or the
+     * error that stopped it. Exactly one of {@code messageId} / {@code error} is set.
+     *
+     * <p>Introduced 2026-07-29 to replace a {@code "FAILED:" + message} marker string
+     * that was pushed into the same {@code List<String>} as real message ids, then
+     * parsed back out with {@code id.startsWith("FAILED:")} to derive the success
+     * count. That encoding is catalogued as entry #90 (TYPED-ERASURE) in the
+     * {@code .recover()} audit: the caller received a succeeded Future carrying a
+     * String that looks like a result but is not one, and the handler recovered the
+     * real outcome by sniffing a text prefix. A message id that happened to begin
+     * with {@code FAILED:} would have been miscounted as a failure.
+     *
+     * <p>The outcome is now carried in the type instead of encoded in the text, so
+     * neither the count nor the response can be derived by string matching.
+     */
+    private record BatchEntry(int index, String messageId, String error) {
+
+        static BatchEntry sent(int index, String messageId) {
+            return new BatchEntry(index, messageId, null);
+        }
+
+        static BatchEntry failed(int index, String error) {
+            return new BatchEntry(index, null, error);
+        }
+
+        boolean succeeded() {
+            return error == null;
+        }
     }
     
     /**
@@ -171,6 +204,29 @@ public class QueueHandler {
 
     /**
      * Sends multiple messages to a specific queue in a batch.
+     *
+     * <p>Response body:
+     * <pre>
+     * {
+     *   "message": "...", "queueName": "...", "setupId": "...",
+     *   "totalMessages": 3, "successfulMessages": 2, "failedMessages": 1,
+     *   "messageIds": ["&lt;id&gt;", "&lt;id&gt;"],
+     *   "failures": [ { "index": 1, "error": "..." } ]
+     * }
+     * </pre>
+     *
+     * <p>Status is 200 when every message was accepted and 207 when some were not.
+     *
+     * <p>{@code failOnError} (default {@code true}) fails the whole request on the
+     * first message error, answering 503. Only {@code failOnError=false} produces a
+     * 207 with partial results.
+     *
+     * <p>Changed 2026-07-29: {@code messageIds} contains only real message ids.
+     * It previously also carried {@code "FAILED:<reason>"} strings for the messages
+     * that had failed, which a caller could not distinguish from an id without
+     * matching the same prefix this handler used internally. Failures are now
+     * reported separately in {@code failures}, each carrying the index of the
+     * message it refers to.
      */
     public void sendMessages(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -214,19 +270,23 @@ public class QueueHandler {
                 .compose(queueFactory -> {
                     MessageProducer<Object> producer = queueFactory.createProducer(queueName, Object.class);
 
-                    // Send all messages (propagate same trace context to all messages in batch)
-                    List<Future<String>> futures = batchRequest.getMessages().stream()
-                        .map(msgReq -> sendMessageWithProducer(producer, msgReq, ctx)
+                    // Send all messages (propagate same trace context to all messages in batch).
+                    // The index is carried through so a failure can name WHICH message failed;
+                    // previously the position was lost and only a marker string survived.
+                    List<MessageRequest> batchMessages = batchRequest.getMessages();
+                    List<Future<BatchEntry>> futures = IntStream.range(0, batchMessages.size())
+                        .mapToObj(index -> sendMessageWithProducer(producer, batchMessages.get(index), ctx)
                             .transform(ar -> {
                                 if (ar.failed()) {
                                     if (batchRequest.isFailOnError()) {
-                                        return Future.<String>failedFuture(new RuntimeException("Batch failed at message: " + ar.cause().getMessage(), ar.cause()));
+                                        return Future.<BatchEntry>failedFuture(new RuntimeException(
+                                            "Batch failed at message " + index + ": " + ar.cause().getMessage(), ar.cause()));
                                     } else {
-                                        logger.error("Failed to send message in batch: {}", ar.cause().getMessage());
-                                        return Future.succeededFuture("FAILED:" + ar.cause().getMessage());
+                                        logger.error("Failed to send message {} in batch: {}", index, ar.cause().getMessage());
+                                        return Future.succeededFuture(BatchEntry.failed(index, ar.cause().getMessage()));
                                     }
                                 }
-                                return Future.succeededFuture(ar.result());
+                                return Future.succeededFuture(BatchEntry.sent(index, ar.result()));
                             }))
                         .collect(Collectors.toList());
 
@@ -243,19 +303,40 @@ public class QueueHandler {
                             return Future.succeededFuture();
                         });
                 })
-                .map(messageIds -> {
-                    long successCount = messageIds.stream().filter(id -> !id.startsWith("FAILED:")).count();
-                    long failureCount = messageIds.size() - successCount;
+                .map(entries -> {
+                    // Counts come from the entries' own outcome, not from parsing their text.
+                    long successCount = entries.stream().filter(BatchEntry::succeeded).count();
+                    long failureCount = entries.size() - successCount;
+
+                    // `messageIds` now holds ONLY real message ids — it no longer carries
+                    // "FAILED:<reason>" strings among them. Failures move to `failures`,
+                    // each naming the position it occupied in the submitted batch, so a
+                    // caller can still correlate an outcome to the message it sent.
+                    JsonArray messageIds = new JsonArray();
+                    JsonArray failures = new JsonArray();
+                    for (BatchEntry entry : entries) {
+                        if (entry.succeeded()) {
+                            messageIds.add(entry.messageId());
+                        } else {
+                            failures.add(new JsonObject()
+                                    .put("index", entry.index())
+                                    .put("error", entry.error()));
+                        }
+                    }
+
                     logger.info("Batch processed: {} successful, {} failed for queue {} in setup {}",
                         successCount, failureCount, queueName, setupId);
                     return new JsonObject()
-                            .put("message", "Batch of " + successCount + "/" + messageIds.size() + " messages sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
+                            .put("message", "Batch of " + successCount + "/" + entries.size() + " messages sent successfully to queue '" + queueName + "' in setup '" + setupId + "'")
                             .put("queueName", queueName)
                             .put("setupId", setupId)
-                            .put("totalMessages", messageIds.size())
+                            .put("totalMessages", entries.size())
                             .put("successfulMessages", successCount)
                             .put("failedMessages", failureCount)
-                            .put("messageIds", messageIds);
+                            .put("messageIds", messageIds)
+                            // Always present, empty on the clean path, so the shape is
+                            // predictable rather than conditional on the outcome.
+                            .put("failures", failures);
                 })
                 .onSuccess(response -> {
                     // Refresh the live message count via the queue-updates SSE when at least one

@@ -6,6 +6,7 @@ import Overview from './pages/Overview'
 import ConnectSetupPage from './pages/ConnectSetupPage'
 import SetupsPage from './pages/SetupsPage'
 import SetupDetailPage from './pages/SetupDetailPage'
+import ToolsPage from './pages/tools/ToolsPage'
 import MessageGeneratorPage from './pages/generator/MessageGeneratorPage'
 import TemplateManagerPage from './pages/templates/TemplateManagerPage'
 import ValueListManagerPage from './pages/value-lists/ValueListManagerPage'
@@ -88,7 +89,7 @@ export default function App() {
           <Content style={{ padding: 24, overflowY: 'auto' }}>
             <Routes>
               <Route path="/" element={<Overview />} />
-              <Route path="/tools" element={<Overview />} />
+              <Route path="/tools" element={<ToolsPage />} />
               <Route path="/generator" element={<MessageGeneratorPage />} />
               <Route path="/setups" element={<SetupsPage />} />
               <Route path="/setups/connect" element={<ConnectSetupPage />} />

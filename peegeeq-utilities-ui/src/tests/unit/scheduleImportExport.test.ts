@@ -16,7 +16,6 @@ import {
   loadHistory,
   saveHistory,
   loadTemplates,
-  saveTemplates,
   exportAllSchedules,
   HISTORY_MAX_ENTRIES,
   HISTORY_MAX_ERRORS_PER_ENTRY,
