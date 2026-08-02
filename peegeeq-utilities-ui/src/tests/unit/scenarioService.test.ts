@@ -59,10 +59,17 @@ function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
     id: 'scn-1',
     name: 'nightly-soak',
     config: makeConfig(),
+    mode: 'flat',
     createdAt: '2026-07-30T00:00:00.000Z',
     updatedAt: '2026-07-30T00:00:00.000Z',
     ...overrides,
   }
+}
+
+/** A scenario exactly as G.4 wrote it: no `mode` field at all. */
+function makeLegacyScenario(): Omit<Scenario, 'mode'> {
+  const { id, name, config, createdAt, updatedAt } = makeScenario()
+  return { id, name, config, createdAt, updatedAt }
 }
 
 function importFile(content: string, name = 'scenarios.json'): File {
@@ -117,6 +124,75 @@ describe('scenarioService', () => {
       localStorage.setItem(STORAGE_KEY, JSON.stringify([outOfBounds]))
 
       expect(loadAll()).toEqual([])
+    })
+  })
+
+  // ── Profile scenarios (G.3d) ────────────────────────────────────────────
+
+  describe('mode and phases', () => {
+    it('loads a scenario saved BEFORE modes existed as a flat scenario', () => {
+      // Back-compat: scenarios written by G.4 carry no `mode`. Dropping them on
+      // load would destroy the user's saved data for a field they never had.
+      const legacy = makeLegacyScenario()
+      expect(legacy).not.toHaveProperty('mode')
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([legacy]))
+
+      const loaded = loadAll()
+
+      expect(loaded).toHaveLength(1)
+      expect(loaded[0].mode).toBe('flat')
+    })
+
+    it('round-trips a profile scenario with its phases', () => {
+      const profile: Scenario = {
+        ...makeScenario({ id: 'scn-profile', name: 'spike-repro' }),
+        mode: 'profile',
+        phases: [
+          { id: 'p1', label: 'burst', rate: 500, durationSecs: 10 },
+          { id: 'p2', label: 'idle', rate: 0, durationSecs: 15 },
+        ],
+      }
+      saveAll([profile])
+
+      const loaded = loadAll()
+
+      expect(loaded[0].mode).toBe('profile')
+      expect(loaded[0].phases).toHaveLength(2)
+      expect(loaded[0].phases![1].rate).toBe(0) // idle survives the round trip
+    })
+
+    it('rejects a profile scenario with no phases — it could never run', () => {
+      const broken = { ...makeScenario(), mode: 'profile', phases: [] }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([broken]))
+
+      expect(loadAll()).toEqual([])
+    })
+
+    it('rejects a phase carrying a negative rate', () => {
+      const broken = {
+        ...makeScenario(),
+        mode: 'profile',
+        phases: [{ id: 'p1', label: 'bad', rate: -5, durationSecs: 10 }],
+      }
+      localStorage.setItem(STORAGE_KEY, JSON.stringify([broken]))
+
+      expect(loadAll()).toEqual([])
+    })
+
+    it('imports a profile scenario from a file with its phases intact', async () => {
+      const profile = {
+        ...makeScenario({ id: 'scn-imported' }),
+        mode: 'profile',
+        phases: [{ id: 'p1', label: 'steady', rate: 100, durationSecs: 60 }],
+      }
+
+      const { scenarios, errors } = await importFromFile(
+        importFile(JSON.stringify(profile), 'profile.json')
+      )
+
+      expect(errors).toEqual([])
+      expect(scenarios[0].mode).toBe('profile')
+      expect(scenarios[0].phases).toHaveLength(1)
     })
   })
 

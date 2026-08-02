@@ -59,6 +59,7 @@ function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
     id: 'scn-1',
     name: 'nightly-soak',
     config: makeConfig(),
+    mode: 'flat',
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -104,6 +105,36 @@ describe('ToolsPage', () => {
     // rate × duration is computed at render, never stored.
     expect(screen.getByTestId('scenario-run-scn-1').textContent).toContain('6000')
     expect(screen.getByTestId('scenario-updated-scn-1').textContent).toMatch(/ago|few seconds/i)
+  })
+
+  // ── Mode column (G.3d) ──────────────────────────────────────────────────
+
+  it('shows a flat scenario as Flat rate with its rate × duration', () => {
+    useScenarioStore.getState().add(makeScenario({ config: makeConfig({ rate: 100, durationSecs: 60 }) }))
+    renderPage()
+
+    expect(screen.getByTestId('scenario-mode-scn-1').textContent).toMatch(/flat/i)
+    expect(screen.getByTestId('scenario-run-scn-1').textContent).toContain('6000')
+  })
+
+  it('shows a profile scenario as Profile with its phase count, not a single rate', () => {
+    useScenarioStore.getState().add({
+      ...makeScenario({ id: 'scn-profile', name: 'spike-repro' }),
+      mode: 'profile',
+      phases: [
+        { id: 'p1', label: 'burst', rate: 500, durationSecs: 10 },
+        { id: 'p2', label: 'steady', rate: 100, durationSecs: 60 },
+        { id: 'p3', label: 'idle', rate: 0, durationSecs: 15 },
+      ],
+    })
+    renderPage()
+
+    expect(screen.getByTestId('scenario-mode-scn-profile').textContent).toMatch(/profile/i)
+    const run = screen.getByTestId('scenario-run-scn-profile').textContent!
+    expect(run).toMatch(/3 phases/i)
+    // The base config's flat rate is meaningless for a profile — showing it
+    // would describe a run that never happens.
+    expect(run).not.toContain('6000')
   })
 
   it('Load selects the scenario and navigates to the generator', async () => {
