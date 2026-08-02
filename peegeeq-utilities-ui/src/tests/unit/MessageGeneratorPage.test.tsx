@@ -162,6 +162,7 @@ describe('MessageGeneratorPage', () => {
         previewIndex: 7,
         template: { ...makeConfig().template, name: 'From scenario' },
       },
+      mode: 'flat',
       createdAt: now,
       updatedAt: now,
     }
@@ -188,6 +189,7 @@ describe('MessageGeneratorPage', () => {
       id: 'scn-1',
       name: 'nightly-soak',
       config: { ...makeConfig(), template: { ...makeConfig().template, name: 'Stored name' } },
+      mode: 'flat',
       createdAt: now,
       updatedAt: now,
     }
@@ -203,6 +205,141 @@ describe('MessageGeneratorPage', () => {
       expect((screen.getByLabelText(/^Name$/i) as HTMLInputElement).value).toBe('Edited copy')
     })
     expect(useScenarioStore.getState().scenarios[0].config.template.name).toBe('Stored name')
+  })
+
+  // ── Profile mode (G.3c) ───────────────────────────────────────────────────
+
+  it('offers the built modes only, defaulting to Flat rate', () => {
+    renderPage()
+    expect(screen.getByTestId('generator-mode')).toBeTruthy()
+    expect((screen.getByLabelText(/Flat rate/i) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getByLabelText(/Profile/i)).toBeTruthy()
+    expect(screen.getByLabelText(/Ramp/i)).toBeTruthy()
+    // Compare / Delay / Trace are not built: offering them as dead controls
+    // would promise behaviour the app does not have.
+    expect(screen.queryByLabelText(/^Compare$/i)).toBeNull()
+    expect(screen.queryByLabelText(/Trace seed/i)).toBeNull()
+  })
+
+  it('switching to Ramp swaps Zone B for the ramp controls and shows the step panel', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByLabelText(/Ramp/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('ramp-controls')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('rate-controls')).toBeNull()
+    expect(screen.queryByTestId('profile-phases-editor')).toBeNull()
+    // The per-step achieved-vs-requested table is the profile panel reused —
+    // a ramp's steps ARE phases.
+    expect(screen.getByTestId('profile-results-panel')).toBeTruthy()
+  })
+
+  it('Ramp mode lists the planned steps before anything runs', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/Ramp/i))
+
+    await waitFor(() => screen.getByTestId('ramp-controls'))
+    // Defaults: 10 → 500 in steps of 50 = 11 steps, all pending.
+    expect(screen.getAllByTestId(/^profile-result-row-/).length).toBeGreaterThan(1)
+  })
+
+  it('switching to Profile swaps Zone B for the phases editor, and back again', async () => {
+    renderPage()
+    expect(screen.getByTestId('rate-controls')).toBeTruthy()
+
+    await userEvent.click(screen.getByLabelText(/Profile/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('profile-phases-editor')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('rate-controls')).toBeNull()
+
+    await userEvent.click(screen.getByLabelText(/Flat rate/i))
+    await waitFor(() => {
+      expect(screen.getByTestId('rate-controls')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('profile-phases-editor')).toBeNull()
+  })
+
+  it('Profile mode shows the achieved-vs-requested results panel', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/Profile/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('profile-results-panel')).toBeTruthy()
+    })
+  })
+
+  // Zone A cannot resolve a target here (no backend), so Start and Schedule are
+  // ALREADY disabled by `!targetSelected`. Asserting "disabled" in this file
+  // would pass whatever the profile rules did — a mutation probe proved exactly
+  // that. The blocked-reason rules are therefore verified in
+  // GeneratorActions.test.tsx, which can set targetSelected: true, and the
+  // end-to-end wiring with a real target is covered by the profile e2e (G.3d).
+
+  it('loading a PROFILE scenario switches the page to Profile mode and restores its phases', async () => {
+    const now = new Date().toISOString()
+    const scenario: Scenario = {
+      id: 'scn-profile',
+      name: 'spike-repro',
+      config: makeConfig(),
+      mode: 'profile',
+      phases: [
+        { id: 'p1', label: 'burst', rate: 500, durationSecs: 10 },
+        { id: 'p2', label: 'idle', rate: 0, durationSecs: 15 },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    }
+    useScenarioStore.getState().add(scenario)
+    useScenarioStore.getState().select('scn-profile')
+
+    renderPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('profile-phases-editor')).toBeTruthy()
+    })
+    expect((screen.getByLabelText(/Profile/i) as HTMLInputElement).checked).toBe(true)
+    expect(screen.getAllByTestId(/^phase-row-/)).toHaveLength(2)
+    // 500×10 = 5000; the idle phase adds none but 15 s of duration.
+    expect(screen.getByTestId('profile-total-messages').textContent).toContain('5000')
+    expect(screen.getByTestId('profile-total-duration').textContent).toContain('25')
+  })
+
+  it('loading a FLAT scenario returns the page to Flat rate mode', async () => {
+    const now = new Date().toISOString()
+    useScenarioStore.getState().add({
+      id: 'scn-flat',
+      name: 'nightly-soak',
+      config: { ...makeConfig(), rate: 77 },
+      mode: 'flat',
+      createdAt: now,
+      updatedAt: now,
+    })
+    useScenarioStore.getState().select('scn-flat')
+
+    renderPage()
+
+    await waitFor(() => {
+      expect((screen.getByLabelText(/Rate \(msg\/s\)/i) as HTMLInputElement).value).toBe('77')
+    })
+    expect((screen.getByLabelText(/Flat rate/i) as HTMLInputElement).checked).toBe(true)
+    expect(screen.queryByTestId('profile-phases-editor')).toBeNull()
+  })
+
+  it('Profile mode with no phases surfaces the empty advisory', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/Profile/i))
+    await waitFor(() => screen.getByTestId('profile-phases-editor'))
+
+    await userEvent.click(screen.getByRole('button', { name: /Remove phase 1/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('profile-empty-advisory')).toBeTruthy()
+    })
+    expect(screen.queryByTestId(/^phase-row-/)).toBeNull()
   })
 
   it('a running store disables Zone B and Zone C inputs', async () => {

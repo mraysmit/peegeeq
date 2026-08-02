@@ -13,12 +13,13 @@
  * the page, which is the single owner of the working state.
  */
 import { useEffect, useState } from 'react'
-import { Button, Input, Modal, Select, Space, Typography, message } from 'antd'
+import { Button, Input, Modal, Select, Space, Tooltip, Typography, message } from 'antd'
 import { ExportOutlined, SaveOutlined } from '@ant-design/icons'
 import { useScenarioStore } from '../stores/scenarioStore'
 import { exportScenario } from '../services/scenarioService'
 import type { RunConfig } from '../types/generator'
 import type { Scenario } from '../types/scenario'
+import type { ProfilePhase } from '../types/profile'
 
 const { Text } = Typography
 
@@ -29,9 +30,25 @@ export interface ScenarioBarProps {
   onLoad: (scenario: Scenario) => void
   /** True while a run is active — loading or saving mid-run is refused. */
   disabled?: boolean
+  /**
+   * The generator's live mode — saved so Load can restore it (G.3d).
+   *
+   * `ramp` is accepted but NOT saveable: `Scenario` has no ramp kind, so saving
+   * one would store it as a flat scenario that replays as a completely
+   * different run. Saving is blocked instead (G.1a).
+   */
+  mode: 'flat' | 'profile' | 'ramp'
+  /** The live traffic shape; saved only when mode is 'profile'. */
+  phases: ProfilePhase[]
 }
 
-export default function ScenarioBar({ config, onLoad, disabled = false }: ScenarioBarProps) {
+export default function ScenarioBar({
+  config,
+  onLoad,
+  disabled = false,
+  mode,
+  phases,
+}: ScenarioBarProps) {
   const scenarios = useScenarioStore((s) => s.scenarios)
   const loadFromStorage = useScenarioStore((s) => s.loadFromStorage)
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -43,6 +60,10 @@ export default function ScenarioBar({ config, onLoad, disabled = false }: Scenar
   }, [loadFromStorage])
 
   const selected = scenarios.find((s) => s.id === selectedId) ?? null
+  // A ramp cannot be represented as a Scenario yet; refuse rather than store
+  // something that would replay as a different run.
+  const saveBlockedReason =
+    mode === 'ramp' ? 'Ramp runs cannot be saved as scenarios yet.' : undefined
 
   function handleLoad() {
     if (!selected) return
@@ -62,11 +83,27 @@ export default function ScenarioBar({ config, onLoad, disabled = false }: Scenar
       setSaveError('Select a target queue before saving a scenario.')
       return
     }
+    if (mode === 'ramp') {
+      // Checked as a MODE, not via saveBlockedReason: this also narrows `mode`
+      // to the two kinds a Scenario can actually hold, so the object below
+      // cannot be built with a mode the model does not support.
+      setSaveError(saveBlockedReason)
+      return
+    }
+    if (mode === 'profile' && phases.length === 0) {
+      // A profile scenario with no phases could never replay — refuse at the
+      // point of saving rather than storing something inert.
+      setSaveError('Add at least one phase before saving a profile scenario.')
+      return
+    }
     const now = new Date().toISOString()
     const scenario: Scenario = {
       id: crypto.randomUUID(),
       name,
       config,
+      mode,
+      // Phases belong to a profile scenario only — a flat one carries none.
+      ...(mode === 'profile' ? { phases } : {}),
       createdAt: now,
       updatedAt: now,
     }
@@ -94,17 +131,19 @@ export default function ScenarioBar({ config, onLoad, disabled = false }: Scenar
       <Button data-testid="scenario-load" onClick={handleLoad} disabled={disabled || selected === null}>
         Load
       </Button>
-      <Button
-        icon={<SaveOutlined />}
-        data-testid="scenario-save-as"
-        onClick={() => {
-          setSaveError(undefined)
-          setSaveName('')
-        }}
-        disabled={disabled || config === null}
-      >
-        Save as…
-      </Button>
+      <Tooltip title={saveBlockedReason}>
+        <Button
+          icon={<SaveOutlined />}
+          data-testid="scenario-save-as"
+          onClick={() => {
+            setSaveError(undefined)
+            setSaveName('')
+          }}
+          disabled={disabled || config === null || saveBlockedReason !== undefined}
+        >
+          Save as…
+        </Button>
+      </Tooltip>
       <Button
         icon={<ExportOutlined />}
         data-testid="scenario-export"
