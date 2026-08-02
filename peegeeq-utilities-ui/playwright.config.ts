@@ -148,6 +148,37 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['3-generator'],
     },
+    // Saved scenarios (G.4) — the full round trip: save from the generator,
+    // the Tools row's derived columns, real export download, delete, re-import
+    // of that file, and Load restoring the TARGET (not Zone A's default). Also
+    // covers a scenario whose target was destroyed. Owns its own throwaway
+    // setups; depends on 3-generator only for ordering (the generator
+    // empty-state tests must run before any setup exists).
+    {
+      name: '9-scenarios',
+      testMatch: '**/scenarios.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
+    // Traffic profile mode (G.3d) — the only automated coverage of the page
+    // driving the sequencer against a live backend: a real two-phase run with
+    // per-phase achieved-vs-requested, profile save/reload as a scenario, and
+    // Stop halting the sequence before the next phase. Owns its own setup.
+    {
+      name: '10-profile',
+      testMatch: '**/profile.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
+    // Ramp mode (G.1a) — planned steps before the run, a real climbing run with
+    // the knee readout, and the two refusals a ramp carries (no scheduling, not
+    // saveable as a scenario) asserted WITH a target selected. Owns its setup.
+    {
+      name: '11-ramp',
+      testMatch: '**/ramp.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

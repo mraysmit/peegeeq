@@ -54,7 +54,7 @@ describe('runStarter', () => {
   })
 
   it('refuses while a run is active', () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const first = startGeneratorRun(makeConfig({ durationSecs: 60 }))
     expect(first).not.toBeNull()
 
@@ -65,7 +65,7 @@ describe('runStarter', () => {
   })
 
   it('gets its run id from the store — the summary runId is the store runId', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const terminal = vi.fn()
     startGeneratorRun(makeConfig({ durationSecs: 1 }), { onTerminal: terminal })
 
@@ -78,14 +78,14 @@ describe('runStarter', () => {
   })
 
   it('flows acknowledged counts into the store via onTick', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     startGeneratorRun(makeConfig({ durationSecs: 60 }))
     await vi.advanceTimersByTimeAsync(0)
     expect(useGeneratorStore.getState().runState.sent).toBe(10)
   })
 
   it('completion writes the store terminal state and fires onTerminal', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const terminal = vi.fn()
     startGeneratorRun(makeConfig({ durationSecs: 1 }), { onTerminal: terminal })
     await vi.advanceTimersByTimeAsync(1000)
@@ -100,7 +100,7 @@ describe('runStarter', () => {
   })
 
   it('the handle stops the run: STOPPED in store and hook', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const terminal = vi.fn()
     const handle = startGeneratorRun(makeConfig({ durationSecs: 60 }), { onTerminal: terminal })
     await vi.advanceTimersByTimeAsync(0)
@@ -113,7 +113,7 @@ describe('runStarter', () => {
   })
 
   it('a run-time template failure ends in ERROR with the reason surfaced', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const terminal = vi.fn()
     startGeneratorRun(
       makeConfig({ template: makeTemplate('{"broken": }'), durationSecs: 60 }),
@@ -152,7 +152,7 @@ describe('runStarter', () => {
 
     // Recovery: with the fault gone, a new run starts normally.
     useValueListStore.setState({ snapshot: originalSnapshot })
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const second = startGeneratorRun(makeConfig({ durationSecs: 60 }))
     expect(second).not.toBeNull()
     second!.stop()
@@ -163,7 +163,7 @@ describe('runStarter', () => {
     // NOT kept anywhere a page could reach. Stop must still work — the Stop
     // button was a no-op for scheduler/"Run now" runs when it relied on a
     // page-local handle.
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     const terminal = vi.fn()
     startGeneratorRun(makeConfig({ durationSecs: 60 }), { onTerminal: terminal })
     await vi.advanceTimersByTimeAsync(0)
@@ -178,7 +178,7 @@ describe('runStarter', () => {
   it('stopActiveRun is a no-op when idle and after a terminal state', async () => {
     expect(() => stopActiveRun()).not.toThrow() // idle: nothing to stop
 
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     startGeneratorRun(makeConfig({ durationSecs: 1 }))
     await vi.advanceTimersByTimeAsync(1000)
     expect(useGeneratorStore.getState().runState.status).toBe('completed')
@@ -189,7 +189,7 @@ describe('runStarter', () => {
   })
 
   it('a new run can start after a terminal state', async () => {
-    mockedPublishBatch.mockResolvedValue({ messagesSent: 10 })
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 10, messagesFailed: 0 })
     startGeneratorRun(makeConfig({ durationSecs: 1 }))
     await vi.advanceTimersByTimeAsync(1000)
     expect(useGeneratorStore.getState().runState.status).toBe('completed')

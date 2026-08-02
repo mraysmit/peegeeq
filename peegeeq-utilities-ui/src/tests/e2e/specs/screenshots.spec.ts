@@ -447,6 +447,54 @@ test.describe('UI documentation screenshots', () => {
       .getByRole('button', { name: /^Cancel$/ })
       .click()
 
+    // ── 39 Generator — "Save as…" scenario dialog (G.4) ────────────────────
+    // 02 captured /tools in its first-visit empty state; these two show the
+    // scenario mechanism actually in use.
+    await page.goto('/generator')
+    await selectDemoTarget(page)
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('100')
+    await page.getByLabel(/Duration \(seconds\)/i).fill('60')
+    await page.getByTestId('scenario-save-as').click()
+    await page.getByTestId('scenario-name-input').fill('nightly-soak')
+    await shot(page, '39-scenario-save-dialog.png')
+    await page.getByTestId('scenario-save-confirm').click()
+    await expect(page.getByTestId('scenario-name-input')).toHaveCount(0)
+
+    // ── 41 Generator — Profile mode: phases editor + results panel (G.3) ───
+    // Captured BEFORE the Tools shot so the saved profile scenario appears in
+    // that table alongside the flat one, showing both Mode values.
+    await page.goto('/generator')
+    await selectDemoTarget(page)
+    await page.getByTestId('generator-mode').getByText('Profile', { exact: true }).click()
+    await expect(page.getByTestId('profile-phases-editor')).toBeVisible()
+    const firstPhase = page.getByTestId(/^phase-row-/).nth(0)
+    await firstPhase.getByLabel('Label').fill('burst')
+    await firstPhase.getByLabel('Rate (msg/s)').fill('500')
+    await firstPhase.getByLabel('Duration (seconds)').fill('10')
+    await page.getByRole('button', { name: /Add phase/i }).click()
+    const secondPhase = page.getByTestId(/^phase-row-/).nth(1)
+    await secondPhase.getByLabel('Label').fill('steady')
+    await secondPhase.getByLabel('Rate (msg/s)').fill('100')
+    await secondPhase.getByLabel('Duration (seconds)').fill('60')
+    await page.getByRole('button', { name: /Add phase/i }).click()
+    const thirdPhase = page.getByTestId(/^phase-row-/).nth(2)
+    await thirdPhase.getByLabel('Label').fill('idle')
+    await thirdPhase.getByLabel('Rate (msg/s)').fill('0')
+    await thirdPhase.getByLabel('Duration (seconds)').fill('15')
+    await expect(page.getByTestId('phase-idle-badge-2')).toBeVisible()
+    await shot(page, '41-profile-mode.png')
+
+    // Save it so the Tools table below shows a Profile row next to the flat one.
+    await page.getByTestId('scenario-save-as').click()
+    await page.getByTestId('scenario-name-input').fill('spike-repro')
+    await page.getByTestId('scenario-save-confirm').click()
+    await expect(page.getByTestId('scenario-name-input')).toHaveCount(0)
+
+    // ── 40 Tools — the scenario manager with a saved scenario ──────────────
+    await page.goto('/tools')
+    await expect(page.getByTestId('scenario-table')).toBeVisible()
+    await shot(page, '40-tools-scenarios.png')
+
     // Clean up all demo localStorage state so reruns start clean.
     await page.evaluate(() => {
       localStorage.removeItem('peegeeq_msg_templates')
@@ -454,6 +502,7 @@ test.describe('UI documentation screenshots', () => {
       localStorage.removeItem('peegeeq_generator_schedules')
       localStorage.removeItem('peegeeq_schedule_run_history')
       localStorage.removeItem('peegeeq_schedule_templates')
+      localStorage.removeItem('peegeeq_scenarios')
     })
   })
 })

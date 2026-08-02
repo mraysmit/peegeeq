@@ -175,21 +175,44 @@ export function createPublicationEngine(): PublicationEngine {
       batches.map((b) => publishBatch(config.setupId, config.queueName, b.request))
     )
 
-    // Process results in batch order: any success resets the streak (§6.1 rule
-    // "resets on every successful batch response", preserved under concurrency).
-    // This runs even when stop was requested mid-flight — acknowledged sends
-    // belong in the summary.
+    // Process results in batch order: a fully successful batch resets the streak
+    // (§6.1 rule "resets on every successful batch response", preserved under
+    // concurrency). This runs even when stop was requested mid-flight —
+    // acknowledged sends belong in the summary.
+    //
+    // A PARTIAL success (HTTP 207: the server acknowledged some messages and
+    // rejected others) counts BOTH — the acknowledged sends are real and must be
+    // counted, and the rejection is a real error that must feed the guard.
+    // Treating a 207 as a clean success was the defect: the summary reported
+    // more messages sent than the server accepted, and the guard never fired.
+    // The reverse (dropping the whole batch) would understate real publishes,
+    // which the stop path above exists to prevent — so neither is acceptable.
+    let lastFailureMessage: string | undefined
     for (let i = 0; i < settled.length; i++) {
       const result = settled[i]
       if (result.status === 'fulfilled') {
         sent += result.value.messagesSent
-        consecErrors = 0
+        if (result.value.messagesFailed > 0) {
+          consecErrors++
+          const batchTotal = result.value.messagesSent + result.value.messagesFailed
+          lastFailureMessage = `Server rejected ${result.value.messagesFailed} of ${batchTotal} messages in the batch`
+          errors.push({
+            // No httpStatus: this is a 2xx response (207), not an HTTP failure.
+            // The message carries the counts, which is the diagnostic here.
+            messageIndex: batches[i].firstMessageId,
+            message: lastFailureMessage,
+            timestamp: new Date().toISOString(),
+          })
+        } else {
+          consecErrors = 0
+        }
       } else {
         consecErrors++
+        lastFailureMessage = messageOf(result.reason)
         errors.push({
           messageIndex: batches[i].firstMessageId,
           httpStatus: httpStatusOf(result.reason),
-          message: messageOf(result.reason),
+          message: lastFailureMessage,
           timestamp: new Date().toISOString(),
         })
       }
@@ -203,14 +226,18 @@ export function createPublicationEngine(): PublicationEngine {
       return
     }
 
-    const failures = settled.filter((r): r is PromiseRejectedResult => r.status === 'rejected')
-    const lastFailure = failures.length > 0 ? failures[failures.length - 1] : undefined
-    if (config.maxConsecErrors > 0 && consecErrors >= config.maxConsecErrors && lastFailure) {
+    // lastFailureMessage covers both failure kinds — a rejected batch and a 207
+    // partial rejection. Deriving it from `settled.filter(rejected)` (as this
+    // did) would let a run auto-stop on a streak the guard could not describe,
+    // or — worse — not stop at all when every failure was a 207.
+    if (
+      config.maxConsecErrors > 0 &&
+      consecErrors >= config.maxConsecErrors &&
+      lastFailureMessage !== undefined
+    ) {
       finished = true
       clear()
-      const reason = `Auto-stopped: ${consecErrors} consecutive errors. Last: ${messageOf(
-        lastFailure.reason
-      )}`
+      const reason = `Auto-stopped: ${consecErrors} consecutive errors. Last: ${lastFailureMessage}`
       callbacks.onError(buildSummary('error'), reason)
       return
     }
