@@ -47,8 +47,12 @@ export function saveAll(templates: MessageTemplate[]): void {
   persistJson(STORAGE_KEY, templates, 'message templates')
 }
 
-/** Trigger a browser download of a Blob built from `content`. */
-function triggerDownload(content: string, filename: string): void {
+/**
+ * Trigger a browser download of a Blob built from `content`.
+ *
+ * Exported for reuse by scenarioService (same download shape, one implementation).
+ */
+export function triggerDownload(content: string, filename: string): void {
   const blob = new Blob([content], { type: 'application/json' })
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')

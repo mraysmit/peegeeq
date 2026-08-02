@@ -36,12 +36,17 @@ const mockedListQueueDetails = vi.mocked(listQueueDetails)
 
 function renderSelector(
   onTargetSelected = vi.fn<(setupId: string, queueName: string) => void>(),
-  onTargetCleared = vi.fn<() => void>()
+  onTargetCleared = vi.fn<() => void>(),
+  initialTarget?: { setupId: string; queueName: string }
 ) {
   return render(
     <MemoryRouter>
       <ConfigProvider>
-        <TargetSelector onTargetSelected={onTargetSelected} onTargetCleared={onTargetCleared} />
+        <TargetSelector
+          onTargetSelected={onTargetSelected}
+          onTargetCleared={onTargetCleared}
+          initialTarget={initialTarget}
+        />
       </ConfigProvider>
     </MemoryRouter>
   )
@@ -290,6 +295,86 @@ describe('TargetSelector', () => {
     await waitFor(() => screen.getByTestId('queue-load-error'))
     expect(onTargetCleared).toHaveBeenCalled()
     expect(onTargetSelected).not.toHaveBeenCalledWith('setup-b', expect.anything())
+  })
+
+  // ── initialTarget (scenario Load — G.4) ───────────────────────────────────
+  // A scenario that cannot restore its own target is not a scenario; and a
+  // target that no longer exists must NOT be silently replaced by the default,
+  // because that publishes load at a queue the user never chose.
+
+  it('pre-selects the requested initialTarget instead of the first setup and queue', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
+    mockedListQueueDetails.mockResolvedValue([
+      { name: 'orders', implementationType: 'native' },
+      { name: 'events', implementationType: 'outbox' },
+    ])
+    const onTargetSelected = vi.fn()
+    renderSelector(onTargetSelected, vi.fn(), { setupId: 'setup-b', queueName: 'events' })
+
+    await waitFor(() => {
+      expect(onTargetSelected).toHaveBeenCalledWith('setup-b', 'events')
+    })
+    expect(mockedListQueueDetails).toHaveBeenCalledWith('setup-b')
+    expect(onTargetSelected).not.toHaveBeenCalledWith('setup-a', expect.anything())
+  })
+
+  it('warns and does not pretend when the requested setup no longer exists', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockResolvedValue([{ name: 'orders', implementationType: 'native' }])
+    renderSelector(vi.fn(), vi.fn(), { setupId: 'deleted-setup', queueName: 'orders' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('target-unavailable')).toBeTruthy()
+    })
+    expect(screen.getByText(/deleted-setup \/ orders/)).toBeTruthy()
+  })
+
+  it('warns when the requested queue no longer exists in an existing setup', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a'])
+    mockedListQueueDetails.mockResolvedValue([{ name: 'orders', implementationType: 'native' }])
+    const onTargetSelected = vi.fn()
+    renderSelector(onTargetSelected, vi.fn(), { setupId: 'setup-a', queueName: 'deleted-queue' })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('target-unavailable')).toBeTruthy()
+    })
+    expect(screen.getByText(/setup-a \/ deleted-queue/)).toBeTruthy()
+    // The fallback selection is reported, so the caller is never left with a
+    // target that does not exist — but the warning above says it was substituted.
+    expect(onTargetSelected).toHaveBeenCalledWith('setup-a', 'orders')
+  })
+
+  it('clears the unavailable warning once the user picks a setup themselves', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
+    mockedListQueueDetails.mockResolvedValue([{ name: 'orders', implementationType: 'native' }])
+    renderSelector(vi.fn(), vi.fn(), { setupId: 'setup-a', queueName: 'deleted-queue' })
+    await waitFor(() => screen.getByTestId('target-unavailable'))
+
+    await userEvent.click(screen.getAllByRole('combobox')[0])
+    await userEvent.click(await screen.findByTitle('setup-b'))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('target-unavailable')).toBeNull()
+    })
+  })
+
+  it('does not re-apply the initial target after the user switches setup', async () => {
+    mockedGetSetups.mockResolvedValueOnce(['setup-a', 'setup-b'])
+    mockedListQueueDetails.mockResolvedValue([
+      { name: 'orders', implementationType: 'native' },
+      { name: 'events', implementationType: 'outbox' },
+    ])
+    const onTargetSelected = vi.fn()
+    renderSelector(onTargetSelected, vi.fn(), { setupId: 'setup-a', queueName: 'events' })
+    await waitFor(() => expect(onTargetSelected).toHaveBeenCalledWith('setup-a', 'events'))
+
+    await userEvent.click(screen.getAllByRole('combobox')[0])
+    await userEvent.click(await screen.findByTitle('setup-b'))
+
+    // setup-b takes its own first queue; the consumed initial target is not reapplied.
+    await waitFor(() => {
+      expect(onTargetSelected).toHaveBeenCalledWith('setup-b', 'orders')
+    })
   })
 
   it('clears the target when switching to a setup that has no queues', async () => {
