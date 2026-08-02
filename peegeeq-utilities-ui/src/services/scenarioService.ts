@@ -17,13 +17,38 @@ import type { Scenario } from '../types/scenario'
 
 const STORAGE_KEY = 'peegeeq_scenarios'
 
-export const scenarioSchema = z.object({
+/** Bounds match the phases editor's inputs: rate ≥ 0 (0 = idle), duration 1–3600. */
+const profilePhaseSchema = z.object({
   id: z.string().min(1),
-  name: z.string().min(1),
-  config: runConfigSchema,
-  createdAt: z.string(),
-  updatedAt: z.string(),
+  label: z.string(),
+  rate: z.number().min(0),
+  durationSecs: z.number().min(1).max(3600),
 })
+
+export const scenarioSchema = z
+  .object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    config: runConfigSchema,
+    // Optional-with-default, NOT a discriminated union: scenarios saved before
+    // G.3d carry no mode, and a strict union would drop the user's saved data
+    // for a field that did not exist when they saved it.
+    mode: z.enum(['flat', 'profile']).default('flat'),
+    phases: z.array(profilePhaseSchema).optional(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .superRefine((scenario, ctx) => {
+    // A profile scenario with no phases can never run — the runner refuses an
+    // empty profile. Storing one would be a scenario that silently does nothing.
+    if (scenario.mode === 'profile' && (scenario.phases ?? []).length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['phases'],
+        message: 'a profile scenario needs at least one phase',
+      })
+    }
+  })
 
 function nameOf(raw: unknown, i: number): string {
   const entry = (raw as { name?: string; id?: string }) ?? {}

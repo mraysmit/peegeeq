@@ -22,6 +22,7 @@ import { useScenarioStore } from '../../stores/scenarioStore'
 import { loadAll } from '../../services/scenarioService'
 import type { RunConfig, MessageTemplate } from '../../types/generator'
 import type { Scenario } from '../../types/scenario'
+import type { ProfilePhase } from '../../types/profile'
 
 function makeConfig(overrides: Partial<RunConfig> = {}): RunConfig {
   const now = new Date().toISOString()
@@ -63,7 +64,13 @@ function makeScenario(overrides: Partial<Scenario> = {}): Scenario {
 }
 
 function renderBar(
-  props: Partial<{ config: RunConfig | null; onLoad: (s: Scenario) => void; disabled: boolean }> = {}
+  props: Partial<{
+    config: RunConfig | null
+    onLoad: (s: Scenario) => void
+    disabled: boolean
+    mode: 'flat' | 'profile' | 'ramp'
+    phases: ProfilePhase[]
+  }> = {}
 ) {
   const onLoad = props.onLoad ?? vi.fn<(s: Scenario) => void>()
   render(
@@ -72,6 +79,8 @@ function renderBar(
         config={props.config === undefined ? makeConfig() : props.config}
         onLoad={onLoad}
         disabled={props.disabled ?? false}
+        mode={props.mode ?? 'flat'}
+        phases={props.phases ?? []}
       />
     </ConfigProvider>
   )
@@ -158,6 +167,59 @@ describe('ScenarioBar', () => {
     await userEvent.click(screen.getByTestId('scenario-export'))
 
     expect(createObjectURL).toHaveBeenCalledOnce()
+  })
+
+  // ── Profile scenarios (G.3d) ────────────────────────────────────────────
+
+  it('saves a FLAT scenario with mode flat and no phases', async () => {
+    renderBar()
+
+    await userEvent.click(screen.getByTestId('scenario-save-as'))
+    await userEvent.type(screen.getByTestId('scenario-name-input'), 'flat-one')
+    await userEvent.click(screen.getByTestId('scenario-save-confirm'))
+
+    await waitFor(() => expect(useScenarioStore.getState().scenarios).toHaveLength(1))
+    const saved = useScenarioStore.getState().scenarios[0]
+    expect(saved.mode).toBe('flat')
+    expect(saved.phases).toBeUndefined()
+  })
+
+  it('saves a PROFILE scenario with its phases', async () => {
+    const phases = [
+      { id: 'p1', label: 'burst', rate: 500, durationSecs: 10 },
+      { id: 'p2', label: 'idle', rate: 0, durationSecs: 15 },
+    ]
+    renderBar({ mode: 'profile', phases })
+
+    await userEvent.click(screen.getByTestId('scenario-save-as'))
+    await userEvent.type(screen.getByTestId('scenario-name-input'), 'spike-repro')
+    await userEvent.click(screen.getByTestId('scenario-save-confirm'))
+
+    await waitFor(() => expect(useScenarioStore.getState().scenarios).toHaveLength(1))
+    const saved = useScenarioStore.getState().scenarios[0]
+    expect(saved.mode).toBe('profile')
+    expect(saved.phases).toHaveLength(2)
+    expect(saved.phases![1].rate).toBe(0)
+    // Persisted, and it survives the validating reload.
+    expect(loadAll()[0].phases).toHaveLength(2)
+  })
+
+  it('refuses to save a PROFILE scenario with no phases', async () => {
+    renderBar({ mode: 'profile', phases: [] })
+
+    await userEvent.click(screen.getByTestId('scenario-save-as'))
+    await userEvent.type(screen.getByTestId('scenario-name-input'), 'empty-profile')
+    await userEvent.click(screen.getByTestId('scenario-save-confirm'))
+
+    expect(screen.getByTestId('scenario-save-error').textContent).toMatch(/phase/i)
+    expect(useScenarioStore.getState().scenarios).toHaveLength(0)
+  })
+
+  it('BLOCKS saving in Ramp mode — a scenario has no ramp kind, so it would be stored as flat', () => {
+    renderBar({ mode: 'ramp' })
+
+    // Disabled, not silently saving something that replays as a different run.
+    expect((screen.getByTestId('scenario-save-as') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('hydrates the select from localStorage on mount', async () => {

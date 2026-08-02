@@ -43,6 +43,8 @@ interface RenderOptions {
   status?: RunStatus
   targetSelected?: boolean
   previewIndex?: number
+  startBlockedReason?: string
+  scheduleBlockedReason?: string
 }
 
 function renderActions(options: RenderOptions = {}) {
@@ -61,6 +63,8 @@ function renderActions(options: RenderOptions = {}) {
         onStart={onStart}
         onStop={onStop}
         onSchedule={onSchedule}
+        startBlockedReason={options.startBlockedReason}
+        scheduleBlockedReason={options.scheduleBlockedReason}
       />
     </ConfigProvider>
   )
@@ -263,5 +267,44 @@ describe('GeneratorActions', () => {
   it('Stop is disabled outside running', () => {
     renderActions({ status: 'idle' })
     expect((screen.getByRole('button', { name: /^Stop$/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  // ── Blocked reasons (G.3c) ────────────────────────────────────────────────
+  // These run with a target selected and status idle — the conditions under
+  // which Start and Schedule are otherwise ENABLED — so the assertions test the
+  // blocked reason itself and not some other disabling rule.
+
+  it('startBlockedReason disables Start even with a target selected and idle', () => {
+    renderActions({ targetSelected: true, status: 'idle', startBlockedReason: 'Add at least one phase.' })
+    expect((screen.getByRole('button', { name: /^Start$/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('Start is enabled with a target and no blocked reason', () => {
+    renderActions({ targetSelected: true, status: 'idle' })
+    expect((screen.getByRole('button', { name: /^Start$/i }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('scheduleBlockedReason disables Schedule even with a target selected and idle', () => {
+    renderActions({
+      targetSelected: true,
+      status: 'idle',
+      scheduleBlockedReason: 'Scheduling cannot carry a multi-phase profile.',
+    })
+    expect((screen.getByRole('button', { name: /Schedule/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('Schedule is enabled with a target and no blocked reason', () => {
+    renderActions({ targetSelected: true, status: 'idle' })
+    expect((screen.getByRole('button', { name: /Schedule/i }) as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('a blocked Start does not fire onStart when clicked', async () => {
+    const { onStart } = renderActions({
+      targetSelected: true,
+      status: 'idle',
+      startBlockedReason: 'Add at least one phase.',
+    })
+    await userEvent.click(screen.getByRole('button', { name: /^Start$/i }))
+    expect(onStart).not.toHaveBeenCalled()
   })
 })

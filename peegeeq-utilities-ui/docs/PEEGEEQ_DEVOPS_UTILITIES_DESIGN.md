@@ -2193,7 +2193,10 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Overview](screenshots/01-overview.png)
 
-#### 02 — Tools (`/tools`)
+#### 02 — Generation Tools, first visit (`/tools`)
+
+The empty state. Until G.4 this route rendered a second copy of Overview; it is now the generation
+tool suite launcher, whose first panel is the scenario manager. Shot 40 shows it populated.
 
 ![Tools](screenshots/02-tools.png)
 
@@ -2341,6 +2344,29 @@ Create Setup / Create Queue pages and "Coming soon" placeholders.)*
 
 ![Schedule templates](screenshots/16-schedule-templates.png)
 
+### A.4 Scenarios and traffic profiles (§19.3, §19.4)
+
+#### 39 — Save the current configuration as a named scenario (generator scenario bar)
+
+![Scenario save dialog](screenshots/39-scenario-save-dialog.png)
+
+#### 40 — Generation Tools, the scenario manager populated
+
+Both modes side by side. The **Run** column describes each scenario by what it actually replays:
+a flat scenario by `rate × duration`, a profile by its **phases** — never by the base config's flat
+rate, which a profile never uses.
+
+![Tools scenarios](screenshots/40-tools-scenarios.png)
+
+#### 41 — Profile mode: the phases editor and the achieved-vs-requested panel
+
+Zone B becomes the traffic-shape editor. The `idle` phase (rate 0) is tagged as such — the runner
+waits it out and publishes nothing, because the engine floors its per-second quota at 1. Requested
+totals are derived (`11000` over `85 s`); every phase reads **pending** with an em dash for Sent,
+because "has not run" and "ran and sent nothing" are different facts. **Schedule is disabled**: a
+schedule stores one `RunConfig` and cannot carry a multi-phase shape.
+
+![Profile mode](screenshots/41-profile-mode.png)
 
 ---
 

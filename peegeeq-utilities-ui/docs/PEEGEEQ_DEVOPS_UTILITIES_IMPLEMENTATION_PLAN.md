@@ -433,10 +433,10 @@ tracks that dependency.
 
 | Step | Tool | Telemetry | Reference |
 |---|---|---|---|
-| G.1a | Ramp load test — basic knee (client-detected) | **Client-only** — accept rate/latency + `/stats` `pendingMessages` | design §19.1; telemetry §6 |
+| G.1a | ✅ **DONE 2026-08-02** — Ramp load test, basic knee (client-detected): planning + knee detection, Ramp mode UI, e2e | **Client-only** — accept rate/latency + `/stats` `pendingMessages` | design §19.1; telemetry §6 |
 | G.1b | Ramp — rich saturation *attribution* | **Needs Phase T:** G3 (resource saturation) + G4 (≥1 Hz stream) + G7 (DB bottleneck signals) | telemetry §4A, §7 |
 | G.2 | Native-vs-Outbox comparison run | **Needs Phase T:** G1 (percentiles) + G2 (delivery latency) + G6 (correlation join) + G7 (DB churn profile) | telemetry §7 |
-| G.3 | Traffic-profile / scenario runner | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
+| G.3 | ✅ **DONE 2026-08-02** — Traffic-profile / scenario runner (G.3a sequencer · G.3b phases editor · G.3c mode selector + results panel · G.3d profile scenarios + e2e) | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
 | G.4 | ✅ **DONE 2026-08-01** — saved scenarios (localStorage, templateService-shaped); see the G.4 record below | **None** | design §19.4 |
 | G.5 | Delay / Priority / FIFO exerciser | **Client-only** to send; *auto-verify* needs G6 (else defer to management-ui browser) | design §19.5; telemetry §6 |
 | G.6 | Correlation / trace seed generator | **None** — emits ids; verify in management-ui | design §19.6 |
@@ -446,6 +446,208 @@ the dead `/tools` route as the suite launcher.
 
 **Build order within Phase G:** ship the client-only tools first (G.1a, G.3, G.4, G.5-send, G.6) —
 they need no backend change. G.1b and G.2 land only after Phase T delivers their telemetry.
+
+### G.1a (part 1) — ramp planning and knee detection, 2026-08-02
+
+**A ramp is a profile whose phases are computed, plus a stop rule.** Building Profile mode first
+paid off exactly here: the sequencing, per-phase results and Stop semantics are reused unchanged.
+Only two things were new.
+
+**1. An early-halt hook on the sequencer.** `profileRunner` gained
+`shouldHaltAfterPhase(result, results) → reason | null` and a matching `onProfileHalted`. Halting at
+the knee is a **normal, successful** outcome — the ramp found what it was looking for — so it is
+neither a completion nor an error, and it gets its own terminal signal. The hook receives EVERY
+result so far, because a plateau check needs the previous step. It runs on completed phases only: a
+stopped or errored phase never measured the rate it was asked to.
+
+**2. [engine/rampPlan.ts](../src/engine/rampPlan.ts) — the pure decisions**, so sequencing stays in
+`profileRunner`:
+
+- `buildRampPhases` — steps ascend from `startRate` by `stepRate`. A step overshooting `maxRate` is
+  **clamped to the cap, not dropped**: the cap is a rate the operator asked to reach. A start above
+  the cap yields **no** steps rather than one silent step. An uncapped ramp is still bounded
+  (`MAX_STEPS`), because a stop rule that never trips must not produce an unbounded plan.
+- `rampHaltReason` — the error-rate rule measures errors against what that step **requested**; the
+  plateau rule halts when achieved throughput fails to rise despite a higher request.
+- `sustainedRate` — the highest step that delivered ≥99% of its request, or **null when none did**.
+  Null is deliberate: reporting the lowest attempted rate as the breaking point when even that step
+  could not keep up would fabricate a finding.
+
+`RampSettings` stores the controls only; the steps and the knee are derived, so the plan can never
+disagree with the settings that produced it.
+
+**TDD.** 3 sequencer tests + 14 plan tests, written before the code. Probes, each verified applied
+then reverted: fabricated knee when nothing sustained → 1 red; overshoot dropped instead of clamped
+→ 1 red. **A third probe found redundant code:** removing the `index === 0` plateau guard changed
+nothing, because the `!previousPhase` check below already covers the first step. The redundant guard
+was deleted and the remaining one re-probed to confirm it is load-bearing (1 red). Unit suite:
+**40 files, 625 tests**; lint 0 errors; `tsc --noEmit` 0 errors.
+
+### G.1a (part 2) — Ramp mode UI, 2026-08-02 — **G.1a COMPLETE**
+
+[RampControls](../src/pages/generator/RampControls.tsx) is Zone B for Ramp mode. Its plan preview
+calls the **same `buildRampPhases` the run uses** — a preview computed a second way could describe a
+ramp that never happens. The error-rate threshold is **disabled under the plateau rule**, so a
+number with no effect cannot look like it has one. Clearing "Max rate" is meaningful (it means *no
+cap*), so unlike the other numeric fields a null is stored rather than ignored.
+
+Ramp is the third mode on the generator. Its steps are `useMemo`-derived from the settings and never
+stored, and the results table is the **profile panel reused** — a ramp's steps ARE phases. The knee
+readout states the outcome plainly: the halt reason plus the max sustained rate, or *"No step
+sustained its requested rate"* when none did.
+
+**Two refusals a ramp carries**, both surfaced with reasons rather than dead buttons: Schedule is
+blocked (a `ScheduledRun` holds one `RunConfig`), and **a ramp cannot be saved as a scenario** —
+`Scenario` has no ramp kind, so saving would store it as a *flat* scenario that replays as a
+completely different run. `handleSave` checks the mode directly, which also narrows the type so the
+object cannot be built with a mode the model does not support.
+
+**A page-wiring bug the e2e caught.** `handleStart` routed to the sequencer only when
+`mode === 'profile'`, so **Ramp mode silently fell through to a single flat run**. No unit test could
+see it: without a backend there is no target, so Start can never be clicked. Fixed to `mode !== 'flat'`
+— every non-flat mode is a sequence driven by the same runner.
+
+**A second regression, caught by the unit suite:** `applyScenario` set `mode` from a scenario that
+predates the field, leaving it `undefined` and rendering **no Zone B at all**. The page now defaults
+to flat exactly as the storage schema does, and the stale test data was corrected.
+
+**E2E — new project `11-ramp`** ([ramp.spec.ts](../src/tests/e2e/specs/ramp.spec.ts)): planned steps
+listed as *pending* before anything runs (with the preview and the table agreeing); a real climb
+publishing 60 acknowledged messages across three steps with the knee reported; an empty ramp
+(start above cap) surfaced and unstartable. Both refusals are asserted **with a target selected**,
+which the unit tests cannot do.
+
+Probes, each verified applied then reverted: threshold no longer disabled under plateau → 1 red;
+preview computed independently of the real builder → 3 red.
+
+**Verified 2026-08-02:** unit **41 files, 638 tests**; e2e **82/82 across 12 projects**; lint 0
+errors (4 warnings); `tsc --noEmit` 0 errors.
+
+### G.3a — traffic-profile sequencer, 2026-08-02
+
+**Purpose.** Profile mode reproduces a realistic traffic shape — burst → steady → spike → idle —
+against one target, and reports what each phase actually achieved against what it asked for.
+
+**Data model.** `ProfilePhase { id, label, rate, durationSecs }` and
+`ProfilePhaseResult { phaseId, label, sent, errors, status, durationMs }`
+([types/profile.ts](../src/types/profile.ts)). `sent` is the server-acknowledged count from the
+phase's `RunSummary`. The **requested** total (`rate × durationSecs`) is deliberately NOT a field on
+the result: it is derivable from the phase, and storing it beside the achieved figure is exactly
+where the two drift apart.
+
+**Load-bearing finding — idle cannot be a run.** `publicationEngine.tick()` floors the per-second
+quota at `Math.max(1, …)` and `runConfigSchema` requires `rate ≥ 1`, so a phase with `rate: 0`
+driven through a run would **publish traffic the profile says should not exist**. The sequencer
+([engine/profileRunner.ts](../src/engine/profileRunner.ts)) waits out an idle phase instead and
+starts no run at all. Three tests pin this.
+
+**Decisions.** A phase ending in ERROR **aborts** the profile (continuing would report an achieved
+shape that never happened, measured against a backend already known to be failing). `stop()` stops
+the active phase and starts no later phase; during an idle phase it cancels the wait. An empty
+profile is refused rather than "completing" vacuously. The engine, run identity and store wiring are
+untouched — the runner drives the existing `startGeneratorRun` once per phase and owns only
+sequencing and aggregation.
+
+**No mocking:** `startRun` and the timer are injected, so the tests drive real fakes instead of
+`vi.mock`. This is the first module here to take that seam; it exists specifically to avoid a mock.
+
+**TDD (strict, this time).** The 12-test contract was written and run BEFORE the runner existed —
+red at import resolution. Because import-level red exercises no assertion, three mutation probes
+followed, each reverted: idle delegated to a run → 3 tests red; error no longer aborting → 1 red;
+the phase-sequencing boundary broken → 3 red. `tsc` then caught a dead `phase` parameter in
+`record()`, removed. Module unit suite after G.3a: **37 files, 569 tests, all passing**; lint 0
+errors; `tsc --noEmit` 0 errors.
+
+### G.3b — phases editor, 2026-08-02
+
+[pages/generator/ProfilePhasesEditor.tsx](../src/pages/generator/ProfilePhasesEditor.tsx) — Zone B
+for Profile mode. Presentational and fully controlled exactly like `RateControls`: one row per phase
+(label, rate, duration, remove), "Add phase", and the derived `Total messages = Σ(rate × duration)`
+and `Profile duration` readouts. Both totals are computed on render and never stored, so an achieved
+figure can never sit beside a stale requested one.
+
+A rate-0 row carries an explicit **idle** tag: 0 is a deliberate shape, not an unset field, and
+without the tag it reads as a mistake. Its duration counts toward the profile length while
+contributing no messages. An empty list surfaces a non-blocking advisory rather than leaving an
+unrunnable profile looking normal.
+
+**TDD.** 10-test contract written and run before the component — red at import. Three mutation
+probes, each reverted: ids no longer fresh → 2 red; idle counted as traffic in the derived total →
+1 red; an edit mutating the caller's array in place → 1 red. Module unit suite: **38 files, 579
+tests, all passing**; lint 0 errors; `tsc --noEmit` 0 errors.
+
+*Note:* this file adds a third `react-refresh/only-export-components` **warning** by exporting
+`makeDefaultPhase` beside the component — the identical shape `RateControls` (`RATE_DEFAULTS`) and
+`TemplateEditor` (`blankTemplate`) already have. Consistent with the established Zone pattern;
+warnings do not fail the gate.
+
+### G.3c — mode selector, page wiring, results panel, 2026-08-02
+
+Mode selector on the generator (**Flat rate · Profile**) — only the two BUILT modes are offered. A
+greyed-out "Ramp"/"Compare" would promise behaviour the app does not have. Profile mode swaps Zone B
+for the phases editor and adds
+[ProfileResultsPanel](../src/pages/generator/ProfileResultsPanel.tsx): per phase the **requested**
+(derived `rate × durationSecs`), the acknowledged **sent**, errors, status, and a `short by N` tag
+when a phase under-delivered. A phase that has not run reports **PENDING**, never "0 sent" — "did
+not run" and "ran and delivered nothing" are different facts.
+
+**Schedule is BLOCKED in Profile mode.** A `ScheduledRun` stores one `RunConfig`, so scheduling a
+profile would silently schedule only the base rate and duration. Zone D gained
+`startBlockedReason` / `scheduleBlockedReason` — carried as REASONS, not booleans, so the disabled
+button explains itself in a tooltip instead of refusing silently. Stop routes to the SEQUENCER when
+a profile is live; stopping only the live phase would let the next phase start immediately.
+
+**A vacuous test, caught by probing.** Two page-level tests asserted Start/Schedule were disabled in
+Profile mode. `MessageGeneratorPage.test.tsx` has no backend, so `targetSelected` is false and both
+buttons are disabled ANYWAY — a probe that removed the Schedule rule entirely left all 15 tests
+green. The rules moved to `GeneratorActions.test.tsx`, which sets `targetSelected: true` and
+therefore tests the blocked reason itself; re-probing there failed correctly. The page test now
+asserts only what is observable without a target (the mode swap, the results panel, the empty
+advisory). The end-to-end wiring with a real target is G.3d's e2e.
+
+Probes (each applied, verified in the file, then reverted): schedule reason ignored → 1 red;
+pending rendered as `0` sent → 1 red. `tsc` then rejected `onRow`'s `data-testid` (antd types it as
+`HTMLAttributes`, which does not admit `data-*` in an object position) — fixed with a typed cast,
+not a behaviour change. Module unit suite: **39 files, 596 tests, all passing**; lint 0 errors;
+`tsc --noEmit` 0 errors.
+
+### G.3d — profile scenarios + e2e, 2026-08-02 — **G.3 COMPLETE**
+
+`Scenario` gained `mode: 'flat' | 'profile'` and an optional `phases` — the fields G.4 deliberately
+withheld until a producer existed.
+
+**Back-compat is the load-bearing decision.** A discriminated union on `mode` was the cleaner model,
+and it was rejected: scenarios saved by G.4 carry **no** `mode`, and a strict union would have
+DROPPED the user's saved data on load (per-entry validation discards invalid entries). `mode` is
+therefore `z.enum(...).default('flat')` — legacy scenarios load as flat — with a `superRefine`
+rejecting a profile scenario that has no phases, since the runner refuses an empty profile and
+storing one would be a scenario that silently does nothing. `ScenarioBar` refuses to save that case
+at the point of saving, too.
+
+The Tools table gained a **Mode** column, and a profile row is described **by its phases**
+(`3 phases · 85 s · 11000 messages`), never by the base config's flat rate — that rate is never used
+when a profile runs, so showing it would describe a run that never happens.
+
+**TDD.** Each surface written test-first with behavioural (not import-level) red: service 5 red →
+green, ScenarioBar 3 red → green, page 1 red → green, Tools 2 red → green. Probes, each verified
+applied in the file then reverted: back-compat default removed → 1 red; empty-profile guard removed
+→ 1 red; phases dropped on save → 1 red.
+
+**E2E — new project `10-profile`** ([profile.spec.ts](../src/tests/e2e/specs/profile.spec.ts)), the
+only automated coverage of the PAGE driving the sequencer against a live backend:
+
+| Case | What it proves |
+|---|---|
+| two-phase real run | mode switch → phases editor → real publishing → per-phase achieved-vs-requested totals (30 requested / 30 acknowledged), no shortfall. **Also asserts Schedule is disabled WITH a target selected** — the thing the unit tests could not prove |
+| save + reload | a profile saves as a scenario, the Tools row reads "Profile · 2 phases", and Load restores mode, both phases and the idle badge |
+| stop mid-profile | the stopped phase settles and the next phase stays **pending** — it did not run, and does not report zero sent |
+
+Full suite **79/79 passed across 11 projects** (2026-08-02). Unit **39 files, 608 tests**; lint 0
+errors; `tsc --noEmit` 0 errors.
+
+*One e2e defect found and fixed while writing it:* `getByLabel('Profile')` matched two elements and
+failed only in the first of the three tests — ambiguity that presents as flakiness. Replaced with a
+locator scoped to `generator-mode`.
 
 ### G.4 — saved scenarios, 2026-08-01
 

@@ -5,6 +5,7 @@
  * src/types/generator.ts and src/types/schedule.ts.
  */
 import type { RunConfig } from './generator'
+import type { ProfilePhase } from './profile'
 
 /**
  * A named, replayable run configuration. Persisted under `peegeeq_scenarios`.
@@ -15,14 +16,19 @@ import type { RunConfig } from './generator'
  * timestamps is DERIVED from `config` at render time (target string, rate ×
  * duration total, template name) and is deliberately not stored.
  *
- * The mode and phase list that §19.3 (Profile mode) needs are not fields here:
- * nothing produces them until G.3 builds that mode, and a stored field with no
- * producer is data that cannot be trusted.
+ * `mode` and `phases` arrived with G.3d, once Profile mode existed to produce
+ * them. `mode` is OPTIONAL-with-default at the storage boundary: scenarios
+ * saved by G.4 carry no mode, and rejecting them would destroy saved data for a
+ * field the user never had. They load as flat.
  */
 export interface Scenario {
   id: string
   name: string
   config: RunConfig
+  /** Which generator mode replays this scenario. Absent in G.4-era data. */
+  mode: 'flat' | 'profile'
+  /** The traffic shape — present only for `mode: 'profile'`, never empty. */
+  phases?: ProfilePhase[]
   createdAt: string // ISO 8601
   updatedAt: string // ISO 8601
 }
