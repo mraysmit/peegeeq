@@ -115,7 +115,7 @@ test.describe('Setups list', () => {
     page.on('pageerror', error => console.error('Page error:', error.message))
   })
 
-  test('setups table is visible', async ({ page, setupsPage }) => {
+  test('setups table is visible', async ({ setupsPage }) => {
     await setupsPage.goto()
     await expect(setupsPage.getSetupsTable()).toBeVisible({ timeout: 15000 })
   })
@@ -126,7 +126,7 @@ test.describe('Setups list', () => {
     await expect(page.locator(`tr:has-text("${SETUP_ID}")`)).toBeVisible({ timeout: 15000 })
   })
 
-  test('at least one setup is listed', async ({ page, setupsPage }) => {
+  test('at least one setup is listed', async ({ setupsPage }) => {
     await setupsPage.goto()
     const count = await setupsPage.getSetupCount()
     expect(count).toBeGreaterThanOrEqual(1)
@@ -148,7 +148,7 @@ test.describe('Setups list', () => {
     await expect(row.getByText('ACTIVE')).toBeVisible()
   })
 
-  test('"No setups found" alert is NOT shown when setups exist', async ({ page, setupsPage }) => {
+  test('"No setups found" alert is NOT shown when setups exist', async ({ setupsPage }) => {
     await setupsPage.goto()
     await expect(setupsPage.getSetupsTable()).toBeVisible({ timeout: 15000 })
     await expect(setupsPage.getNoSetupsAlert()).not.toBeVisible()
@@ -184,19 +184,19 @@ test.describe('Setup detail page', () => {
     await expect(page.getByRole('heading', { name: new RegExp(SETUP_ID) })).toBeVisible({ timeout: 10000 })
   })
 
-  test('detail page shows Setup ID in the descriptions', async ({ page, setupsPage }) => {
+  test('detail page shows Setup ID in the descriptions', async ({ setupsPage }) => {
     await setupsPage.gotoDetail(SETUP_ID)
     await expect(setupsPage.getDetailDescriptions()).toBeVisible({ timeout: 10000 })
     await expect(setupsPage.getDetailDescriptions().getByText(SETUP_ID, { exact: true })).toBeVisible()
   })
 
-  test('detail page shows a Status row', async ({ page, setupsPage }) => {
+  test('detail page shows a Status row', async ({ setupsPage }) => {
     await setupsPage.gotoDetail(SETUP_ID)
     await expect(setupsPage.getDetailDescriptions()).toBeVisible({ timeout: 10000 })
     await expect(setupsPage.getDetailDescriptions().getByText('Status')).toBeVisible()
   })
 
-  test('detail page shows the Queues section', async ({ page, setupsPage }) => {
+  test('detail page shows the Queues section', async ({ setupsPage }) => {
     await setupsPage.gotoDetail(SETUP_ID)
     await expect(setupsPage.getDetailQueues()).toBeVisible({ timeout: 10000 })
   })
@@ -209,12 +209,12 @@ test.describe('Setup detail page', () => {
     await expect(page.locator('[data-testid^="delete-queue-"]')).toHaveCount(0)
   })
 
-  test('detail page shows the Event stores section', async ({ page, setupsPage }) => {
+  test('detail page shows the Event stores section', async ({ setupsPage }) => {
     await setupsPage.gotoDetail(SETUP_ID)
     await expect(setupsPage.getDetailEventStores()).toBeVisible({ timeout: 10000 })
   })
 
-  test('Refresh button on the detail page reloads details', async ({ page, setupsPage }) => {
+  test('Refresh button on the detail page reloads details', async ({ setupsPage }) => {
     await setupsPage.gotoDetail(SETUP_ID)
     await expect(setupsPage.getDetailDescriptions()).toBeVisible({ timeout: 10000 })
     await setupsPage.getDetailRefreshButton().click()
@@ -317,14 +317,14 @@ test.describe('Multiple setups', () => {
     page.on('pageerror', error => console.error('Page error:', error.message))
   })
 
-  test('both setups appear in the table at the same time', async ({ page, setupsPage }) => {
+  test('both setups appear in the table at the same time', async ({ setupsPage }) => {
     await setupsPage.goto()
     await expect(setupsPage.getSetupsTable()).toBeVisible({ timeout: 15000 })
     await expect(setupsPage.getSetupRow(MULTI_SETUP_A)).toBeVisible({ timeout: 15000 })
     await expect(setupsPage.getSetupRow(MULTI_SETUP_B)).toBeVisible({ timeout: 15000 })
   })
 
-  test('the list contains at least three setups (e2e-test-setup + the two new ones)', async ({ page, setupsPage }) => {
+  test('the list contains at least three setups (e2e-test-setup + the two new ones)', async ({ setupsPage }) => {
     await setupsPage.goto()
     await expect(setupsPage.getSetupsTable()).toBeVisible({ timeout: 15000 })
     await expect(setupsPage.getSetupRow(MULTI_SETUP_A)).toBeVisible({ timeout: 15000 })
@@ -332,14 +332,14 @@ test.describe('Multiple setups', () => {
     expect(count).toBeGreaterThanOrEqual(3)
   })
 
-  test('each new setup row shows an ACTIVE status tag', async ({ page, setupsPage }) => {
+  test('each new setup row shows an ACTIVE status tag', async ({ setupsPage }) => {
     await setupsPage.goto()
     await expect(setupsPage.getSetupsTable()).toBeVisible({ timeout: 15000 })
     await expect(setupsPage.getSetupRow(MULTI_SETUP_A).getByText('ACTIVE')).toBeVisible({ timeout: 15000 })
     await expect(setupsPage.getSetupRow(MULTI_SETUP_B).getByText('ACTIVE')).toBeVisible({ timeout: 15000 })
   })
 
-  test('each new setup has its own working detail page', async ({ page, setupsPage }) => {
+  test('each new setup has its own working detail page', async ({ setupsPage }) => {
     await setupsPage.gotoDetail(MULTI_SETUP_A)
     await expect(setupsPage.getDetailDescriptions().getByText(MULTI_SETUP_A, { exact: true })).toBeVisible({ timeout: 10000 })
 
