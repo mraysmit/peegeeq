@@ -1,4 +1,5 @@
 import { test, expect } from '../page-objects'
+import * as fs from 'fs'
 
 /**
  * Generator / Templates / Value Lists / Tools Page Tests
@@ -8,8 +9,9 @@ import { test, expect } from '../page-objects'
  * environment). The full wizard + normal-state flow is covered in
  * quick-setup.spec.ts which runs after this spec.
  *
- * Template Manager / Value List Manager / Tools pages are still stubs —
- * their "Coming soon" text is verified here.
+ * The Template Manager, Value List Manager and Tools pages are all built; this
+ * spec checks their navigation and landing state. (The stale "still stubs"
+ * note here predated Phases C, D and G.4.)
  */
 
 test.describe.configure({ mode: 'serial' })
@@ -29,7 +31,7 @@ test.describe('Generator Pages', () => {
 
   test.describe('Message Generator Page', () => {
 
-    test('should display the Queue Message Generator heading', async ({ page, generatorPage }) => {
+    test('should display the Queue Message Generator heading', async ({ generatorPage }) => {
       await generatorPage.goto()
       await expect(generatorPage.getHeading()).toBeVisible()
     })
@@ -50,7 +52,7 @@ test.describe('Generator Pages', () => {
       await expect(page.getByTestId('zone-a')).toBeVisible()
     })
 
-    test('should show empty-state alert when no setups are connected', async ({ page, generatorPage }) => {
+    test('should show empty-state alert when no setups are connected', async ({ generatorPage }) => {
       await generatorPage.goto()
       await expect(generatorPage.getEmptyStateAlert()).toBeVisible({ timeout: 15000 })
       await expect(generatorPage.getConnectSetupButton()).toBeVisible()
@@ -162,6 +164,44 @@ test.describe('Generator Pages', () => {
       await expect(page.getByTestId('list-count-e2e_names')).not.toBeVisible()
     })
 
+    test('Export produces a real, complete download (revokeObjectURL timing)', async ({ page }) => {
+      // Every export helper in this app does:
+      //     anchor.click(); URL.revokeObjectURL(url)
+      // revoking SYNCHRONOUSLY on the line after the click. Whether the browser
+      // has already taken ownership of the blob by then is not something that
+      // can be settled by reading the code — revoking too early is a documented
+      // way to truncate or abort a download. This test settles it by observing
+      // a real download in real Chromium: the event must fire, the download must
+      // not report a failure, and the SAVED BYTES must match what was exported.
+      //
+      // Asserting only that the download event fired would not be enough — the
+      // event can fire for a transfer that then fails. download.path() resolves
+      // only after the download completes, and failure() exposes the abort.
+      await page.goto('/generator/value-lists')
+      await page.getByRole('button', { name: /New List/i }).click()
+      await page.getByLabel(/List name/i).fill('e2e_download')
+      await page.getByLabel(/Values \(one per line\)/i).fill('Alpha\nBeta\nGamma')
+      await page.getByRole('button', { name: /^Save$/ }).click()
+      await expect(page.getByTestId('list-count-e2e_download')).toContainText('3')
+
+      const downloadPromise = page.waitForEvent('download')
+      await page.getByTestId('list-export-e2e_download').click()
+      const download = await downloadPromise
+
+      expect(download.suggestedFilename()).toBe('e2e_download.json')
+      expect(await download.failure(), 'the download must not be aborted').toBeNull()
+
+      const savedPath = await download.path()
+      expect(savedPath, 'a completed download must have a path on disk').toBeTruthy()
+      const contents = fs.readFileSync(savedPath!, 'utf8')
+      expect(JSON.parse(contents)).toEqual(['Alpha', 'Beta', 'Gamma'])
+
+      // Clean up so other specs see no leftovers (mirrors the round-trip test).
+      await page.getByTestId('list-delete-e2e_download').click()
+      await page.locator('.ant-modal-confirm').getByRole('button', { name: /^Delete$/ }).click()
+      await expect(page.getByTestId('list-count-e2e_download')).not.toBeVisible()
+    })
+
     test('should highlight Value Lists as the active nav item', async ({ page }) => {
       await page.goto('/generator/value-lists')
       await page.waitForLoadState('load')
@@ -180,10 +220,15 @@ test.describe('Generator Pages', () => {
       expect(page.url()).toContain('/tools')
     })
 
-    test('should render the System Overview heading on the Tools page', async ({ page }) => {
+    // The route rendered a second copy of Overview until G.4; it is now the
+    // generation-tool suite launcher, whose first panel is the scenario manager.
+    test('should render the Generation Tools page with the scenarios panel', async ({ page }) => {
       await page.goto('/tools')
       await page.waitForLoadState('load')
-      await expect(page.getByRole('heading', { name: /system overview/i })).toBeVisible()
+      await expect(page.getByRole('heading', { name: /generation tools/i })).toBeVisible()
+      await expect(page.getByTestId('tools-page')).toBeVisible()
+      // No scenarios have been saved in this project's fixtures.
+      await expect(page.getByTestId('scenarios-empty')).toBeVisible()
     })
 
   })

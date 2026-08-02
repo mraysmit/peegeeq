@@ -40,6 +40,41 @@ describe('ImportFileDialog', () => {
     expect(screen.queryByTestId('import-file-dialog')).toBeNull()
   })
 
+  it('leaves nothing in the DOM AFTER being closed — not even its Cancel button', () => {
+    // The case above only covers a dialog that was never opened. antd keeps a
+    // closed Modal mounted and merely hides it, so once opened this dialog's
+    // Cancel and file input survived the close. Every import flow then opens a
+    // collision prompt that also has a "Cancel", and the duplicate name made
+    // that prompt unaddressable by role+name. Pinned here because the leak is
+    // invisible from the open state.
+    const { rerender } = render(
+      <ImportFileDialog
+        open={true}
+        title="Import value list"
+        hint="A JSON array of strings."
+        inputTestId="value-list-import-input"
+        onFile={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+    expect(screen.getByRole('button', { name: /^Cancel$/ })).toBeTruthy()
+
+    rerender(
+      <ImportFileDialog
+        open={false}
+        title="Import value list"
+        hint="A JSON array of strings."
+        inputTestId="value-list-import-input"
+        onFile={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: /^Cancel$/ })).toBeNull()
+    expect(screen.queryByTestId('value-list-import-input')).toBeNull()
+    expect(screen.queryByTestId('import-file-dialog')).toBeNull()
+  })
+
   it('forwards the chosen file to onFile, untouched', async () => {
     const { onFile, onClose } = renderDialog()
     const file = new File(['["Zoe"]'], 'first_names.json', { type: 'application/json' })
