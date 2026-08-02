@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Card, Space, Typography, message } from 'antd'
 import TargetSelector from '../../components/TargetSelector'
+import ScenarioBar from '../../components/ScenarioBar'
 import RateControls, { RATE_DEFAULTS } from './RateControls'
 import TemplateEditor, { blankTemplate } from './TemplateEditor'
 import GeneratorActions from './GeneratorActions'
@@ -26,7 +27,9 @@ import { useGeneratorStore } from '../../stores/generatorStore'
 import { useTemplateStore } from '../../stores/templateStore'
 import { useValueListStore } from '../../stores/valueListStore'
 import { useScheduleStore } from '../../stores/scheduleStore'
+import { useScenarioStore } from '../../stores/scenarioStore'
 import type { MessageTemplate, RateSettings, RunConfig } from '../../types/generator'
+import type { Scenario } from '../../types/scenario'
 
 const { Title } = Typography
 
@@ -47,15 +50,50 @@ export default function MessageGeneratorPage() {
   })
   const [previewIndex, setPreviewIndex] = useState(1)
   const [scheduleModalOpen, setScheduleModalOpen] = useState(false)
+  // Seeds Zone A when a scenario is loaded (G.4). TargetSelector consumes its
+  // initialTarget once per mount, so the key is bumped alongside it to remount
+  // the selector — that is what makes a second Load in the same visit apply.
+  const [initialTarget, setInitialTarget] = useState<{ setupId: string; queueName: string } | undefined>(
+    undefined
+  )
+  const [targetSeed, setTargetSeed] = useState(0)
   const runHandleRef = useRef<RunHandle | null>(null)
 
+  /**
+   * Apply a saved scenario to the page's working state (G.4). The page owns all
+   * of it, so the scenario is unpacked here and nowhere else. The template is
+   * copied (headers included) so editing the working copy never mutates the
+   * stored scenario.
+   */
+  const applyScenario = useCallback((scenario: Scenario) => {
+    const { config } = scenario
+    setRateSettings({
+      rate: config.rate,
+      durationSecs: config.durationSecs,
+      maxBatchSize: config.maxBatchSize,
+      warnThreshold: config.warnThreshold,
+      maxConsecErrors: config.maxConsecErrors,
+    })
+    setWorkingTemplate({ ...config.template, headers: { ...config.template.headers } })
+    setPreviewIndex(config.previewIndex)
+    setInitialTarget({ setupId: config.setupId, queueName: config.queueName })
+    setTargetSeed((seed) => seed + 1)
+  }, [])
+
   useEffect(() => {
+    // Tools page handoff: a scenario selected there becomes this page's working
+    // configuration. Consumed (cleared) so a later plain visit starts clean.
+    const selectedScenario = useScenarioStore.getState().selected
+    if (selectedScenario) {
+      applyScenario(selectedScenario)
+      useScenarioStore.getState().select(null)
+    }
     useTemplateStore.getState().select(null)
     // Load value lists on mount: Preview and the engine both snapshot the
     // valueListStore, and on a fresh page load it starts empty — without this,
     // every {{list:...}} token resolved to "" with a false missing-list warning.
     useValueListStore.getState().loadFromStorage()
-  }, [])
+  }, [applyScenario])
 
   const status = useGeneratorStore((s) => s.runState.status)
   const running = status === 'running'
@@ -135,9 +173,18 @@ export default function MessageGeneratorPage() {
     <Space direction="vertical" style={{ width: '100%' }} data-testid="generator-page">
       <Title level={3}>Queue Message Generator</Title>
 
+      <Card size="small">
+        <ScenarioBar config={assembledConfig()} onLoad={applyScenario} disabled={running} />
+      </Card>
+
       <Card title="Target" size="small">
         <div data-testid="zone-a">
-          <TargetSelector onTargetSelected={handleTargetSelected} onTargetCleared={handleTargetCleared} />
+          <TargetSelector
+            key={targetSeed}
+            initialTarget={initialTarget}
+            onTargetSelected={handleTargetSelected}
+            onTargetCleared={handleTargetCleared}
+          />
         </div>
       </Card>
 

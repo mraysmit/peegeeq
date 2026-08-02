@@ -148,6 +148,18 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['3-generator'],
     },
+    // Saved scenarios (G.4) — the full round trip: save from the generator,
+    // the Tools row's derived columns, real export download, delete, re-import
+    // of that file, and Load restoring the TARGET (not Zone A's default). Also
+    // covers a scenario whose target was destroyed. Owns its own throwaway
+    // setups; depends on 3-generator only for ordering (the generator
+    // empty-state tests must run before any setup exists).
+    {
+      name: '9-scenarios',
+      testMatch: '**/scenarios.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

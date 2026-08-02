@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { Alert, Button, Select, Spin, Space, Typography } from 'antd'
 import { Link, useNavigate } from 'react-router-dom'
 import { getSetups } from '../services/setupService'
@@ -16,9 +16,24 @@ export interface TargetSelectorProps {
    * Start publishes to a setup the UI no longer shows.
    */
   onTargetCleared: () => void
+  /**
+   * Target to pre-select on MOUNT instead of the first setup + first queue
+   * (scenario Load, G.4). Consumed once: a later manual setup change is the
+   * user's, and re-applying it would fight them. Callers that need to seed a
+   * different target after mount remount this component with a new `key`.
+   *
+   * A requested target that no longer exists is NOT silently replaced by the
+   * default one — the mismatch is named in an inline warning, because silently
+   * retargeting means publishing load at a queue the user did not choose.
+   */
+  initialTarget?: { setupId: string; queueName: string }
 }
 
-export default function TargetSelector({ onTargetSelected, onTargetCleared }: TargetSelectorProps) {
+export default function TargetSelector({
+  onTargetSelected,
+  onTargetCleared,
+  initialTarget,
+}: TargetSelectorProps) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -28,6 +43,10 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
   const [queues, setQueues] = useState<QueueSummary[]>([])
   const [selectedQueue, setSelectedQueue] = useState<string | null>(null)
   const [queueLoadError, setQueueLoadError] = useState<string | null>(null)
+  const [unavailableTarget, setUnavailableTarget] = useState<string | null>(null)
+
+  // Held in a ref, not state: consuming it must not re-run the load callbacks.
+  const pendingInitialTarget = useRef(initialTarget ?? null)
 
   const loadSetups = useCallback(async () => {
     setLoading(true)
@@ -35,11 +54,18 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
     try {
       const ids = await getSetups()
       setSetups(ids)
-      if (ids.length > 0) {
-        setSelectedSetup(ids[0])
-      } else {
+      if (ids.length === 0) {
         setSelectedSetup(null)
+        return
       }
+      const wanted = pendingInitialTarget.current
+      if (wanted && !ids.includes(wanted.setupId)) {
+        pendingInitialTarget.current = null
+        setUnavailableTarget(`${wanted.setupId} / ${wanted.queueName}`)
+        setSelectedSetup(ids[0])
+        return
+      }
+      setSelectedSetup(wanted ? wanted.setupId : ids[0])
     } catch (error) {
       // The alert carries the actual cause (HTTP status, network refusal) —
       // a generic line alone hides what went wrong.
@@ -61,11 +87,23 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
     try {
       const summaries = await listQueueDetails(setupId)
       setQueues(summaries)
-      if (summaries.length > 0) {
-        setSelectedQueue(summaries[0].name)
-      } else {
+      if (summaries.length === 0) {
         setSelectedQueue(null)
+        return
       }
+      const wanted = pendingInitialTarget.current
+      if (wanted && wanted.setupId === setupId) {
+        pendingInitialTarget.current = null
+        const match = summaries.find((q) => q.name === wanted.queueName)
+        if (match) {
+          setSelectedQueue(match.name)
+          return
+        }
+        // The setup exists but the queue does not — name the gap rather than
+        // quietly falling through to the first queue.
+        setUnavailableTarget(`${wanted.setupId} / ${wanted.queueName}`)
+      }
+      setSelectedQueue(summaries[0].name)
     } catch (error) {
       // Surface the failure — an unreachable backend must not masquerade as an
       // empty setup (no-error-swallowing rule). The cause is shown, not hidden.
@@ -99,11 +137,15 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
   }, [selectedSetup, selectedQueue, onTargetSelected, onTargetCleared])
 
   function handleSetupChange(value: string) {
+    // A manual choice answers the warning: the user has now picked the target.
+    setUnavailableTarget(null)
+    pendingInitialTarget.current = null
     setSelectedSetup(value)
     setSelectedQueue(null)
   }
 
   function handleQueueChange(value: string) {
+    setUnavailableTarget(null)
     setSelectedQueue(value)
   }
 
@@ -164,6 +206,18 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
     </Space>
   )
 
+  // A requested target (scenario Load) that no longer exists. Shown alongside
+  // the dropdowns so the substituted target is never mistaken for the saved one.
+  const unavailableAlert = unavailableTarget && (
+    <Alert
+      type="warning"
+      showIcon
+      data-testid="target-unavailable"
+      message={`Saved target ${unavailableTarget} is not available`}
+      description="Select the target to publish to — the selection below is a default, not the saved one."
+    />
+  )
+
   // Queue-load failure — distinct from a legitimately empty setup
   if (queueLoadError) {
     return (
@@ -189,6 +243,7 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
     return (
       <Space direction="vertical" style={{ width: '100%' }}>
         {setupRow}
+        {unavailableAlert}
         <Alert
           type="info"
           message="No queues found for this setup"
@@ -211,6 +266,7 @@ export default function TargetSelector({ onTargetSelected, onTargetCleared }: Ta
   return (
     <Space direction="vertical" style={{ width: '100%' }}>
       {setupRow}
+      {unavailableAlert}
       <Space align="center" style={{ width: '100%' }}>
         <label htmlFor="target-queue-select">Queue</label>
         <Select

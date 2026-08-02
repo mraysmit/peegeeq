@@ -22,7 +22,9 @@ import MessageGeneratorPage from '../../pages/generator/MessageGeneratorPage'
 import { useGeneratorStore } from '../../stores/generatorStore'
 import { useTemplateStore } from '../../stores/templateStore'
 import { useValueListStore } from '../../stores/valueListStore'
+import { useScenarioStore } from '../../stores/scenarioStore'
 import type { MessageTemplate, RunConfig } from '../../types/generator'
+import type { Scenario } from '../../types/scenario'
 
 function makeConfig(): RunConfig {
   const now = new Date().toISOString()
@@ -50,9 +52,23 @@ function renderPage() {
 describe('MessageGeneratorPage', () => {
   beforeEach(() => {
     localStorage.clear()
+    // Point Zone A's REAL fetch at a closed port so "no backend" is a fact, not
+    // an assumption about the machine. configService defaults to the absolute
+    // URL http://127.0.0.1:8088, so these tests reached whatever backend
+    // happened to be listening — and `npm run test:e2e` leaves one running, so
+    // running e2e before the unit suite made "renders all five zones" and
+    // "Start is disabled without a target" fail (Zone A loaded the leftover
+    // e2e setup instead of erroring). Set through the app's own config seam:
+    // no mocks, no request interception, deterministic on any machine.
+    // Must follow localStorage.clear() above — the clear would wipe it.
+    localStorage.setItem(
+      'peegeeq_utilities_backend_config',
+      JSON.stringify({ apiUrl: 'http://127.0.0.1:1' })
+    )
     useGeneratorStore.getState().resetRun()
     useGeneratorStore.setState({ config: null })
     useTemplateStore.setState({ templates: [], selected: null })
+    useScenarioStore.setState({ scenarios: [], selected: null })
   })
 
   it('renders all five zones', async () => {
@@ -127,6 +143,66 @@ describe('MessageGeneratorPage', () => {
     await waitFor(() => {
       expect(useValueListStore.getState().snapshot()['persisted_names']).toEqual(['Val'])
     })
+  })
+
+  it('renders the scenario bar', () => {
+    renderPage()
+    expect(screen.getByTestId('scenario-bar')).toBeTruthy()
+  })
+
+  it('applies a scenario selected in the scenarioStore as the working configuration (Tools handoff)', async () => {
+    const now = new Date().toISOString()
+    const scenario: Scenario = {
+      id: 'scn-1',
+      name: 'nightly-soak',
+      config: {
+        ...makeConfig(),
+        rate: 250,
+        durationSecs: 30,
+        previewIndex: 7,
+        template: { ...makeConfig().template, name: 'From scenario' },
+      },
+      createdAt: now,
+      updatedAt: now,
+    }
+    useScenarioStore.getState().add(scenario)
+    useScenarioStore.getState().select('scn-1')
+
+    renderPage()
+
+    await waitFor(() => {
+      expect((screen.getByLabelText(/Rate \(msg\/s\)/i) as HTMLInputElement).value).toBe('250')
+    })
+    expect((screen.getByLabelText(/^Name$/i) as HTMLInputElement).value).toBe('From scenario')
+    // 250 × 30 s — the rate settings arrived as a set, not one field.
+    expect(screen.getByTestId('total-messages').textContent).toContain('7500')
+    // The selection is consumed: a later plain visit to /generator starts clean.
+    await waitFor(() => {
+      expect(useScenarioStore.getState().selected).toBeNull()
+    })
+  })
+
+  it('a loaded scenario does not mutate the stored scenario when the working template is edited', async () => {
+    const now = new Date().toISOString()
+    const scenario: Scenario = {
+      id: 'scn-1',
+      name: 'nightly-soak',
+      config: { ...makeConfig(), template: { ...makeConfig().template, name: 'Stored name' } },
+      createdAt: now,
+      updatedAt: now,
+    }
+    useScenarioStore.getState().add(scenario)
+    useScenarioStore.getState().select('scn-1')
+    renderPage()
+
+    const name = await screen.findByLabelText(/^Name$/i)
+    await userEvent.clear(name)
+    await userEvent.type(name, 'Edited copy')
+
+    await waitFor(() => {
+      expect((screen.getByLabelText(/^Name$/i) as HTMLInputElement).value).toBe('Edited copy')
+    })
+    expect(useScenarioStore.getState().scenarios[0].config.template.name).toBe('Stored name')
   })
 
   it('a running store disables Zone B and Zone C inputs', async () => {

@@ -447,6 +447,24 @@ test.describe('UI documentation screenshots', () => {
       .getByRole('button', { name: /^Cancel$/ })
       .click()
 
+    // ── 39 Generator — "Save as…" scenario dialog (G.4) ────────────────────
+    // 02 captured /tools in its first-visit empty state; these two show the
+    // scenario mechanism actually in use.
+    await page.goto('/generator')
+    await selectDemoTarget(page)
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('100')
+    await page.getByLabel(/Duration \(seconds\)/i).fill('60')
+    await page.getByTestId('scenario-save-as').click()
+    await page.getByTestId('scenario-name-input').fill('nightly-soak')
+    await shot(page, '39-scenario-save-dialog.png')
+    await page.getByTestId('scenario-save-confirm').click()
+    await expect(page.getByTestId('scenario-name-input')).toHaveCount(0)
+
+    // ── 40 Tools — the scenario manager with a saved scenario ──────────────
+    await page.goto('/tools')
+    await expect(page.getByTestId('scenario-table')).toBeVisible()
+    await shot(page, '40-tools-scenarios.png')
+
     // Clean up all demo localStorage state so reruns start clean.
     await page.evaluate(() => {
       localStorage.removeItem('peegeeq_msg_templates')
@@ -454,6 +472,7 @@ test.describe('UI documentation screenshots', () => {
       localStorage.removeItem('peegeeq_generator_schedules')
       localStorage.removeItem('peegeeq_schedule_run_history')
       localStorage.removeItem('peegeeq_schedule_templates')
+      localStorage.removeItem('peegeeq_scenarios')
     })
   })
 })
