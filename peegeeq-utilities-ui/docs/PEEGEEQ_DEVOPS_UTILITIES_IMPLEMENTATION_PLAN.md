@@ -36,6 +36,7 @@ the current baseline and covers only what is left, plus the divergences recorded
 | Value List Manager page | ✅ done (Phase D, 2026-07-19) | feature §6.3 |
 | Scheduled runs (screen, scheduler, history, templates, import) | ✅ done (2026-07-19, SCH.0–SCH.8; hardened SCH.9 2026-07-21) | Phase SCH; design Part III |
 | Overview redesign (per-setup, no global aggregates) | ✅ done (per-setup table + detail card; connect CTA) | feature §6.6, TD §12.2 |
+| Saved scenarios + Tools launcher (`/tools` no longer duplicates Overview) | ✅ done (Phase G.4, 2026-08-01) | design §19.0, §19.4 |
 
 ---
 
@@ -436,7 +437,7 @@ tracks that dependency.
 | G.1b | Ramp — rich saturation *attribution* | **Needs Phase T:** G3 (resource saturation) + G4 (≥1 Hz stream) + G7 (DB bottleneck signals) | telemetry §4A, §7 |
 | G.2 | Native-vs-Outbox comparison run | **Needs Phase T:** G1 (percentiles) + G2 (delivery latency) + G6 (correlation join) + G7 (DB churn profile) | telemetry §7 |
 | G.3 | Traffic-profile / scenario runner | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
-| G.4 | Saved scenarios (localStorage, templateService-shaped) | **None** | design §19.4 |
+| G.4 | ✅ **DONE 2026-08-01** — saved scenarios (localStorage, templateService-shaped); see the G.4 record below | **None** | design §19.4 |
 | G.5 | Delay / Priority / FIFO exerciser | **Client-only** to send; *auto-verify* needs G6 (else defer to management-ui browser) | design §19.5; telemetry §6 |
 | G.6 | Correlation / trace seed generator | **None** — emits ids; verify in management-ui | design §19.6 |
 
@@ -445,6 +446,101 @@ the dead `/tools` route as the suite launcher.
 
 **Build order within Phase G:** ship the client-only tools first (G.1a, G.3, G.4, G.5-send, G.6) —
 they need no backend change. G.1b and G.2 land only after Phase T delivers their telemetry.
+
+### G.4 — saved scenarios, 2026-08-01
+
+**Data model.** `Scenario { id, name, config: RunConfig, createdAt, updatedAt }`
+([types/scenario.ts](../src/types/scenario.ts)), persisted under `peegeeq_scenarios`. `config` is the
+full snapshot at save time — the same working-copy contract a schedule uses. Everything else the
+§19.4 table shows is **derived at render time and deliberately not stored**: the target string, the
+`rate × duration` total, and the template name all come from `config`.
+
+**Deliberate omission — no `mode`/`phases` field yet.** §19.4 says a scenario is "a RunConfig
+(+ profile for §19.3)". Nothing produces a profile until G.3 builds Profile mode, and a stored field
+with no producer cannot be trusted, so the field lands with G.3 and the §19.4 Mode column is absent
+until then.
+
+**Recorded decision — the duplicate saved-RunConfig store (user's call, 2026-08-01).**
+`ScheduleTemplate` (`peegeeq_schedule_templates`, [types/schedule.ts](../src/types/schedule.ts) §R13,
+Scheduled Runs → Templates tab) is already "a reusable run configuration": the same
+`{ id, name, config: RunConfig, timestamps }` shape this step adds. Generalising it into `Scenario`
+was offered as the alternative. **The user chose to build G.4 exactly as this plan specifies**, so
+the module now has two parallel stores of a saved `RunConfig`. This is a known, accepted duplication,
+not an oversight — record it here so a later reader does not "fix" one of them in isolation.
+
+| Step | What |
+|---|---|
+| G.4a | [types/scenario.ts](../src/types/scenario.ts), [services/scenarioService.ts](../src/services/scenarioService.ts), [stores/scenarioStore.ts](../src/stores/scenarioStore.ts) — load with **per-entry** Zod validation (one corrupt entry is dropped and named, never a blanked list), save through `persistJson`, export one/all, import with one named error per rejected entry, duplicate ids skipped without overwrite. `runConfigSchema` and `loadValidated` are now **exported from scheduleService** and `triggerDownload` from templateService rather than re-implemented. |
+| G.4b | [pages/tools/ToolsPage.tsx](../src/pages/tools/ToolsPage.tsx) — the dead `/tools` route (it rendered a **second copy of Overview**) becomes the generation-tool suite launcher; its first panel is the scenario table (Name · Target · Run · Updated · Load/Export/Delete) plus Import and an empty state pointing at the generator. Ramp/Profile/etc. join this page as they are built. |
+| G.4c | [components/ScenarioBar.tsx](../src/components/ScenarioBar.tsx) on the generator — scenario select, Load, "Save as…" (named, blank name refused inline), Export. **Import is on the Tools page only**, not on the bar as the §19.4 mockup draws it: templates, value lists and schedules each have exactly one import code path, and mirroring that beats duplicating the dialog wiring. |
+| G.4d | [components/TargetSelector.tsx](../src/components/TargetSelector.tsx) gained `initialTarget` — without it a loaded scenario could not restore its own target, because the selector always auto-selected the first setup + first queue. Consumed once per mount (the generator remounts it with a new `key` per Load) so it never fights a later manual change. **A requested target that no longer exists is NOT silently replaced:** the substitution is named in a `target-unavailable` warning, because silently retargeting means publishing load at a queue the user never chose. |
+| G.4e | Handoff: Tools "Load" selects the scenario and navigates to `/generator`, which consumes the selection into rate settings, working template, preview index and target — the same shape as the Template Manager handoff. The template is deep-copied on apply, so editing the working copy cannot mutate the stored scenario. |
+
+**Tests.** `scenarioService.test.ts`, `scenarioStore.test.ts`, `ScenarioBar.test.tsx`,
+`ToolsPage.test.tsx`, plus scenario-handoff and no-mutation cases in `MessageGeneratorPage.test.tsx`
+and five `initialTarget` cases in `TargetSelector.test.tsx`. All use the real stores, real
+localStorage and the real FileReader import path; only `URL.createObjectURL` / anchor click are
+stubbed (jsdom implements neither).
+
+**Process defect, and how the evidence was repaired.** This step was built implementation-first and
+the tests were written afterwards — a departure from the red→green discipline every other step in
+this plan records, and it was not declared at the time. The tests were therefore never observed
+failing, so nothing established that they *could* fail. Repaired by reconstructing both directions:
+
+- **Red (implementation removed, tests kept):** 6 files failed. The five `initialTarget` cases failed
+  on assertions against the original `TargetSelector` (`expected "spy" to be called with
+  [ 'setup-b', 'events' ]`); the four new files failed at import resolution. The 23 pre-existing
+  `TargetSelector` cases still passed, confirming the new behaviour was additive.
+- **Mutation probes**, because import-time red proves nothing about assertions that never executed.
+  Each load-bearing behaviour was broken one at a time and the matching test confirmed red, then
+  reverted: per-entry validation bypassed → 3 service cases; duplicate-id skipping removed → 2 store
+  cases + 1 ToolsPage case; blank-name refusal removed → 1 bar case; Tools handoff not consumed → 1
+  generator case; Load navigating without selecting → 1 ToolsPage case.
+- **Green:** the 6 files pass (75 cases). Full module unit suite: **36 files, 557 tests, all passing**
+  (2026-08-01). `tsc --noEmit` 0 errors; ESLint clean on every changed file.
+
+**E2E — new project `9-scenarios` ([scenarios.spec.ts](../src/tests/e2e/specs/scenarios.spec.ts)),
+3 tests, own throwaway setups.** Full suite 2026-08-02 (user-authorised), real backend +
+TestContainers: **76/76 passed in 4.9 min across all 10 projects.**
+
+| Case | What it proves |
+|---|---|
+| round trip | generator → Save as… → Tools row with both DERIVED columns → **real export download** (file contents asserted) → Delete → **re-import of that exported file** → Load → generator repopulated, **target included**, Start armed |
+| scenario bar | Load restores drifted values in place, without leaving `/generator` |
+| destroyed target | a scenario whose setup was deleted surfaces `target-unavailable` naming it, instead of silently retargeting |
+
+Mutation probe on the round trip: with `initialTarget` ignored in TargetSelector, the test failed with
+`Expected "e2e-scenario-…" / Received "e2e-test-setup"` — it catches the exact silent-retargeting
+failure the feature exists to prevent.
+
+`generator.spec.ts` asserted the Tools route renders the "System Overview" heading; corrected to
+assert the Generation Tools page, and the rewritten case passed against the live app.
+
+**Two pre-existing defects found by running the full sweep, and fixed here:**
+
+1. *`generator-schedule.spec.ts` had a 1-in-60 time-dependent failure.* `localDatetime()` always
+   emitted seconds; the `datetime-local` inputs carry no `step`, so Chrome normalises a trailing
+   `:00` away and Playwright's `fill()` throws `Malformed value` when the retained value differs.
+   Observed at `fill("2026-08-02T00:22:00")`. Seconds are now emitted only when non-zero.
+2. *Two `MessageGeneratorPage` unit tests depended on no backend being reachable.*
+   `configService` defaults to the **absolute** URL `http://127.0.0.1:8088`, so Zone A's real fetch
+   reached whatever was listening — and `npm run test:e2e` leaves a backend running, making
+   `test:e2e` → `test:run` fail in that order. Confirmed pre-existing by reproducing on stashed,
+   pristine code. Fixed through the app's own config seam (a closed port seeded in `beforeEach`,
+   after `localStorage.clear()`): no mocks, no request interception. Verified green **with the
+   leftover backend still listening**, the exact condition that broke it.
+
+*Integration leg is a non-result:* `npm run test:integration` finds **no test files** and passes via
+`--passWithNoTests`. The module has no integration suite; that leg proves nothing.
+
+**Screenshots:** the gallery spec now captures the G.4 surfaces — `39-scenario-save-dialog.png` and
+`40-tools-scenarios.png` — and clears `peegeeq_scenarios` in its teardown. `02-tools.png` picks up
+the new Generation Tools page automatically. Regenerating the PNGs rewrites committed assets, so it
+is deliberately left as the user's action:
+`npx playwright test --config=playwright.screenshots.config.ts`, then Appendix A's Tools entry.
+
+*Repo-wide lint (`npm run lint`) fails with 40 problems across 10 files — **identical at HEAD**, none
+in any file this step created or changed. Pre-existing; not addressed here to keep G.4 reviewable.*
 
 ---
 

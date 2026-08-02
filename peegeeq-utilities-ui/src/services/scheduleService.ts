@@ -24,9 +24,15 @@ const TEMPLATES_KEY = 'peegeeq_schedule_templates'
 export const HISTORY_MAX_ENTRIES = 200
 export const HISTORY_MAX_ERRORS_PER_ENTRY = 20
 
-// Ranges match the Zone B input bounds (feature §6.1): stored or imported
-// configs must not carry values the UI cannot produce.
-const runConfigSchema = z.object({
+/**
+ * Ranges match the Zone B input bounds (feature §6.1): stored or imported
+ * configs must not carry values the UI cannot produce.
+ *
+ * Exported for reuse by scenarioService — a scenario is a saved RunConfig, so
+ * it validates against the identical shape (the same idiom as templateService
+ * exporting messageTemplateSchema for use here).
+ */
+export const runConfigSchema = z.object({
   setupId: z.string().min(1),
   queueName: z.string().min(1),
   rate: z.number().min(1),
@@ -101,8 +107,11 @@ const scheduleTemplateSchema = z.object({
 /**
  * Load an array key with per-entry validation. Invalid entries are dropped and
  * reported by name — a visible report, never a silent discard.
+ *
+ * Exported for reuse by scenarioService: the same per-entry rule applies to
+ * every localStorage collection (one corrupt entry must never blank the list).
  */
-function loadValidated<T>(key: string, schema: z.ZodType<T>, describe: (raw: unknown, i: number) => string): T[] {
+export function loadValidated<T>(key: string, schema: z.ZodType<T>, describe: (raw: unknown, i: number) => string): T[] {
   try {
     const raw = localStorage.getItem(key)
     if (!raw) return []
