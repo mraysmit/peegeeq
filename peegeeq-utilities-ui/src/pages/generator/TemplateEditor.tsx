@@ -17,24 +17,9 @@ import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useTemplateStore } from '../../stores/templateStore'
 import { resolveTemplate } from '../../engine/templateResolver'
 import type { MessageTemplate } from '../../types/generator'
+import { blankTemplate } from './generatorDefaults'
 
 const MAX_HEADERS = 20
-
-/** Blank working copy for the New action. */
-export function blankTemplate(): MessageTemplate {
-  const now = new Date().toISOString()
-  return {
-    id: crypto.randomUUID(),
-    name: 'Untitled',
-    messageType: '',
-    payloadSchema: '{}',
-    headers: {},
-    priority: 5,
-    delaySeconds: 0,
-    createdAt: now,
-    updatedAt: now,
-  }
-}
 
 /** §5.3 placeholder tokens for the reference panel. */
 const PLACEHOLDERS: Array<{ token: string; scope: string; description: string }> = [

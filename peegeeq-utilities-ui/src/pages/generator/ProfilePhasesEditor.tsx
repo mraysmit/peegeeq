@@ -13,13 +13,9 @@
 import { Alert, Button, InputNumber, Input, Tag, Typography } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import type { ProfilePhase } from '../../types/profile'
+import { makeDefaultPhase } from './generatorDefaults'
 
 const { Text } = Typography
-
-/** A new phase: modest, immediately runnable defaults with a fresh id. */
-export function makeDefaultPhase(): ProfilePhase {
-  return { id: crypto.randomUUID(), label: 'phase', rate: 100, durationSecs: 30 }
-}
 
 interface ProfilePhasesEditorProps {
   value: ProfilePhase[]

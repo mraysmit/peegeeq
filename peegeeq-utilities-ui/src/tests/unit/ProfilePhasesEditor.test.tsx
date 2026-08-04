@@ -24,7 +24,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ConfigProvider } from 'antd'
-import ProfilePhasesEditor, { makeDefaultPhase } from '../../pages/generator/ProfilePhasesEditor'
+import ProfilePhasesEditor from '../../pages/generator/ProfilePhasesEditor'
+import { makeDefaultPhase } from '../../pages/generator/generatorDefaults'
 import type { ProfilePhase } from '../../types/profile'
 
 function phase(overrides: Partial<ProfilePhase> = {}): ProfilePhase {

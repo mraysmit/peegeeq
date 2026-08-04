@@ -18,7 +18,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ConfigProvider } from 'antd'
-import RampControls, { RAMP_DEFAULTS } from '../../pages/generator/RampControls'
+import RampControls from '../../pages/generator/RampControls'
+import { RAMP_DEFAULTS } from '../../pages/generator/generatorDefaults'
 import type { RampSettings } from '../../types/ramp'
 
 function Harness({
