@@ -68,7 +68,7 @@ function renderBar(
     config: RunConfig | null
     onLoad: (s: Scenario) => void
     disabled: boolean
-    mode: 'flat' | 'profile' | 'ramp'
+    mode: 'flat' | 'profile' | 'ramp' | 'exerciser'
     phases: ProfilePhase[]
   }> = {}
 ) {
@@ -219,6 +219,12 @@ describe('ScenarioBar', () => {
     renderBar({ mode: 'ramp' })
 
     // Disabled, not silently saving something that replays as a different run.
+    expect((screen.getByTestId('scenario-save-as') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('BLOCKS saving in Exerciser mode — a scenario has no exerciser kind either (G.5)', () => {
+    renderBar({ mode: 'exerciser' })
+
     expect((screen.getByTestId('scenario-save-as') as HTMLButtonElement).disabled).toBe(true)
   })
 

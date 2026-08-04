@@ -20,11 +20,15 @@ import RateControls, { RATE_DEFAULTS } from './RateControls'
 import ProfilePhasesEditor, { makeDefaultPhase } from './ProfilePhasesEditor'
 import ProfileResultsPanel from './ProfileResultsPanel'
 import RampControls, { RAMP_DEFAULTS } from './RampControls'
+import ExerciserControls, { EXERCISER_DEFAULTS } from './ExerciserControls'
+import ManifestPanel from './ManifestPanel'
+import type { ManifestRun } from './ManifestPanel'
 import { createProfileRunner } from '../../engine/profileRunner'
 import type { ProfileHandle } from '../../engine/profileRunner'
 import { buildRampPhases, rampHaltReason, sustainedRate } from '../../engine/rampPlan'
 import type { ProfilePhase, ProfilePhaseResult } from '../../types/profile'
 import type { RampSettings } from '../../types/ramp'
+import type { ExerciserSettings } from '../../types/exerciser'
 import TemplateEditor, { blankTemplate } from './TemplateEditor'
 import GeneratorActions from './GeneratorActions'
 import ScheduleRunModal from './ScheduleRunModal'
@@ -67,10 +71,10 @@ export default function MessageGeneratorPage() {
   const [targetSeed, setTargetSeed] = useState(0)
   const runHandleRef = useRef<RunHandle | null>(null)
 
-  // Only BUILT modes are offered (G.3c, G.1a). Compare / Delay / Trace are not
+  // Only BUILT modes are offered (G.3c, G.1a, G.5). Compare / Trace are not
   // built, and a disabled control for them would promise behaviour the app does
   // not have.
-  const [mode, setMode] = useState<'flat' | 'profile' | 'ramp'>('flat')
+  const [mode, setMode] = useState<'flat' | 'profile' | 'ramp' | 'exerciser'>('flat')
   const [phases, setPhases] = useState<ProfilePhase[]>(() => [makeDefaultPhase()])
   const [phaseResults, setPhaseResults] = useState<ProfilePhaseResult[]>([])
   const [activePhaseIndex, setActivePhaseIndex] = useState<number | null>(null)
@@ -81,6 +85,14 @@ export default function MessageGeneratorPage() {
   const [rampSettings, setRampSettings] = useState<RampSettings>(RAMP_DEFAULTS)
   const [rampHalt, setRampHalt] = useState<string | null>(null)
   const rampPhases = useMemo(() => buildRampPhases(rampSettings), [rampSettings])
+
+  // Exerciser mode (G.5). The manifest is DERIVED after the run from these
+  // captured inputs — settings, the value-list snapshot the run used, and the
+  // summary's run id / attempted count. Nothing per-message is stored.
+  const [exerciserSettings, setExerciserSettings] = useState<ExerciserSettings>(EXERCISER_DEFAULTS)
+  const [manifestRun, setManifestRun] = useState<ManifestRun | null>(null)
+  // Subscribed (not getState) so the per-key blocked reason follows list edits.
+  const valueLists = useValueListStore((s) => s.lists)
 
   /** The steps the results panel shows: a ramp's steps ARE phases. */
   const sequencePhases = mode === 'ramp' ? rampPhases : phases
@@ -236,25 +248,45 @@ export default function MessageGeneratorPage() {
   }
 
   function handleStart() {
-    // Every non-flat mode is a SEQUENCE of steps driven by the same runner.
-    // Testing for 'profile' alone silently ran a ramp as a single flat run.
-    if (mode !== 'flat') {
+    // Profile and Ramp are SEQUENCES of steps driven by the same runner —
+    // testing for 'profile' alone silently ran a ramp as a single flat run.
+    // The exerciser is NOT a sequence: it is one run whose messages carry
+    // per-message ordering assignments, so it goes through the flat wiring
+    // below with `ordering` on the config.
+    if (mode === 'profile' || mode === 'ramp') {
       handleStartProfile()
       return
     }
     if (!target) return
+    const isExerciser = mode === 'exerciser'
+    // Captured here, not read in the terminal callback: the manifest must
+    // describe the settings and value lists THIS run used, whatever the
+    // controls or lists look like when it settles.
+    const ordering = exerciserSettings
+    const runValueLists = useValueListStore.getState().snapshot()
     const config: RunConfig = {
       setupId: target.setupId,
       queueName: target.queueName,
       ...rateSettings,
       template: workingTemplate,
       previewIndex,
+      ...(isExerciser ? { ordering } : {}),
     }
+    if (isExerciser) setManifestRun(null)
     // Shared wiring (runStarter): store-generated run id, callbacks, terminal
     // settling — identical for the Start button and the scheduler.
     runHandleRef.current = startGeneratorRun(config, {
       onTerminal: (summary, status, reason) => {
         runHandleRef.current = null
+        if (isExerciser) {
+          setManifestRun({
+            settings: ordering,
+            runId: summary.runId,
+            attempted: summary.totalAttempted ?? 0,
+            errors: summary.totalErrors,
+            valueLists: runValueLists,
+          })
+        }
         // Manual runs join the run history like scheduled firings.
         useScheduleStore
           .getState()
@@ -289,7 +321,25 @@ export default function MessageGeneratorPage() {
       ...rateSettings,
       template: workingTemplate,
       previewIndex,
+      ...(mode === 'exerciser' ? { ordering: exerciserSettings } : {}),
     }
+  }
+
+  /**
+   * Why Start must stay disabled in exerciser mode, or undefined. A per-key
+   * group strategy with no usable list cannot assign groups — the engine would
+   * refuse at the first tick (assignmentFor throws), so it is blocked here
+   * with the reason instead.
+   */
+  function exerciserBlockedReason(): string | undefined {
+    if (mode !== 'exerciser' || exerciserSettings.group.kind !== 'per-key') return undefined
+    const { listName } = exerciserSettings.group
+    if (listName === '') return 'Choose a value list for the per-key group strategy.'
+    const list = valueLists.find((l) => l.name === listName)
+    if (!list || list.values.length === 0) {
+      return `Value list "${listName}" is missing or empty — the per-key group strategy cannot assign groups.`
+    }
+    return undefined
   }
 
   const scheduleConfig = scheduleModalOpen ? assembledConfig() : null
@@ -310,6 +360,7 @@ export default function MessageGeneratorPage() {
               { label: 'Flat rate', value: 'flat' },
               { label: 'Profile', value: 'profile' },
               { label: 'Ramp', value: 'ramp' },
+              { label: 'Delay / Prio / FIFO', value: 'exerciser' },
             ]}
           />
         </Space>
@@ -342,7 +393,9 @@ export default function MessageGeneratorPage() {
             ? 'Traffic profile'
             : mode === 'ramp'
               ? 'Ramp to breaking point'
-              : 'Rate, duration & guards'
+              : mode === 'exerciser'
+                ? 'Ordering & scheduling'
+                : 'Rate, duration & guards'
         }
         size="small"
       >
@@ -351,6 +404,20 @@ export default function MessageGeneratorPage() {
         )}
         {mode === 'ramp' && (
           <RampControls value={rampSettings} onChange={setRampSettings} disabled={running} />
+        )}
+        {mode === 'exerciser' && (
+          // §19.5 Zone B is the ordering strategies PLUS rate/duration — an
+          // exerciser is one flat run whose messages carry assignments.
+          <>
+            <ExerciserControls
+              value={exerciserSettings}
+              onChange={setExerciserSettings}
+              disabled={running}
+            />
+            <div style={{ marginTop: 16 }}>
+              <RateControls value={rateSettings} onChange={setRateSettings} disabled={running} />
+            </div>
+          </>
         )}
         {mode === 'flat' && (
           <RateControls value={rateSettings} onChange={setRateSettings} disabled={running} />
@@ -376,14 +443,16 @@ export default function MessageGeneratorPage() {
               ? 'Add at least one phase to run a profile.'
               : mode === 'ramp' && rampPhases.length === 0
                 ? 'This ramp has no steps — the start rate is above the max rate.'
-                : undefined
+                : exerciserBlockedReason()
           }
           scheduleBlockedReason={
             mode === 'profile'
               ? 'Scheduling stores a single rate and duration, so it cannot carry a multi-phase profile. Schedule a flat-rate run instead.'
               : mode === 'ramp'
                 ? 'Scheduling stores a single rate and duration, so it cannot carry a ramp. Schedule a flat-rate run instead.'
-                : undefined
+                : mode === 'exerciser'
+                  ? 'The schedule surfaces do not show ordering strategies, so a scheduled exerciser run would read as a plain flat run. Schedule a flat-rate run instead.'
+                  : undefined
           }
         />
       </Card>
@@ -395,7 +464,7 @@ export default function MessageGeneratorPage() {
         <ProgressPanel />
       </Card>
 
-      {mode !== 'flat' && (
+      {(mode === 'profile' || mode === 'ramp') && (
         <Card
           title={mode === 'ramp' ? 'Ramp — achieved vs requested per step' : 'Profile — achieved vs requested'}
           size="small"
@@ -410,6 +479,12 @@ export default function MessageGeneratorPage() {
             results={phaseResults}
             activeIndex={activePhaseIndex}
           />
+        </Card>
+      )}
+
+      {mode === 'exerciser' && (
+        <Card title="Sent manifest" size="small">
+          <ManifestPanel run={manifestRun} />
         </Card>
       )}
 

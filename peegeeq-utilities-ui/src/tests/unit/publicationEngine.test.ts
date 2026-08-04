@@ -19,8 +19,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPublicationEngine } from '../../engine/publicationEngine'
 import type { RunIdentity } from '../../engine/publicationEngine'
+import { assignmentFor } from '../../engine/exerciserPlan'
 import { publishBatch } from '../../services/publishService'
+import { useValueListStore } from '../../stores/valueListStore'
 import type { RunConfig, MessageTemplate, RunSummary, PublishError } from '../../types/generator'
+import type { ExerciserSettings } from '../../types/exerciser'
 
 vi.mock('../../services/publishService')
 const mockedPublishBatch = vi.mocked(publishBatch)
@@ -441,5 +444,127 @@ describe('publicationEngine', () => {
     const error = (summary.errors as PublishError[])[0]
     expect(error.messageIndex).toBe(11)
     expect(error.httpStatus).toBe(503)
+  })
+
+  // ── Ordering strategies (§19.5 — Phase G.5-send) ──────────────────────────
+
+  it('without ordering, every message carries the template scalars', async () => {
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 5, messagesFailed: 0 })
+    const engine = createPublicationEngine()
+
+    engine.start(makeConfig({ rate: 5, maxBatchSize: 5, durationSecs: 1 }), IDENTITY, callbacks())
+    await vi.advanceTimersByTimeAsync(0)
+
+    const messages = mockedPublishBatch.mock.calls[0][2].messages
+    expect(messages.map((m) => m.priority)).toEqual([5, 5, 5, 5, 5])
+    expect(messages.map((m) => m.delaySeconds)).toEqual([0, 0, 0, 0, 0])
+    expect(messages.every((m) => m.messageGroup === undefined)).toBe(true)
+  })
+
+  it('ordering assigns delay, priority and group PER MESSAGE, overriding the template', async () => {
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 5, messagesFailed: 0 })
+    const engine = createPublicationEngine()
+
+    engine.start(
+      makeConfig({
+        rate: 5,
+        maxBatchSize: 5,
+        durationSecs: 1,
+        ordering: {
+          delay: { kind: 'fixed', seconds: 3 },
+          priority: { kind: 'round-robin' },
+          group: { kind: 'round-robin', groups: 2 },
+        },
+      }),
+      IDENTITY,
+      callbacks()
+    )
+    await vi.advanceTimersByTimeAsync(0)
+
+    const messages = mockedPublishBatch.mock.calls[0][2].messages
+    expect(messages.map((m) => m.priority)).toEqual([1, 2, 3, 4, 5])
+    expect(messages.map((m) => m.delaySeconds)).toEqual([3, 3, 3, 3, 3])
+    expect(messages.map((m) => m.messageGroup)).toEqual([
+      'grp-0',
+      'grp-1',
+      'grp-0',
+      'grp-1',
+      'grp-0',
+    ])
+  })
+
+  it('ordering assignments match exerciserPlan.assignmentFor — the manifest source', async () => {
+    // The manifest is rebuilt after the run from the same function; this pins
+    // the engine to it, so the report cannot drift from what was sent.
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 4, messagesFailed: 0 })
+    const ordering: ExerciserSettings = {
+      delay: { kind: 'random', maxSeconds: 30 },
+      priority: { kind: 'round-robin' },
+      group: { kind: 'round-robin', groups: 3 },
+    }
+    const engine = createPublicationEngine()
+
+    engine.start(
+      makeConfig({ rate: 4, maxBatchSize: 4, durationSecs: 1, ordering }),
+      IDENTITY,
+      callbacks()
+    )
+    await vi.advanceTimersByTimeAsync(0)
+
+    const messages = mockedPublishBatch.mock.calls[0][2].messages
+    messages.forEach((m, index) => {
+      const expected = assignmentFor(ordering, IDENTITY.runId, index, {})
+      expect(m.delaySeconds).toBe(expected.delaySeconds)
+      expect(m.priority).toBe(expected.priority)
+      expect(m.messageGroup).toBe(expected.messageGroup)
+    })
+  })
+
+  it('a per-key group strategy with a missing value list terminates through onError', async () => {
+    // Defence in depth: the page blocks Start in this state, but the engine
+    // must still fail loudly rather than publish ungrouped messages.
+    useValueListStore.setState({ lists: [], selected: null })
+    const cbs = callbacks()
+    const engine = createPublicationEngine()
+
+    engine.start(
+      makeConfig({
+        rate: 5,
+        maxBatchSize: 5,
+        durationSecs: 1,
+        ordering: {
+          delay: { kind: 'fixed', seconds: 0 },
+          priority: { kind: 'fixed', priority: 5 },
+          group: { kind: 'per-key', listName: 'no_such_list' },
+        },
+      }),
+      IDENTITY,
+      cbs
+    )
+    await vi.advanceTimersByTimeAsync(0)
+
+    expect(mockedPublishBatch).not.toHaveBeenCalled()
+    expect(cbs.onError).toHaveBeenCalledOnce()
+    const [, reason] = cbs.onError.mock.calls[0] as [RunSummary, string]
+    expect(reason).toContain('no_such_list')
+  })
+
+  it('the summary reports totalAttempted — built messages, acknowledged or not', async () => {
+    // First group acknowledged, second rejected: 20 attempted, 10 sent.
+    let call = 0
+    mockedPublishBatch.mockImplementation(() =>
+      call++ === 0
+        ? Promise.resolve({ messagesSent: 10, messagesFailed: 0 })
+        : Promise.reject(new Error('boom'))
+    )
+    const cbs = callbacks()
+    const engine = createPublicationEngine()
+
+    engine.start(makeConfig({ rate: 20, maxBatchSize: 10, durationSecs: 1 }), IDENTITY, cbs)
+    await vi.advanceTimersByTimeAsync(1000)
+
+    const summary = cbs.onComplete.mock.calls[0][0] as RunSummary
+    expect(summary.totalSent).toBe(10)
+    expect(summary.totalAttempted).toBe(20)
   })
 })

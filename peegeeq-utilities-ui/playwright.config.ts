@@ -179,6 +179,17 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['3-generator'],
     },
+    // Exerciser mode (G.5) — ordering controls + plan preview, a real run with
+    // per-message delay/priority/group assignments, the derived manifest with
+    // a real download, and the refusals an exerciser carries (no scheduling,
+    // not saveable as a scenario, per-key blocked without a value list)
+    // asserted WITH a target selected. Owns its setup.
+    {
+      name: '12-exerciser',
+      testMatch: '**/exerciser.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

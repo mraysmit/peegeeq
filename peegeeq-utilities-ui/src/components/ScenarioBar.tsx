@@ -33,11 +33,11 @@ export interface ScenarioBarProps {
   /**
    * The generator's live mode — saved so Load can restore it (G.3d).
    *
-   * `ramp` is accepted but NOT saveable: `Scenario` has no ramp kind, so saving
-   * one would store it as a flat scenario that replays as a completely
-   * different run. Saving is blocked instead (G.1a).
+   * `ramp` and `exerciser` are accepted but NOT saveable: `Scenario` has
+   * neither kind, so saving one would store it as a flat scenario that replays
+   * as a completely different run. Saving is blocked instead (G.1a, G.5).
    */
-  mode: 'flat' | 'profile' | 'ramp'
+  mode: 'flat' | 'profile' | 'ramp' | 'exerciser'
   /** The live traffic shape; saved only when mode is 'profile'. */
   phases: ProfilePhase[]
 }
@@ -60,10 +60,14 @@ export default function ScenarioBar({
   }, [loadFromStorage])
 
   const selected = scenarios.find((s) => s.id === selectedId) ?? null
-  // A ramp cannot be represented as a Scenario yet; refuse rather than store
-  // something that would replay as a different run.
+  // A ramp or an exerciser run cannot be represented as a Scenario yet; refuse
+  // rather than store something that would replay as a different run.
   const saveBlockedReason =
-    mode === 'ramp' ? 'Ramp runs cannot be saved as scenarios yet.' : undefined
+    mode === 'ramp'
+      ? 'Ramp runs cannot be saved as scenarios yet.'
+      : mode === 'exerciser'
+        ? 'Exerciser runs cannot be saved as scenarios yet.'
+        : undefined
 
   function handleLoad() {
     if (!selected) return
@@ -83,8 +87,8 @@ export default function ScenarioBar({
       setSaveError('Select a target queue before saving a scenario.')
       return
     }
-    if (mode === 'ramp') {
-      // Checked as a MODE, not via saveBlockedReason: this also narrows `mode`
+    if (mode === 'ramp' || mode === 'exerciser') {
+      // Checked as MODES, not via saveBlockedReason: this also narrows `mode`
       // to the two kinds a Scenario can actually hold, so the object below
       // cannot be built with a mode the model does not support.
       setSaveError(saveBlockedReason)
