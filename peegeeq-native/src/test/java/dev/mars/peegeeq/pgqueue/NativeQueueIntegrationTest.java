@@ -480,6 +480,69 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
+    void testProcessingTimePercentilesExposedOnStats(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        // Telemetry G1 (Phase T.1) end to end: real consumption feeds the
+        // per-topic histogram, and getStats carries the derived distribution.
+        // The native queue DELETES processed rows, so this app-side histogram
+        // is the only latency source — stats must surface it.
+        int messageCount = 20;
+
+        consumer.subscribe(message -> Future.succeededFuture())
+                .onFailure(testContext::failNow);
+
+        for (int i = 0; i < messageCount; i++) {
+            producer.send("Percentile message " + i).onFailure(testContext::failNow);
+        }
+
+        // The consumer records processing time at ack, after the handler
+        // future settles — poll the stats until the distribution covers every
+        // message (the dead-letter test's poll idiom), then verify its shape.
+        Promise<dev.mars.peegeeq.api.messaging.QueueStats> covered = Promise.promise();
+        long[] pollTimer = new long[1];
+        pollTimer[0] = vertx.setPeriodic(100, id ->
+            queueFactory.getStats("test-native-topic")
+                .onSuccess(stats -> {
+                    var percentiles = stats.getProcessingTimePercentiles();
+                    var delivery = stats.getDeliveryLatencyPercentiles();
+                    // >= not ==: a visibility-timeout retry legitimately adds
+                    // a sample beyond the message count.
+                    if (percentiles != null && percentiles.sampleCount() >= messageCount
+                            && delivery != null && delivery.sampleCount() >= messageCount) {
+                        covered.tryComplete(stats);
+                    }
+                })
+                .onFailure(err -> logger.warn("Stats query failed while polling", err)));
+
+        covered.future()
+                .onSuccess(stats -> testContext.verify(() -> {
+                    vertx.cancelTimer(pollTimer[0]);
+                    var percentiles = stats.getProcessingTimePercentiles();
+                    assertNotNull(percentiles);
+                    assertTrue(percentiles.sampleCount() >= messageCount);
+                    // Near-instant handlers can legitimately measure 0 ms, so
+                    // the shape assertions are ordering, not magnitude.
+                    assertTrue(percentiles.p50Ms() >= 0);
+                    assertTrue(percentiles.p50Ms() <= percentiles.p95Ms());
+                    assertTrue(percentiles.p95Ms() <= percentiles.p99Ms());
+                    // The previously hardcoded 0.0 average is now the
+                    // histogram mean — the two must agree exactly.
+                    assertEquals(percentiles.meanMs(), stats.getAvgProcessingTimeMs(), 0.0001);
+                    // Delivery latency (T.2): enqueue → claim on the DB clock,
+                    // a distribution distinct from handler time.
+                    var delivery = stats.getDeliveryLatencyPercentiles();
+                    assertNotNull(delivery);
+                    assertTrue(delivery.sampleCount() >= messageCount);
+                    assertTrue(delivery.p50Ms() >= 0);
+                    assertTrue(delivery.p50Ms() <= delivery.p95Ms());
+                    assertTrue(delivery.p95Ms() <= delivery.p99Ms());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+    }
+
+    @Test
     void testNativeQueueConcurrentProducers(VertxTestContext testContext) throws Exception {
         int producerCount = 3;
         int messagesPerProducer = 5;
