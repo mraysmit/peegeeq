@@ -163,5 +163,38 @@ public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
         Map<String, Number> allMetrics = metricsProvider.getAllMetrics();
         assertNotNull(allMetrics);
     }
+
+    // ── Processing-time percentiles (telemetry G1 — Phase T.1) ──────────────
+
+    @Test
+    void testGetProcessingTimePercentilesDelegates() {
+        metricsProvider.recordMessageProcessed("delegate-topic", Duration.ofMillis(42));
+
+        var percentiles = metricsProvider.getProcessingTimePercentiles("delegate-topic");
+
+        assertNotNull(percentiles, "The provider must surface the wrapped metrics' distribution");
+        assertEquals(1, percentiles.sampleCount());
+        assertTrue(percentiles.p50Ms() > 0);
+    }
+
+    @Test
+    void testGetProcessingTimePercentilesNullForUnrecordedTopic() {
+        assertNull(metricsProvider.getProcessingTimePercentiles("never-recorded"));
+    }
+
+    @Test
+    void testDeliveryLatencyDelegates() {
+        metricsProvider.recordMessageDeliveryLatency("delegate-topic", "native", Duration.ofMillis(30));
+
+        var percentiles = metricsProvider.getDeliveryLatencyPercentiles("delegate-topic");
+
+        assertNotNull(percentiles, "The provider must surface the wrapped metrics' distribution");
+        assertEquals(1, percentiles.sampleCount());
+    }
+
+    @Test
+    void testGetDeliveryLatencyPercentilesNullForUnrecordedTopic() {
+        assertNull(metricsProvider.getDeliveryLatencyPercentiles("never-recorded"));
+    }
 }
 

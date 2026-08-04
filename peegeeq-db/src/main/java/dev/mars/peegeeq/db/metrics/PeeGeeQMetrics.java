@@ -263,12 +263,90 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             messageProcessingTime.record(processingTime);
         }
         if (registry != null) {
+            // publishPercentiles makes the per-topic timer carry a client-side
+            // histogram, so /stats can report p50/p95/p99 per queue (telemetry
+            // G1). The config binds at the timer's FIRST registration; later
+            // register() calls with the same name+tags return that meter.
             Timer.builder("peegeeq.message.processing.time.by.topic")
                 .tag("instance", instanceId)
                 .tag("topic", topic)
+                .publishPercentiles(0.5, 0.95, 0.99)
                 .register(registry)
                 .record(processingTime);
         }
+    }
+
+    /**
+     * Records a message's delivery latency — enqueue to claim, measured on the
+     * database clock inside the claim statement (telemetry G2). Tagged by
+     * implementation type: the delivery mechanism IS the native-vs-outbox
+     * difference this exists to measure.
+     */
+    @Override
+    public void recordMessageDeliveryLatency(String topic, String implementationType, Duration latency) {
+        if (registry != null) {
+            Timer.builder("peegeeq.message.delivery.latency.by.topic")
+                .tag("instance", instanceId)
+                .tag("topic", topic)
+                .tag("implementation", implementationType)
+                .publishPercentiles(0.5, 0.95, 0.99)
+                .register(registry)
+                .record(latency);
+        }
+    }
+
+    /**
+     * The processing-time distribution recorded for a topic, or null when
+     * nothing has been recorded (no registry bound, no timer yet, or zero
+     * samples). Reads the same per-topic timer recordMessageProcessed feeds —
+     * one source, so /stats cannot disagree with the recorded metrics.
+     */
+    @Override
+    public dev.mars.peegeeq.api.messaging.DurationPercentiles getProcessingTimePercentiles(String topic) {
+        return percentilesFor("peegeeq.message.processing.time.by.topic", topic);
+    }
+
+    /**
+     * The delivery-latency distribution recorded for a topic (telemetry G2),
+     * same null-means-no-data contract as the processing-time query.
+     */
+    @Override
+    public dev.mars.peegeeq.api.messaging.DurationPercentiles getDeliveryLatencyPercentiles(String topic) {
+        return percentilesFor("peegeeq.message.delivery.latency.by.topic", topic);
+    }
+
+    /** Snapshot a per-topic timer's percentile histogram; null when absent. */
+    private dev.mars.peegeeq.api.messaging.DurationPercentiles percentilesFor(String meterName, String topic) {
+        if (registry == null) {
+            return null;
+        }
+        Timer timer = registry.find(meterName)
+            .tag("instance", instanceId)
+            .tag("topic", topic)
+            .timer();
+        if (timer == null || timer.count() == 0) {
+            return null;
+        }
+        double p50 = -1.0;
+        double p95 = -1.0;
+        double p99 = -1.0;
+        for (io.micrometer.core.instrument.distribution.ValueAtPercentile v
+                : timer.takeSnapshot().percentileValues()) {
+            if (v.percentile() == 0.5) {
+                p50 = v.value(java.util.concurrent.TimeUnit.MILLISECONDS);
+            } else if (v.percentile() == 0.95) {
+                p95 = v.value(java.util.concurrent.TimeUnit.MILLISECONDS);
+            } else if (v.percentile() == 0.99) {
+                p99 = v.value(java.util.concurrent.TimeUnit.MILLISECONDS);
+            }
+        }
+        if (p50 < 0 || p95 < 0 || p99 < 0) {
+            // The timer exists but carries no percentile histogram (registered
+            // by an older code path). Absence, not fabricated zeroes.
+            return null;
+        }
+        return new dev.mars.peegeeq.api.messaging.DurationPercentiles(
+            timer.mean(java.util.concurrent.TimeUnit.MILLISECONDS), p50, p95, p99, timer.count());
     }
 
     @Override

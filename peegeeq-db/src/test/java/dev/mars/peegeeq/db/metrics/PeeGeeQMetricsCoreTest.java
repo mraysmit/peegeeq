@@ -371,5 +371,102 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
             .onFailure(err -> testContext.completeNow());
     }
 
+    // \u2500\u2500 Processing-time percentiles (telemetry G1 \u2014 Phase T.1) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+
+    @Test
+    void testProcessingTimePercentilesFromRecordedDurations() {
+        // 100 durations of 1..100 ms: the percentiles must exist, sit within
+        // the recorded range in order, and count every sample.
+        for (int ms = 1; ms <= 100; ms++) {
+            metrics.recordMessageProcessed("percentile-topic", Duration.ofMillis(ms));
+        }
+
+        var percentiles = metrics.getProcessingTimePercentiles("percentile-topic");
+
+        assertNotNull(percentiles, "Recorded durations must yield a distribution");
+        assertEquals(100, percentiles.sampleCount());
+        assertTrue(percentiles.p50Ms() > 0, "p50 must be positive");
+        assertTrue(percentiles.p50Ms() <= percentiles.p95Ms(), "p50 must not exceed p95");
+        assertTrue(percentiles.p95Ms() <= percentiles.p99Ms(), "p95 must not exceed p99");
+        // Micrometer percentile histograms are approximate; bound loosely
+        // around the true values (p50=50, p99=99) rather than pinning them.
+        assertTrue(percentiles.p50Ms() >= 25 && percentiles.p50Ms() <= 75,
+            "p50 " + percentiles.p50Ms() + " must approximate the median of 1..100 ms");
+        assertTrue(percentiles.p99Ms() <= 200,
+            "p99 " + percentiles.p99Ms() + " must stay near the recorded range");
+        assertTrue(percentiles.meanMs() > 0, "mean must be positive");
+    }
+
+    @Test
+    void testProcessingTimePercentilesAbsentForUnrecordedTopic() {
+        // "No data" is null, never zeroed values \u2014 a 0 ms tail is a claim.
+        assertNull(metrics.getProcessingTimePercentiles("never-recorded-topic"));
+    }
+
+    @Test
+    void testProcessingTimePercentilesAbsentWithoutRegistry() {
+        // Dependency failure mode: metrics created but bindTo() never called.
+        PeeGeeQMetrics unbound = new PeeGeeQMetrics(pool, "unbound-instance");
+
+        assertNull(unbound.getProcessingTimePercentiles("any-topic"));
+    }
+
+    // ── Delivery-latency percentiles (telemetry G2 — Phase T.2) ─────────────
+
+    @Test
+    void testDeliveryLatencyPercentilesFromRecordedLatencies() {
+        for (int ms = 1; ms <= 100; ms++) {
+            metrics.recordMessageDeliveryLatency("delivery-topic", "native", Duration.ofMillis(ms));
+        }
+
+        var percentiles = metrics.getDeliveryLatencyPercentiles("delivery-topic");
+
+        assertNotNull(percentiles, "Recorded latencies must yield a distribution");
+        assertEquals(100, percentiles.sampleCount());
+        assertTrue(percentiles.p50Ms() <= percentiles.p95Ms(), "p50 must not exceed p95");
+        assertTrue(percentiles.p95Ms() <= percentiles.p99Ms(), "p95 must not exceed p99");
+    }
+
+    @Test
+    void testDeliveryLatencyPercentilesAbsentForUnrecordedTopic() {
+        assertNull(metrics.getDeliveryLatencyPercentiles("never-recorded-topic"));
+    }
+
+    @Test
+    void testDeliveryLatencyDistinctFromProcessingTime() {
+        // The two distributions answer different questions (G1 handler time vs
+        // G2 enqueue→claim); one topic's recordings must not cross-feed.
+        metrics.recordMessageProcessed("distinct-topic", Duration.ofMillis(5));
+        metrics.recordMessageDeliveryLatency("distinct-topic", "outbox", Duration.ofMillis(700));
+
+        var processing = metrics.getProcessingTimePercentiles("distinct-topic");
+        var delivery = metrics.getDeliveryLatencyPercentiles("distinct-topic");
+
+        assertNotNull(processing);
+        assertNotNull(delivery);
+        assertEquals(1, processing.sampleCount());
+        assertEquals(1, delivery.sampleCount());
+        assertTrue(processing.p99Ms() < delivery.p50Ms(),
+            "the 5 ms processing sample must not absorb the 700 ms delivery sample");
+    }
+
+    @Test
+    void testProcessingTimePercentilesScopedPerTopic() {
+        // Distributions are per queue: topic B's recording must not leak into
+        // topic A's distribution (the per-queue contract of telemetry G1).
+        metrics.recordMessageProcessed("topic-a", Duration.ofMillis(10));
+        metrics.recordMessageProcessed("topic-b", Duration.ofMillis(500));
+
+        var a = metrics.getProcessingTimePercentiles("topic-a");
+        var b = metrics.getProcessingTimePercentiles("topic-b");
+
+        assertNotNull(a);
+        assertNotNull(b);
+        assertEquals(1, a.sampleCount());
+        assertEquals(1, b.sampleCount());
+        assertTrue(a.p99Ms() < b.p50Ms(),
+            "topic-a (10 ms) must not absorb topic-b's 500 ms sample");
+    }
+
 }
 
