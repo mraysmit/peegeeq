@@ -23,6 +23,7 @@ import type { BatchMessageRequest, MessageRequest } from '../types/queue'
 import { resolveString, resolveTemplate } from './templateResolver'
 import type { TemplateContext } from './templateResolver'
 import { assignmentFor } from './exerciserPlan'
+import { traceFor } from './tracePlan'
 import { publishBatch } from '../services/publishService'
 import { useValueListStore } from '../stores/valueListStore'
 
@@ -108,11 +109,20 @@ export function createPublicationEngine(): PublicationEngine {
     const now = new Date()
     for (let i = 0; i < size; i++) {
       const messageId = nextMessageId++
+      // Trace-seed mode (§19.6): the correlation strategy assigns the id PER
+      // MESSAGE, replacing the run's single identity id — in the request
+      // field AND the {{correlationId}} token, so a template-embedded id can
+      // never disagree with the field. The same traceFor rebuilds the
+      // emitted-ids report after the run.
+      const messageCorrelationId = config.trace
+        ? traceFor(config.trace, runId, messageId - 1, config.rate, config.maxBatchSize)
+            .correlationId
+        : correlationId
       const context: TemplateContext = {
         messageId,
         index: messageId - 1,
         runId,
-        correlationId,
+        correlationId: messageCorrelationId,
         now,
         valueLists,
       }
@@ -145,7 +155,7 @@ export function createPublicationEngine(): PublicationEngine {
         payload,
         headers,
         messageType: template.messageType,
-        correlationId,
+        correlationId: messageCorrelationId,
         priority: assignment !== null ? assignment.priority : template.priority,
         delaySeconds: assignment !== null ? assignment.delaySeconds : template.delaySeconds,
         messageGroup: assignment !== null ? assignment.messageGroup : template.messageGroup,

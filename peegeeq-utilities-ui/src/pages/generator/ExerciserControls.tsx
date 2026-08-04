@@ -24,13 +24,6 @@ import type {
 
 const { Text } = Typography
 
-/** §19.5 defaults: the mock's manifest shape — grouped round-robin, fixed 5s/p5. */
-export const EXERCISER_DEFAULTS: ExerciserSettings = {
-  delay: { kind: 'fixed', seconds: 5 },
-  priority: { kind: 'fixed', priority: 5 },
-  group: { kind: 'round-robin', groups: 4 },
-}
-
 /** Rows of the derived plan preview — enough to show every cycle without a table. */
 const PREVIEW_ROWS = 6
 

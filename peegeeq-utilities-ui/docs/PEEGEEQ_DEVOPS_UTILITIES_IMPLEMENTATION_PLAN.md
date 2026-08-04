@@ -439,7 +439,7 @@ tracks that dependency.
 | G.3 | ✅ **DONE 2026-08-02** — Traffic-profile / scenario runner (G.3a sequencer · G.3b phases editor · G.3c mode selector + results panel · G.3d profile scenarios + e2e) | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
 | G.4 | ✅ **DONE 2026-08-01** — saved scenarios (localStorage, templateService-shaped); see the G.4 record below | **None** | design §19.4 |
 | G.5 | ✅ **DONE (send) 2026-08-04** — Delay / Priority / FIFO exerciser: deterministic assignment plan, engine ordering seam, Exerciser mode UI + derived manifest, e2e; see the G.5 record below | **Client-only** to send; *auto-verify* needs G6 (else defer to management-ui browser) | design §19.5; telemetry §6 |
-| G.6 | Correlation / trace seed generator | **None** — emits ids; verify in management-ui | design §19.6 |
+| G.6 | ✅ **DONE 2026-08-04** — Correlation / trace seed generator: deterministic id plan, engine per-message correlation seam, Trace-seed mode UI + derived emitted-ids report, e2e; see the G.6 record below | **None** — emits ids; verify in management-ui | design §19.6 |
 
 Surface as **modes of the Message Generator** (Flat rate · Ramp · Compare · Profile), or repurpose
 the dead `/tools` route as the suite launcher.
@@ -806,6 +806,87 @@ e2e **85/85 across all projects including 12-exerciser**
 `react-refresh/only-export-components` class, +1 for `EXERCISER_DEFAULTS` beside its component);
 `tsc --noEmit` 0 errors. **Not done:** mutation probes were not run this step; screenshots not
 regenerated (no exerciser capture exists — rewrites committed PNGs, user's call).
+*(Both items resolved 2026-08-04: see the carried-debt tidy-up record below — warnings cleared,
+gallery regenerated with captures 42–44.)*
+
+### Carried-debt tidy-up — 2026-08-04
+
+All four items from the G.5-era carried-debt list were assessed; three fixed, one deliberately
+left:
+
+1. **Lint warnings cleared (5 → 0).** The five constants/factories exported beside components
+   (`RATE_DEFAULTS`, `blankTemplate`, `makeDefaultPhase`, `RAMP_DEFAULTS`, `EXERCISER_DEFAULTS`)
+   moved to [generatorDefaults.ts](../src/pages/generator/generatorDefaults.ts); component files
+   now export components only, satisfying `react-refresh/only-export-components`. All importers
+   (page + five test files) updated; no re-exports, which would have kept the warning.
+2. **The vacuous `test:integration` leg removed.** `src/tests/integration` does not exist, so the
+   script always passed via `--passWithNoTests` and proved nothing. Removed from `package.json`
+   including its `test:all`/`test:ci` uses — a green `test:all` no longer implies a leg that ran
+   nothing. Nothing else invoked it.
+3. **Screenshot gallery regenerated** with the missing mode captures: `42-ramp-mode.png`,
+   `43-exerciser-mode.png`, `44-exerciser-manifest.png` (the manifest shot follows a tiny real
+   run); Appendix A §A.4 extended.
+4. **NOT fixed: the duplicate saved-RunConfig store** (`peegeeq_scenarios` vs
+   `peegeeq_schedule_templates`). This is a recorded decision (2026-08-01) marked "do not fix in
+   isolation without revisiting the decision" — it stays until that decision is revisited.
+
+**Verified 2026-08-04:** screenshots 1/1 (2.3 m); unit **44 files, 684 tests**; e2e **85/85**
+(`logs/utilities-ui-screenshots-20260804.txt`, `utilities-ui-unit-20260804.txt`,
+`utilities-ui-e2e-20260804.txt`); lint **0 errors, 0 warnings**; `tsc --noEmit` 0 errors.
+
+### G.6 — Correlation / trace seed generator, 2026-08-04 — **G.6 COMPLETE**
+
+**Purpose.** Emits messages whose correlation ids follow a structured scheme so a run can be
+traced afterwards; the emitted ids are reported for downstream use in management-ui's
+CausationTree / Events. Template and id population only — no backend change.
+
+**Data model.** `TraceSettings { correlation, causation }`
+([types/trace.ts](../src/types/trace.ts)): correlation one-per-run / one-per-batch / every-N;
+causation `{ enabled, childrenPerParent }`. Every message's id and the post-run report derive
+from `traceFor(settings, runId, index, rate, maxBatchSize)`
+([engine/tracePlan.ts](../src/engine/tracePlan.ts)) — UUID-shaped ids minted deterministically
+(FNV-1a of runId:group), the exerciserPlan reasoning. Nothing per-message is stored.
+
+**Two load-bearing decisions.**
+
+1. **Causation chains are an ID SCHEME, reported not sent.** `causationId` is by design a
+   bi-temporal event-store attribute; queue messages carry `correlationId` only (correction
+   recorded 2026-08-04 — an early draft proposed a `causationId` header on queue messages, which
+   would fake a store concept). Chains organize the MINTED IDS (1 root + N children per chain) in
+   the emitted-ids report; a test pins that enabling chains changes nothing a message carries.
+2. **Per-batch grouping follows the ENGINE'S real batch boundaries.** Per tick the quota
+   (max(1, floor(rate))) splits into groups of ≤ maxBatchSize, so the remainder batch ends at the
+   tick edge; `floor(index / maxBatchSize)` would merge a remainder batch with the next tick's
+   first whenever rate is not a multiple of maxBatchSize. A test pins the boundary (rate 25,
+   batch 10: …24 | 25…).
+
+**Engine seam.** Optional `RunConfig.trace`: the engine derives each message's correlationId via
+`traceFor` — in the MessageRequest field AND the `{{correlationId}}` token context, so a
+template-embedded id can never disagree with the field (test-pinned). `runConfigSchema` gained
+`trace` so a manual run's history record survives reload un-stripped.
+
+**UI.** [TraceControls](../src/pages/generator/TraceControls.tsx) (Zone B + rate controls; a
+derived scheme summary and NO example ids — every id derives from the run id, which does not
+exist until Start, and the caveat says so) and
+[TraceSeedPanel](../src/pages/generator/TraceSeedPanel.tsx) (Zone E: totals in the §19.6 mock's
+shape, the chain figure omitted when chains were not seeded, 100-entry display cap stated, Copy
+ids with surfaced clipboard failures, full-report download, delivery caveat on errors).
+`TRACE_DEFAULTS` reproduces the mock arithmetic: every 100 messages, chains of 1+3 → 1,200
+messages = 12 ids / 3 chains (test-pinned). Trace seed is the fifth mode; like the exerciser it
+routes through the FLAT run path (not the sequencer). Schedule and scenario-save are refused
+with reasons.
+
+**E2E — new project `13-trace`** ([trace.spec.ts](../src/tests/e2e/specs/trace.spec.ts)):
+controls + scheme summary with a target, both refusals, and a real 10-message run (id every 5,
+1 child per parent → "10 messages under 2 correlation ids / 1 causation chain") with root/child
+rows and a real report download.
+
+**Verified 2026-08-04:** unit **47 files, 721 tests** (`logs/utilities-ui-unit-g6-20260804.txt`);
+e2e **87/87 across all projects including 13-trace**
+(`logs/utilities-ui-e2e-trace-20260804.txt`); lint **0 errors, 0 warnings**; `tsc --noEmit`
+0 errors. **Not done:** mutation probes were not run; no trace-mode screenshot yet (captures 45/46
+are in the spec pending the next gallery regeneration); emitted ids are verified on the wire in
+the engine unit test, not read back from the server.
 
 ---
 

@@ -4,6 +4,7 @@
  * These are pure type/interface declarations with no runtime behaviour.
  */
 import type { ExerciserSettings } from './exerciser'
+import type { TraceSettings } from './trace'
 
 /** Lifecycle status of a publication run. */
 export type RunStatus = 'idle' | 'running' | 'completed' | 'stopped' | 'error'
@@ -49,6 +50,14 @@ export interface RunConfig {
    * scalar priority/delaySeconds/messageGroup. Absent for every other mode.
    */
   ordering?: ExerciserSettings
+  /**
+   * Correlation-id strategy (design §19.6 — trace-seed mode). When present,
+   * the engine derives each message's correlationId via tracePlan.traceFor —
+   * both the MessageRequest field and the {{correlationId}} token — instead
+   * of the run's single identity id. Absent for every other mode. Never set
+   * together with `ordering`; the modes are mutually exclusive.
+   */
+  trace?: TraceSettings
 }
 
 /** The Zone B rate/duration/guard settings — the numeric slice of {@link RunConfig}. */
