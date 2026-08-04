@@ -490,6 +490,51 @@ test.describe('UI documentation screenshots', () => {
     await page.getByTestId('scenario-save-confirm').click()
     await expect(page.getByTestId('scenario-name-input')).toHaveCount(0)
 
+    // ── 42 Generator — Ramp mode: controls + planned steps (G.1a) ──────────
+    // Defaults (10 → 500 in steps of 50) show the derived plan preview and the
+    // per-step table with every step PENDING before anything runs.
+    await page.getByTestId('generator-mode').getByText('Ramp', { exact: true }).click()
+    await expect(page.getByTestId('ramp-controls')).toBeVisible()
+    await expect(page.getByTestId('ramp-plan-preview')).toBeVisible()
+    await shot(page, '42-ramp-mode.png')
+
+    // ── 43 Generator — Exerciser mode: ordering strategies + plan preview (G.5)
+    await page
+      .getByTestId('generator-mode')
+      .getByText('Delay / Prio / FIFO', { exact: true })
+      .click()
+    await expect(page.getByTestId('exerciser-controls')).toBeVisible()
+    await expect(page.getByTestId('exerciser-plan-preview')).toBeVisible()
+    await shot(page, '43-exerciser-mode.png')
+
+    // ── 44 Generator — Exerciser: derived sent manifest after a real run ────
+    // A tiny real run (5 msg/s × 2 s) against the demo queue; the manifest is
+    // derived from the run id and shows id → group · priority · delay.
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('5')
+    await page.getByLabel(/Duration \(seconds\)/i).fill('2')
+    await page.getByRole('button', { name: /^Start$/ }).click()
+    await expect(page.getByTestId('manifest-panel')).toBeVisible({ timeout: 60000 })
+    await shot(page, '44-exerciser-manifest.png')
+
+    // ── 45 Generator — Trace-seed mode: correlation controls + scheme (G.6) ─
+    // The exerciser run above left the run state COMPLETED; Start is enabled
+    // only in idle, so exit the terminal state first (the shot-06 rule).
+    await page.getByRole('button', { name: /New run/ }).click()
+    await page.getByTestId('generator-mode').getByText('Trace seed', { exact: true }).click()
+    await expect(page.getByTestId('trace-controls')).toBeVisible()
+    await expect(page.getByTestId('trace-scheme-summary')).toBeVisible()
+    await shot(page, '45-trace-mode.png')
+
+    // ── 46 Generator — Trace-seed: derived emitted-ids report after a run ───
+    // Id every 5 messages, 1 child per parent: 10 messages → 2 ids / 1 chain.
+    await page.getByLabel(/New id every \(messages\)/i).fill('5')
+    await page.getByLabel(/Children per parent/i).fill('1')
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('5')
+    await page.getByLabel(/Duration \(seconds\)/i).fill('2')
+    await page.getByRole('button', { name: /^Start$/ }).click()
+    await expect(page.getByTestId('trace-panel')).toBeVisible({ timeout: 60000 })
+    await shot(page, '46-trace-ids.png')
+
     // ── 40 Tools — the scenario manager with a saved scenario ──────────────
     await page.goto('/tools')
     await expect(page.getByTestId('scenario-table')).toBeVisible()

@@ -16,20 +16,32 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Card, Radio, Space, Typography, message } from 'antd'
 import TargetSelector from '../../components/TargetSelector'
 import ScenarioBar from '../../components/ScenarioBar'
-import RateControls, { RATE_DEFAULTS } from './RateControls'
-import ProfilePhasesEditor, { makeDefaultPhase } from './ProfilePhasesEditor'
+import RateControls from './RateControls'
+import ProfilePhasesEditor from './ProfilePhasesEditor'
 import ProfileResultsPanel from './ProfileResultsPanel'
-import RampControls, { RAMP_DEFAULTS } from './RampControls'
-import ExerciserControls, { EXERCISER_DEFAULTS } from './ExerciserControls'
+import RampControls from './RampControls'
+import ExerciserControls from './ExerciserControls'
+import {
+  blankTemplate,
+  EXERCISER_DEFAULTS,
+  makeDefaultPhase,
+  RAMP_DEFAULTS,
+  RATE_DEFAULTS,
+  TRACE_DEFAULTS,
+} from './generatorDefaults'
 import ManifestPanel from './ManifestPanel'
 import type { ManifestRun } from './ManifestPanel'
+import TraceControls from './TraceControls'
+import TraceSeedPanel from './TraceSeedPanel'
+import type { TraceRun } from './TraceSeedPanel'
 import { createProfileRunner } from '../../engine/profileRunner'
 import type { ProfileHandle } from '../../engine/profileRunner'
 import { buildRampPhases, rampHaltReason, sustainedRate } from '../../engine/rampPlan'
 import type { ProfilePhase, ProfilePhaseResult } from '../../types/profile'
 import type { RampSettings } from '../../types/ramp'
 import type { ExerciserSettings } from '../../types/exerciser'
-import TemplateEditor, { blankTemplate } from './TemplateEditor'
+import type { TraceSettings } from '../../types/trace'
+import TemplateEditor from './TemplateEditor'
 import GeneratorActions from './GeneratorActions'
 import ScheduleRunModal from './ScheduleRunModal'
 import ProgressPanel from './ProgressPanel'
@@ -71,10 +83,10 @@ export default function MessageGeneratorPage() {
   const [targetSeed, setTargetSeed] = useState(0)
   const runHandleRef = useRef<RunHandle | null>(null)
 
-  // Only BUILT modes are offered (G.3c, G.1a, G.5). Compare / Trace are not
-  // built, and a disabled control for them would promise behaviour the app does
+  // Only BUILT modes are offered (G.3c, G.1a, G.5, G.6). Compare is not
+  // built, and a disabled control for it would promise behaviour the app does
   // not have.
-  const [mode, setMode] = useState<'flat' | 'profile' | 'ramp' | 'exerciser'>('flat')
+  const [mode, setMode] = useState<'flat' | 'profile' | 'ramp' | 'exerciser' | 'trace'>('flat')
   const [phases, setPhases] = useState<ProfilePhase[]>(() => [makeDefaultPhase()])
   const [phaseResults, setPhaseResults] = useState<ProfilePhaseResult[]>([])
   const [activePhaseIndex, setActivePhaseIndex] = useState<number | null>(null)
@@ -93,6 +105,12 @@ export default function MessageGeneratorPage() {
   const [manifestRun, setManifestRun] = useState<ManifestRun | null>(null)
   // Subscribed (not getState) so the per-key blocked reason follows list edits.
   const valueLists = useValueListStore((s) => s.lists)
+
+  // Trace-seed mode (G.6). The emitted-ids report is DERIVED after the run
+  // from these captured inputs — settings, the run's rate/batch size, and the
+  // summary's run id / attempted count. Nothing per-message is stored.
+  const [traceSettings, setTraceSettings] = useState<TraceSettings>(TRACE_DEFAULTS)
+  const [traceRun, setTraceRun] = useState<TraceRun | null>(null)
 
   /** The steps the results panel shows: a ramp's steps ARE phases. */
   const sequencePhases = mode === 'ramp' ? rampPhases : phases
@@ -259,10 +277,12 @@ export default function MessageGeneratorPage() {
     }
     if (!target) return
     const isExerciser = mode === 'exerciser'
-    // Captured here, not read in the terminal callback: the manifest must
-    // describe the settings and value lists THIS run used, whatever the
-    // controls or lists look like when it settles.
+    const isTrace = mode === 'trace'
+    // Captured here, not read in the terminal callback: the manifest and the
+    // emitted-ids report must describe the settings and value lists THIS run
+    // used, whatever the controls or lists look like when it settles.
     const ordering = exerciserSettings
+    const trace = traceSettings
     const runValueLists = useValueListStore.getState().snapshot()
     const config: RunConfig = {
       setupId: target.setupId,
@@ -271,8 +291,10 @@ export default function MessageGeneratorPage() {
       template: workingTemplate,
       previewIndex,
       ...(isExerciser ? { ordering } : {}),
+      ...(isTrace ? { trace } : {}),
     }
     if (isExerciser) setManifestRun(null)
+    if (isTrace) setTraceRun(null)
     // Shared wiring (runStarter): store-generated run id, callbacks, terminal
     // settling — identical for the Start button and the scheduler.
     runHandleRef.current = startGeneratorRun(config, {
@@ -285,6 +307,16 @@ export default function MessageGeneratorPage() {
             attempted: summary.totalAttempted ?? 0,
             errors: summary.totalErrors,
             valueLists: runValueLists,
+          })
+        }
+        if (isTrace) {
+          setTraceRun({
+            settings: trace,
+            runId: summary.runId,
+            attempted: summary.totalAttempted ?? 0,
+            errors: summary.totalErrors,
+            rate: config.rate,
+            maxBatchSize: config.maxBatchSize,
           })
         }
         // Manual runs join the run history like scheduled firings.
@@ -322,6 +354,7 @@ export default function MessageGeneratorPage() {
       template: workingTemplate,
       previewIndex,
       ...(mode === 'exerciser' ? { ordering: exerciserSettings } : {}),
+      ...(mode === 'trace' ? { trace: traceSettings } : {}),
     }
   }
 
@@ -361,6 +394,7 @@ export default function MessageGeneratorPage() {
               { label: 'Profile', value: 'profile' },
               { label: 'Ramp', value: 'ramp' },
               { label: 'Delay / Prio / FIFO', value: 'exerciser' },
+              { label: 'Trace seed', value: 'trace' },
             ]}
           />
         </Space>
@@ -395,7 +429,9 @@ export default function MessageGeneratorPage() {
               ? 'Ramp to breaking point'
               : mode === 'exerciser'
                 ? 'Ordering & scheduling'
-                : 'Rate, duration & guards'
+                : mode === 'trace'
+                  ? 'Correlation strategy'
+                  : 'Rate, duration & guards'
         }
         size="small"
       >
@@ -414,6 +450,16 @@ export default function MessageGeneratorPage() {
               onChange={setExerciserSettings}
               disabled={running}
             />
+            <div style={{ marginTop: 16 }}>
+              <RateControls value={rateSettings} onChange={setRateSettings} disabled={running} />
+            </div>
+          </>
+        )}
+        {mode === 'trace' && (
+          // §19.6 Zone B is the correlation strategy PLUS rate/duration — a
+          // trace-seed run is one flat run whose messages carry minted ids.
+          <>
+            <TraceControls value={traceSettings} onChange={setTraceSettings} disabled={running} />
             <div style={{ marginTop: 16 }}>
               <RateControls value={rateSettings} onChange={setRateSettings} disabled={running} />
             </div>
@@ -452,7 +498,9 @@ export default function MessageGeneratorPage() {
                 ? 'Scheduling stores a single rate and duration, so it cannot carry a ramp. Schedule a flat-rate run instead.'
                 : mode === 'exerciser'
                   ? 'The schedule surfaces do not show ordering strategies, so a scheduled exerciser run would read as a plain flat run. Schedule a flat-rate run instead.'
-                  : undefined
+                  : mode === 'trace'
+                    ? 'The schedule surfaces do not show correlation strategies, so a scheduled trace-seed run would read as a plain flat run. Schedule a flat-rate run instead.'
+                    : undefined
           }
         />
       </Card>
@@ -485,6 +533,12 @@ export default function MessageGeneratorPage() {
       {mode === 'exerciser' && (
         <Card title="Sent manifest" size="small">
           <ManifestPanel run={manifestRun} />
+        </Card>
+      )}
+
+      {mode === 'trace' && (
+        <Card title="Emitted ids" size="small">
+          <TraceSeedPanel run={traceRun} />
         </Card>
       )}
 

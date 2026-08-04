@@ -216,10 +216,10 @@ describe('MessageGeneratorPage', () => {
     expect(screen.getByLabelText(/Profile/i)).toBeTruthy()
     expect(screen.getByLabelText(/Ramp/i)).toBeTruthy()
     expect(screen.getByLabelText(/Delay \/ Prio \/ FIFO/i)).toBeTruthy()
-    // Compare / Trace are not built: offering them as dead controls would
-    // promise behaviour the app does not have.
+    expect(screen.getByLabelText(/Trace seed/i)).toBeTruthy()
+    // Compare is not built: offering it as a dead control would promise
+    // behaviour the app does not have.
     expect(screen.queryByLabelText(/^Compare$/i)).toBeNull()
-    expect(screen.queryByLabelText(/Trace seed/i)).toBeNull()
   })
 
   it('switching to Ramp swaps Zone B for the ramp controls and shows the step panel', async () => {
@@ -383,6 +383,41 @@ describe('MessageGeneratorPage', () => {
   // `!targetSelected` and the assertion would pass whatever the exerciser
   // rules did (the mutation-probe lesson recorded above for Profile mode).
   // They are asserted WITH a target in the exerciser e2e.
+
+  // ── Trace-seed mode (G.6) ─────────────────────────────────────────────────
+
+  it('switching to Trace seed shows the correlation controls WITH the rate controls', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByLabelText(/Trace seed/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('trace-controls')).toBeTruthy()
+    })
+    // §19.6 Zone B is the correlation strategy PLUS rate/duration — a
+    // trace-seed run is one flat run whose messages carry minted ids.
+    expect(screen.getByTestId('rate-controls')).toBeTruthy()
+    expect(screen.queryByTestId('exerciser-controls')).toBeNull()
+    expect(screen.queryByTestId('profile-phases-editor')).toBeNull()
+    expect(screen.queryByTestId('profile-results-panel')).toBeNull()
+    // Zone E is the emitted-ids panel, empty until a run has happened.
+    expect(screen.getByTestId('trace-empty')).toBeTruthy()
+    expect(screen.queryByTestId('manifest-empty')).toBeNull()
+  })
+
+  it('leaving Trace seed removes the emitted-ids card and restores flat Zone B', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/Trace seed/i))
+    await waitFor(() => screen.getByTestId('trace-controls'))
+
+    await userEvent.click(screen.getByLabelText(/Flat rate/i))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('trace-controls')).toBeNull()
+    })
+    expect(screen.queryByTestId('trace-empty')).toBeNull()
+    expect(screen.getByTestId('rate-controls')).toBeTruthy()
+  })
 
   it('a running store disables Zone B and Zone C inputs', async () => {
     renderPage()
