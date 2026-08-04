@@ -215,8 +215,9 @@ describe('MessageGeneratorPage', () => {
     expect((screen.getByLabelText(/Flat rate/i) as HTMLInputElement).checked).toBe(true)
     expect(screen.getByLabelText(/Profile/i)).toBeTruthy()
     expect(screen.getByLabelText(/Ramp/i)).toBeTruthy()
-    // Compare / Delay / Trace are not built: offering them as dead controls
-    // would promise behaviour the app does not have.
+    expect(screen.getByLabelText(/Delay \/ Prio \/ FIFO/i)).toBeTruthy()
+    // Compare / Trace are not built: offering them as dead controls would
+    // promise behaviour the app does not have.
     expect(screen.queryByLabelText(/^Compare$/i)).toBeNull()
     expect(screen.queryByLabelText(/Trace seed/i)).toBeNull()
   })
@@ -341,6 +342,47 @@ describe('MessageGeneratorPage', () => {
     })
     expect(screen.queryByTestId(/^phase-row-/)).toBeNull()
   })
+
+  // ── Exerciser mode (G.5-send) ─────────────────────────────────────────────
+
+  it('switching to the exerciser shows the ordering controls WITH the rate controls', async () => {
+    renderPage()
+
+    await userEvent.click(screen.getByLabelText(/Delay \/ Prio \/ FIFO/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('exerciser-controls')).toBeTruthy()
+    })
+    // §19.5 Zone B is ordering strategies PLUS rate/duration — an exerciser is
+    // one flat run whose messages carry assignments, not a sequence.
+    expect(screen.getByTestId('rate-controls')).toBeTruthy()
+    expect(screen.queryByTestId('profile-phases-editor')).toBeNull()
+    expect(screen.queryByTestId('ramp-controls')).toBeNull()
+    // The sequence results panel belongs to Profile/Ramp; the exerciser's
+    // Zone E is the manifest, empty until a run has happened.
+    expect(screen.queryByTestId('profile-results-panel')).toBeNull()
+    expect(screen.getByTestId('manifest-empty')).toBeTruthy()
+  })
+
+  it('leaving exerciser mode removes the manifest card and restores flat Zone B', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/Delay \/ Prio \/ FIFO/i))
+    await waitFor(() => screen.getByTestId('exerciser-controls'))
+
+    await userEvent.click(screen.getByLabelText(/Flat rate/i))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('exerciser-controls')).toBeNull()
+    })
+    expect(screen.queryByTestId('manifest-empty')).toBeNull()
+    expect(screen.getByTestId('rate-controls')).toBeTruthy()
+  })
+
+  // Start/Schedule blocking rules in exerciser mode cannot be asserted here:
+  // Zone A has no backend in jsdom, so both buttons are ALREADY disabled by
+  // `!targetSelected` and the assertion would pass whatever the exerciser
+  // rules did (the mutation-probe lesson recorded above for Profile mode).
+  // They are asserted WITH a target in the exerciser e2e.
 
   it('a running store disables Zone B and Zone C inputs', async () => {
     renderPage()

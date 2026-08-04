@@ -22,6 +22,7 @@ import type {
 import type { BatchMessageRequest, MessageRequest } from '../types/queue'
 import { resolveString, resolveTemplate } from './templateResolver'
 import type { TemplateContext } from './templateResolver'
+import { assignmentFor } from './exerciserPlan'
 import { publishBatch } from '../services/publishService'
 import { useValueListStore } from '../stores/valueListStore'
 
@@ -81,6 +82,7 @@ export function createPublicationEngine(): PublicationEngine {
     const durationMs = Date.now() - startedAt
     return {
       totalSent: sent,
+      totalAttempted: nextMessageId - 1,
       targetTotal: config.rate * config.durationSecs,
       avgRate: durationMs > 0 ? sent / (durationMs / 1000) : 0,
       durationMs,
@@ -114,22 +116,39 @@ export function createPublicationEngine(): PublicationEngine {
         now,
         valueLists,
       }
-      const payload = resolveTemplate(template.payloadSchema, context)
-      // §5.3: placeholders are valid in header values — resolved per message.
-      const headers = Object.fromEntries(
-        Object.entries(template.headers).map(([key, headerValue]) => [
-          key,
-          resolveString(headerValue, context),
-        ])
-      )
+      let payload: object
+      let headers: Record<string, string>
+      try {
+        payload = resolveTemplate(template.payloadSchema, context)
+        // §5.3: placeholders are valid in header values — resolved per message.
+        headers = Object.fromEntries(
+          Object.entries(template.headers).map(([key, headerValue]) => [
+            key,
+            resolveString(headerValue, context),
+          ])
+        )
+      } catch (error) {
+        // Labelled at the SOURCE: the tick() catch also receives ordering
+        // errors (assignmentFor), whose message names the value list — the
+        // operator must be able to tell which of the two failed the run.
+        throw new Error(`Template failed to resolve: ${messageOf(error)}`)
+      }
+      // Exerciser mode (§19.5): the ordering strategies assign delay, priority
+      // and group PER MESSAGE, overriding the template scalars. The same
+      // function rebuilds the manifest after the run, so what is sent and what
+      // is reported cannot drift. assignmentFor THROWS on a missing per-key
+      // list; the catch around this builder terminates the run through onError.
+      const assignment = config.ordering
+        ? assignmentFor(config.ordering, runId, messageId - 1, valueLists)
+        : null
       messages.push({
         payload,
         headers,
         messageType: template.messageType,
         correlationId,
-        priority: template.priority,
-        delaySeconds: template.delaySeconds,
-        messageGroup: template.messageGroup,
+        priority: assignment !== null ? assignment.priority : template.priority,
+        delaySeconds: assignment !== null ? assignment.delaySeconds : template.delaySeconds,
+        messageGroup: assignment !== null ? assignment.messageGroup : template.messageGroup,
       })
     }
     return { firstMessageId, request: { messages, maxBatchSize: config.maxBatchSize } }
@@ -148,10 +167,11 @@ export function createPublicationEngine(): PublicationEngine {
     inFlight = true
 
     // The full per-second quota, split into groups of ≤ maxBatchSize.
-    // Template resolution can THROW here (resolveTemplate surfaces authoring
-    // errors via JSON.parse). A throw must terminate the run through onError —
-    // an escaped exception from this async tick would be an unhandled
-    // rejection, leaving the run stuck in RUNNING forever.
+    // Message building can THROW here — resolveTemplate surfaces authoring
+    // errors via JSON.parse, and assignmentFor rejects a missing per-key value
+    // list. A throw must terminate the run through onError — an escaped
+    // exception from this async tick would be an unhandled rejection, leaving
+    // the run stuck in RUNNING forever.
     const batches: Array<{ firstMessageId: number; request: BatchMessageRequest }> = []
     try {
       let remaining = Math.max(1, Math.floor(config.rate))
@@ -164,10 +184,9 @@ export function createPublicationEngine(): PublicationEngine {
       finished = true
       clear()
       inFlight = false
-      callbacks.onError(
-        buildSummary('error'),
-        `Template failed to resolve: ${messageOf(error)}`
-      )
+      // The message is already source-labelled: "Template failed to resolve:
+      // …" from the builder, or assignmentFor's value-list message.
+      callbacks.onError(buildSummary('error'), messageOf(error))
       return
     }
 
