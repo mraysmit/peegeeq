@@ -422,9 +422,23 @@ public class OutboxFactory implements QueueFactory {
                                     }
                                 }
 
+                                // App-side distributions (telemetry G1/G2) — the
+                                // per-topic histograms the outbox consumer feeds
+                                // at ack (processing) and claim (delivery). Null
+                                // when this instance has processed/claimed
+                                // nothing; the previously hardcoded 0.0 average
+                                // is real when samples exist.
+                                var processingPercentiles =
+                                        getMetrics().getProcessingTimePercentiles(topic);
+                                var deliveryPercentiles =
+                                        getMetrics().getDeliveryLatencyPercentiles(topic);
+                                double avgProcessingTimeMs =
+                                        processingPercentiles != null ? processingPercentiles.meanMs() : 0.0;
+
                                 return new dev.mars.peegeeq.api.messaging.QueueStats(
                                         topic, total, pending, processed, inFlight, deadLettered,
-                                        messagesPerSecond, 0.0, firstMessage, lastMessage);
+                                        messagesPerSecond, avgProcessingTimeMs, firstMessage, lastMessage,
+                                        processingPercentiles, deliveryPercentiles);
                             });
                 })
                 .onFailure(err ->

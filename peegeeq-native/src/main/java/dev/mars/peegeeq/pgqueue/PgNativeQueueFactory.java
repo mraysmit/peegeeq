@@ -351,9 +351,21 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
                         }
                     }
 
+                    // App-side distributions (telemetry G1/G2): the native
+                    // consumer DELETES processed rows, so neither latency is
+                    // derivable from queue_messages — the per-topic histograms
+                    // the consumer feeds are the source. Null when this
+                    // instance has processed/claimed nothing; the previously
+                    // hardcoded 0.0 average is real when samples exist.
+                    var processingPercentiles = getMetrics().getProcessingTimePercentiles(topic);
+                    var deliveryPercentiles = getMetrics().getDeliveryLatencyPercentiles(topic);
+                    double avgProcessingTimeMs =
+                            processingPercentiles != null ? processingPercentiles.meanMs() : 0.0;
+
                     return new QueueStats(
                             topic, total, pending, processed, inFlight, deadLettered,
-                            messagesPerSecond, 0.0, firstMessage, lastMessage);
+                            messagesPerSecond, avgProcessingTimeMs, firstMessage, lastMessage,
+                            processingPercentiles, deliveryPercentiles);
                 })
                 .transform(ar -> {
                     if (ar.failed()) {

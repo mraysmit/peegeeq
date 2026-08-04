@@ -475,7 +475,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
                         FROM c
                         WHERE q.id = c.id
-                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
+                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at,
+                                  EXTRACT(EPOCH FROM (now() - q.created_at)) * 1000.0 AS delivery_latency_ms
                         """
                         .formatted(filterCondition);
 
@@ -504,7 +505,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         SET status = 'LOCKED', lock_until = now() + make_interval(secs => $3)
                         FROM c
                         WHERE q.id = c.id
-                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at
+                        RETURNING q.id, q.payload, q.headers, q.correlation_id, q.message_group, q.retry_count, q.created_at,
+                                  EXTRACT(EPOCH FROM (now() - q.created_at)) * 1000.0 AS delivery_latency_ms
                         """;
                 params = Tuple.of(topic, effectiveBatch, lockDurationSeconds);
             }
@@ -627,6 +629,16 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         if (closed.get()) {
             logger.debug("Skipping message processing - consumer is closed");
             return;
+        }
+
+        // Delivery latency (telemetry G2): enqueue → claim, computed by the
+        // claim statement on the DATABASE clock (now() - created_at), so no
+        // JVM/DB clock skew enters the measurement. Recorded for every claimed
+        // message — delivery happened even if processing later fails.
+        Double deliveryLatencyMs = row.getDouble("delivery_latency_ms");
+        if (deliveryLatencyMs != null && deliveryLatencyMs >= 0) {
+            metrics.recordMessageDeliveryLatency(topic, "native",
+                    java.time.Duration.ofNanos(Math.round(deliveryLatencyMs * 1_000_000.0)));
         }
 
         try {

@@ -423,6 +423,26 @@ public class QueueHandler {
                                                 .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
                                                 .put("successRatePercent", stats.getSuccessRatePercent())
                                                 .put("timestamp", System.currentTimeMillis());
+                                        // Telemetry G1/G2: app-side percentiles per queue. The
+                                        // fields are ABSENT when nothing has been measured by
+                                        // this backend instance — absence is the "no data"
+                                        // signal; zeroes would claim a 0 ms tail.
+                                        var percentiles = stats.getProcessingTimePercentiles();
+                                        if (percentiles != null) {
+                                            response
+                                                    .put("processingTimeP50Ms", percentiles.p50Ms())
+                                                    .put("processingTimeP95Ms", percentiles.p95Ms())
+                                                    .put("processingTimeP99Ms", percentiles.p99Ms())
+                                                    .put("processingTimeSampleCount", percentiles.sampleCount());
+                                        }
+                                        var deliveryLatency = stats.getDeliveryLatencyPercentiles();
+                                        if (deliveryLatency != null) {
+                                            response
+                                                    .put("deliveryLatencyP50Ms", deliveryLatency.p50Ms())
+                                                    .put("deliveryLatencyP95Ms", deliveryLatency.p95Ms())
+                                                    .put("deliveryLatencyP99Ms", deliveryLatency.p99Ms())
+                                                    .put("deliveryLatencySampleCount", deliveryLatency.sampleCount());
+                                        }
                                         if (stats.getCreatedAt() != null) {
                                             response.put("firstMessageAt", stats.getCreatedAt().toString());
                                         }

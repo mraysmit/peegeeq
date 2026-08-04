@@ -40,11 +40,26 @@ public class QueueStats {
     private final double avgProcessingTimeMs;
     private final Instant createdAt;
     private final Instant lastMessageAt;
-    
-    public QueueStats(String queueName, long totalMessages, long pendingMessages, 
+    // Null when nothing has been measured (telemetry G1/G2): absence is the
+    // "no data" signal — zeroed percentiles would claim a 0 ms tail.
+    private final DurationPercentiles processingTimePercentiles;
+    private final DurationPercentiles deliveryLatencyPercentiles;
+
+    public QueueStats(String queueName, long totalMessages, long pendingMessages,
                       long processedMessages, long inFlightMessages, long deadLetteredMessages,
                       double messagesPerSecond, double avgProcessingTimeMs,
                       Instant createdAt, Instant lastMessageAt) {
+        this(queueName, totalMessages, pendingMessages, processedMessages, inFlightMessages,
+             deadLetteredMessages, messagesPerSecond, avgProcessingTimeMs, createdAt,
+             lastMessageAt, null, null);
+    }
+
+    public QueueStats(String queueName, long totalMessages, long pendingMessages,
+                      long processedMessages, long inFlightMessages, long deadLetteredMessages,
+                      double messagesPerSecond, double avgProcessingTimeMs,
+                      Instant createdAt, Instant lastMessageAt,
+                      DurationPercentiles processingTimePercentiles,
+                      DurationPercentiles deliveryLatencyPercentiles) {
         this.queueName = queueName;
         this.totalMessages = totalMessages;
         this.pendingMessages = pendingMessages;
@@ -55,6 +70,8 @@ public class QueueStats {
         this.avgProcessingTimeMs = avgProcessingTimeMs;
         this.createdAt = createdAt;
         this.lastMessageAt = lastMessageAt;
+        this.processingTimePercentiles = processingTimePercentiles;
+        this.deliveryLatencyPercentiles = deliveryLatencyPercentiles;
     }
     
     /**
@@ -82,6 +99,24 @@ public class QueueStats {
     public double getAvgProcessingTimeMs() { return avgProcessingTimeMs; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getLastMessageAt() { return lastMessageAt; }
+
+    /**
+     * Gets the app-side processing-time distribution for this queue, or null
+     * when no processing has been measured by this backend instance
+     * (telemetry G1 — see {@link DurationPercentiles} for the scope).
+     *
+     * @return The distribution, or null when absent
+     */
+    public DurationPercentiles getProcessingTimePercentiles() { return processingTimePercentiles; }
+
+    /**
+     * Gets the delivery-latency distribution (enqueue → claim, database
+     * clock) for this queue, or null when nothing has been claimed by this
+     * backend instance (telemetry G2).
+     *
+     * @return The distribution, or null when absent
+     */
+    public DurationPercentiles getDeliveryLatencyPercentiles() { return deliveryLatencyPercentiles; }
     
     /**
      * Gets the success rate as a percentage (0.0 to 100.0).
