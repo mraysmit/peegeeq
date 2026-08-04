@@ -438,7 +438,7 @@ tracks that dependency.
 | G.2 | Native-vs-Outbox comparison run | **Needs Phase T:** G1 (percentiles) + G2 (delivery latency) + G6 (correlation join) + G7 (DB churn profile) | telemetry §7 |
 | G.3 | ✅ **DONE 2026-08-02** — Traffic-profile / scenario runner (G.3a sequencer · G.3b phases editor · G.3c mode selector + results panel · G.3d profile scenarios + e2e) | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
 | G.4 | ✅ **DONE 2026-08-01** — saved scenarios (localStorage, templateService-shaped); see the G.4 record below | **None** | design §19.4 |
-| G.5 | Delay / Priority / FIFO exerciser | **Client-only** to send; *auto-verify* needs G6 (else defer to management-ui browser) | design §19.5; telemetry §6 |
+| G.5 | ✅ **DONE (send) 2026-08-04** — Delay / Priority / FIFO exerciser: deterministic assignment plan, engine ordering seam, Exerciser mode UI + derived manifest, e2e; see the G.5 record below | **Client-only** to send; *auto-verify* needs G6 (else defer to management-ui browser) | design §19.5; telemetry §6 |
 | G.6 | Correlation / trace seed generator | **None** — emits ids; verify in management-ui | design §19.6 |
 
 Surface as **modes of the Message Generator** (Flat rate · Ramp · Compare · Profile), or repurpose
@@ -743,6 +743,69 @@ is deliberately left as the user's action:
 
 *Repo-wide lint (`npm run lint`) fails with 40 problems across 10 files — **identical at HEAD**, none
 in any file this step created or changed. Pre-existing; not addressed here to keep G.4 reviewable.*
+
+### G.5 — Delay / Priority / FIFO exerciser (send), 2026-08-04 — **G.5-send COMPLETE**
+
+**Purpose.** Deliberately drives `delaySeconds`, `priority` and `messageGroup` per message to
+exercise scheduling and FIFO ordering, then reports a manifest (id → group · priority · delay) so
+ordering can be verified downstream in management-ui's Message Browser. Send-side only — auto-
+verification needs telemetry G6 and stays out of scope.
+
+**Data model.** `ExerciserSettings { delay, priority, group }`
+([types/exerciser.ts](../src/types/exerciser.ts)) is the single source of truth. Every per-message
+assignment and the post-run manifest are DERIVED by one pure function,
+`assignmentFor(settings, runId, index, valueLists)`
+([engine/exerciserPlan.ts](../src/engine/exerciserPlan.ts)) — deterministic via an FNV-1a hash of
+`runId:index`. The engine applies it per message at build time; `buildManifest` recomputes it after
+the run. Nothing per-message is stored, so the manifest cannot drift from what was sent. "Random"
+delay being deterministic per (runId, index) is a documented property, not a shortcut: true
+randomness would force the engine to record every assignment — stored derived data.
+
+**Two recorded deviations from the §19.5 mock.** (1) Per-key groups name a **value list**, not a
+`{{customerId}}` token — a value list is the only per-message key source this app has, and the
+deterministic pick keeps the manifest exact. (2) The manifest lists **attempted** assignments:
+per-id delivery attribution does not exist client-side (errors are batch-level), so
+`RunSummary.totalAttempted` was added (optional — absent in pre-G.5 stored summaries), a run with
+errors carries an explicit caveat, and the display caps at 100 rows while SAYING so; the download
+carries all rows.
+
+**Engine seam.** Optional `RunConfig.ordering` — the engine overrides the template's scalar
+priority/delay/group per message when present. Build errors are labelled at their SOURCE: template
+resolution keeps its original "Template failed to resolve" wording (a mid-step generic rewording
+broke two existing tests that correctly assert the reason names the cause — reverted), and a
+per-key strategy with a missing/empty list throws naming the list, terminating through `onError`.
+The Zod `runConfigSchema`/`runSummarySchema` gained `ordering`/`totalAttempted`: without them the
+default Zod strip would silently reload a manual exerciser run's history record as a flat run.
+
+**The exerciser is NOT a sequence.** It is one flat run whose messages carry assignments, so
+`handleStart` routes it through the flat wiring with `ordering` attached — the sequencer condition
+changed from `mode !== 'flat'` to explicit `profile || ramp` (the exact spot the G.1a fall-through
+bug lived; pinned by tests). Zone B is
+[ExerciserControls](../src/pages/generator/ExerciserControls.tsx) PLUS the rate controls; its plan
+preview calls the same `assignmentFor` the run uses, flags itself as illustrative when values
+depend on the not-yet-existing run id, and states that the template's scalar fields are overridden
+(the Preview modal still shows template values — recorded gap). Zone E is
+[ManifestPanel](../src/pages/generator/ManifestPanel.tsx).
+
+**Three refusals, each with its reason:** Schedule is blocked (the schedule surfaces would display
+an exerciser run as a plain flat run), an exerciser run cannot be saved as a scenario (`Scenario`
+has no exerciser kind — the ramp precedent, same type-narrowing guard), and per-key with no usable
+value list blocks Start (the engine throw is the defence in depth behind it).
+
+**E2E — new project `12-exerciser`** ([exerciser.spec.ts](../src/tests/e2e/specs/exerciser.spec.ts)):
+ordering controls + plan preview with a target selected, both refusal assertions, the per-key
+block, and a real 10-message run whose manifest rows match the deterministic assignments, with a
+real browser download. **A locator collision only the e2e could catch:** the TemplateEditor's
+`delaySeconds` field carries the identical "Delay (seconds)" label (it is the field the strategies
+override), so the fill is scoped to the exerciser controls — unit tests render the control in
+isolation and cannot see the page-level ambiguity.
+
+**Verified 2026-08-03/04:** unit **44 files, 684 tests** (`logs/utilities-ui-unit-20260803-2.txt`);
+e2e **85/85 across all projects including 12-exerciser**
+(`logs/utilities-ui-e2e-exerciser-20260804.txt`); lint 0 errors (5 warnings — the accepted
+`react-refresh/only-export-components` class, +1 for `EXERCISER_DEFAULTS` beside its component);
+`tsc --noEmit` 0 errors. **Not done:** mutation probes were not run this step; screenshots not
+regenerated (no exerciser capture exists — rewrites committed PNGs, user's call).
 
 ---
 
