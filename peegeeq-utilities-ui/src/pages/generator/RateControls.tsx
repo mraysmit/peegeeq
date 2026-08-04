@@ -16,15 +16,6 @@ import type { RateSettings } from '../../types/generator'
 
 const { Text } = Typography
 
-/** §6.1 Zone B defaults. */
-export const RATE_DEFAULTS: RateSettings = {
-  rate: 10,
-  durationSecs: 60,
-  maxBatchSize: 10,
-  warnThreshold: 500,
-  maxConsecErrors: 10,
-}
-
 interface RateControlsProps {
   value: RateSettings
   onChange: (value: RateSettings) => void

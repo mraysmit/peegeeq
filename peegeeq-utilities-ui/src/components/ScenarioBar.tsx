@@ -33,11 +33,12 @@ export interface ScenarioBarProps {
   /**
    * The generator's live mode — saved so Load can restore it (G.3d).
    *
-   * `ramp` and `exerciser` are accepted but NOT saveable: `Scenario` has
-   * neither kind, so saving one would store it as a flat scenario that replays
-   * as a completely different run. Saving is blocked instead (G.1a, G.5).
+   * `ramp`, `exerciser` and `trace` are accepted but NOT saveable: `Scenario`
+   * has none of those kinds, so saving one would store it as a flat scenario
+   * that replays as a completely different run. Saving is blocked instead
+   * (G.1a, G.5, G.6).
    */
-  mode: 'flat' | 'profile' | 'ramp' | 'exerciser'
+  mode: 'flat' | 'profile' | 'ramp' | 'exerciser' | 'trace'
   /** The live traffic shape; saved only when mode is 'profile'. */
   phases: ProfilePhase[]
 }
@@ -67,7 +68,9 @@ export default function ScenarioBar({
       ? 'Ramp runs cannot be saved as scenarios yet.'
       : mode === 'exerciser'
         ? 'Exerciser runs cannot be saved as scenarios yet.'
-        : undefined
+        : mode === 'trace'
+          ? 'Trace-seed runs cannot be saved as scenarios yet.'
+          : undefined
 
   function handleLoad() {
     if (!selected) return
@@ -87,7 +90,7 @@ export default function ScenarioBar({
       setSaveError('Select a target queue before saving a scenario.')
       return
     }
-    if (mode === 'ramp' || mode === 'exerciser') {
+    if (mode === 'ramp' || mode === 'exerciser' || mode === 'trace') {
       // Checked as MODES, not via saveBlockedReason: this also narrows `mode`
       // to the two kinds a Scenario can actually hold, so the object below
       // cannot be built with a mode the model does not support.

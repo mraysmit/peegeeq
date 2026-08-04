@@ -20,7 +20,8 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ConfigProvider } from 'antd'
-import RateControls, { RATE_DEFAULTS } from '../../pages/generator/RateControls'
+import RateControls from '../../pages/generator/RateControls'
+import { RATE_DEFAULTS } from '../../pages/generator/generatorDefaults'
 import type { RateSettings } from '../../types/generator'
 
 function Harness({

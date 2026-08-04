@@ -68,7 +68,7 @@ function renderBar(
     config: RunConfig | null
     onLoad: (s: Scenario) => void
     disabled: boolean
-    mode: 'flat' | 'profile' | 'ramp' | 'exerciser'
+    mode: 'flat' | 'profile' | 'ramp' | 'exerciser' | 'trace'
     phases: ProfilePhase[]
   }> = {}
 ) {
@@ -224,6 +224,12 @@ describe('ScenarioBar', () => {
 
   it('BLOCKS saving in Exerciser mode — a scenario has no exerciser kind either (G.5)', () => {
     renderBar({ mode: 'exerciser' })
+
+    expect((screen.getByTestId('scenario-save-as') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('BLOCKS saving in Trace-seed mode — a scenario has no trace kind either (G.6)', () => {
+    renderBar({ mode: 'trace' })
 
     expect((screen.getByTestId('scenario-save-as') as HTMLButtonElement).disabled).toBe(true)
   })

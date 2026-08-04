@@ -20,10 +20,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { createPublicationEngine } from '../../engine/publicationEngine'
 import type { RunIdentity } from '../../engine/publicationEngine'
 import { assignmentFor } from '../../engine/exerciserPlan'
+import { traceFor } from '../../engine/tracePlan'
 import { publishBatch } from '../../services/publishService'
 import { useValueListStore } from '../../stores/valueListStore'
 import type { RunConfig, MessageTemplate, RunSummary, PublishError } from '../../types/generator'
 import type { ExerciserSettings } from '../../types/exerciser'
+import type { TraceSettings } from '../../types/trace'
 
 vi.mock('../../services/publishService')
 const mockedPublishBatch = vi.mocked(publishBatch)
@@ -547,6 +549,50 @@ describe('publicationEngine', () => {
     expect(cbs.onError).toHaveBeenCalledOnce()
     const [, reason] = cbs.onError.mock.calls[0] as [RunSummary, string]
     expect(reason).toContain('no_such_list')
+  })
+
+  // ── Trace-seed strategies (§19.6 — Phase G.6) ─────────────────────────────
+
+  it('trace assigns the correlationId PER MESSAGE, in the field and the token', async () => {
+    mockedPublishBatch.mockResolvedValue({ messagesSent: 6, messagesFailed: 0 })
+    const trace: TraceSettings = {
+      correlation: { kind: 'every-n', n: 2 },
+      causation: { enabled: false, childrenPerParent: 3 },
+    }
+    const engine = createPublicationEngine()
+
+    engine.start(
+      makeConfig({
+        rate: 6,
+        maxBatchSize: 6,
+        durationSecs: 1,
+        trace,
+        template: {
+          ...makeTemplate(),
+          payloadSchema: '{"corr":"{{correlationId}}"}',
+        },
+      }),
+      IDENTITY,
+      callbacks()
+    )
+    await vi.advanceTimersByTimeAsync(0)
+
+    const messages = mockedPublishBatch.mock.calls[0][2].messages
+    const ids = messages.map((m) => m.correlationId)
+    // New id every 2 messages: pairs share, neighbours across pairs differ.
+    expect(ids[0]).toBe(ids[1])
+    expect(ids[2]).toBe(ids[3])
+    expect(ids[4]).toBe(ids[5])
+    expect(new Set(ids).size).toBe(3)
+    // The identity id is replaced, and each id is what traceFor mints.
+    expect(ids[0]).not.toBe(IDENTITY.correlationId)
+    ids.forEach((id, index) => {
+      expect(id).toBe(traceFor(trace, IDENTITY.runId, index, 6, 6).correlationId)
+    })
+    // The {{correlationId}} token resolves to the MESSAGE's id, not the run's.
+    messages.forEach((m, index) => {
+      expect((m.payload as { corr: string }).corr).toBe(ids[index])
+    })
   })
 
   it('the summary reports totalAttempted — built messages, acknowledged or not', async () => {

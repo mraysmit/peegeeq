@@ -190,6 +190,17 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['3-generator'],
     },
+    // Trace-seed mode (G.6) — correlation controls + scheme summary, a real
+    // run minting per-message correlation ids, the derived emitted-ids report
+    // with a real download, and the refusals a trace run carries (no
+    // scheduling, not saveable as a scenario) asserted WITH a target
+    // selected. Owns its setup.
+    {
+      name: '13-trace',
+      testMatch: '**/trace.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

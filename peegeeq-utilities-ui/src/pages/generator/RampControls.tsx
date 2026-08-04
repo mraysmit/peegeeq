@@ -15,16 +15,6 @@ import type { RampSettings } from '../../types/ramp'
 
 const { Text } = Typography
 
-/** §19.1 defaults: a gentle climb that reaches a useful rate quickly. */
-export const RAMP_DEFAULTS: RampSettings = {
-  startRate: 10,
-  stepRate: 50,
-  stepSecs: 10,
-  maxRate: 500,
-  stopOn: 'error-rate',
-  errorRatePercent: 5,
-}
-
 interface RampControlsProps {
   value: RampSettings
   onChange: (value: RampSettings) => void

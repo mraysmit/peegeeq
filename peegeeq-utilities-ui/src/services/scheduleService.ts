@@ -53,6 +53,24 @@ const exerciserSettingsSchema = z.object({
 })
 
 /**
+ * Trace-seed strategies (design §19.6 — G.6). Part of runConfigSchema for the
+ * same reason as the exerciser's: a manual trace run's history record stores
+ * its RunConfig, and the default Zod strip would silently drop `trace` on
+ * reload.
+ */
+const traceSettingsSchema = z.object({
+  correlation: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('per-run') }),
+    z.object({ kind: z.literal('per-batch') }),
+    z.object({ kind: z.literal('every-n'), n: z.number().int().min(1) }),
+  ]),
+  causation: z.object({
+    enabled: z.boolean(),
+    childrenPerParent: z.number().int().min(1),
+  }),
+})
+
+/**
  * Ranges match the Zone B input bounds (feature §6.1): stored or imported
  * configs must not carry values the UI cannot produce.
  *
@@ -71,6 +89,7 @@ export const runConfigSchema = z.object({
   template: messageTemplateSchema,
   previewIndex: z.number().min(1),
   ordering: exerciserSettingsSchema.optional(),
+  trace: traceSettingsSchema.optional(),
 })
 
 const publishErrorSchema = z.object({

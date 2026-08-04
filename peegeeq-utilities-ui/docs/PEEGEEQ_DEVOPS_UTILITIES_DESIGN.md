@@ -2368,6 +2368,47 @@ schedule stores one `RunConfig` and cannot carry a multi-phase shape.
 
 ![Profile mode](screenshots/41-profile-mode.png)
 
+#### 42 — Ramp mode: controls and the planned steps (§19.1)
+
+Zone B is the ramp controls. The plan preview and the per-step table both come from the same
+`buildRampPhases` the run uses; every step reads **pending** before anything runs. Schedule and
+scenario save are disabled — a ramp fits in neither model.
+
+![Ramp mode](screenshots/42-ramp-mode.png)
+
+#### 43 — Exerciser mode: ordering strategies and the plan preview (§19.5)
+
+Zone B is the delay/priority/group strategies plus the rate controls. The plan preview calls the
+same `assignmentFor` the run uses; the note states that the template's scalar priority, delay and
+group fields are overridden per message.
+
+![Exerciser mode](screenshots/43-exerciser-mode.png)
+
+#### 44 — Exerciser: the derived sent manifest after a real run (§19.5)
+
+id → group · priority · delay for every attempted message, derived after the run from the run id —
+nothing per-message is stored. The download carries the full manifest; ordering is verified
+downstream in management-ui's Message Browser.
+
+![Exerciser manifest](screenshots/44-exerciser-manifest.png)
+
+#### 45 — Trace-seed mode: correlation strategy and the id scheme (§19.6)
+
+Zone B is the correlation strategy plus the rate controls. The scheme summary derives from the
+settings; no example ids are shown — every id derives from the run id, which does not exist until
+Start.
+
+![Trace-seed mode](screenshots/45-trace-mode.png)
+
+#### 46 — Trace-seed: the derived emitted-ids report after a real run (§19.6)
+
+The minted correlation ids with roles and chain roots — chains are an id scheme in this report;
+the queue messages carry only their own `correlationId` (`causationId` belongs to the bi-temporal
+event store). Copy and Download carry the full list, ready for management-ui's CausationTree /
+Events.
+
+![Trace-seed emitted ids](screenshots/46-trace-ids.png)
+
 ---
 
 # Part II — Technical Design (module architecture)
