@@ -285,7 +285,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                       "    LIMIT $3\n" +
                       "    FOR UPDATE SKIP LOCKED\n" +
                       ")\n" +
-                      "RETURNING id, payload, headers, correlation_id, message_group, created_at";
+                      "RETURNING id, payload, headers, correlation_id, message_group, created_at,\n" +
+                      "          EXTRACT(EPOCH FROM (now() - created_at)) * 1000.0 AS delivery_latency_ms";
 
                 // Build tuple with base params + filter params
                 Object[] baseParams = new Object[] { OffsetDateTime.now(), topic, batchSize };
@@ -311,7 +312,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                             LIMIT $3
                             FOR UPDATE SKIP LOCKED
                         )
-                        RETURNING id, payload, headers, correlation_id, message_group, created_at
+                        RETURNING id, payload, headers, correlation_id, message_group, created_at,
+                                  EXTRACT(EPOCH FROM (now() - created_at)) * 1000.0 AS delivery_latency_ms
                         """.formatted(sqOutbox, sqOutbox);
                 params = Tuple.of(OffsetDateTime.now(), topic, batchSize);
             }
@@ -397,6 +399,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             JsonObject payloadJson = row.getJsonObject("payload");
             JsonObject headersJson = row.getJsonObject("headers");
             String correlationId = row.getString("correlation_id");
+
+            // Delivery latency (telemetry G2): enqueue → claim, computed by the
+            // claim statement on the DATABASE clock (now() - created_at), so no
+            // JVM/DB clock skew enters the measurement. Recorded for every
+            // claimed message — delivery happened even if processing fails.
+            Double deliveryLatencyMs = row.getDouble("delivery_latency_ms");
+            if (deliveryLatencyMs != null && deliveryLatencyMs >= 0) {
+                metrics.recordMessageDeliveryLatency(topic, "outbox",
+                        java.time.Duration.ofNanos(Math.round(deliveryLatencyMs * 1_000_000.0)));
+            }
 
             T payload = parsePayloadFromJsonObject(payloadJson);
             Map<String, String> headers = parseHeadersFromJsonObject(headersJson);

@@ -16,6 +16,8 @@ package dev.mars.peegeeq.api.database;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.api.messaging.DurationPercentiles;
+
 import java.time.Duration;
 import java.util.Map;
 
@@ -82,6 +84,22 @@ public interface MetricsProvider {
      */
     void recordMessageRetried(String topic, int retryCount);
 
+    /**
+     * Records a message's delivery latency — enqueue to claim, measured on
+     * the DATABASE clock inside the claim statement (telemetry G2). Tagged by
+     * implementation type because the delivery mechanism is the
+     * native-vs-outbox difference this measures.
+     *
+     * Default no-op: recording is optional exactly like the histogram in
+     * {@link #recordMessageProcessed(String, Duration)}.
+     *
+     * @param topic The topic the message was claimed from
+     * @param implementationType "native" or "outbox"
+     * @param latency Time from enqueue (created_at) to claim
+     */
+    default void recordMessageDeliveryLatency(String topic, String implementationType, Duration latency) {
+    }
+
     // ========================================================================
     // Generic metrics methods
     // ========================================================================
@@ -130,6 +148,34 @@ public interface MetricsProvider {
      * @return A map of metric names to their current numeric values
      */
     Map<String, Number> getAllMetrics();
+
+    /**
+     * Gets the processing-time distribution recorded for a topic via
+     * {@link #recordMessageProcessed(String, Duration)} (telemetry G1).
+     *
+     * Default null: an implementation that keeps no histogram (including
+     * {@link NoOpMetricsProvider}) reports "no data" by absence, never by
+     * zeroed values.
+     *
+     * @param topic The topic to query
+     * @return The distribution, or null when nothing has been recorded
+     */
+    default DurationPercentiles getProcessingTimePercentiles(String topic) {
+        return null;
+    }
+
+    /**
+     * Gets the delivery-latency distribution recorded for a topic via
+     * {@link #recordMessageDeliveryLatency(String, String, Duration)}
+     * (telemetry G2). Same null-means-no-data contract as
+     * {@link #getProcessingTimePercentiles(String)}.
+     *
+     * @param topic The topic to query
+     * @return The distribution, or null when nothing has been recorded
+     */
+    default DurationPercentiles getDeliveryLatencyPercentiles(String topic) {
+        return null;
+    }
 
     /**
      * Gets the instance ID for this metrics provider.

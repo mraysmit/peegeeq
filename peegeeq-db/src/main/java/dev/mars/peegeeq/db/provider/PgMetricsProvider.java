@@ -149,6 +149,35 @@ public class PgMetricsProvider implements MetricsProvider {
     }
 
     @Override
+    public dev.mars.peegeeq.api.messaging.DurationPercentiles getProcessingTimePercentiles(String topic) {
+        try {
+            return metrics.getProcessingTimePercentiles(topic);
+        } catch (Exception e) {
+            logger.warn("Failed to get processing-time percentiles for topic: {}", topic, e);
+            return null;
+        }
+    }
+
+    @Override
+    public void recordMessageDeliveryLatency(String topic, String implementationType, Duration latency) {
+        try {
+            metrics.recordMessageDeliveryLatency(topic, implementationType, latency);
+        } catch (Exception e) {
+            logger.warn("Failed to record delivery latency for topic: {}", topic, e);
+        }
+    }
+
+    @Override
+    public dev.mars.peegeeq.api.messaging.DurationPercentiles getDeliveryLatencyPercentiles(String topic) {
+        try {
+            return metrics.getDeliveryLatencyPercentiles(topic);
+        } catch (Exception e) {
+            logger.warn("Failed to get delivery-latency percentiles for topic: {}", topic, e);
+            return null;
+        }
+    }
+
+    @Override
     public String getInstanceId() {
         return metrics.getInstanceId();
     }

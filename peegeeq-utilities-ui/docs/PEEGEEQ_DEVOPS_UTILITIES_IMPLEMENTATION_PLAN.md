@@ -884,9 +884,10 @@ rows and a real report download.
 **Verified 2026-08-04:** unit **47 files, 721 tests** (`logs/utilities-ui-unit-g6-20260804.txt`);
 e2e **87/87 across all projects including 13-trace**
 (`logs/utilities-ui-e2e-trace-20260804.txt`); lint **0 errors, 0 warnings**; `tsc --noEmit`
-0 errors. **Not done:** mutation probes were not run; no trace-mode screenshot yet (captures 45/46
-are in the spec pending the next gallery regeneration); emitted ids are verified on the wire in
-the engine unit test, not read back from the server.
+0 errors. **Not done:** mutation probes were not run; emitted ids are verified on the wire in the
+engine unit test, not read back from the server. *(Screenshots resolved 2026-08-04: gallery
+regenerated — `45-trace-mode.png` / `46-trace-ids.png` captured, spec 1/1 green,
+`logs/utilities-ui-screenshots-20260804-2.txt`.)*
 
 ---
 
@@ -903,8 +904,8 @@ everything in Phases A–G except those two is client-side or uses telemetry tha
 
 | Step | Gap | What to add | Reference |
 |---|---|---|---|
-| T.1 | G1 | Latency **percentiles** (p50/p95/p99) per queue (histogram) — expose on `/stats` alongside the existing `avgProcessingTimeMs` | telemetry §4 G1 |
-| T.2 | G2 | **End-to-end delivery latency** (enqueue → available), tagged by implementation type — the native-vs-outbox differentiator | telemetry §4 G2 |
+| T.1 | G1 | ✅ **DONE 2026-08-04** — Latency percentiles (p50/p95/p99 + mean + sampleCount) per queue via the per-topic Micrometer histogram both consumers feed at ack; exposed on `/stats` (`processingTime*Ms` fields, ABSENT when unmeasured); replaces the hardcoded 0.0 `avgProcessingTimeMs` with the histogram mean. App-side scope recorded on `DurationPercentiles`: per-instance, resets on restart (decided over SQL percentiles — native deletes processed rows). Evidence: db 48/48, native 13/13, outbox 6/6 (`logs/t2-*-20260804.txt`) | telemetry §4 G1 |
+| T.2 | G2 | ✅ **DONE 2026-08-04** — Delivery latency (enqueue → claim) computed INSIDE the claim statement on the DATABASE clock (`now() - created_at` in the claim RETURNING, both consumers, all four SQL variants), recorded to `peegeeq.message.delivery.latency.by.topic` tagged by implementation type; `deliveryLatency*Ms` on `/stats`, same absent-when-unmeasured contract. Same evidence runs as T.1 | telemetry §4 G2 |
 | T.3 | G6 | Per-message **enqueue timestamp** + echoed client `x-send-ts` header on consume (for latency join + ordering checks) | telemetry §4 G6 |
 | T.4 | G3 | Resource-saturation metrics **beyond** the `dbPool` already in `/sse/metrics`: DB write latency, event-loop lag, NOTIFY backlog, pool acquire-wait | telemetry §4 G3 |
 | T.5 | G4 | Raise `/sse/metrics` cadence to **≥ 1 Hz**, or add a fast per-run/per-queue stream | telemetry §5 |
