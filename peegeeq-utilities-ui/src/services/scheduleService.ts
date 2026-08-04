@@ -25,6 +25,34 @@ export const HISTORY_MAX_ENTRIES = 200
 export const HISTORY_MAX_ERRORS_PER_ENTRY = 20
 
 /**
+ * Exerciser ordering strategies (design §19.5 — G.5-send). Bounds match the
+ * ExerciserControls inputs. Part of runConfigSchema because a manual exerciser
+ * run's history record stores its RunConfig: without this, the default Zod
+ * strip would silently drop `ordering` on reload and the record would claim a
+ * flat run that never happened.
+ */
+const exerciserSettingsSchema = z.object({
+  delay: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('fixed'), seconds: z.number().min(0) }),
+    z.object({ kind: z.literal('random'), maxSeconds: z.number().min(0) }),
+    z.object({
+      kind: z.literal('per-index-ramp'),
+      stepSeconds: z.number().min(0),
+      maxSeconds: z.number().min(0),
+    }),
+  ]),
+  priority: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('fixed'), priority: z.number().min(0).max(10) }),
+    z.object({ kind: z.literal('round-robin') }),
+  ]),
+  group: z.discriminatedUnion('kind', [
+    z.object({ kind: z.literal('single'), group: z.string().min(1) }),
+    z.object({ kind: z.literal('round-robin'), groups: z.number().int().min(1) }),
+    z.object({ kind: z.literal('per-key'), listName: z.string().min(1) }),
+  ]),
+})
+
+/**
  * Ranges match the Zone B input bounds (feature §6.1): stored or imported
  * configs must not carry values the UI cannot produce.
  *
@@ -42,6 +70,7 @@ export const runConfigSchema = z.object({
   maxConsecErrors: z.number().min(0),
   template: messageTemplateSchema,
   previewIndex: z.number().min(1),
+  ordering: exerciserSettingsSchema.optional(),
 })
 
 const publishErrorSchema = z.object({
@@ -53,6 +82,8 @@ const publishErrorSchema = z.object({
 
 const runSummarySchema = z.object({
   totalSent: z.number(),
+  // Absent in summaries stored before G.5 — see RunSummary.totalAttempted.
+  totalAttempted: z.number().optional(),
   targetTotal: z.number(),
   avgRate: z.number(),
   durationMs: z.number(),
