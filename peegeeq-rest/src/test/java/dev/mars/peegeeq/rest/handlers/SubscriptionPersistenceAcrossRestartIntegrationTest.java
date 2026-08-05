@@ -111,11 +111,19 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         // Create our own managed Vertx instance that persists across test methods
         managedVertx = Vertx.vertx();
 
+        // Unique database per run — the module convention (see every other REST integration
+        // test). It must NOT be the container's default database: `create` is non-destructive
+        // and refuses with 409 when the database already exists, so provisioning into the
+        // shared database can never succeed.
+        databaseName = "persistence_test_db_" + System.currentTimeMillis();
+
         // Build a long-lived reactive pool for direct database verification (tests 3 and 5).
+        // It targets the database test01 provisions; Vert.x pools connect lazily, and the first
+        // query runs in test03, after that provisioning has happened.
         PgConnectOptions connectOptions = new PgConnectOptions()
             .setHost(postgres.getHost())
             .setPort(postgres.getFirstMappedPort())
-            .setDatabase(postgres.getDatabaseName())
+            .setDatabase(databaseName)
             .setUser(postgres.getUsername())
             .setPassword(postgres.getPassword());
         verifyPool = PgBuilder.pool()
@@ -168,11 +176,11 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     .put("databaseConfig", new JsonObject()
                         .put("host", postgres.getHost())
                         .put("port", postgres.getFirstMappedPort())
-                        .put("databaseName", postgres.getDatabaseName())  // Use TestContainer's existing database
+                        .put("databaseName", databaseName)  // unique per run — create provisions it
                         .put("username", postgres.getUsername())
                         .put("password", postgres.getPassword())
-                        .put("schema", "peegeeq")  // Use peegeeq schema where tables are created
-                        .put("templateDatabase", null)  // Don't create new database from template
+                        .put("schema", PostgreSQLTestConstants.TEST_SCHEMA)
+                        .put("templateDatabase", "template0")
                         .put("encoding", "UTF8"))
                     .put("queues", new JsonArray()
                         .add(new JsonObject()
@@ -316,12 +324,14 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
 
         // The topic stored in database is a composite: setupId + "-" + queueName
         String expectedTopic = setupId + "-" + QUEUE_NAME;
+        // Schema-qualified from the SAME constant the setup was provisioned with — a hardcoded
+        // "peegeeq" here queried a schema that was never created (the setup uses TEST_SCHEMA).
         String sql = """
             SELECT topic, group_name, subscription_status,
                    start_from_message_id, heartbeat_interval_seconds, heartbeat_timeout_seconds
-            FROM peegeeq.outbox_topic_subscriptions
+            FROM %s.outbox_topic_subscriptions
             WHERE topic = $1 AND group_name = $2
-            """;
+            """.formatted(PostgreSQLTestConstants.TEST_SCHEMA);
 
         // Settling delay chained reactively so we never block the calling thread.
         managedVertx.timer(1000)
@@ -459,9 +469,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         String sql = """
             SELECT topic, group_name, subscription_status,
                    heartbeat_interval_seconds, heartbeat_timeout_seconds
-            FROM peegeeq.outbox_topic_subscriptions
+            FROM %s.outbox_topic_subscriptions
             WHERE topic = $1 AND group_name = $2
-            """;
+            """.formatted(PostgreSQLTestConstants.TEST_SCHEMA);
 
         return verifyPool.withConnection(conn ->
                 conn.preparedQuery(sql).execute(Tuple.of(expectedTopic, GROUP_NAME)))
