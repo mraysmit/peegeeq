@@ -41,10 +41,10 @@ more — it would be redundant.
 
 ```powershell
 
-# Full suite resume from — every tag, every module (~60m+) — THE regression-safety command
+# Full suite resume from — every tag, every module (~75m) — the commit/push/release GATE
 mvn test -Pall-tests -rf :peegeeq-examples 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 
-# Full suite — every tag, every module (~60m+) — THE regression-safety command
+# Full suite — every tag, every module (~75m) — the commit/push/release GATE
 mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 
 # Core tests — all modules (default, ~30s)
@@ -83,9 +83,31 @@ Get-Content logs\<name>.txt -Tail 30
 
 ---
 
-> **RULE: After ANY code change, the only acceptable validation command is section 5 (`-Pall-tests`).**
-> The tiered workflow below (daily → commit → push) was the primary cause of months of missed tests and production bugs.
-> Partial profiles are only acceptable when (a) establishing a **pre-change baseline** for specific modules before touching them, or (b) re-running a **specific already-identified failure** from a prior `-Pall-tests` run.
+## RULE: scoped runs to iterate, `-Pall-tests` to gate
+
+**`-Pall-tests` takes ~75 minutes.** It is the **commit / push / release gate**, run
+deliberately once when the work is ready — not a step in the edit-test loop. Re-running a
+75-minute whole-repo suite to check a one-line edit is waste, and treating it as the *only*
+acceptable command makes test-driven development impossible.
+
+| Situation | Command |
+|---|---|
+| Writing a test, watching it fail, making it pass | The single test or class, scoped with `-pl` and `-Dtest=` |
+| Iterating on a module you are changing | That module, with the profile carrying its test mass |
+| Pre-change baseline | The modules you are about to touch, both profiles |
+| **Before commit / push / release** | **`mvn clean test -Pall-tests` — the gate** |
+| A failure `-Pall-tests` already identified | That specific test, scoped, until it is green |
+
+**What a scoped run is NOT.** It is evidence about the code you scoped it to, and nothing
+else. The original failure this rule was written against was not "people ran fast tests" — it
+was **partial results being reported as whole-repo validation**, so silently skipped tests went
+unnoticed for months. That remains banned:
+
+- Never describe a scoped run as "the suite passes" or "the build is green". Say what ran:
+  *"`peegeeq-rest` integration: 504 passed"*.
+- `mvn test -pl :module` (no profile) runs `@Tag("core")` ONLY. It will silently skip every
+  integration test in that module. Always name the profile you used when reporting.
+- A scoped green does not clear a change for commit. Only the gate does.
 
 ---
 
@@ -112,18 +134,19 @@ mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\pe
 
 ---
 
-## 1 Targeted Core Debug (only after a `-Pall-tests` failure is already identified)
+## 1 Targeted Core Debug (the iteration loop, and known-failure fixes)
 
-Single module (fast feedback while fixing a known core-tagged failure):
+Single module — fast feedback while writing core-tagged tests or fixing a known failure:
 ```powershell
 mvn test -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260526.txt
 ```
 
 ---
 
-## 2 Targeted Integration Debug (only after a `-Pall-tests` failure is already identified)
+## 2 Targeted Integration Debug (the iteration loop, and known-failure fixes)
 
-Single module:
+Single module. Narrow to one class or method with `-Dtest=` while iterating —
+`-Dtest=MyIntegrationTest` or `-Dtest=MyIntegrationTest#oneMethod`:
 ```powershell
 mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260526.txt
 ```

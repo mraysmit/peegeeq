@@ -43,12 +43,15 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -135,6 +138,109 @@ class SseMessageStreamDemoIntegrationTest {
     @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     void secondNativeSetup_alsoStreamsOverSse(Vertx vertx, VertxTestContext ctx) {
         runTenMessageStreamDemo("native", vertx, ctx);
+    }
+
+    /**
+     * Telemetry G6 (Phase T.3): a streamed message must carry the ENQUEUE timestamp and the
+     * client's own headers, so a consumer can compute true end-to-end latency and verify
+     * delay/FIFO ordering.
+     *
+     * <p>Before T.3 the frame carried only {@code timestamp} — {@code System.currentTimeMillis()}
+     * at the moment the frame was WRITTEN. That is emit time, not enqueue time, and it is the
+     * dangerous kind of wrong: it sits a few tens of milliseconds after the client's send, so a
+     * latency computed from it looks entirely plausible while measuring nothing of the sort.
+     * Verified against a running backend on 2026-08-05 before this test was written.
+     *
+     * <p>{@code timestamp} is deliberately LEFT IN PLACE and asserted here: the fix is additive so
+     * no existing SSE consumer breaks. Its meaning is documented on the handler.
+     */
+    @Test
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void streamedMessage_carriesEnqueueTimestampAndClientHeaders(Vertx vertx, VertxTestContext ctx) {
+        String setupId = "sse-g6-" + System.currentTimeMillis();
+        String queueName = "sse_g6_queue";
+        String sendTs = String.valueOf(System.currentTimeMillis());
+
+        AtomicBoolean produceStarted = new AtomicBoolean(false);
+        AtomicBoolean verifyStarted = new AtomicBoolean(false);
+        AtomicBoolean completed = new AtomicBoolean(false);
+        StringBuilder sseBuffer = new StringBuilder();
+        HttpClient sseClient = vertx.createHttpClient();
+
+        createSetupWithQueue(setupId, queueName, "native")
+                .compose(v -> sseClient.request(HttpMethod.GET, TEST_PORT, "localhost",
+                        "/api/v1/queues/" + setupId + "/" + queueName + "/messages/stream"))
+                .compose(request -> {
+                    request.putHeader("Accept", "text/event-stream");
+                    return request.send();
+                })
+                .onSuccess(response -> {
+                    response.handler(buffer -> {
+                        sseBuffer.append(buffer.toString());
+                        String acc = sseBuffer.toString();
+
+                        if (acc.contains("event: subscribed") && produceStarted.compareAndSet(false, true)) {
+                            JsonObject body = new JsonObject()
+                                    .put("payload", new JsonObject().put("probe", "g6"))
+                                    .put("headers", new JsonObject().put("x-send-ts", sendTs));
+                            client.post(TEST_PORT, "localhost",
+                                            "/api/v1/queues/" + setupId + "/" + queueName + "/messages")
+                                    .putHeader("content-type", "application/json")
+                                    .sendJsonObject(body)
+                                    .onFailure(ctx::failNow);
+                        }
+
+                        String frame = extractMessageFrame(acc);
+                        if (frame != null && verifyStarted.compareAndSet(false, true)) {
+                            JsonObject data = new JsonObject(frame);
+                            ctx.verify(() -> {
+                                assertNotNull(data.getValue("enqueuedAt"),
+                                        "streamed frame must carry the ENQUEUE timestamp (telemetry G6); frame was: " + data.encode());
+                                // Parseable as a real instant, not a placeholder.
+                                Instant enqueuedAt = Instant.parse(data.getString("enqueuedAt"));
+                                assertTrue(enqueuedAt.toEpochMilli() > 0, "enqueuedAt must be a real instant");
+
+                                JsonObject headers = data.getJsonObject("headers");
+                                assertNotNull(headers,
+                                        "streamed frame must carry the message headers (telemetry G6); frame was: " + data.encode());
+                                assertEquals(sendTs, headers.getString("x-send-ts"),
+                                        "the client's x-send-ts header must be echoed back on the stream");
+
+                                // Additive: the pre-existing emit-time field is untouched, so no
+                                // existing SSE consumer breaks.
+                                assertNotNull(data.getValue("timestamp"),
+                                        "the existing emit-time 'timestamp' field must remain");
+
+                                completed.set(true);
+                                sseClient.close();
+                                ctx.completeNow();
+                            });
+                        }
+                    });
+                    response.exceptionHandler(err -> {
+                        if (completed.get()) {
+                            logger.debug("SSE closed after completion (ignored): {}", err.getMessage());
+                        } else {
+                            ctx.failNow(err);
+                        }
+                    });
+                })
+                .onFailure(ctx::failNow);
+    }
+
+    /**
+     * Returns the JSON of the first complete {@code event: message} frame in the accumulated SSE
+     * text, or null while none has fully arrived. SSE frames can be split across buffers, so a
+     * frame counts only once its data line is terminated.
+     */
+    private static String extractMessageFrame(String acc) {
+        int eventIdx = acc.indexOf("event: message");
+        if (eventIdx < 0) return null;
+        int dataIdx = acc.indexOf("data: ", eventIdx);
+        if (dataIdx < 0) return null;
+        int endIdx = acc.indexOf('\n', dataIdx);
+        if (endIdx < 0) return null; // data line not complete yet
+        return acc.substring(dataIdx + "data: ".length(), endIdx).trim();
     }
 
     /**
