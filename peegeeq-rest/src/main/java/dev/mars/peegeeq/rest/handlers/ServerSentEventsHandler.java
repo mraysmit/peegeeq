@@ -53,6 +53,20 @@ public class ServerSentEventsHandler {
      * pushes them, but never consumes (no {@code subscribe}, no ack, no delete). Observed messages
      * remain in the queue and are still delivered to the application's real consumers. The tail is
      * torn down ({@code browser.close()}) when the client disconnects.
+     *
+     * <p><b>Message frame fields, and their two different clocks (telemetry G6, Phase T.3):</b>
+     * <ul>
+     *   <li>{@code enqueuedAt} — when the message was ENQUEUED (its {@code created_at}). This is
+     *       the one to measure end-to-end latency against, and to verify delay/FIFO ordering.
+     *       Absent if unknown; never zeroed.</li>
+     *   <li>{@code headers} — the message's own headers, carrying any client correlation or
+     *       send-time header (e.g. {@code x-send-ts}) needed to join client and server timings.
+     *       Absent when the message has none.</li>
+     *   <li>{@code timestamp} — the moment THIS FRAME WAS WRITTEN by the server. It is emit time,
+     *       not enqueue time. It predates T.3 and is kept so existing consumers keep working, but
+     *       a latency computed from it measures only how long the server took to emit the frame —
+     *       a small, plausible-looking number that means almost nothing. Use {@code enqueuedAt}.</li>
+     * </ul>
      */
     public void handleQueueMessageStream(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
@@ -131,12 +145,30 @@ public class ServerSentEventsHandler {
                         long n = observed.incrementAndGet();
                         logger.info("SSE message stream {}: pushing message #{} (id={}) to client",
                                 connectionId, n, message.getId());
-                        writeSSEEvent(response, "message", new JsonObject()
+                        JsonObject frame = new JsonObject()
                                 .put("type", "message")
                                 .put("connectionId", connectionId)
                                 .put("messageId", message.getId())
                                 .put("payload", message.getPayload())
-                                .put("timestamp", System.currentTimeMillis()));
+                                // EMIT time — the moment this frame was written. Kept for
+                                // compatibility; it is NOT the enqueue time. See enqueuedAt.
+                                .put("timestamp", System.currentTimeMillis());
+
+                        // Telemetry G6: the ENQUEUE timestamp, so a consumer can compute true
+                        // end-to-end latency and verify delay/FIFO ordering. Absent rather than
+                        // zeroed when unknown — a fabricated instant would be worse than none.
+                        if (message.getCreatedAt() != null) {
+                            frame.put("enqueuedAt", message.getCreatedAt().toString());
+                        }
+                        // Telemetry G6: the message's own headers, which carry any client
+                        // correlation/send-time header (e.g. x-send-ts) for the latency join.
+                        if (message.getHeaders() != null && !message.getHeaders().isEmpty()) {
+                            JsonObject headers = new JsonObject();
+                            message.getHeaders().forEach(headers::put);
+                            frame.put("headers", headers);
+                        }
+
+                        writeSSEEvent(response, "message", frame);
                         return Future.succeededFuture();
                     });
                 })

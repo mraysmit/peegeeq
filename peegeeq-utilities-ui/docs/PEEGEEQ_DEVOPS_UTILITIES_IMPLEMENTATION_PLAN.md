@@ -906,11 +906,46 @@ everything in Phases A–G except those two is client-side or uses telemetry tha
 |---|---|---|---|
 | T.1 | G1 | ✅ **DONE 2026-08-04** — Latency percentiles (p50/p95/p99 + mean + sampleCount) per queue via the per-topic Micrometer histogram both consumers feed at ack; exposed on `/stats` (`processingTime*Ms` fields, ABSENT when unmeasured); replaces the hardcoded 0.0 `avgProcessingTimeMs` with the histogram mean. App-side scope recorded on `DurationPercentiles`: per-instance, resets on restart (decided over SQL percentiles — native deletes processed rows). Evidence: db 48/48, native 13/13, outbox 6/6 (`logs/t2-*-20260804.txt`) | telemetry §4 G1 |
 | T.2 | G2 | ✅ **DONE 2026-08-04** — Delivery latency (enqueue → claim) computed INSIDE the claim statement on the DATABASE clock (`now() - created_at` in the claim RETURNING, both consumers, all four SQL variants), recorded to `peegeeq.message.delivery.latency.by.topic` tagged by implementation type; `deliveryLatency*Ms` on `/stats`, same absent-when-unmeasured contract. Same evidence runs as T.1 | telemetry §4 G2 |
-| T.3 | G6 | Per-message **enqueue timestamp** + echoed client `x-send-ts` header on consume (for latency join + ordering checks) | telemetry §4 G6 |
+| T.3 | G6 | ✅ **DONE 2026-08-05** — enqueue timestamp + client headers on the LIVE SSE message frame (`enqueuedAt`, `headers`); see the T.3 record below. The browse endpoint already satisfied G6 — confirmed against a running backend BEFORE any code was written — so the real gap was the stream. Additive: the pre-existing emit-time `timestamp` is kept and documented, so no SSE consumer breaks | telemetry §4 G6 |
 | T.4 | G3 | Resource-saturation metrics **beyond** the `dbPool` already in `/sse/metrics`: DB write latency, event-loop lag, NOTIFY backlog, pool acquire-wait | telemetry §4 G3 |
 | T.5 | G4 | Raise `/sse/metrics` cadence to **≥ 1 Hz**, or add a fast per-run/per-queue stream | telemetry §5 |
 | T.6 | G5 | **Per-run / correlation scoping** of metrics (or accept dedicated-queue-per-run as the tool-side workaround) | telemetry §4 G5 |
 | T.7 | G7 | **Database-level queue-table telemetry** endpoint/stream: `pg_stat_user_tables` churn / dead-tuple / vacuum / scan / size for the setup's `queue_messages` · `outbox` · `dead_letter_queue` · per-queue tables, plus cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age) | telemetry §4A |
+
+### T.3 — enqueue timestamp + client headers on the live stream, 2026-08-05
+
+**The gap was not where the row said it was, and finding that out first was the whole job.** Probing
+a running backend before writing any code:
+
+- **Browse (`GET /queues/{setup}/{queue}/messages`) already satisfied G6.** It returns
+  `createdAt: "2026-08-05T12:22:09.609318Z"` and the full `headers` map, and a client `x-send-ts`
+  round-trips intact — mechanisms that predate Phase T entirely.
+- **The live SSE stream did not.** Its frame was
+  `{type, connectionId, messageId, payload, timestamp}` — no enqueue time, no headers, so the
+  client's `x-send-ts` was dropped.
+
+**Why that mattered more than a missing field.** The frame's `timestamp` is
+`System.currentTimeMillis()` at the moment the frame is WRITTEN. In the probe it landed 45 ms after
+the client's send, so a consumer treating it as delivery latency would get "45 ms" — believable, and
+measuring nothing but the server's own emit delay. A wrong number wearing a convincing name is worse
+than an absent one.
+
+**The fix is additive** ([ServerSentEventsHandler](../../peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/ServerSentEventsHandler.java)):
+`enqueuedAt` (the message's `created_at`) and `headers` are added to the message frame; both are
+**omitted rather than zeroed** when unknown. `timestamp` is untouched so no existing SSE consumer
+breaks, and the handler javadoc now spells out that the frame carries two different clocks and which
+one to measure against.
+
+**TDD.** Test written first in `SseMessageStreamDemoIntegrationTest` (the class that owns this
+stream), run red for the right reason — the assertion printed the real frame,
+`… "payload":{"probe":"g6"},"timestamp":1785933271994} ==> expected: not <null>` — then green.
+Mutation probe (verified applied, then reverted): headers dropped from the frame → red. Whole class
+**4/4 green**.
+
+*Two environment traps hit on the way, both worth knowing:* `peegeeq-rest` tests fail to compile
+against a stale `.m2` after `peegeeq-api` changes (`mvn install -pl :peegeeq-api,… -am -DskipTests`
+first), and an IDE-compiled `target/classes` can carry baked-in `Unresolved compilation problems`
+that survive a plain `mvn test` — the giveaway is that error text, and the fix is `mvn clean`.
 
 Notes (from telemetry §4A): the DB queries (T.7) sample at ~5 s, **not** 1 Hz; baseline-and-delta the
 cumulative `pg_stat_*` counters over the run window; `pgstattuple` is optional (enable for exact
