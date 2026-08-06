@@ -910,7 +910,7 @@ everything in Phases A–G except those two is client-side or uses telemetry tha
 | T.4 | G3 | Resource-saturation metrics **beyond** the `dbPool` already in `/sse/metrics`: DB write latency, event-loop lag, NOTIFY backlog, pool acquire-wait | telemetry §4 G3 |
 | T.5 | G4 | Raise `/sse/metrics` cadence to **≥ 1 Hz**, or add a fast per-run/per-queue stream | telemetry §5 |
 | T.6 | G5 | **Per-run / correlation scoping** of metrics (or accept dedicated-queue-per-run as the tool-side workaround) | telemetry §4 G5 |
-| T.7 | G7 | **Database-level queue-table telemetry** endpoint/stream: `pg_stat_user_tables` churn / dead-tuple / vacuum / scan / size for the setup's `queue_messages` · `outbox` · `dead_letter_queue` · per-queue tables, plus cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age) | telemetry §4A |
+| T.7 | G7 | ✅ **DONE 2026-08-06 (module-verified; whole-repo gate blocked by an unrelated pre-existing `peegeeq-db` failure — see the T.7 record below)** — `GET /api/v1/setups/{setupId}/db-telemetry` returns one snapshot: per-table `pg_stat_user_tables` + `pg_statio_user_tables` + size stats for every table in the setup's schema, plus the cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age, commit/rollback/deadlock). Errors surface as 404/503 — never fabricated zeroes. Evidence: `peegeeq-rest` core 172/172, integration 332/332 (`logs/peegeeq-rest-*-20260806.txt`) | telemetry §4A |
 
 ### T.3 — enqueue timestamp + client headers on the live stream, 2026-08-05
 
@@ -950,6 +950,51 @@ that survive a plain `mvn test` — the giveaway is that error text, and the fix
 Notes (from telemetry §4A): the DB queries (T.7) sample at ~5 s, **not** 1 Hz; baseline-and-delta the
 cumulative `pg_stat_*` counters over the run window; `pgstattuple` is optional (enable for exact
 bloat, else use the `n_dead_tup`/`n_live_tup` estimate).
+
+### T.7 — database-level queue-table telemetry, 2026-08-06
+
+**Probed before implementing** (the §2.1 discipline the T.3 record established). Unlike T.3, the gap
+was where the row said: the only `pg_stat_*` exposure in `peegeeq-rest` is `pg_stat_activity`
+connection counting (`ManagementApiHandler`, `SystemMonitoringHandler`). No table-churn, vacuum,
+lock, WAL or xid telemetry existed anywhere. Every §4A query was run against live PostgreSQL 15.13
+**before** any code was written, and the handler's two final statements were run verbatim afterwards.
+
+**Shape: a snapshot endpoint, not a stream.** §4A says sample at ~5 s and have the tool
+baseline-and-delta the cumulative counters itself, so a GET the tool polls is the minimal truthful
+mechanism; a stream at that cadence adds nothing. New
+[DatabaseTelemetryHandler](../../peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/DatabaseTelemetryHandler.java)
+uses the module's established temp-pool pattern (`PgBuilder.pool()` maxSize 1, `.eventually(close)`).
+
+**Errors are errors.** The existing temp-pool call sites convert failure into zeroed data — the
+TYPED-ERASURE pattern the coding-principles audit already catalogues. That was flagged, not copied:
+this endpoint returns **404** for an unknown setup and **503** on query failure. The **absence, not
+zero** contract from T.1/T.3 is kept: `lastVacuum`/`lastAutovacuum`/`lastAutoanalyze`, `idxScan` and
+`longestTxnSeconds` are omitted when NULL. Two clocks are documented on the handler, per the T.3
+lesson: `sampledAt` is the REST server's clock for plotting only; every counter is the database's own.
+
+**Evidence.** `peegeeq-rest` core **172/172**, integration **332/332** (the new class 4/4 inside the
+full suite, no `Tests run: 0`). Mutation probe (applied, then reverted): `nTupIns` dropped from the
+frame → **2 of 4 red for the right reason**, each printing the real frame; reverted → 4/4 green.
+The consuming-read guard ran and passed (`AdminConsumingReadGuardTest` 2/2) — the endpoint is
+non-destructive `pg_stat` SELECTs only.
+
+**The whole-repo gate is RED, for a reason unrelated to this work.** `mvn clean test -Pall-tests`
+stopped in `peegeeq-db`: 1122 run, **8 errors**, and every later module — including `peegeeq-rest` —
+was SKIPPED. `peegeeq-db` builds *before* `peegeeq-rest` and does not depend on it, so T.7 cannot be
+the cause. Six of the eight are `SetupBindingPersistenceIntegrationTest` (Phase R, added
+2026-07-31 in `659e5624`), **reproducible in isolation** (8 run, 6 errors). Root cause: the bare
+`TimeoutException` hides an uncaught `RejectedExecutionException: event executor terminated` —
+`PeeGeeQDatabaseSetupService` sets `ownsVertx = (Vertx.currentContext() == null)` at construction on
+the JUnit thread, then `close()` closes that self-owned Vertx *from inside its own event loop* when
+called via `.eventually(() -> service.close())`, killing the continuation that would have called
+`completeNow()`. **Fix location is a design decision and was deliberately left open:** the
+antipatterns doc lists `Future`-returning closes as event-loop-safe, which makes the *service* the
+defect rather than the test — but that changes a core teardown contract every module depends on.
+The remaining two errors (`BackfillServiceConcurrencyTest.testBackfillHeavyLoad_100kMessages`,
+`PeeGeeQManagerTimerGuardTest.testTimerFailuresEscalateWarnToError`) were **not** investigated.
+
+**Unblocks G.2.** With G1 (T.1), G2 (T.2), G6 (T.3) and now G7, the native-vs-outbox comparison has
+its full telemetry dependency set. No UI consumes `db-telemetry` yet.
 
 **Verification:** banned-pattern grep (Java **and** TS); `mvn clean test -Pall-tests`; confirm each
 new field against the running backend **before** the UI consumes it (verify-by-running, not asserting).

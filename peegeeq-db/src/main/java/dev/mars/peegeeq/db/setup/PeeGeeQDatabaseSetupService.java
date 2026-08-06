@@ -16,9 +16,11 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.AsyncResult;
 import io.vertx.core.Context;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import io.vertx.pgclient.PgBuilder;
@@ -1757,6 +1759,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
      * 1. Close each active setup's manager (cancels timers, releases pools; drops no database)
      * 2. Close setup worker executor
      * 3. Close Vertx only if this service created it
+     *
+     * <p><b>Completion contract for a service-owned Vert.x.</b> When this service created its own
+     * Vert.x, the returned Future is completed <i>before</i> that Vert.x is closed, and the close is
+     * then queued behind the caller's continuation on the same context. The Future therefore signals
+     * "this service's resources are released", not "the owned Vert.x has finished closing".
+     *
+     * <p>This ordering is required, not stylistic. A caller reached by
+     * {@code .eventually(() -> service.close())} from inside a request chain is running <i>on</i> the
+     * very event loop being torn down. Closing that loop first leaves no thread able to deliver the
+     * completion: the continuation is rejected and silently dropped, so the caller is never notified
+     * and simply hangs. See {@code PeeGeeQDatabaseSetupServiceLifecycleTest}.
      */
     public Future<Void> close() {
         if (!closed.compareAndSet(false, true)) {
@@ -1791,8 +1804,43 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     Throwable err = firstError.get();
                     return err != null ? Future.<Void>failedFuture(err) : Future.<Void>succeededFuture();
                 })
-                // Close the owned Vert.x last, regardless of the outcome above; .eventually preserves a
-                // surfaced failure while still running this final cleanup.
-                .eventually(() -> ownsVertx ? vertx.close() : Future.<Void>succeededFuture());
+                // Close the owned Vert.x last. This deliberately does NOT use
+                // .eventually(() -> vertx.close()): that chains the caller's continuation AFTER the
+                // event loop is gone, so a caller running on this Vert.x is never notified.
+                .transform(this::releaseOwnedVertx);
+    }
+
+    /**
+     * Final teardown step: hands {@code outcome} to the caller, then closes the Vert.x this service
+     * created — in that order.
+     *
+     * <p>Completing the returned Future dispatches the caller's already-registered continuation on a
+     * live event loop. Only then is {@code vertx.close()} queued with {@code runOnContext}, which
+     * places it behind everything already queued on that context, the caller's continuation included.
+     * Reversing the two strands the caller on a dead loop (see the close() javadoc).
+     *
+     * <p>The close is observed rather than ignored: a failure is logged. It is not chained into the
+     * returned Future, because by then the caller has already been given the outcome.
+     */
+    private Future<Void> releaseOwnedVertx(AsyncResult<Void> outcome) {
+        Future<Void> callerOutcome = outcome.failed()
+                ? Future.failedFuture(outcome.cause())
+                : Future.succeededFuture();
+
+        if (!ownsVertx) {
+            return callerOutcome;
+        }
+
+        Promise<Void> callerVisible = Promise.promise();
+        if (outcome.failed()) {
+            callerVisible.fail(outcome.cause());
+        } else {
+            callerVisible.complete();
+        }
+
+        vertx.runOnContext(v -> vertx.close()
+                .onFailure(e -> logger.warn("Error closing service-owned Vert.x: {}", e.getMessage())));
+
+        return callerVisible.future();
     }
 }
