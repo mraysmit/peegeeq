@@ -187,10 +187,31 @@ class HealthCheckManagerTest {
         assertFalse(healthCheckManager.isHealthy()); // No checks run yet, so health is unknown/not healthy
     }
 
+    /**
+     * Waits until the manager actually reports healthy, instead of guessing how long the first
+     * health-check cycle takes.
+     *
+     * <p>A fixed {@code vertx.timer(500)} is a readiness guess: it passes on an idle machine and
+     * fails under parallel load, where the first cycle has not finished after 500 ms. That produced
+     * an intermittent {@code expected: <true> but was: <false>} in the full-gate run of 2026-08-06
+     * while the same test passed in isolation. Polling the real condition removes the guess — see
+     * "HIGH: setTimer as a Readiness Guard" in the testing-standards document.
+     */
+    private Future<Void> awaitHealthy(HealthCheckManager manager, long deadline) {
+        if (manager.isHealthy()) {
+            return Future.succeededFuture();
+        }
+        if (System.currentTimeMillis() >= deadline) {
+            return Future.failedFuture(new AssertionError(
+                    "HealthCheckManager did not report healthy before the deadline"));
+        }
+        return vertx.timer(100).compose(t -> awaitHealthy(manager, deadline));
+    }
+
     @Test
     void testHealthCheckManagerStartStop(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
-            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .compose(v -> awaitHealthy(healthCheckManager, System.currentTimeMillis() + 15_000))
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isHealthy());
                 
@@ -203,7 +224,7 @@ class HealthCheckManagerTest {
     @Test
     void testOverallHealthStatus(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
-            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .compose(v -> awaitHealthy(healthCheckManager, System.currentTimeMillis() + 15_000))
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
                 assertNotNull(status);

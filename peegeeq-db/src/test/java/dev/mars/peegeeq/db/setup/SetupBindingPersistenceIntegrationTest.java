@@ -308,8 +308,12 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
 
         serviceA.createCompleteSetup(createReq)
                 // Simulate the restart: in-memory teardown only — the binding row and database survive.
+                // serviceA is CLOSED AT THE END, not here. It owns its own Vert.x, and this chain is
+                // running on that Vert.x: closing it mid-chain ends the event loop every later step
+                // would be dispatched on, so the reload steps below would be dropped and the test
+                // would hang. The restart is simulated by destroySetup plus reloading through the
+                // separate serviceB instance; closing serviceA early adds nothing to that.
                 .compose(v -> serviceA.destroySetup(setupId))
-                .eventually(() -> serviceA.close())
                 // Seed two bad bindings: a resolvable ref pointing at a database that does not exist,
                 // and real coordinates whose credential reference the provider cannot resolve.
                 .compose(v -> seeding.saveBinding(new SetupBinding(
@@ -340,6 +344,10 @@ class SetupBindingPersistenceIntegrationTest extends BaseIntegrationTest {
                             "the reloaded setup must be ACTIVE with no manual step");
                     return serviceB.destroySetup(setupId);
                 })
+                // Close serviceA first: this chain is running on serviceB's Vert.x, so ending
+                // serviceA's loop here strands nothing. Then close serviceB, which leaves exactly one
+                // continuation — the terminal handlers below — for its close to deliver.
+                .eventually(() -> serviceA.close())
                 .eventually(() -> serviceB.close())
                 .onSuccess(v -> ctx.completeNow())
                 .onFailure(ctx::failNow);

@@ -30,6 +30,7 @@ import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerAlertHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
+import dev.mars.peegeeq.rest.handlers.DatabaseTelemetryHandler;
 import dev.mars.peegeeq.rest.handlers.SystemMonitoringHandler;
 import io.vertx.core.json.JsonObject;
 import dev.mars.peegeeq.rest.handlers.ManagementApiHandler;
@@ -336,6 +337,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
         HealthHandler healthHandler = new HealthHandler(setupService, objectMapper);
         ConsumerAlertHandler consumerAlertHandler = new ConsumerAlertHandler(setupService);
+        DatabaseTelemetryHandler databaseTelemetryHandler = new DatabaseTelemetryHandler(setupService, vertx);
 
         // System monitoring handler for real-time metrics streaming
         this.monitoringHandler = new SystemMonitoringHandler(setupService, vertx, config.monitoring(), meterRegistry);
@@ -508,6 +510,9 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions").handler(subscriptionHandler::getPartitionAssignments);
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch").handler(subscriptionHandler::fetchPartitioned);
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit").handler(subscriptionHandler::commitPartitionedOffset);
+
+        // Database-level telemetry route - pg_stat_* churn/vacuum/lock/WAL snapshot (telemetry §4A, gap G7)
+        router.get("/api/v1/setups/:setupId/db-telemetry").handler(databaseTelemetryHandler::getDatabaseTelemetry);
 
         // Consumer Alerting routes - dead consumer detection and blocked message stats
         router.get("/api/v1/setups/:setupId/consumer-alerts/dead").handler(consumerAlertHandler::listDeadSubscriptions);
