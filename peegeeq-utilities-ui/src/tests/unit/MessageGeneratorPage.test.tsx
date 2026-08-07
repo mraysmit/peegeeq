@@ -217,9 +217,10 @@ describe('MessageGeneratorPage', () => {
     expect(screen.getByLabelText(/Ramp/i)).toBeTruthy()
     expect(screen.getByLabelText(/Delay \/ Prio \/ FIFO/i)).toBeTruthy()
     expect(screen.getByLabelText(/Trace seed/i)).toBeTruthy()
-    // Compare is not built: offering it as a dead control would promise
-    // behaviour the app does not have.
-    expect(screen.queryByLabelText(/^Compare$/i)).toBeNull()
+    // Compare joined the built modes in G.2c. Until then this asserted its
+    // ABSENCE, on the rule that a dead control promises behaviour the app does
+    // not have — the rule is unchanged; the mode is now real.
+    expect(screen.getByLabelText(/^Compare$/i)).toBeTruthy()
   })
 
   it('switching to Ramp swaps Zone B for the ramp controls and shows the step panel', async () => {
@@ -430,5 +431,72 @@ describe('MessageGeneratorPage', () => {
     })
     expect((screen.getByLabelText(/Payload/i) as HTMLTextAreaElement).disabled).toBe(true)
     expect((screen.getByRole('button', { name: /^Save$/i }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  // ── Compare mode (G.2c) ───────────────────────────────────────────────────
+  // Compare hard-codes targetSelected, because §19.2 puts BOTH targets in Zone
+  // A and the single-target gate does not apply. That makes these assertions
+  // real rather than vacuous: the buttons here are driven by the blocked
+  // REASONS alone, not by the "no backend so nothing is armed" state that made
+  // the equivalent Profile assertions meaningless (the G.3c finding).
+
+  it('Compare mode replaces Zone A with the two-target surface', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/^Compare$/i))
+
+    await waitFor(() => {
+      // No backend in jsdom, so the compare selector surfaces its real error
+      // state — the point is that the SINGLE-target selector is gone.
+      expect(screen.getByTestId('compare-load-error')).toBeTruthy()
+    })
+    expect(screen.queryByLabelText(/^Setup$/i)).toBeNull()
+  })
+
+  it('Compare mode keeps the shared rate controls and shows the comparison panel', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/^Compare$/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('compare-results-empty')).toBeTruthy()
+    })
+    // §19.2 Zone B is the SHARED load — the same rate and duration both sides run.
+    expect(screen.getByTestId('rate-controls')).toBeTruthy()
+    // The store-backed panel would show a stale idle run beside live results.
+    expect(screen.queryByTestId('progress-panel')).toBeNull()
+  })
+
+  it('Start is blocked in Compare mode until both targets are chosen, with the reason', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/^Compare$/i))
+
+    await waitFor(() => {
+      expect((screen.getByRole('button', { name: /^Start$/ }) as HTMLButtonElement).disabled).toBe(
+        true
+      )
+    })
+  })
+
+  it('Schedule is blocked in Compare mode: a schedule holds one target, a comparison has two', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/^Compare$/i))
+
+    await waitFor(() => {
+      expect(
+        (screen.getByRole('button', { name: /Schedule/ }) as HTMLButtonElement).disabled
+      ).toBe(true)
+    })
+  })
+
+  it('leaving Compare mode restores the single target selector and the progress panel', async () => {
+    renderPage()
+    await userEvent.click(screen.getByLabelText(/^Compare$/i))
+    await waitFor(() => expect(screen.getByTestId('compare-load-error')).toBeTruthy())
+
+    await userEvent.click(screen.getByLabelText(/Flat rate/i))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('progress-panel')).toBeTruthy()
+    })
+    expect(screen.queryByTestId('compare-results-empty')).toBeNull()
   })
 })
