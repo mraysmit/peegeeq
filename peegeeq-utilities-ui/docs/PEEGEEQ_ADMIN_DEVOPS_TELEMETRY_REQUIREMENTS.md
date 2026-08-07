@@ -257,7 +257,7 @@ supplies the drain-side (depth, consume rate, delivery latency, pool) that the c
 |---|---|---|
 | Message Generator — Zone E (§6.1) | [client] accept counts/rate/errors/latency | ✅ no backend change |
 | Ramp / breaking-point (§19.1) | [client] achieved rate + accept latency to find the knee; [have] `pendingMessages` to see backlog; [gap] G3, G4 for *why* + resolution | ⚠️ basic now; rich needs G3/G4 |
-| Native-vs-Outbox compare (§19.2) | [gap] G2 (delivery latency per type), G1 (percentiles), G6 (join) | ❌ needs backend — the one tool that genuinely can't be built well client-side |
+| Native-vs-Outbox compare (§19.2) | [have, since T.1/T.2/T.7] G2 (delivery latency per type), G1 (percentiles), G7 (DB churn profile). **G6 not used** — see the note below | ✅ **BUILT 2026-08-07** (Phase G.2) — was "the one tool that genuinely can't be built well client-side" until Phase T delivered its telemetry |
 | Traffic profile (§19.3) | [client] achieved-rate timeline; [gap] G4 for fine resolution | ✅ chart now; finer with G4 |
 | Saved scenarios (§19.4) | none (config persistence only) | ✅ no telemetry |
 | Delay/Priority/FIFO (§19.5) | sending is [client]; auto-verify needs [gap] G6 (else defer to management-ui browser) | ✅ send now; auto-verify needs G6 |
@@ -273,6 +273,13 @@ supplies the drain-side (depth, consume rate, delivery latency, pool) that the c
   no-banned-patterns rules, like the Phase 1B backend gap):**
   - **G2 + G1 + G6 + G7** — required for Native-vs-Outbox comparison (§19.2): delivery latency,
     percentiles, correlation join, **and the per-implementation DB churn profile (§4A)**.
+    *(Delivered and consumed 2026-08-07 — G2 by T.1/T.2, G1 by T.1, G7 by T.7. **G6 turned out not
+    to be needed**, and this line predates the reason: it was listed when the only route to
+    end-to-end latency was a client-side join on `correlationId`. T.2 now measures delivery latency
+    INSIDE the claim statement on the DATABASE clock, which is strictly more accurate than a client
+    join and needs no message read-back — and reading messages back to join them sits on
+    management-ui's side of the §8 boundary. G6 remains delivered and useful for §19.5
+    auto-verification; it is simply not a §19.2 dependency.)*
   - **G3 + G4 + G7** — required for rich breaking-point attribution (§19.1): resource saturation,
     ≥1 Hz streaming, **and the database-level bottleneck signals (dead tuples / autovacuum / locks /
     `xmin`, §4A)** that are usually the real limit for a Postgres-backed queue.
