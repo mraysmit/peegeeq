@@ -19,6 +19,8 @@ import * as path from 'path'
 const API_BASE_URL = 'http://127.0.0.1:8088'
 const DEMO_SETUP_ID = 'screenshot-demo'
 const DEMO_QUEUE_NAME = 'demo_orders'
+/** The outbox side of the Compare-mode captures (G.2). */
+const DEMO_OUTBOX_QUEUE_NAME = 'demo_events'
 
 const SHOTS_DIR = path.join(process.cwd(), 'docs', 'screenshots')
 
@@ -59,7 +61,14 @@ test.describe('UI documentation screenshots', () => {
           templateDatabase: 'template0',
           encoding: 'UTF8',
         },
-        queues: [{ queueName: DEMO_QUEUE_NAME, maxRetries: 3, visibilityTimeout: 30 }],
+        // Two queues, one of EACH implementation type. Compare mode (G.2)
+        // needs a native and an outbox queue to capture at all, and stating
+        // the types explicitly stops the demo setup depending on whatever the
+        // backend's fallback factory happens to be.
+        queues: [
+          { queueName: DEMO_QUEUE_NAME, implementationType: 'native', maxRetries: 3, visibilityTimeout: 30 },
+          { queueName: DEMO_OUTBOX_QUEUE_NAME, implementationType: 'outbox', maxRetries: 3, visibilityTimeout: 30 },
+        ],
         eventStores: [],
       },
       timeout: 120000,
@@ -135,6 +144,27 @@ test.describe('UI documentation screenshots', () => {
     await page.locator('.ant-select:has(#target-setup-select)').click()
     await page.locator('.ant-select-dropdown').getByTitle(DEMO_SETUP_ID).click()
     await expect(page.locator('#target-queue-select')).toBeVisible({ timeout: 15000 })
+  }
+
+  /**
+   * Point BOTH Compare rows at the demo setup (G.2 captures).
+   *
+   * CompareTargets auto-selects the first setup, which may ALREADY be the demo
+   * one — and clicking an already-selected antd option races the dropdown
+   * closing itself. So the dropdown is opened only when a change is needed.
+   */
+  async function selectDemoOnBothCompareRows(page: import('@playwright/test').Page) {
+    for (const side of ['native', 'outbox'] as const) {
+      const row = page.getByTestId(`compare-row-${side}`)
+      const current = row.locator(
+        `.ant-select:has(#compare-${side}-setup) .ant-select-selection-item`
+      )
+      if ((await current.textContent()) !== DEMO_SETUP_ID) {
+        await row.locator(`.ant-select:has(#compare-${side}-setup)`).click()
+        await page.locator('.ant-select-dropdown:visible').getByTitle(DEMO_SETUP_ID).click()
+      }
+      await expect(current).toHaveText(DEMO_SETUP_ID)
+    }
   }
 
   test('capture all pages and actions', async ({ page }) => {
@@ -534,6 +564,26 @@ test.describe('UI documentation screenshots', () => {
     await page.getByRole('button', { name: /^Start$/ }).click()
     await expect(page.getByTestId('trace-panel')).toBeVisible({ timeout: 60000 })
     await shot(page, '46-trace-ids.png')
+
+    // ── 47 Generator — Compare mode: both targets + the shared load (G.2) ───
+    // §19.2 puts BOTH targets in Zone A, so this capture shows the two-row
+    // selector that REPLACES the single target selector in this mode.
+    await page.getByRole('button', { name: /New run/ }).click()
+    await page.getByTestId('generator-mode').getByText('Compare', { exact: true }).click()
+    await expect(page.getByTestId('compare-targets')).toBeVisible({ timeout: 20000 })
+    await selectDemoOnBothCompareRows(page)
+    await expect(page.getByTestId('compare-results-empty')).toBeVisible()
+    await shot(page, '47-compare-mode.png')
+
+    // ── 48 Generator — Compare: side-by-side results after a real run ──────
+    // 5 msg/s for 2 s at EACH side — the shared load both queues receive.
+    await page.getByLabel(/Message type/i).fill('demo.compare')
+    await page.getByLabel(/Payload/i).fill('{"id":"{{messageId}}"}')
+    await page.getByLabel(/Rate \(msg\/s\)/i).fill('5')
+    await page.getByLabel(/Duration \(seconds\)/i).fill('2')
+    await page.getByRole('button', { name: /^Start$/ }).click()
+    await expect(page.getByTestId('compare-verdict')).toBeVisible({ timeout: 90000 })
+    await shot(page, '48-compare-results.png')
 
     // ── 40 Tools — the scenario manager with a saved scenario ──────────────
     await page.goto('/tools')
