@@ -86,8 +86,9 @@ Phase F (Integration + E2E + screenshots)  ── ✅ DONE 2026-07-19 (F.1–F.4
 Phase SCH (Scheduled generator runs)       ── ✅ DONE 2026-07-19 (SCH.0–SCH.8; graduated from Part I §3
       │                                        non-goals) + SCH.9 hardening 2026-07-21; design Part III
 Phase G (Generation tool suite, §19)       ── after B; most tools client-only, no backend
-Phase T (Backend telemetry, peegeeq-db/rest) ── gates only the two telemetry-heavy G tools:
-      └─ required by  G.2 (native-vs-outbox)  and  G.1b (rich breaking-point)
+Phase T (Backend telemetry, peegeeq-db/rest) ── T.1/T.2/T.3/T.7 DONE; T.4/T.5/T.6 open
+      └─ G.2 (native-vs-outbox) SHIPPED 2026-08-07 on T.1+T.2+T.7
+      └─ G.1b (rich breaking-point) still blocked — needs T.4 (G3) + T.5 (G4)
 
 Cross-track edges & newly-surfaced prerequisites (details in the next section):
   M enables ─► T.7 estate telemetry fan-out · G estate target routing · E/A.2 server-aware setup UI
@@ -435,7 +436,7 @@ tracks that dependency.
 |---|---|---|---|
 | G.1a | ✅ **DONE 2026-08-02** — Ramp load test, basic knee (client-detected): planning + knee detection, Ramp mode UI, e2e | **Client-only** — accept rate/latency + `/stats` `pendingMessages` | design §19.1; telemetry §6 |
 | G.1b | Ramp — rich saturation *attribution* | **Needs Phase T:** G3 (resource saturation) + G4 (≥1 Hz stream) + G7 (DB bottleneck signals) | telemetry §4A, §7 |
-| G.2 | Native-vs-Outbox comparison run | **Needs Phase T:** G1 (percentiles) + G2 (delivery latency) + G6 (correlation join) + G7 (DB churn profile) | telemetry §7 |
+| G.2 | ✅ **DONE 2026-08-07** — Native-vs-Outbox comparison run (G.2a runner/plan/telemetry service · G.2b two-target Zone A · G.2c results panel + page wiring · G.2d e2e); see the G.2 record below | **Consumed:** G1 (T.1 percentiles) + G2 (T.2 delivery latency) + G7 (T.7 DB churn profile). **G6 not used** — T.2 measures delivery latency on the DATABASE clock server-side, so a client-side correlation join would be a second, less accurate path to the same number, and reading messages back sits on management-ui's side of the §8 boundary | telemetry §7; design §19.2 |
 | G.3 | ✅ **DONE 2026-08-02** — Traffic-profile / scenario runner (G.3a sequencer · G.3b phases editor · G.3c mode selector + results panel · G.3d profile scenarios + e2e) | **Client-only** — achieved-rate timeline (finer with G4) | design §19.3; telemetry §6 |
 | G.4 | ✅ **DONE 2026-08-01** — saved scenarios (localStorage, templateService-shaped); see the G.4 record below | **None** | design §19.4 |
 | G.5 | ✅ **DONE (send) 2026-08-04** — Delay / Priority / FIFO exerciser: deterministic assignment plan, engine ordering seam, Exerciser mode UI + derived manifest, e2e; see the G.5 record below | **Client-only** to send; *auto-verify* needs G6 (else defer to management-ui browser) | design §19.5; telemetry §6 |
@@ -446,6 +447,76 @@ the dead `/tools` route as the suite launcher.
 
 **Build order within Phase G:** ship the client-only tools first (G.1a, G.3, G.4, G.5-send, G.6) —
 they need no backend change. G.1b and G.2 land only after Phase T delivers their telemetry.
+*(G.2 landed 2026-08-07 once T.1/T.2/T.7 were in place. **G.1b is the only Phase G step still
+open**, and it stays blocked until T.4 and T.5 exist.)*
+
+### G.2 — Native-vs-Outbox comparison, 2026-08-07 — **G.2 COMPLETE**
+
+**Purpose.** Fires identical load at one native and one outbox queue AT THE SAME TIME and reports
+each side's outcome next to the other's, with backend telemetry sampled either side of the run.
+The last of the two telemetry-gated Phase G tools.
+
+**The load-bearing constraint: this is the first mode with TWO runs live at once.** `runStarter`
+returns null while a run is active and `generatorStore` holds ONE `RunState`. That is correct for
+every other mode — flat/exerciser/trace are one run, profile/ramp are a SEQUENCE with one live at a
+time — but a comparison cannot use either: writing both sides into one `RunState` would report a
+merged run neither side performed. [comparisonRunner](../src/engine/comparisonRunner.ts) therefore
+drives two `createPublicationEngine()` instances directly with caller-supplied identities (the §7 /
+B.0 contract the engine already has) and owns its own per-side state. The page folds a separate
+`comparing` flag into its gating, or Zone B/C and the mode selector would stay editable mid-run and
+both buttons would be armed. A test pins that the store stays idle throughout.
+
+**Three refusals, each with its reason rather than a dead control:**
+
+1. **No verdict unless BOTH sides completed.** A completed run and a stopped or errored one did not
+   carry the same load, so "which sustained it better" has no answer. Only the side and its status
+   are reported.
+2. **Delivery latency is cited only when both sides measured it.** The utilities-ui publishes and
+   does not consume, so a queue nothing consumed produces no delivery latency at all. Showing one
+   side's number, or reading two absences as "equal", would both invent a result.
+3. **An errored side does NOT stop the healthy one.** This deliberately differs from
+   `profileRunner`, which aborts: there the phases are sequential, so continuing would report a
+   shape that never happened; here the sides are concurrent, and cutting the healthy one short
+   would turn its real figures into a partial run.
+
+**Percentiles are never claimed as the run's.** `PeeGeeQMetrics` reads a per-instance, per-topic
+Micrometer timer that resets on restart; per-run scoping is gap **G5**, still open. So
+`latencySampleDelta` reports how many samples the run contributed and the panel states the scope in
+words — a run-scoped p95 would be fabricated.
+
+**Telemetry is sampled twice, not streamed** — baseline before either side publishes, final after
+both settle. §4A says these queries are heavier than a counter read and should not be polled at
+1 Hz, and that the consumer baselines and deltas the cumulative counters itself. A baseline taken
+after the run would understate every churn delta. A FAILED read is a `TelemetryCapture` carrying its
+reason and never a zeroed snapshot; `churnDeltaFor` returns null rather than a zero delta.
+
+| Step | What |
+|---|---|
+| G.2a | [types/compare.ts](../src/types/compare.ts), [comparePlan.ts](../src/engine/comparePlan.ts) (target validation, churn deltas, sample deltas, verdict), [telemetryService.ts](../src/services/telemetryService.ts) (`/stats` G1+G2, `/setups/{id}/db-telemetry` G7; flat percentile fields folded into one optional object per distribution so the backend's absence contract survives), [comparisonRunner.ts](../src/engine/comparisonRunner.ts) |
+| G.2b | [CompareTargets.tsx](../src/pages/generator/CompareTargets.tsx) — §19.2 puts BOTH targets in Zone A, so Compare REPLACES `TargetSelector` rather than adding a control beside it. Not two `TargetSelector`s: it reports no implementation type (which `comparePlan` needs) and auto-selects the first queue, so two instances would collide on one queue before the user touched anything. Each row auto-selects the first queue of its OWN type, falling back to an UNKNOWN type but never a known-wrong one — with exact-match-only, a backend sending the names-only payload would leave Compare mode dead. |
+| G.2c | [CompareResultsPanel.tsx](../src/pages/generator/CompareResultsPanel.tsx) — the §19.2 card plus the §4A churn profile read from each implementation's own table (`queue_messages` vs `outbox`). Page wiring: mode selector, Zone A swap, shared `RateControls` as Zone B, Zone E swap, Start/Stop routing, unmount stop. `ScenarioBar` refuses to save a comparison — a `Scenario` holds one target and a comparison has two. |
+| G.2d | [compare.spec.ts](../src/tests/e2e/specs/compare.spec.ts) + project `14-compare`. Provisions a setup with one native AND one outbox queue in a single `database-setup/create` (`ConfigParser.parseQueueConfig` accepts `implementationType` per queue), then **re-reads the queue list and fails if the two types did not come back native+outbox** — a comparison of two same-type queues measures nothing it claims to and would still go green on counts alone. |
+
+**Four defects found by probing — three in the tests, one a real design flaw:**
+
+1. *A baseline-ordering test that passed with the ordering REVERSED.* It asserted both the telemetry
+   reads and the engine starts happened, never which came first. Fixed with one sequence log shared
+   by the engine and telemetry fakes; re-probed red.
+2. *A stale-selection test that could not fail*, because it mocked the FIRST queue load as failing —
+   nothing was ever cached, so "clears the stale selection" was never exercised.
+3. *Behind (2), a real flaw:* `loadQueues` used `Promise.all`, which fails fast, so one unreachable
+   setup blanked BOTH rows including the one whose setup answered fine — contradicting the
+   row-independence rule the same file already tested. Now `Promise.allSettled` with per-setup
+   errors, and a new test covers a setup that succeeded then failed on a later load.
+4. *A latent infinite-render bug:* `CompareTargets` rebuilt its target objects every render, so once
+   the page stored them in state the `onChange` effect would loop forever. Its own tests could never
+   catch it — their `onChange` is a spy that triggers no render. Fixed by memoising.
+
+**Verified 2026-08-07:** unit **52 files, 811 tests**; e2e **91/91 across 14 projects** (8.1 min),
+`14-compare` de-flaked at `--repeat-each=2 --retries=0` (**8/8**); `tsc --noEmit` 0 errors; lint
+**0 errors, 0 warnings**. 10 mutation probes across G.2a–G.2c, each applied, verified, and reverted.
+**Not done:** screenshots not regenerated (no Compare capture exists — regenerating rewrites
+committed PNGs, so it stays the user's action).
 
 ### G.1a (part 1) — ramp planning and knee detection, 2026-08-02
 
@@ -899,7 +970,9 @@ Java change** (like Phase 1B), so validate with `mvn clean test -Pall-tests`. Re
 banned patterns; TestContainers integration tests. Full rationale and verified baseline in
 [PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md](PEEGEEQ_ADMIN_DEVOPS_TELEMETRY_REQUIREMENTS.md).
 
-*Gates:* G.1b (rich breaking-point) and G.2 (native-vs-outbox). **No other phase depends on it** —
+*Gates:* G.1b (rich breaking-point) only — **G.2 is no longer gated**: it shipped 2026-08-07 on the
+delivered T.1/T.2/T.7, so the remaining steps T.4 (G3) and T.5 (G4) block G.1b alone.
+**No other phase depends on it** —
 everything in Phases A–G except those two is client-side or uses telemetry that already exists.
 
 | Step | Gap | What to add | Reference |
@@ -994,7 +1067,11 @@ The remaining two errors (`BackfillServiceConcurrencyTest.testBackfillHeavyLoad_
 `PeeGeeQManagerTimerGuardTest.testTimerFailuresEscalateWarnToError`) were **not** investigated.
 
 **Unblocks G.2.** With G1 (T.1), G2 (T.2), G6 (T.3) and now G7, the native-vs-outbox comparison has
-its full telemetry dependency set. No UI consumes `db-telemetry` yet.
+its full telemetry dependency set. ~~No UI consumes `db-telemetry` yet.~~ *(Superseded 2026-08-07:
+G.2 consumes it — `telemetryService.getDbTelemetry` samples this endpoint either side of a
+comparison run and `comparePlan.churnDeltaFor` reports the run-window delta per table. G.2 did NOT
+use G6/T.3: T.2 already measures delivery latency on the database clock, which a client-side
+correlation join could only approximate.)*
 
 **Verification:** banned-pattern grep (Java **and** TS); `mvn clean test -Pall-tests`; confirm each
 new field against the running backend **before** the UI consumes it (verify-by-running, not asserting).
@@ -1383,7 +1460,8 @@ Test counts are deliberately not recorded here — run the suites for current nu
   code once the runtime behaviour is known. Use the Backend service control prerequisite (copied
   from management-ui) to stand up the REST backend for that verification.
 - **Backend-led work is quarantined into named tracks:** Phase T (telemetry) gates *only* two Phase G
-  tools; the **Setup connect / reconnect track (Phases S → R → M)** is a separate backend-led effort
+  tools — and since 2026-08-07 only **one**, G.1b, because G.2 shipped on the delivered
+  T.1/T.2/T.7; the **Setup connect / reconnect track (Phases S → R → M)** is a separate backend-led effort
   spec'd in the connect and management-DB docs. Everything else — all of Phases A–F and most of G —
   runs on client-side metering plus the telemetry/endpoints PeeGeeQ already exposes, so the utilities-ui
   UI work never blocks on backend changes.
