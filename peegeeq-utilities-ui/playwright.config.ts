@@ -201,6 +201,17 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['3-generator'],
     },
+    // Compare mode (G.2) — the only automated coverage of the page driving TWO
+    // engines at once against a live backend: a real simultaneous run with
+    // backend-acknowledged counts per side, Stop reaching both engines, and the
+    // refusals (schedule, scenario-save, same-queue) asserted WITH both targets
+    // selected. Owns a setup carrying one native and one outbox queue.
+    {
+      name: '14-compare',
+      testMatch: '**/compare.spec.ts',
+      use: { ...devices['Desktop Chrome'] },
+      dependencies: ['3-generator'],
+    },
   ],
 
   /* Run your local dev server before starting the tests */

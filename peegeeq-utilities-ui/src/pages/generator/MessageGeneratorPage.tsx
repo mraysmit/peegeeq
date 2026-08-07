@@ -34,8 +34,19 @@ import type { ManifestRun } from './ManifestPanel'
 import TraceControls from './TraceControls'
 import TraceSeedPanel from './TraceSeedPanel'
 import type { TraceRun } from './TraceSeedPanel'
+import CompareTargets from './CompareTargets'
+import CompareResultsPanel from './CompareResultsPanel'
 import { createProfileRunner } from '../../engine/profileRunner'
 import type { ProfileHandle } from '../../engine/profileRunner'
+import { createComparisonRunner } from '../../engine/comparisonRunner'
+import type { CompareHandle } from '../../engine/comparisonRunner'
+import { requestedFor, targetMismatchReason } from '../../engine/comparePlan'
+import type {
+  CompareReport,
+  CompareSettings,
+  CompareSideName,
+  CompareSideProgress,
+} from '../../types/compare'
 import { buildRampPhases, rampHaltReason, sustainedRate } from '../../engine/rampPlan'
 import type { ProfilePhase, ProfilePhaseResult } from '../../types/profile'
 import type { RampSettings } from '../../types/ramp'
@@ -83,10 +94,11 @@ export default function MessageGeneratorPage() {
   const [targetSeed, setTargetSeed] = useState(0)
   const runHandleRef = useRef<RunHandle | null>(null)
 
-  // Only BUILT modes are offered (G.3c, G.1a, G.5, G.6). Compare is not
-  // built, and a disabled control for it would promise behaviour the app does
-  // not have.
-  const [mode, setMode] = useState<'flat' | 'profile' | 'ramp' | 'exerciser' | 'trace'>('flat')
+  // Only BUILT modes are offered (G.3c, G.1a, G.5, G.6, G.2c) — a disabled
+  // control would promise behaviour the app does not have.
+  const [mode, setMode] = useState<
+    'flat' | 'profile' | 'ramp' | 'exerciser' | 'trace' | 'compare'
+  >('flat')
   const [phases, setPhases] = useState<ProfilePhase[]>(() => [makeDefaultPhase()])
   const [phaseResults, setPhaseResults] = useState<ProfilePhaseResult[]>([])
   const [activePhaseIndex, setActivePhaseIndex] = useState<number | null>(null)
@@ -111,6 +123,21 @@ export default function MessageGeneratorPage() {
   // summary's run id / attempted count. Nothing per-message is stored.
   const [traceSettings, setTraceSettings] = useState<TraceSettings>(TRACE_DEFAULTS)
   const [traceRun, setTraceRun] = useState<TraceRun | null>(null)
+
+  // Compare mode (G.2). A comparison runs TWO engines at once, which the
+  // generatorStore cannot represent — it holds one RunState — so the page
+  // tracks its live state here and the store is left untouched. That is why
+  // `comparing` exists rather than reading `status` for this mode.
+  const [compareSettings, setCompareSettings] = useState<CompareSettings>({
+    native: null,
+    outbox: null,
+  })
+  const [compareProgress, setCompareProgress] = useState<
+    Record<CompareSideName, CompareSideProgress | null>
+  >({ native: null, outbox: null })
+  const [compareReport, setCompareReport] = useState<CompareReport | null>(null)
+  const [comparing, setComparing] = useState(false)
+  const compareHandleRef = useRef<CompareHandle | null>(null)
 
   /** The steps the results panel shows: a ramp's steps ARE phases. */
   const sequencePhases = mode === 'ramp' ? rampPhases : phases
@@ -163,7 +190,12 @@ export default function MessageGeneratorPage() {
   }, [applyScenario])
 
   const status = useGeneratorStore((s) => s.runState.status)
-  const running = status === 'running'
+  // A comparison never writes the store, so its live state must be folded in
+  // here or Zone B/C and the mode selector would stay editable mid-comparison.
+  const running = status === 'running' || comparing
+  // What Zone D sees. In Compare mode the store is idle by design, so the
+  // buttons would both be armed without this.
+  const actionStatus = mode === 'compare' ? (comparing ? 'running' : 'idle') : status
 
   // Stable identity + reference-preserving update: TargetSelector's
   // notify-effect depends on this callback, so an inline version re-fires the
@@ -194,6 +226,60 @@ export default function MessageGeneratorPage() {
   useEffect(() => {
     return () => profileHandleRef.current?.stop()
   }, [])
+
+  // Same for a live comparison: two engines publishing with nothing showing
+  // them is worse than one, and only this page holds its state.
+  useEffect(() => {
+    return () => compareHandleRef.current?.stop()
+  }, [])
+
+  // Reference-stable: CompareTargets reports through an effect, so an inline
+  // callback would re-run that effect on every render.
+  const handleCompareTargetsChange = useCallback((settings: CompareSettings) => {
+    setCompareSettings(settings)
+  }, [])
+
+  /**
+   * Start a comparison (G.2c): two engines at once, driven by the comparison
+   * runner. It does NOT go through runStarter — that refuses a second
+   * concurrent run by design — so the page owns this run's live state.
+   */
+  function handleStartCompare() {
+    const base: RunConfig = {
+      // Placeholders: the runner overwrites both per side. They are only here
+      // because RunConfig requires a target, and the shared load is what this
+      // base actually carries.
+      setupId: compareSettings.native?.setupId ?? '',
+      queueName: compareSettings.native?.queueName ?? '',
+      ...rateSettings,
+      template: workingTemplate,
+      previewIndex,
+    }
+    setCompareReport(null)
+    setCompareProgress({ native: null, outbox: null })
+    compareHandleRef.current = createComparisonRunner().start(base, compareSettings, {
+      onSideProgress: (progress) =>
+        setCompareProgress((prev) => ({ ...prev, [progress.side]: progress })),
+      onCompareComplete: (report) => {
+        compareHandleRef.current = null
+        setComparing(false)
+        setCompareProgress({ native: null, outbox: null })
+        setCompareReport(report)
+        message.success('Comparison complete.')
+      },
+      onCompareAborted: (reason) => {
+        compareHandleRef.current = null
+        setComparing(false)
+        setCompareProgress({ native: null, outbox: null })
+        // Never silent: no report will exist, and the reason says why.
+        message.error(reason)
+      },
+    })
+    // A synchronous refusal already reported itself through onCompareAborted;
+    // marking the page as comparing would leave Stop armed over nothing.
+    if (compareHandleRef.current === null) return
+    setComparing(true)
+  }
 
   /**
    * Start a profile run (G.3c): the sequencer drives the same engine once per
@@ -275,6 +361,12 @@ export default function MessageGeneratorPage() {
       handleStartProfile()
       return
     }
+    // Compare is TWO concurrent runs, not a sequence and not one flat run —
+    // it has its own runner and its own targets.
+    if (mode === 'compare') {
+      handleStartCompare()
+      return
+    }
     if (!target) return
     const isExerciser = mode === 'exerciser'
     const isTrace = mode === 'trace'
@@ -333,6 +425,12 @@ export default function MessageGeneratorPage() {
   }
 
   function handleStop() {
+    // A comparison stop must reach BOTH engines. stopActiveRun below reaches
+    // only the single store-backed run, which a comparison never uses.
+    if (compareHandleRef.current !== null) {
+      compareHandleRef.current.stop()
+      return
+    }
     // A profile stop must reach the SEQUENCER, not just the live phase: stopping
     // only the phase would let the next phase start immediately.
     if (profileHandleRef.current !== null) {
@@ -393,6 +491,7 @@ export default function MessageGeneratorPage() {
               { label: 'Flat rate', value: 'flat' },
               { label: 'Profile', value: 'profile' },
               { label: 'Ramp', value: 'ramp' },
+              { label: 'Compare', value: 'compare' },
               { label: 'Delay / Prio / FIFO', value: 'exerciser' },
               { label: 'Trace seed', value: 'trace' },
             ]}
@@ -410,14 +509,20 @@ export default function MessageGeneratorPage() {
         />
       </Card>
 
-      <Card title="Target" size="small">
+      <Card title={mode === 'compare' ? 'Targets' : 'Target'} size="small">
         <div data-testid="zone-a">
-          <TargetSelector
-            key={targetSeed}
-            initialTarget={initialTarget}
-            onTargetSelected={handleTargetSelected}
-            onTargetCleared={handleTargetCleared}
-          />
+          {mode === 'compare' ? (
+            // §19.2 puts BOTH targets in Zone A, so Compare replaces the single
+            // selector rather than adding one beside it.
+            <CompareTargets onChange={handleCompareTargetsChange} disabled={running} />
+          ) : (
+            <TargetSelector
+              key={targetSeed}
+              initialTarget={initialTarget}
+              onTargetSelected={handleTargetSelected}
+              onTargetCleared={handleTargetCleared}
+            />
+          )}
         </div>
       </Card>
 
@@ -431,7 +536,9 @@ export default function MessageGeneratorPage() {
                 ? 'Ordering & scheduling'
                 : mode === 'trace'
                   ? 'Correlation strategy'
-                  : 'Rate, duration & guards'
+                  : mode === 'compare'
+                    ? 'Shared load'
+                    : 'Rate, duration & guards'
         }
         size="small"
       >
@@ -465,7 +572,9 @@ export default function MessageGeneratorPage() {
             </div>
           </>
         )}
-        {mode === 'flat' && (
+        {(mode === 'flat' || mode === 'compare') && (
+          // §19.2 Zone B is the SHARED load — both sides get the same rate,
+          // duration and guards, which is what makes the two comparable.
           <RateControls value={rateSettings} onChange={setRateSettings} disabled={running} />
         )}
       </Card>
@@ -477,8 +586,10 @@ export default function MessageGeneratorPage() {
       <Card title="Actions" size="small">
         <GeneratorActions
           template={workingTemplate}
-          status={status}
-          targetSelected={target !== null}
+          status={actionStatus}
+          // Compare has its own two targets in Zone A, so the single-target
+          // gate does not apply; its own blocked reason covers an invalid pair.
+          targetSelected={mode === 'compare' ? true : target !== null}
           previewIndex={previewIndex}
           onPreviewIndexChange={setPreviewIndex}
           onStart={handleStart}
@@ -489,7 +600,9 @@ export default function MessageGeneratorPage() {
               ? 'Add at least one phase to run a profile.'
               : mode === 'ramp' && rampPhases.length === 0
                 ? 'This ramp has no steps — the start rate is above the max rate.'
-                : exerciserBlockedReason()
+                : mode === 'compare'
+                  ? targetMismatchReason(compareSettings)
+                  : exerciserBlockedReason()
           }
           scheduleBlockedReason={
             mode === 'profile'
@@ -500,17 +613,32 @@ export default function MessageGeneratorPage() {
                   ? 'The schedule surfaces do not show ordering strategies, so a scheduled exerciser run would read as a plain flat run. Schedule a flat-rate run instead.'
                   : mode === 'trace'
                     ? 'The schedule surfaces do not show correlation strategies, so a scheduled trace-seed run would read as a plain flat run. Schedule a flat-rate run instead.'
-                    : undefined
+                    : mode === 'compare'
+                      ? 'Scheduling stores a single target, rate and duration, so it cannot carry a two-queue comparison. Schedule a flat-rate run instead.'
+                      : undefined
           }
         />
       </Card>
 
-      <Card
-        title={mode === 'profile' ? 'Progress & results — active phase' : 'Progress & results'}
-        size="small"
-      >
-        <ProgressPanel />
-      </Card>
+      {/* A comparison never writes the generatorStore, so ProgressPanel — which
+          reads it — would show a stale idle run beside live results. Compare
+          gets its own panel instead. */}
+      {mode === 'compare' ? (
+        <Card title="Comparison results" size="small">
+          <CompareResultsPanel
+            progress={compareProgress}
+            report={compareReport}
+            requested={requestedFor(rateSettings)}
+          />
+        </Card>
+      ) : (
+        <Card
+          title={mode === 'profile' ? 'Progress & results — active phase' : 'Progress & results'}
+          size="small"
+        >
+          <ProgressPanel />
+        </Card>
+      )}
 
       {(mode === 'profile' || mode === 'ramp') && (
         <Card
