@@ -200,6 +200,19 @@ public class DatabaseTelemetryHandlerIntegrationTest {
                 assertTrue(cluster.getInteger("numbackends") >= 1,
                     "numbackends must count at least the querying connection; block: " + cluster.encode());
 
+                // Telemetry G3 (T.4, moved here 2026-08-09): NOTIFY queue usage belongs with the
+                // other cluster signals PostgreSQL itself maintains — the database is the
+                // producer, this endpoint is a collector. The native queue signals consumers
+                // with NOTIFY; when that fixed-size instance-wide buffer fills, NOTIFY blocks
+                // committing transactions — write latency with no cause visible in any
+                // app-level counter. pg_notification_queue_usage() reports the fraction in
+                // use, so the value is always present and always 0..1.
+                Double notifyUsage = cluster.getDouble("notifyQueueUsage");
+                assertNotNull(notifyUsage,
+                    "cluster block must carry notifyQueueUsage (telemetry G3); block: " + cluster.encode());
+                assertTrue(notifyUsage >= 0.0 && notifyUsage <= 1.0,
+                    "notifyQueueUsage is a fraction of the NOTIFY queue and must be 0..1: " + notifyUsage);
+
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);

@@ -3,8 +3,6 @@ package dev.mars.peegeeq.db.consumer;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
-import io.micrometer.core.instrument.Counter;
-import io.micrometer.core.instrument.MeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -14,19 +12,23 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 
 /**
- * Tracks message completion for consumer groups using Reference Counting mode.
- * 
- * <p>This service implements atomic completion tracking by:
+ * TEST FIXTURE: drives message completion for consumer groups in Reference Counting mode.
+ *
+ * <p>Relocated from src/main 2026-08-09 (metrics-stack review backlog): no production code
+ * ever constructed this class — the REFERENCE_COUNTING write path has no production writer —
+ * but six integration/performance suites use it to drive completions while testing the
+ * components that READ completion state (fetcher, retry, cleanup). Its
+ * {@code peegeeq.completions.total} meter was deleted with the move. If a production
+ * consumer ever writes reference-counted completions, that implementation belongs in
+ * src/main with its own tests; do not promote this fixture silently.
+ *
+ * <p>The completion protocol:
  * <ul>
  *   <li>Updating the outbox_consumer_groups tracking row status to COMPLETED</li>
  *   <li>Incrementing the outbox.completed_consumer_groups counter</li>
  *   <li>Marking the message as eligible for cleanup when all groups complete</li>
  * </ul>
- * </p>
- * 
- * <p><strong>Atomicity:</strong> All updates are performed within a single SQL statement
- * to ensure consistency even under concurrent updates.</p>
- * 
+ *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-12
  * @version 1.0
@@ -36,29 +38,16 @@ public class CompletionTracker {
 
     private final PgConnectionManager connectionManager;
     private final String serviceId;
-    private final MeterRegistry meterRegistry;
 
     /**
-     * Creates a new CompletionTracker without metrics.
+     * Creates a new CompletionTracker.
      *
      * @param connectionManager The connection manager for database operations
      * @param serviceId The service ID for connection tracking
      */
     public CompletionTracker(PgConnectionManager connectionManager, String serviceId) {
-        this(connectionManager, serviceId, null);
-    }
-
-    /**
-     * Creates a new CompletionTracker with optional Prometheus metrics.
-     *
-     * @param connectionManager The connection manager for database operations
-     * @param serviceId The service ID for connection tracking
-     * @param meterRegistry The meter registry for recording completion counters, or null
-     */
-    public CompletionTracker(PgConnectionManager connectionManager, String serviceId, MeterRegistry meterRegistry) {
         this.connectionManager = connectionManager;
         this.serviceId = serviceId;
-        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -159,8 +148,6 @@ public class CompletionTracker {
                                         }
                                         return Future.succeededFuture((Void) null);
                                     }
-
-                                    recordCompletion(topic, groupName);
 
                                     // Step 2: Increment completed_consumer_groups counter
                                     String updateCounterSql = """
@@ -314,14 +301,4 @@ public class CompletionTracker {
         }).mapEmpty();
     }
 
-    private void recordCompletion(String topic, String groupName) {
-        if (meterRegistry != null) {
-            Counter.builder("peegeeq.completions.total")
-                    .tag("topic", topic)
-                    .tag("group", groupName)
-                    .description("Total message completions per consumer group")
-                    .register(meterRegistry)
-                    .increment();
-        }
-    }
 }

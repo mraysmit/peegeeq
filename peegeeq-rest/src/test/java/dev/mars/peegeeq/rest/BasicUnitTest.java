@@ -267,6 +267,11 @@ public class BasicUnitTest {
         public QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
             return null;
         }
+
+        @Override
+        public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) {
+            return null; // test fake: no manager, so no saturation data (absence, not zero)
+        }
     }
     
     @Test

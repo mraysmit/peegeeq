@@ -98,32 +98,23 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
         Counter messagesFailed = meterRegistry.find("peegeeq.messages.failed").counter();
         assertNotNull(messagesFailed);
 
-        Counter messagesRetried = meterRegistry.find("peegeeq.messages.retried").counter();
-        assertNotNull(messagesRetried);
-
         Counter messagesDeadLettered = meterRegistry.find("peegeeq.messages.dead_lettered").counter();
         assertNotNull(messagesDeadLettered);
+
+        // peegeeq.messages.retried and peegeeq.database.operation.time are deliberately
+        // NOT among the registered meters (deleted 2026-08-09, never fed) — their absence
+        // is pinned by deadMetersAreNotFabricated.
 
         // Verify timers are registered
         Timer messageProcessingTime = meterRegistry.find("peegeeq.message.processing.time").timer();
         assertNotNull(messageProcessingTime);
 
-        Timer databaseOperationTime = meterRegistry.find("peegeeq.database.operation.time").timer();
-        assertNotNull(databaseOperationTime);
-
         Timer connectionAcquisitionTime = meterRegistry.find("peegeeq.connection.acquisition.time").timer();
         assertNotNull(connectionAcquisitionTime);
 
-        // Verify gauges are registered
-        Gauge activeConnections = meterRegistry.find("peegeeq.connection.pool.active").gauge();
-        assertNotNull(activeConnections);
-
-        Gauge idleConnections = meterRegistry.find("peegeeq.connection.pool.idle").gauge();
-        assertNotNull(idleConnections);
-
-        Gauge pendingConnections = meterRegistry.find("peegeeq.connection.pool.pending").gauge();
-        assertNotNull(pendingConnections);
-
+        // Verify gauges are registered. The peegeeq.connection.pool.* gauges are deliberately
+        // NOT among them (deleted 2026-08-09, never fed) — their absence is pinned by
+        // connectionPoolGaugesAreNotFabricated.
         Gauge outboxQueueDepth = meterRegistry.find("peegeeq.queue.depth.outbox").gauge();
         assertNotNull(outboxQueueDepth);
 
@@ -162,15 +153,6 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecordMessageSendError() {
-        metrics.recordMessageSendError("test-topic");
-
-        // Verify error was recorded
-        Counter counter = meterRegistry.find("peegeeq.messages.failed").counter();
-        assertTrue(counter.count() > 0);
-    }
-
-    @Test
     void testRecordMessageReceived() {
         Counter counter = meterRegistry.find("peegeeq.messages.received").counter();
         double before = counter.count();
@@ -204,17 +186,6 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecordMessageRetried() {
-        Counter counter = meterRegistry.find("peegeeq.messages.retried").counter();
-        double before = counter.count();
-
-        metrics.recordMessageRetried("test-topic", 1);
-
-        double after = counter.count();
-        assertEquals(before + 1, after);
-    }
-
-    @Test
     void testRecordMessageDeadLettered() {
         Counter counter = meterRegistry.find("peegeeq.messages.dead_lettered").counter();
         double before = counter.count();
@@ -222,17 +193,6 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
         metrics.recordMessageDeadLettered("test-topic", "test-reason");
 
         double after = counter.count();
-        assertEquals(before + 1, after);
-    }
-
-    @Test
-    void testRecordDatabaseOperation() {
-        Timer timer = meterRegistry.find("peegeeq.database.operation.time").timer();
-        long before = timer.count();
-
-        metrics.recordDatabaseOperation("SELECT", java.time.Duration.ofMillis(50));
-
-        long after = timer.count();
         assertEquals(before + 1, after);
     }
 
@@ -247,112 +207,42 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
         assertEquals(before + 1, after);
     }
 
+    /**
+     * Regression lock (metrics-stack review backlog, 2026-08-09): the retried counter and
+     * the database-operation timer were deleted because no production code ever fed them —
+     * both permanently reported 0. Re-registering either without a real feed would
+     * reintroduce the fabrication, so their ABSENCE is asserted.
+     */
     @Test
-    void testRecordMessageReceiveError() {
-        metrics.recordMessageReceiveError("test-topic");
-        // Verify no exception thrown
+    void deadMetersAreNotFabricated() {
+        assertNull(meterRegistry.find("peegeeq.messages.retried").counter(),
+            "peegeeq.messages.retried was a never-fed, permanently-zero counter; do not re-register it without a real feed");
+        assertNull(meterRegistry.find("peegeeq.database.operation.time").timer(),
+            "peegeeq.database.operation.time was a never-fed, permanently-zero timer; do not re-register it without a real feed");
     }
 
+    /**
+     * Regression lock (metrics-stack remediation, 2026-08-09): the three
+     * peegeeq.connection.pool.* gauges were deleted because nothing ever fed them — they
+     * permanently reported 0, a fabricated healthy signal. Re-registering them without a real
+     * feed would reintroduce the fabrication, so their ABSENCE is asserted.
+     */
     @Test
-    void testRecordMessageAckError() {
-        metrics.recordMessageAckError("test-topic");
-        // Verify no exception thrown
+    void connectionPoolGaugesAreNotFabricated() {
+        org.junit.jupiter.api.Assertions.assertNull(
+            meterRegistry.find("peegeeq.connection.pool.active").gauge(),
+            "peegeeq.connection.pool.active was a never-fed, permanently-zero gauge; do not re-register it without a real feed");
+        org.junit.jupiter.api.Assertions.assertNull(
+            meterRegistry.find("peegeeq.connection.pool.idle").gauge(),
+            "peegeeq.connection.pool.idle was a never-fed, permanently-zero gauge; do not re-register it without a real feed");
+        org.junit.jupiter.api.Assertions.assertNull(
+            meterRegistry.find("peegeeq.connection.pool.pending").gauge(),
+            "peegeeq.connection.pool.pending was a never-fed, permanently-zero gauge; do not re-register it without a real feed");
     }
 
-    @Test
-    void testUpdateConnectionPoolMetrics() {
-        metrics.updateConnectionPoolMetrics(5, 3, 2);
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testRecordTimer() {
-        java.util.Map<String, String> tags = new java.util.HashMap<>();
-        tags.put("custom", "value");
-        metrics.recordTimer("peegeeq.timer", 100L, tags);
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testIncrementCounter() {
-        java.util.Map<String, String> tags = new java.util.HashMap<>();
-        tags.put("custom", "value");
-        metrics.incrementCounter("peegeeq.counter", tags);
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testRecordGauge() {
-        java.util.Map<String, String> tags = new java.util.HashMap<>();
-        tags.put("instance", "test-instance");
-        tags.put("custom", "value");
-        metrics.recordGauge("peegeeq.gauge", 42.0, tags);
-
-        Gauge gauge = meterRegistry.find("peegeeq.gauge")
-            .tag("instance", "test-instance")
-            .tag("custom", "value")
-            .gauge();
-
-        assertNotNull(gauge);
-        assertEquals(42.0, gauge.value(), 0.0001);
-
-        metrics.recordGauge("peegeeq.gauge", 99.0, tags);
-        assertEquals(99.0, gauge.value(), 0.0001);
-    }
-
-    @Test
-    void testRecordGaugeWithDelimiterValues() {
-        java.util.Map<String, String> tagsPipe = new java.util.HashMap<>();
-        tagsPipe.put("instance", "test-instance");
-        tagsPipe.put("custom", "a|b");
-        metrics.recordGauge("peegeeq.gauge.delimited", 11.0, tagsPipe);
-
-        java.util.Map<String, String> tagsEquals = new java.util.HashMap<>();
-        tagsEquals.put("instance", "test-instance");
-        tagsEquals.put("custom", "a=b");
-        metrics.recordGauge("peegeeq.gauge.delimited", 22.0, tagsEquals);
-
-        Gauge gaugePipe = meterRegistry.find("peegeeq.gauge.delimited")
-            .tag("instance", "test-instance")
-            .tag("custom", "a|b")
-            .gauge();
-
-        Gauge gaugeEquals = meterRegistry.find("peegeeq.gauge.delimited")
-            .tag("instance", "test-instance")
-            .tag("custom", "a=b")
-            .gauge();
-
-        assertNotNull(gaugePipe);
-        assertNotNull(gaugeEquals);
-        assertEquals(11.0, gaugePipe.value(), 0.0001);
-        assertEquals(22.0, gaugeEquals.value(), 0.0001);
-    }
-
-    @Test
-    void testRecordGaugeAfterRegistryRebind() {
-        java.util.Map<String, String> tags = new java.util.HashMap<>();
-        tags.put("instance", "test-instance");
-        tags.put("custom", "value");
-        metrics.recordGauge("peegeeq.gauge.rebind", 10.0, tags);
-
-        SimpleMeterRegistry reboundRegistry = new SimpleMeterRegistry();
-        metrics.bindTo(reboundRegistry);
-        metrics.recordGauge("peegeeq.gauge.rebind", 55.0, tags);
-
-        Gauge reboundGauge = reboundRegistry.find("peegeeq.gauge.rebind")
-            .tag("instance", "test-instance")
-            .tag("custom", "value")
-            .gauge();
-
-        assertNotNull(reboundGauge);
-        assertEquals(55.0, reboundGauge.value(), 0.0001);
-    }
-
-    @Test
-    void testGetAllMetrics() {
-        java.util.Map<String, Number> allMetrics = metrics.getAllMetrics();
-        assertNotNull(allMetrics);
-    }
+    // testRecordTimer, testIncrementCounter, the three testRecordGauge tests and
+    // testGetAllMetrics were deleted 2026-08-09 with the generic pass-through metrics
+    // surface itself (zero production callers, metrics-stack review backlog).
 
     @Test
     void testIsHealthy(VertxTestContext testContext) {
@@ -363,13 +253,7 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
                 })));
     }
 
-    @Test
-    void testPersistMetrics(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL ERROR TEST ===== If the next ERROR log ('Failed to persist metrics to database') appears, it is EXPECTED \u2014 queue_metrics table is absent from the standard test schema");
-        metrics.persistMetrics(meterRegistry)
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(err -> testContext.completeNow());
-    }
+    // testPersistMetrics deleted 2026-08-09 with persistMetrics itself.
 
     // \u2500\u2500 Processing-time percentiles (telemetry G1 \u2014 Phase T.1) \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 

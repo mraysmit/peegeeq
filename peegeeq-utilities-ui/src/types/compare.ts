@@ -163,6 +163,13 @@ export interface DbClusterStats {
   locksTotal: number
   locksWaiting: number
   xidAge: number
+  /**
+   * Fraction (0..1) of PostgreSQL's instance-wide NOTIFY queue in use (telemetry G3,
+   * added 2026-08-09). When it fills, NOTIFY blocks committing transactions — write
+   * latency with no cause visible in any app-level counter. Always reported: the
+   * database itself maintains it, so there is no unmeasured case.
+   */
+  notifyQueueUsage: number
   walRecords: number
   walBytes: number
   walLsnBytes: number

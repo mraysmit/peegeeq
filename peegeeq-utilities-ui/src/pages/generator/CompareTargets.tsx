@@ -278,6 +278,15 @@ export default function CompareTargets({ onChange, disabled = false }: CompareTa
             options={setups.map((s) => ({ value: s, label: s }))}
             disabled={disabled}
             style={{ minWidth: 160 }}
+            // showSearch, because antd virtualizes long option lists and only renders the
+            // visible window — on an estate with many setups the wanted one may not exist in
+            // the DOM at all until filtered. The same defect class (and the same fix) as the
+            // management-ui scope selectors (SetupScopeBar): type-to-filter brings the option
+            // into the rendered window. Surfaced by -Pall-tests 2026-08-09, where thirteen
+            // prior e2e projects' accumulated setups pushed the compare spec's own setup
+            // below the fold.
+            showSearch
+            optionFilterProp="label"
           />
           <label htmlFor={`compare-${side}-queue`}>Queue</label>
           <Select

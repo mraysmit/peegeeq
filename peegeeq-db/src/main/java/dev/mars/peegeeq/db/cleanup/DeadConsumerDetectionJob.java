@@ -251,12 +251,9 @@ public class DeadConsumerDetectionJob {
         return totalFailures.get();
     }
 
-    /**
-     * Returns the total cumulative run time in milliseconds across all detection runs.
-     */
-    public long getTotalRunTimeMs() {
-        return totalRunTimeMs.get();
-    }
+    // getTotalRunTimeMs was DELETED 2026-08-09: its only caller was ConsumerGroupMetrics,
+    // removed the same day (never constructed in production). The totalRunTimeMs field
+    // stays — it feeds the average-run-time log line in the run summary.
 
     /**
      * Triggers a single detection run manually (useful for testing).

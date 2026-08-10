@@ -1657,6 +1657,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         return manager.getHealthCheckManager();
     }
 
+    @Override
+    public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) {
+        PeeGeeQManager manager = activeManagers.get(setupId);
+        if (manager == null) {
+            logger.debug("Manager not found for setupId: {}", setupId);
+            return null;
+        }
+        return manager.getSaturationSnapshot();
+    }
+
     /**
      * Validates that all required database infrastructure exists in the schema.
      * This method connects directly to the database and checks for required tables.

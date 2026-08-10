@@ -189,6 +189,11 @@ public class ManagementApiIntegrationTest {
                     assertTrue(systemStats.containsKey("totalQueues"), "systemStats should have totalQueues");
                     assertTrue(systemStats.containsKey("totalConsumerGroups"), "systemStats should have totalConsumerGroups");
                     assertTrue(systemStats.containsKey("uptime"), "systemStats should have uptime");
+                    // The old "messagesPerSecond" summed per-queue lifetime
+                    // averages — not a rate. Deleted 2026-08-09 (metrics-stack
+                    // review); the live rate is the stream's backlog change rate.
+                    assertFalse(systemStats.containsKey("messagesPerSecond"),
+                        "systemStats must not fabricate a system rate from lifetime averages");
 
                     // Verify recentActivity field is present
                     JsonArray recentActivity = body.getJsonArray("recentActivity");
@@ -204,6 +209,8 @@ public class ManagementApiIntegrationTest {
                         assertNotNull(setup.getJsonArray("queues"), "Setup should have queues array");
                         assertNotNull(setup.getJsonArray("consumerGroups"), "Setup should have consumerGroups array");
                         assertNotNull(setup.getJsonArray("eventStores"), "Setup should have eventStores array");
+                        assertFalse(setup.containsKey("messagesPerSecond"),
+                            "setup summary must not fabricate a rate from lifetime averages");
                         logger.info("Setup {}: queues={}, consumerGroups={}, eventStores={}",
                             setup.getString("setupId"),
                             setup.getInteger("totalQueues"),

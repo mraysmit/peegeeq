@@ -26,13 +26,42 @@ export interface SystemStats {
     totalQueues: number
     totalConsumerGroups: number
     totalEventStores: number
-    totalMessages: number
+    // totalMessages was DELETED 2026-08-09: nothing rendered it, and its two sources carried
+    // two different quantities (the overview endpoint's total vs the stream's pending-backlog
+    // sum, since renamed totalPendingMessages). Derived state with no reader is not kept.
     messagesPerSecond: number
     // Phase 11: the old meaningless `activeConnections` composite is split into three dimensions.
     monitoringSessions: number
     activeSubscriptions: number
     dbPool: DbPoolStats
     uptime: string
+}
+
+/**
+ * Maps a GET /management/overview response's systemStats onto the current store value.
+ *
+ * The overview emits totals and uptime only. The live quantities — messagesPerSecond,
+ * monitoringSessions, activeSubscriptions, dbPool — are owned by the monitoring stream
+ * and are carried over from the current state. The previous mapping replaced the whole
+ * systemStats object, so every HTTP poll reset the stream-owned fields to 0 until the
+ * next stream frame (fixed 2026-08-09).
+ */
+export function mergeOverviewSystemStats(
+    current: SystemStats,
+    overviewStats: { totalQueues?: number; totalConsumerGroups?: number; totalEventStores?: number; uptime?: string } | undefined
+): SystemStats {
+    return {
+        // Emitted by the overview endpoint.
+        totalQueues: overviewStats?.totalQueues || 0,
+        totalConsumerGroups: overviewStats?.totalConsumerGroups || 0,
+        totalEventStores: overviewStats?.totalEventStores || 0,
+        uptime: overviewStats?.uptime || '0s',
+        // Stream-owned: preserved from the last stream frame, never mapped from HTTP.
+        messagesPerSecond: current.messagesPerSecond,
+        monitoringSessions: current.monitoringSessions,
+        activeSubscriptions: current.activeSubscriptions,
+        dbPool: current.dbPool,
+    }
 }
 
 export interface QueueInfo {
@@ -122,7 +151,6 @@ export const useManagementStore = create<ManagementState>()(
                 totalQueues: 0,
                 totalConsumerGroups: 0,
                 totalEventStores: 0,
-                totalMessages: 0,
                 messagesPerSecond: 0,
                 monitoringSessions: 0,
                 activeSubscriptions: 0,
@@ -153,23 +181,14 @@ export const useManagementStore = create<ManagementState>()(
                     const data = response.data
 
                     set({
-                        systemStats: {
-                            totalQueues: data.systemStats?.totalQueues || 0,
-                            totalConsumerGroups: data.systemStats?.totalConsumerGroups || 0,
-                            totalEventStores: data.systemStats?.totalEventStores || 0,
-                            totalMessages: data.systemStats?.totalMessages || 0,
-                            messagesPerSecond: data.systemStats?.messagesPerSecond || 0,
-                            monitoringSessions: data.systemStats?.monitoringSessions || 0,
-                            activeSubscriptions: data.systemStats?.activeSubscriptions || 0,
-                            dbPool: data.systemStats?.dbPool || { active: 0, idle: 0, pending: 0, total: 0, perSetup: [] },
-                            uptime: data.systemStats?.uptime || '0s'
-                        },
+                        systemStats: mergeOverviewSystemStats(get().systemStats, data.systemStats),
                         lastUpdated: new Date().toISOString(),
                         loading: false
                     })
 
-                    // Update chart data
-                    get().updateChartData(get().systemStats)
+                    // No updateChartData here: chart points come from stream frames only
+                    // (Overview.tsx). The old call here pushed a point built from HTTP-poll
+                    // data, inserting fabricated zeros between frames (removed 2026-08-09).
 
                 } catch (error) {
                     console.error('Failed to fetch system data:', error)

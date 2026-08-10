@@ -155,13 +155,28 @@ const NO_PROGRESS: Record<CompareSideName, CompareSideProgress | null> = {
 function renderPanel(
   report: CompareReport | null,
   progress = NO_PROGRESS,
-  requested = 12000
+  requested = 12000,
+  settledSides = 0
 ) {
   return render(
     <ConfigProvider>
-      <CompareResultsPanel progress={progress} report={report} requested={requested} />
+      <CompareResultsPanel
+        progress={progress}
+        report={report}
+        requested={requested}
+        settledSides={settledSides}
+      />
     </ConfigProvider>
   )
+}
+
+const BOTH_LIVE: Record<CompareSideName, CompareSideProgress | null> = {
+  native: { side: 'native', sent: 4000, errors: 0, elapsedMs: 20000 },
+  outbox: { side: 'outbox', sent: 3800, errors: 2, elapsedMs: 20000 },
+}
+
+function liveNote(): string {
+  return screen.getByTestId('compare-live-note').textContent ?? ''
 }
 
 function cell(side: CompareSideName, key: string): string {
@@ -185,6 +200,35 @@ describe('CompareResultsPanel', () => {
     expect(cell('outbox', 'acked')).toContain('3800')
     expect(cell('outbox', 'errors')).toContain('2')
     expect(screen.getByTestId('compare-live-note')).toBeTruthy()
+  })
+
+  // ── the live note must describe the state the run is ACTUALLY in (G.2e) ────
+  //
+  // The report is published only once the final database sample accounts for
+  // the run, so there is now a window of seconds in which both sides have
+  // stopped and no report exists yet. A note that says "both sides are running"
+  // through that window states something false.
+
+  it('says both sides are running while neither has settled', () => {
+    renderPanel(null, BOTH_LIVE, 12000, 0)
+    expect(liveNote()).toMatch(/both sides are running/i)
+    expect(liveNote()).not.toMatch(/waiting/i)
+  })
+
+  it('does not claim both sides are running when only one has settled', () => {
+    renderPanel(null, BOTH_LIVE, 12000, 1)
+    expect(liveNote()).not.toMatch(/both sides are running/i)
+    expect(liveNote()).toMatch(/still running/i)
+  })
+
+  it('says it is waiting on the database once BOTH sides have settled', () => {
+    renderPanel(null, BOTH_LIVE, 12000, 2)
+    // Nothing is publishing any more; claiming otherwise for the length of the
+    // settle window is the same class of defect as reporting a zero for an
+    // unknown figure.
+    expect(liveNote()).not.toMatch(/running/i)
+    expect(liveNote()).toMatch(/waiting/i)
+    expect(liveNote()).toMatch(/database/i)
   })
 
   it('shows the side-by-side figures with REQUESTED derived from the shared load', () => {

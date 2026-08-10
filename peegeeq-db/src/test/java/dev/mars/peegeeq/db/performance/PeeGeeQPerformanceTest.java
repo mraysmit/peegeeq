@@ -22,7 +22,6 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -191,47 +190,8 @@ class PeeGeeQPerformanceTest {
 
     }
 
-    @Test
-    void testBackpressureUnderLoad(VertxTestContext testContext) {
-        BackpressureManager backpressureManager = manager.getBackpressureManager();
-        
-        int threadCount = 20;
-        int operationsPerThread = 100;
-        ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        Checkpoint latch = testContext.checkpoint(threadCount);
-        
-        AtomicInteger successCount = new AtomicInteger(0);
-        AtomicInteger rejectedCount = new AtomicInteger(0);
-        AtomicInteger timeoutCount = new AtomicInteger(0);
-
-        Instant startTime = Instant.now();
-
-        for (int i = 0; i < threadCount; i++) {
-            executor.submit(() -> {
-                try {
-                    for (int j = 0; j < operationsPerThread; j++) {
-                        try {
-                            String result = backpressureManager.execute("perf-test", () -> "success");
-                            if ("success".equals(result)) {
-                                successCount.incrementAndGet();
-                            }
-                        } catch (Exception e) {
-                            if (e.getMessage().contains("timed out")) {
-                                timeoutCount.incrementAndGet();
-                            } else {
-                                rejectedCount.incrementAndGet();
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    // Handle unexpected exceptions
-                } finally {
-                    latch.flag();
-                }
-            });
-        }
-
-    }
+    // testBackpressureUnderLoad deleted 2026-08-09 with the BackpressureManager itself
+    // (metrics-stack review: constructed but never guarded any operation).
 
     @Test
     void testConcurrentHealthChecks(VertxTestContext testContext) {

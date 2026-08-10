@@ -353,11 +353,13 @@ public class PeeGeeQManagerTimerGuardTest {
                     // Immediately invoke background tasks simulating a race condition
                     // where the timer fired right before/during close but the task 
                     // execution started just after closing=true was set.
+                    // persistMetrics was deleted 2026-08-09 (write-only queue_metrics
+                    // persistence); the depth-cache refresh is the remaining DB-touching task
+                    // this race guard exists for.
                     Future<Void> depthCache = manager.getMetrics().refreshDepthCache();
-                    Future<Void> persist = manager.getMetrics().persistMetrics(manager.getMeterRegistry());
-                    
+
                     manager = null;
-                    return close.compose(v2 -> Future.join(depthCache, persist))
+                    return close.compose(v2 -> depthCache)
                                 .transform(ar -> Future.succeededFuture());
                 })
                 .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -576,15 +578,6 @@ public class PeeGeeQManagerTimerGuardTest {
                 )
                 """);
             stmt.execute("""
-                CREATE TABLE IF NOT EXISTS queue_metrics (
-                    id BIGSERIAL PRIMARY KEY,
-                    metric_name VARCHAR(100) NOT NULL,
-                    metric_value DOUBLE PRECISION NOT NULL,
-                    tags JSONB DEFAULT '{}',
-                    timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                )
-                """);
-            stmt.execute("""
                 CREATE TABLE IF NOT EXISTS outbox_topic_subscriptions (
                     id BIGSERIAL PRIMARY KEY,
                     topic VARCHAR(255) NOT NULL,
@@ -639,7 +632,11 @@ public class PeeGeeQManagerTimerGuardTest {
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
+            // Stream over the snapshot copy, never over the live list: synchronizedList
+            // guards single calls only, so streaming it races the appender thread
+            // (ConcurrentModificationException seen 2026-08-10). snapshot() copies via
+            // one synchronized toArray call.
+            return snapshot().stream()
                     .filter(e -> e.getLevel().equals(level))
                     .toList();
         }

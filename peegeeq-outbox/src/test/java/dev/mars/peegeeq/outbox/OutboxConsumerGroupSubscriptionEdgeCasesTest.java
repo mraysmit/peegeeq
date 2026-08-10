@@ -568,8 +568,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             // setMessageHandler() call is thrown because a handler is already registered
             // (members.containsKey), not because a message is actively in-flight.
             // A blocking processingGate.future() pattern leaves the consumer waiting
-            // for ACK when tearDown runs, which causes the BackpressureManager permit to
-            // never be released until its 30-second timeout, hanging manager.closeReactive().
+            // for ACK when tearDown runs, hanging manager.closeReactive(). (An earlier
+            // version of this comment blamed a BackpressureManager permit — wrong: the
+            // 2026-08-09 metrics-stack review established no operation ever passed through
+            // that manager, and the class is deleted. The hang is the un-ACKed in-flight
+            // message itself.)
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 return Future.succeededFuture();

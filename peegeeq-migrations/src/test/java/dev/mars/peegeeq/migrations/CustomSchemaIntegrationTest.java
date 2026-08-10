@@ -240,8 +240,6 @@ class CustomSchemaIntegrationTest {
                 "queue_messages",
                 "message_processing",
                 "dead_letter_queue",
-                "queue_metrics",
-                "connection_pool_metrics",
             "bitemporal_event_log",
             "bitemporal_subscriptions"
         );

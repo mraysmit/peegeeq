@@ -26,9 +26,11 @@ peegeeq-management-ui/testcontainers-db.json
 peegeeq-management-ui/scripts/testcontainers-db.json
 peegeeq-management-ui/.testcontainers-state.json
 peegeeq-management-ui/.testcontainers-backend-db-port
+peegeeq-management-ui/.testcontainers-backend-pid
 peegeeq-utilities-ui/testcontainers-db.json
 peegeeq-utilities-ui/.testcontainers-state.json
 peegeeq-utilities-ui/.testcontainers-backend-db-port
+peegeeq-utilities-ui/.testcontainers-backend-pid
 
 ### Vite build output (rebuilt from src; never committed — management-ui precedent) ###
 peegeeq-utilities-ui/dist/

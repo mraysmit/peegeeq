@@ -17,24 +17,23 @@
 package dev.mars.peegeeq.client.dto;
 
 /**
- * System overview information for management UI.
+ * System overview information, mirroring the {@code systemStats} block of
+ * GET /api/v1/management/overview.
+ *
+ * <p>Reshaped 2026-08-09 (metrics-stack review backlog): the previous fields
+ * ({@code totalEvents}, {@code deadLetterMessages}, {@code systemStatus},
+ * {@code uptimeSeconds}) were never emitted by the endpoint — the record described an
+ * imagined contract, and parsing the real payload into it failed on every call. These
+ * fields mirror the endpoint one-to-one; change them only together with the endpoint.
  */
 public record SystemOverview(
     int totalSetups,
     int totalQueues,
-    int totalEventStores,
     int totalConsumerGroups,
+    int totalEventStores,
     long totalMessages,
-    long totalEvents,
-    long deadLetterMessages,
-    String systemStatus,
-    long uptimeSeconds
+    int activeConnections,
+    String uptime
 ) {
-    /**
-     * Creates an empty system overview.
-     */
-    public static SystemOverview empty() {
-        return new SystemOverview(0, 0, 0, 0, 0, 0, 0, "UP", 0);
-    }
 }
 
