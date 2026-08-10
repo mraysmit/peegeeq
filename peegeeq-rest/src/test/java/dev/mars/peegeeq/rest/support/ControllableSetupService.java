@@ -235,4 +235,9 @@ public class ControllableSetupService implements DatabaseSetupService {
     public QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
         return queueFactoryProviderForSetup.apply(setupId);
     }
+
+    @Override
+    public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) {
+        return null; // test fake: no manager, so no saturation data (absence, not zero)
+    }
 }

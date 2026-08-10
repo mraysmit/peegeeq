@@ -18,6 +18,7 @@ package dev.mars.peegeeq.api.setup;
 
 import dev.mars.peegeeq.api.deadletter.DeadLetterService;
 import dev.mars.peegeeq.api.health.HealthService;
+import dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
 
@@ -65,5 +66,22 @@ public interface ServiceProvider {
      * @return The QueueFactoryProvider for this setup, or null if not found
      */
     QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId);
+
+    /**
+     * Gets the current resource-saturation snapshot for a setup (telemetry §4 gap G3).
+     *
+     * <p>The snapshot is PRODUCED by the setup's own manager as a property of running — a
+     * collector calling this method reads a measurement that already exists and never causes
+     * one. The read is idempotent: it does not mutate sampler state, so any number of
+     * collectors can call it concurrently.
+     *
+     * <p>Deliberately abstract, not a default: a {@code null}-returning default on a delegated
+     * interface lets a delegating implementation silently swallow the real snapshot by
+     * forgetting to forward. Every implementation must state what it returns.
+     *
+     * @param setupId The setup ID
+     * @return The saturation snapshot for this setup, or null if the setup is not found
+     */
+    SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId);
 }
 

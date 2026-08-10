@@ -22,7 +22,6 @@ import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
@@ -50,8 +49,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -218,14 +215,7 @@ class PeeGeeQExampleTest {
         logger.info("Circuit breaker test completed successfully!");
     }
 
-    @Test
-    void testBackpressure(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
-        logger.info("=== Testing Backpressure ===");
-        
-        demonstrateBackpressure(manager, vertx, testContext);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Backpressure demo should complete");
-    }
+    // testBackpressure deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 
     @Test
     void testDeadLetterQueue(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
@@ -349,67 +339,7 @@ class PeeGeeQExampleTest {
         logger.info("Failure Rate: {}%", metrics.getFailureRate());
     }
 
-    private void demonstrateBackpressure(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Backpressure Demo ===");
-
-        BackpressureManager backpressureManager = manager.getBackpressureManager();
-
-        // Simulate concurrent operations using the proper API
-        logger.info("Simulating concurrent operations to test backpressure...");
-        ExecutorService executor = Executors.newFixedThreadPool(20);
-
-        try {
-            // Submit many concurrent operations using the proper execute method
-            for (int i = 0; i < 50; i++) {
-                final int operationId = i;
-                executor.submit(() -> {
-                    try {
-                        // Use the proper backpressure execute method
-                        String result = backpressureManager.execute("test-operation-" + operationId, () -> {
-                            // Simulate work without sleep
-                            long sum = 0;
-                            for (int j = 0; j < 100_000; j++) sum += j;
-                            return "Operation " + operationId + " completed (" + sum + ")";
-                        });
-                        logger.debug("Result: {}", result);
-                    } catch (BackpressureManager.BackpressureException e) {
-                        logger.debug("Operation {} rejected due to backpressure: {}", operationId, e.getMessage());
-                    } catch (Exception e) {
-                        logger.warn("Operation {} failed: {}", operationId, e.getMessage());
-                    }
-                });
-            }
-
-            // Wait for operations to complete using Vert.x timer
-            vertx.setTimer(2000, id -> {
-                var metrics = backpressureManager.getMetrics();
-                logger.info("Backpressure Metrics:");
-                logger.info("Max Concurrent Operations: {}", metrics.getMaxConcurrentOperations());
-                logger.info("Available Permits: {}", metrics.getAvailablePermits());
-                logger.info("Active Operations: {}", metrics.getActiveOperations());
-                logger.info("Total Requests: {}", metrics.getTotalRequests());
-                logger.info("Rejected Requests: {}", metrics.getRejectedRequests());
-                logger.info("Successful Operations: {}", metrics.getSuccessfulOperations());
-                logger.info("Failed Operations: {}", metrics.getFailedOperations());
-                logger.info("Current Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
-                logger.info("Rejection Rate: {}%", metrics.getRejectionRate() * 100);
-                logger.info("Utilization: {}%", metrics.getUtilization() * 100);
-
-                // Properly shutdown the executor
-                shutdownExecutorGracefully(executor, "backpressure-demo");
-
-                testContext.verify(() -> {
-                    assertNotNull(backpressureManager, "Backpressure manager should not be null");
-                });
-                testContext.completeNow();
-                logger.info("Backpressure test completed successfully!");
-            });
-
-        } catch (Exception e) {
-            shutdownExecutorGracefully(executor, "backpressure-demo");
-            testContext.failNow(e);
-        }
-    }
+    // demonstrateBackpressure deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 
     private void demonstrateDeadLetterQueue(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Dead Letter Queue Demo ===");
@@ -492,11 +422,6 @@ class PeeGeeQExampleTest {
                     (long)metrics.getMessagesSent(), (long)metrics.getMessagesProcessed(),
                     (long)metrics.getMessagesFailed(), metrics.getSuccessRate());
 
-                // Backpressure status
-                var backpressure = manager.getBackpressureManager().getMetrics();
-                logger.info("  Backpressure: {} active operations (max: {})",
-                    backpressure.getActiveOperations(), backpressure.getMaxConcurrentOperations());
-
                 // DLQ status
                 manager.getDeadLetterQueueManager().getStatistics().onSuccess(dlqStats -> {
                     logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
@@ -520,33 +445,7 @@ class PeeGeeQExampleTest {
         });
     }
 
-    /**
-     * Gracefully shuts down an executor service with proper timeout handling.
-     */
-    private void shutdownExecutorGracefully(ExecutorService executor, String name) {
-        logger.debug("Shutting down executor: {}", name);
-
-        executor.shutdown(); // Disable new tasks from being submitted
-
-        try {
-            // Wait a while for existing tasks to terminate
-            if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
-                logger.warn("Executor {} did not terminate gracefully, forcing shutdown", name);
-                executor.shutdownNow(); // Cancel currently executing tasks
-
-                // Wait a while for tasks to respond to being cancelled
-                if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                    logger.error("Executor {} did not terminate after forced shutdown", name);
-                }
-            }
-        } catch (InterruptedException e) {
-            logger.warn("Interrupted while shutting down executor {}", name);
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-
-        logger.debug("Executor {} shutdown completed", name);
-    }
+    // shutdownExecutorGracefully deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 }
 
 

@@ -458,26 +458,9 @@ class NativeQueueIntegrationTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
-    @Test
-    void testNativeQueueBackpressureIntegration(VertxTestContext testContext) throws InterruptedException, dev.mars.peegeeq.db.resilience.BackpressureManager.BackpressureException {
-        // This test verifies that backpressure is applied to native queue operations
-        var backpressureManager = manager.getBackpressureManager();
-        
-        // Track a successful backpressure-managed operation
-        String result = backpressureManager.execute("native-queue-send", () -> "success");
-        assertEquals("success", result);
-        
-        // Send message reactively
-        producer.send("Backpressure test")
-                .onSuccess(v -> testContext.verify(() -> {
-                    var metrics = backpressureManager.getMetrics();
-                    assertTrue(metrics.getSuccessfulOperations() > 0);
-                    testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-    }
+    // testNativeQueueBackpressureIntegration deleted 2026-08-09 with the BackpressureManager
+    // itself (metrics-stack review: constructed but never guarded any operation — the
+    // "backpressure" it asserted was a side channel no queue operation ever passed through).
 
     @Test
     void testProcessingTimePercentilesExposedOnStats(Vertx vertx, VertxTestContext testContext) throws InterruptedException {

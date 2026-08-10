@@ -517,7 +517,6 @@ public class FederatedManagementHandler {
         int totalConsumerGroups = 0;
         int totalEventStores = 0;
         int totalMessages = 0;
-        double totalMessagesPerSecond = 0.0;
         int totalActiveConnections = 0;
 
         for (int i = 0; i < responses.size(); i++) {
@@ -532,18 +531,19 @@ public class FederatedManagementHandler {
                 totalConsumerGroups += systemStats.getInteger("totalConsumerGroups", 0);
                 totalEventStores += systemStats.getInteger("totalEventStores", 0);
                 totalMessages += systemStats.getInteger("totalMessages", 0);
-                totalMessagesPerSecond += systemStats.getDouble("messagesPerSecond", 0.0);
                 totalActiveConnections += systemStats.getInteger("activeConnections", 0);
             }
         }
 
+        // No "messagesPerSecond": the per-instance overview stopped emitting it
+        // (2026-08-09, metrics-stack review — it summed per-queue lifetime
+        // averages). Summing the getDouble default here would fabricate a zero.
         return new JsonObject()
                 .put("totalInstances", instances.size())
                 .put("totalQueues", totalQueues)
                 .put("totalConsumerGroups", totalConsumerGroups)
                 .put("totalEventStores", totalEventStores)
                 .put("totalMessages", totalMessages)
-                .put("messagesPerSecond", totalMessagesPerSecond)
                 .put("activeConnections", totalActiveConnections);
     }
 
@@ -649,7 +649,6 @@ public class FederatedManagementHandler {
         long totalMemoryMax = 0;
         int totalCpuCores = 0;
         int totalThreadsActive = 0;
-        double totalMessagesPerSecond = 0.0;
         int totalActiveConnections = 0;
         int totalMessages = 0;
 
@@ -674,17 +673,17 @@ public class FederatedManagementHandler {
             long memoryMax = response.getLong("memoryMax", 0L);
             int cpuCores = response.getInteger("cpuCores", 0);
             int threadsActive = response.getInteger("threadsActive", 0);
-            double messagesPerSecond = response.getDouble("messagesPerSecond", 0.0);
             int activeConnections = response.getInteger("activeConnections", 0);
             int messages = response.getInteger("totalMessages", 0);
 
-            // Aggregate totals
+            // Aggregate totals. No "messagesPerSecond": the per-instance metrics
+            // endpoint stopped emitting it (2026-08-09, metrics-stack review — it
+            // summed per-queue lifetime averages).
             totalMemoryUsed += memoryUsed;
             totalMemoryTotal += memoryTotal;
             totalMemoryMax += memoryMax;
             totalCpuCores += cpuCores;
             totalThreadsActive += threadsActive;
-            totalMessagesPerSecond += messagesPerSecond;
             totalActiveConnections += activeConnections;
             totalMessages += messages;
 
@@ -698,7 +697,6 @@ public class FederatedManagementHandler {
                     .put("memoryMax", memoryMax)
                     .put("cpuCores", cpuCores)
                     .put("threadsActive", threadsActive)
-                    .put("messagesPerSecond", messagesPerSecond)
                     .put("activeConnections", activeConnections)
                     .put("totalMessages", messages));
         }
@@ -710,7 +708,6 @@ public class FederatedManagementHandler {
                         .put("totalMemoryMax", totalMemoryMax)
                         .put("totalCpuCores", totalCpuCores)
                         .put("totalThreadsActive", totalThreadsActive)
-                        .put("totalMessagesPerSecond", totalMessagesPerSecond)
                         .put("totalActiveConnections", totalActiveConnections)
                         .put("totalMessages", totalMessages)
                         .put("averageMemoryUsage", totalMemoryTotal > 0 ?

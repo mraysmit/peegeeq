@@ -164,10 +164,12 @@ mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-mo
 mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260526.txt
 ```
 
-The `peegeeq-performance-test-harness` module additionally provides workload-tuning
-profiles (`-Pperformance`, `-Pload-test`, `-Pstress-test`) that adjust duration and
-thread counts. These are orthogonal to the tag-filtering profiles above and can be
-combined, e.g. `-Pperformance-tests,load-test`.
+~~The `peegeeq-performance-test-harness` module additionally provides workload-tuning
+profiles (`-Pperformance`, `-Pload-test`, `-Pstress-test`).~~
+*(Deleted 2026-08-09: every figure that module reported was a hardcoded constant returned
+after `Thread.sleep` — fabricated performance results, found by the metrics-stack review.
+Real load tests are the `-Pperformance-tests`-tagged tests in the actual modules, e.g. the
+peegeeq-db fanout suites.)*
 
 ---
 

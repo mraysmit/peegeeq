@@ -67,16 +67,8 @@
             <artifactId>vertx-junit5</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-core</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.mockito</groupId>
-            <artifactId>mockito-junit-jupiter</artifactId>
-            <scope>test</scope>
-        </dependency>
+        <!-- Mockito dependencies removed 2026-08-09: no test referenced them, and the
+             project's no-mocking rule bans their use. -->
 
         <!-- Test Support -->
         <dependency>

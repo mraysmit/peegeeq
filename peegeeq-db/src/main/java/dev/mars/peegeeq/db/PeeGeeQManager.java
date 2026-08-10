@@ -38,7 +38,6 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
-import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
 import io.cloudevents.jackson.JsonFormat;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -99,25 +98,45 @@ public class PeeGeeQManager {
     private final PeeGeeQMetrics metrics;
     private final HealthCheckManager healthCheckManager;
     private final CircuitBreakerManager circuitBreakerManager;
-    private final BackpressureManager backpressureManager;
     private final DeadLetterQueueManager deadLetterQueueManager;
     private final StuckMessageRecoveryManager stuckMessageRecoveryManager;
 
     // Background services - using Vert.x timers instead of ScheduledExecutorService
-    private long metricsTimerId = 0;
     private long depthCacheTimerId = 0;
     private long dlqTimerId = 0;
     private long recoveryTimerId = 0;
+
+    // Saturation sampling (telemetry §4 G3). The manager samples its OWN resources — the Vert.x
+    // loop that carries this setup's queue work, and its own connection pool — as a property of
+    // running; collectors only read the snapshot.
+    // Event-loop lag: a periodic timer is scheduled for a fixed interval, and the amount by
+    // which it fires LATE is how long the loop was unavailable to run it.
+    private static final long EVENT_LOOP_LAG_SAMPLE_MS = 500L;
+    private static final int SATURATION_WINDOW_SECONDS = 60;
+    private final dev.mars.peegeeq.db.metrics.SaturationWindowTracker eventLoopLagTracker =
+        new dev.mars.peegeeq.db.metrics.SaturationWindowTracker(SATURATION_WINDOW_SECONDS);
+    private final java.util.concurrent.atomic.AtomicLong eventLoopLagLastTickNanos =
+        new java.util.concurrent.atomic.AtomicLong(0L);
+    private long eventLoopLagTimerId = 0;
+    // Pool acquire-wait: a periodic CANARY performs one real getConnection() against the
+    // manager's own pool and times it. Under exhaustion the canary queues behind real work, so
+    // it measures exactly the wait a caller experiences — a genuine sample, not a fabricated
+    // gauge. §4A cadence guidance: ~5 s, and the overlap guard stops a queued canary stacking
+    // a second one behind it.
+    private static final long POOL_ACQUIRE_CANARY_MS = 5_000L;
+    private final dev.mars.peegeeq.db.metrics.SaturationWindowTracker poolAcquireWaitTracker =
+        new dev.mars.peegeeq.db.metrics.SaturationWindowTracker(SATURATION_WINDOW_SECONDS);
+    private final java.util.concurrent.atomic.AtomicBoolean acquireCanaryRunning =
+        new java.util.concurrent.atomic.AtomicBoolean(false);
+    private long poolAcquireCanaryTimerId = 0;
     private DeadConsumerDetectionJob deadConsumerDetectionJob;
     private ConsumerGroupRetryJob consumerGroupRetryJob;
 
     // Consecutive failure counters for background timers escalate to ERROR after threshold
     private static final long TIMER_FAILURE_ESCALATION_THRESHOLD = 3;
-    private final java.util.concurrent.atomic.AtomicLong persistMetricsFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong depthCacheFailures = new java.util.concurrent.atomic.AtomicLong(0);
 
     // Overlap guards prevent a new tick firing while the previous one is still in-flight
-    private final java.util.concurrent.atomic.AtomicBoolean persistMetricsRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean depthCacheRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong dlqCleanupFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong stuckMessageFailures = new java.util.concurrent.atomic.AtomicLong(0);
@@ -229,8 +248,6 @@ public class PeeGeeQManager {
                 this.circuitBreakerManager
             );
 
-            // Make backpressure configurable instead of hardcoded values
-            this.backpressureManager = new BackpressureManager(50, Duration.ofSeconds(30));
             this.deadLetterQueueManager = new DeadLetterQueueManager(pool, objectMapper);
             this.stuckMessageRecoveryManager = new StuckMessageRecoveryManager(
                 pool,
@@ -365,31 +382,12 @@ public class PeeGeeQManager {
         return started;
     }
 
-    /**
-     * Gets system status information reactively.
-     */
-    public Future<SystemStatus> getSystemStatus() {
-        return deadLetterQueueManager.getStatistics()
-            .map(deadLetterStatsInfo -> {
-                dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats =
-                    new dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats(
-                        deadLetterStatsInfo.totalMessages(),
-                        deadLetterStatsInfo.uniqueTopics(),
-                        deadLetterStatsInfo.uniqueTables(),
-                        deadLetterStatsInfo.oldestFailure(),
-                        deadLetterStatsInfo.newestFailure(),
-                        deadLetterStatsInfo.averageRetryCount());
-
-                return new SystemStatus(
-                    started,
-                    configuration.getProfile(),
-                    healthCheckManager.getOverallHealthInternal(),
-                    metrics.getSummary(),
-                    backpressureManager.getMetrics(),
-                    deadLetterStats
-                );
-            });
-    }
+    // getSystemStatus()/SystemStatus and the BackpressureManager were DELETED 2026-08-09
+    // (metrics-stack review backlog): no production code ever called getSystemStatus, and
+    // the backpressure manager was constructed but never guarded any operation — its
+    // metrics reported a permanently idle system. Read live state through the direct
+    // accessors instead: getHealthCheckManager().getOverallHealth(), getMetrics().getSummary(),
+    // getDeadLetterQueueManager().getStatistics().
 
     /**
      * Validates the current configuration.
@@ -544,7 +542,6 @@ public class PeeGeeQManager {
     public PeeGeeQMetrics getMetrics() { return metrics; }
     public HealthCheckManager getHealthCheckManager() { return healthCheckManager; }
     public CircuitBreakerManager getCircuitBreakerManager() { return circuitBreakerManager; }
-    public BackpressureManager getBackpressureManager() { return backpressureManager; }
     public DeadLetterQueueManager getDeadLetterQueueManager() { return deadLetterQueueManager; }
     public StuckMessageRecoveryManager getStuckMessageRecoveryManager() { return stuckMessageRecoveryManager; }
 
@@ -645,50 +642,6 @@ public class PeeGeeQManager {
         if (hook != null) {
             closeHooks.add(hook);
             logger.debug("Registered close hook: {}", hook.name());
-        }
-    }
-
-    /**
-     * System status data class.
-     */
-    public static class SystemStatus {
-        private final boolean started;
-        private final String profile;
-        private final dev.mars.peegeeq.db.health.OverallHealthStatus healthStatus;
-        private final PeeGeeQMetrics.MetricsSummary metricsSummary;
-        private final BackpressureManager.BackpressureMetrics backpressureMetrics;
-        private final dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats;
-
-        public SystemStatus(boolean started, String profile,
-                          dev.mars.peegeeq.db.health.OverallHealthStatus healthStatus,
-                          PeeGeeQMetrics.MetricsSummary metricsSummary,
-                          BackpressureManager.BackpressureMetrics backpressureMetrics,
-                          dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats) {
-            this.started = started;
-            this.profile = profile;
-            this.healthStatus = healthStatus;
-            this.metricsSummary = metricsSummary;
-            this.backpressureMetrics = backpressureMetrics;
-            this.deadLetterStats = deadLetterStats;
-        }
-
-        // Getters
-        public boolean isStarted() { return started; }
-        public String getProfile() { return profile; }
-        public dev.mars.peegeeq.db.health.OverallHealthStatus getHealthStatus() { return healthStatus; }
-        public PeeGeeQMetrics.MetricsSummary getMetricsSummary() { return metricsSummary; }
-        public BackpressureManager.BackpressureMetrics getBackpressureMetrics() { return backpressureMetrics; }
-        public dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats getDeadLetterStats() { return deadLetterStats; }
-
-        @Override
-        public String toString() {
-            return "SystemStatus{" +
-                    "started=" + started +
-                    ", profile='" + profile + '\'' +
-                    ", healthy=" + (healthStatus != null ? healthStatus.isHealthy() : "unknown") +
-                    ", messagesProcessed=" + (metricsSummary != null ? metricsSummary.getMessagesProcessed() : 0) +
-                    ", deadLetterMessages=" + (deadLetterStats != null ? deadLetterStats.getTotalMessages() : 0) +
-                    '}';
         }
     }
 
@@ -851,29 +804,14 @@ public class PeeGeeQManager {
 
             logger.debug(": Starting metrics collection reactively");
 
-            long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
-            metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
-                if (closing) return;
-                if (!persistMetricsRunning.compareAndSet(false, true)) return;
-                metrics.persistMetrics(meterRegistry)
-                    .onSuccess(v -> {
-                        persistMetricsFailures.set(0);
-                        persistMetricsRunning.set(false);
-                    })
-                    .onFailure(e -> {
-                        persistMetricsRunning.set(false);
-                        if (closing) return;
-                        long failures = persistMetricsFailures.incrementAndGet();
-                        if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
-                            logger.error("Failed to persist metrics ({} consecutive failures): {}",
-                                failures, e.getMessage(), e);
-                        } else {
-                            logger.warn("Failed to persist metrics: {}", e.getMessage(), e);
-                        }
-                    });
-            });
+            // The metrics-PERSISTENCE timer that lived here was DELETED by the metrics-stack
+            // remediation (2026-08-09): it wrote four counters to queue_metrics, a table with
+            // no production reader anywhere in the repository — and one that setup-service-
+            // provisioned schemas do not even contain, so the timer failed every interval,
+            // forever, at ERROR level. Metrics live in the manager registry and are read
+            // through typed accessors; historical persistence returns only with a real reader.
 
-            // Separate timer for refreshing cached queue depth values used by gauges
+            // Timer for refreshing cached queue depth values used by gauges
             long depthCacheIntervalMs = configuration.getMetricsConfig().getDepthCacheInterval().toMillis();
             depthCacheTimerId = vertx.setPeriodic(depthCacheIntervalMs, id -> {
                 if (closing) return;
@@ -896,10 +834,68 @@ public class PeeGeeQManager {
                     });
             });
 
-            logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
+            // Event-loop lag sampler (telemetry G3). The drift between when the timer was due
+            // and when it actually ran is the loop's unavailability. lastTick seeds NOW so the
+            // first tick measures one real interval, not the gap since construction.
+            eventLoopLagLastTickNanos.set(System.nanoTime());
+            eventLoopLagTimerId = vertx.setPeriodic(EVENT_LOOP_LAG_SAMPLE_MS, id -> {
+                long now = System.nanoTime();
+                long previous = eventLoopLagLastTickNanos.getAndSet(now);
+                long drift = (now - previous) - (EVENT_LOOP_LAG_SAMPLE_MS * 1_000_000L);
+                eventLoopLagTracker.record(now, drift);
+            });
+
+            // Pool acquire-wait canary (telemetry G3): one real, timed acquisition per tick,
+            // feeding both the rolling window (the typed snapshot collectors read) and the
+            // Micrometer acquisition timer registered in bindTo. The overlap guard matters:
+            // under exhaustion an acquisition can out-wait the tick interval, and stacking
+            // canaries would turn the probe into load.
+            poolAcquireCanaryTimerId = vertx.setPeriodic(POOL_ACQUIRE_CANARY_MS, id -> {
+                if (closing) return;
+                if (!acquireCanaryRunning.compareAndSet(false, true)) return;
+                long acquireStart = System.nanoTime();
+                pool.getConnection()
+                    .onSuccess(connection -> {
+                        long waited = System.nanoTime() - acquireStart;
+                        acquireCanaryRunning.set(false);
+                        poolAcquireWaitTracker.record(System.nanoTime(), waited);
+                        metrics.recordConnectionAcquisition(Duration.ofNanos(waited));
+                        connection.close()
+                            .onFailure(e -> logger.debug("Canary connection close failed: {}", e.getMessage()));
+                    })
+                    .onFailure(e -> {
+                        acquireCanaryRunning.set(false);
+                        if (closing) return;
+                        // A failed acquisition is itself a saturation signal, but a duration it
+                        // does not have — the wait ended in refusal, not acquisition. Logged,
+                        // never recorded as a fabricated sample.
+                        long waitedMs = (System.nanoTime() - acquireStart) / 1_000_000L;
+                        logger.warn("Pool acquisition canary failed after {} ms: {}", waitedMs, e.getMessage());
+                    });
+            });
+
+            logger.info("Started metrics sampling (depth cache, event-loop lag, acquisition canary)");
             logger.debug(": Metrics collection started successfully");
             return Future.succeededFuture();
         });
+    }
+
+    /**
+     * The current resource-saturation snapshot for this setup (telemetry §4 gap G3).
+     *
+     * <p>PRODUCED here, unconditionally, as a property of the manager running — collectors
+     * (the REST layer, embedders) read this and never cause the measurement. The read is
+     * idempotent: it computes over the sampler's rolling window without mutating it, so any
+     * number of collectors can call it concurrently.
+     *
+     * <p>Each component is null until its sampler has taken at least one measurement
+     * (manager not started, metrics disabled by configuration, or the first sample interval
+     * has not yet elapsed) — absence, never a fabricated zero. The two sample on different
+     * cadences (500 ms lag ticks, 5 s acquisition canary), so they appear independently.
+     */
+    public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshot() {
+        return new dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot(
+            eventLoopLagTracker.snapshot(), poolAcquireWaitTracker.snapshot());
     }
 
     /**
@@ -1000,13 +996,17 @@ public class PeeGeeQManager {
             vertx.cancelTimer(recoveryTimerId);
             recoveryTimerId = 0;
         }
-        if (metricsTimerId != 0) {
-            vertx.cancelTimer(metricsTimerId);
-            metricsTimerId = 0;
-        }
         if (depthCacheTimerId != 0) {
             vertx.cancelTimer(depthCacheTimerId);
             depthCacheTimerId = 0;
+        }
+        if (eventLoopLagTimerId != 0) {
+            vertx.cancelTimer(eventLoopLagTimerId);
+            eventLoopLagTimerId = 0;
+        }
+        if (poolAcquireCanaryTimerId != 0) {
+            vertx.cancelTimer(poolAcquireCanaryTimerId);
+            poolAcquireCanaryTimerId = 0;
         }
         Future<Void> jobStop = Future.succeededFuture();
         if (deadConsumerDetectionJob != null) {

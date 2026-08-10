@@ -23,6 +23,8 @@ import dev.mars.peegeeq.api.SimpleBiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.api.database.MetricsProvider;
+import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.performance.SimplePerformanceMonitor;
 import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
@@ -86,6 +88,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     private final Vertx vertx;
     private final PeeGeeQManager peeGeeQManager;
+    // Fed by every successful append via recordMessageSent(tableName, elapsedMs) — the
+    // same seam the native and outbox producers use (metrics-stack review backlog,
+    // 2026-08-09). Before this the bitemporal module recorded zero metrics.
+    private final MetricsProvider metrics;
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
     private final String tableName;
@@ -166,6 +172,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         logger.debug("PgBiTemporalEventStore constructor starting for table: {}", tableName);
         this.vertx = Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
+        this.metrics = peeGeeQManager.getMetrics() != null
+                ? peeGeeQManager.getMetrics() : NoOpMetricsProvider.INSTANCE;
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.tableName = validateTableName(Objects.requireNonNull(tableName, "Table name cannot be null"));
         this.quotedTableName = "\"" + this.tableName + "\"";
@@ -315,9 +323,17 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         // Performance monitoring: Track batch operation timing
         var timing = performanceMonitor.startTiming();
+        long sendStartNanos = System.nanoTime();
 
         return executeBatchAppend(events)
                 .onSuccess(result -> {
+                    // The counter counts EVENTS (N per batch); the timer gets ONE sample —
+                    // the single measured write. N identical samples would fabricate
+                    // distribution mass (metrics-stack review backlog, 2026-08-09).
+                    metrics.recordMessageSent(tableName, (System.nanoTime() - sendStartNanos) / 1_000_000L);
+                    for (int i = 1; i < events.size(); i++) {
+                        metrics.recordMessageSent(tableName);
+                    }
                     timing.recordAsQuery();
                     logger.info("Batch append operation ({} events) completed in {}ms - throughput: {} events/sec",
                             events.size(), timing.getElapsed().toMillis(),
@@ -436,8 +452,21 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public Future<BiTemporalEvent<T>> appendOwnTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId) {
-        return appendOwnTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId,
-                aggregateId);
+        long sendStartNanos = System.nanoTime();
+        return recordSendOnSuccess(sendStartNanos,
+                appendOwnTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId,
+                        aggregateId));
+    }
+
+    /**
+     * Records a successful append into the manager's metrics: submission to completed
+     * INSERT, the write latency the caller experienced — the same G3 measurement the
+     * native and outbox producers make. Topic = the store's table name. A failed append
+     * records nothing (producer precedent: the failure propagates via the Future).
+     */
+    private Future<BiTemporalEvent<T>> recordSendOnSuccess(long sendStartNanos, Future<BiTemporalEvent<T>> append) {
+        return append.onSuccess(event ->
+                metrics.recordMessageSent(tableName, (System.nanoTime() - sendStartNanos) / 1_000_000L));
     }
 
     /**
@@ -558,8 +587,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Map<String, String> headers,
             String correlationId, String aggregateId,
             String correctionReason) {
-        return appendCorrectionOwnTransaction(originalEventId, eventType, payload, validTime, headers,
-                correlationId, aggregateId, correctionReason);
+        long sendStartNanos = System.nanoTime();
+        return recordSendOnSuccess(sendStartNanos,
+                appendCorrectionOwnTransaction(originalEventId, eventType, payload, validTime, headers,
+                        correlationId, aggregateId, correctionReason));
     }
 
     /**
@@ -814,6 +845,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return Future.failedFuture(new IllegalArgumentException("Vert.x connection cannot be null"));
         }
 
+        long sendStartNanos = System.nanoTime();
+
         try {
             validateAppendParameters(eventType, payload, validTime, headers, correlationId, causationId, aggregateId);
         } catch (IllegalArgumentException e) {
@@ -887,12 +920,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         logger.debug("Bitemporal event appended in transaction for eventType {}: {}", eventType,
                                 eventId);
 
-                        // Record metrics if available
-                        if (performanceMonitor != null) {
-                            // Note: We don't start/stop timing here since this is part of a larger
-                            // transaction
-                            logger.debug("Transaction append completed for event: {}", eventId);
-                        }
+                        // Records the INSERT's completion. The surrounding caller-owned
+                        // transaction may still roll back afterwards — same accepted
+                        // semantics as the outbox producer's in-transaction send.
+                        metrics.recordMessageSent(tableName, (System.nanoTime() - sendStartNanos) / 1_000_000L);
                     })
                     .onFailure(error -> {
                         logger.error("Failed to append bitemporal event in transaction for eventType {}: {}", eventType,

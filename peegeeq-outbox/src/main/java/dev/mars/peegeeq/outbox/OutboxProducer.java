@@ -206,10 +206,11 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     OffsetDateTime.now(),
                     idempotencyKey);
 
+            long sendStartNanos = System.nanoTime();
             return getReactivePoolFuture()
                     .compose(pool -> pool.preparedQuery(OUTBOX_INSERT_SQL).execute(params))
                     .map(rows -> {
-                        logSendOutcome(rows, finalCorrelationId, idempotencyKey);
+                        logSendOutcome(rows, finalCorrelationId, idempotencyKey, sendStartNanos);
                         return (Void) null;
                     })
                     .onFailure(error -> logger.error("Failed to send message to outbox topic {}", topic, error));
@@ -323,6 +324,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     OffsetDateTime.now(),
                     idempotencyKey);
 
+            long sendStartNanos = System.nanoTime();
             return getReactivePoolFuture().compose(pool -> {
                 if (propagation != null) {
                     return pool.withTransaction(propagation,
@@ -333,7 +335,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                 }
             })
             .map(rows -> {
-                logSendOutcome(rows, finalCorrelationId, idempotencyKey);
+                logSendOutcome(rows, finalCorrelationId, idempotencyKey, sendStartNanos);
                 return (Void) null;
             })
             .onFailure(error -> logger.error("Failed to send message in own transaction to outbox topic {}", topic, error));
@@ -420,10 +422,11 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     OffsetDateTime.now(),
                     idempotencyKey);
 
+            long sendStartNanos = System.nanoTime();
             return connection.preparedQuery(OUTBOX_INSERT_SQL)
                     .execute(params)
                     .map(rows -> {
-                        logSendOutcome(rows, finalCorrelationId, idempotencyKey);
+                        logSendOutcome(rows, finalCorrelationId, idempotencyKey, sendStartNanos);
                         return (Void) null;
                     })
                     .onFailure(error -> logger.error("Failed to send message in existing transaction to outbox topic {}", topic, error));
@@ -484,14 +487,18 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     /**
      * Logs the outcome of an outbox insert, distinguishing new inserts from idempotent duplicates.
      */
-    private void logSendOutcome(RowSet<Row> rows, String correlationId, String idempotencyKey) {
+    private void logSendOutcome(RowSet<Row> rows, String correlationId, String idempotencyKey,
+            long sendStartNanos) {
         if (rows.rowCount() == 0 && idempotencyKey != null) {
             logger.debug("Duplicate idempotency key for outbox topic {}: {} (correlationId: {}) - message already exists",
                     topic, idempotencyKey, correlationId);
         } else {
             logger.debug("Message sent to outbox for topic {} (correlationId: {}, idempotencyKey: {})",
                     topic, correlationId, idempotencyKey);
-            metrics.recordMessageSent(topic);
+            // Telemetry G3 (remediation step 4): submission-to-completed-INSERT, the write
+            // latency the caller experiences, recorded via the timed overload.
+            metrics.recordMessageSent(topic,
+                (System.nanoTime() - sendStartNanos) / 1_000_000L);
         }
     }
 

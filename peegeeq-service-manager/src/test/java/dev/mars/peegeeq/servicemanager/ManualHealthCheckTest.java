@@ -31,16 +31,20 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 class ManualHealthCheckTest {
+    // Ports: EPHEMERAL (listen(0) + actualPort()), fixed 2026-08-09. The previously hardcoded
+    // fixed ports here collide with Docker Desktop's backend on developer machines - and
+    // Docker must be running for the TestContainers suite, so the collision was structural:
+    // -Pall-tests failed here with BindException while every prior module passed.
     
     private static final Logger logger = LoggerFactory.getLogger(ManualHealthCheckTest.class);
     
     @Test
     void testHealthEndpointRespondsCorrectly(Vertx vertx, VertxTestContext testContext) {
-        int testPort = 8090;
         
         // Start a simple HTTP server with health endpoint
-        startTestServer(vertx, testPort)
+        startTestServer(vertx)
             .compose(server -> {
+                int testPort = server.actualPort();
                 logger.info("Test server started on port {}", testPort);
                 
                 // Test the health endpoint with HTTP client
@@ -74,11 +78,11 @@ class ManualHealthCheckTest {
     
     @Test
     void testUnhealthyEndpointRespondsCorrectly(Vertx vertx, VertxTestContext testContext) {
-        int testPort = 8091;
         
         // Start a server that returns 500 for health checks
-        startUnhealthyTestServer(vertx, testPort)
+        startUnhealthyTestServer(vertx)
             .compose(server -> {
+                int testPort = server.actualPort();
                 logger.info("Unhealthy test server started on port {}", testPort);
                 
                 // Test the health endpoint with HTTP client
@@ -110,34 +114,29 @@ class ManualHealthCheckTest {
     }
     
     @Test
-    void testHealthEndpointFromCommandLine(Vertx vertx, VertxTestContext testContext) {
-        int testPort = 8092;
-        
-        // Start server and keep it running for manual testing
-        startTestServer(vertx, testPort)
-            .onComplete(testContext.succeeding(server -> {
-                logger.info(" Test server started on port {} for manual testing", testPort);
-                logger.info(" Test URL: http://localhost:{}/health", testPort);
-                logger.info(" You can now test this endpoint manually with:");
-                logger.info("   curl http://localhost:{}/health", testPort);
-                logger.info("   curl -v http://localhost:{}/health", testPort);
-                logger.info("  Server will run for 10 seconds...");
-                
-                // Keep server running for 10 seconds for manual testing
-                vertx.setTimer(10000, id -> {
-                    server.close().onComplete(closeResult -> {
-                        if (closeResult.succeeded()) {
-                            logger.info("Test server stopped");
-                        } else {
-                            logger.error(" Failed to stop test server", closeResult.cause());
-                        }
-                        testContext.completeNow();
-                    });
-                });
+    void testHealthEndpointStartStopLifecycle(Vertx vertx, VertxTestContext testContext) {
+        // Was "FromCommandLine": it held a fixed port open for 10 s of wall-clock so a person
+        // could curl it - 10 s of suite time serving no automated assertion, on a port Docker
+        // owns on developer machines. Now: start on an ephemeral port, verify the endpoint
+        // answers, close - the lifecycle is what an automated test can pin (2026-08-09).
+        startTestServer(vertx)
+            .compose(server -> {
+                int testPort = server.actualPort();
+                logger.info(" Test server started on port {}", testPort);
+                WebClient client = WebClient.create(vertx);
+                return client.get(testPort, "localhost", "/health").send()
+                        .compose(response -> {
+                            assertEquals(200, response.statusCode());
+                            return server.close();
+                        });
+            })
+            .onComplete(testContext.succeeding(v -> {
+                logger.info("Server lifecycle test completed");
+                testContext.completeNow();
             }));
     }
     
-    private Future<HttpServer> startTestServer(Vertx vertx, int port) {
+    private Future<HttpServer> startTestServer(Vertx vertx) {
         Promise<HttpServer> promise = Promise.promise();
         
         Router router = Router.router(vertx);
@@ -148,7 +147,7 @@ class ManualHealthCheckTest {
                     .put("status", "UP")
                     .put("timestamp", System.currentTimeMillis())
                     .put("service", "manual-test")
-                    .put("port", port)
+                    .put("port", ctx.request().localAddress().port())
                     .put("message", "Health check endpoint is working correctly");
             
             logger.info(" Health endpoint called, returning: {}", health.encode());
@@ -164,7 +163,7 @@ class ManualHealthCheckTest {
             JsonObject info = new JsonObject()
                     .put("service", "manual-test")
                     .put("version", "1.0.0")
-                    .put("port", port)
+                    .put("port", ctx.request().localAddress().port())
                     .put("endpoints", new JsonObject()
                             .put("health", "/health")
                             .put("info", "/info"));
@@ -176,20 +175,20 @@ class ManualHealthCheckTest {
         
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port)
+                .listen(0)
                 .onSuccess(server -> {
-                    logger.info("Started healthy test server on port {}", port);
+                    logger.info("Started healthy test server on ephemeral port {}", server.actualPort());
                     promise.complete(server);
                 })
                 .onFailure(throwable -> {
-                    logger.error(" Failed to start test server on port {}", port, throwable);
+                    logger.error(" Failed to start test server", throwable);
                     promise.fail(throwable);
                 });
         
         return promise.future();
     }
     
-    private Future<HttpServer> startUnhealthyTestServer(Vertx vertx, int port) {
+    private Future<HttpServer> startUnhealthyTestServer(Vertx vertx) {
         Promise<HttpServer> promise = Promise.promise();
         
         Router router = Router.router(vertx);
@@ -201,7 +200,7 @@ class ManualHealthCheckTest {
                     .put("error", "Database connection failed")
                     .put("timestamp", System.currentTimeMillis())
                     .put("service", "manual-test")
-                    .put("port", port)
+                    .put("port", ctx.request().localAddress().port())
                     .put("message", "Service is unhealthy");
             
             logger.info(" Unhealthy endpoint called, returning: {}", error.encode());
@@ -214,13 +213,13 @@ class ManualHealthCheckTest {
         
         vertx.createHttpServer()
                 .requestHandler(router)
-                .listen(port)
+                .listen(0)
                 .onSuccess(server -> {
-                    logger.info("Started unhealthy test server on port {}", port);
+                    logger.info("Started unhealthy test server on ephemeral port {}", server.actualPort());
                     promise.complete(server);
                 })
                 .onFailure(throwable -> {
-                    logger.error(" Failed to start test server on port {}", port, throwable);
+                    logger.error(" Failed to start test server", throwable);
                     promise.fail(throwable);
                 });
         

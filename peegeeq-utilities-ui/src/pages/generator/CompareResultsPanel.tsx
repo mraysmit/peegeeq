@@ -19,7 +19,12 @@
  * telemetry read that FAILED renders its reason, not an empty row.
  */
 import { Alert, Table, Tag, Typography } from 'antd'
-import { churnDeltaFor, compareVerdict, latencySampleDelta } from '../../engine/comparePlan'
+import {
+  CHURN_TABLE,
+  churnDeltaFor,
+  compareVerdict,
+  latencySampleDelta,
+} from '../../engine/comparePlan'
 import type {
   CompareReport,
   CompareSideName,
@@ -32,16 +37,6 @@ const { Text } = Typography
 
 const SIDES: readonly CompareSideName[] = ['native', 'outbox']
 
-/**
- * The churn-bearing table each implementation actually writes (telemetry §4A
- * "Verified schema"). The per-queue table named after the queue is an inert
- * marker — native and outbox both route through these shared tables by topic.
- */
-const CHURN_TABLE: Record<CompareSideName, string> = {
-  native: 'queue_messages',
-  outbox: 'outbox',
-}
-
 /** Shown when a figure cannot be known, so it is never mistaken for a zero. */
 const UNKNOWN = '—'
 
@@ -52,6 +47,33 @@ export interface CompareResultsPanelProps {
   report: CompareReport | null
   /** Messages the shared load asked EACH side for — derived by the page. */
   requested: number
+  /**
+   * How many sides have reached a terminal state (0–2).
+   *
+   * Required rather than defaulted: the report is published only once the final
+   * database sample accounts for the run, so there is a window of seconds in
+   * which BOTH sides have stopped and no report exists yet. Without this the
+   * panel would keep saying "both sides are running" through that window. A
+   * default would let the page silently stop supplying it and put the false
+   * note straight back.
+   */
+  settledSides: number
+}
+
+/**
+ * What the panel can truthfully say about a comparison that has no report yet.
+ *
+ * Three distinct states, because "running" stops being true before the report
+ * arrives — first for one side, then for both.
+ */
+function liveNoteFor(settledSides: number): string {
+  if (settledSides >= SIDES.length) {
+    return 'Both sides have finished. Waiting for the database statistics to account for the run before the churn figures can be reported.'
+  }
+  if (settledSides > 0) {
+    return 'One side has finished; the other is still running. Latency and database churn are sampled once both have finished.'
+  }
+  return 'Both sides are running. Latency and database churn are sampled when the run finishes.'
 }
 
 interface MetricRow {
@@ -91,6 +113,7 @@ export default function CompareResultsPanel({
   progress,
   report,
   requested,
+  settledSides,
 }: CompareResultsPanelProps) {
   if (report === null) {
     const live = SIDES.some((side) => progress[side] !== null)
@@ -114,7 +137,7 @@ export default function CompareResultsPanel({
       <div data-testid="compare-results-panel">
         <MetricTable rows={liveRows} />
         <Text type="secondary" data-testid="compare-live-note">
-          Both sides are running. Latency and database churn are sampled when the run finishes.
+          {liveNoteFor(settledSides)}
         </Text>
       </div>
     )

@@ -20,15 +20,18 @@ import java.util.Map;
 
 /**
  * Request object for creating a webhook subscription.
+ *
+ * <p>Carries exactly the keys the endpoint reads: webhookUrl (required), headers
+ * (optional custom headers added to every delivery request) and filters (optional).
+ * The previous shape's secret/maxRetries/retryDelayMs/contentType fields were
+ * serialized into keys the server never reads and were deleted (deadletter-webhooks
+ * contract review, 2026-08-10).</p>
  */
 public class WebhookSubscriptionRequest {
 
     private String webhookUrl;
-    private String secret;
     private Map<String, String> headers;
-    private int maxRetries = 3;
-    private long retryDelayMs = 1000;
-    private String contentType = "application/json";
+    private Map<String, String> filters;
 
     public WebhookSubscriptionRequest() {}
 
@@ -40,20 +43,11 @@ public class WebhookSubscriptionRequest {
     public String getWebhookUrl() { return webhookUrl; }
     public void setWebhookUrl(String webhookUrl) { this.webhookUrl = webhookUrl; }
 
-    public String getSecret() { return secret; }
-    public void setSecret(String secret) { this.secret = secret; }
-
     public Map<String, String> getHeaders() { return headers; }
     public void setHeaders(Map<String, String> headers) { this.headers = headers; }
 
-    public int getMaxRetries() { return maxRetries; }
-    public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
-
-    public long getRetryDelayMs() { return retryDelayMs; }
-    public void setRetryDelayMs(long retryDelayMs) { this.retryDelayMs = retryDelayMs; }
-
-    public String getContentType() { return contentType; }
-    public void setContentType(String contentType) { this.contentType = contentType; }
+    public Map<String, String> getFilters() { return filters; }
+    public void setFilters(Map<String, String> filters) { this.filters = filters; }
 
     // Fluent builder methods
     public WebhookSubscriptionRequest withWebhookUrl(String webhookUrl) {
@@ -61,19 +55,13 @@ public class WebhookSubscriptionRequest {
         return this;
     }
 
-    public WebhookSubscriptionRequest withSecret(String secret) {
-        this.secret = secret;
+    public WebhookSubscriptionRequest withHeaders(Map<String, String> headers) {
+        this.headers = headers;
         return this;
     }
 
-    public WebhookSubscriptionRequest withMaxRetries(int maxRetries) {
-        this.maxRetries = maxRetries;
-        return this;
-    }
-
-    public WebhookSubscriptionRequest withRetryDelayMs(long retryDelayMs) {
-        this.retryDelayMs = retryDelayMs;
+    public WebhookSubscriptionRequest withFilters(Map<String, String> filters) {
+        this.filters = filters;
         return this;
     }
 }
-

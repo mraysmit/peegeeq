@@ -417,7 +417,7 @@ const Overview = () => {
                     <Col xs={24} sm={12} lg={6}>
                         <Card>
                             <Statistic
-                                title="Messages/sec"
+                                title="Backlog change"
                                 value={Math.round(stats.messagesPerSecond)}
                                 prefix={<SendOutlined style={{ color: '#fa8c16' }} />}
                                 valueStyle={{ color: '#fa8c16' }}

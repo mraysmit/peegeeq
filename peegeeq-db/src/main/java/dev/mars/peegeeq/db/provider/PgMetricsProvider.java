@@ -22,8 +22,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -53,6 +51,15 @@ public class PgMetricsProvider implements MetricsProvider {
             metrics.recordMessageSent(topic);
         } catch (Exception e) {
             logger.warn("Failed to record message sent metric for topic: {}", topic, e);
+        }
+    }
+
+    @Override
+    public void recordMessageSent(String topic, long durationMs) {
+        try {
+            metrics.recordMessageSent(topic, durationMs);
+        } catch (Exception e) {
+            logger.warn("Failed to record timed message sent metric for topic: {}", topic, e);
         }
     }
 
@@ -89,62 +96,6 @@ public class PgMetricsProvider implements MetricsProvider {
             metrics.recordMessageDeadLettered(topic, reason);
         } catch (Exception e) {
             logger.warn("Failed to record message dead-lettered metric for topic: {}", topic, e);
-        }
-    }
-
-    @Override
-    public void recordMessageRetried(String topic, int retryCount) {
-        try {
-            metrics.recordMessageRetried(topic, retryCount);
-        } catch (Exception e) {
-            logger.warn("Failed to record message retried metric for topic: {}", topic, e);
-        }
-    }
-
-    @Override
-    public void incrementCounter(String name, Map<String, String> tags) {
-        try {
-            metrics.incrementCounter(name, tags);
-        } catch (Exception e) {
-            logger.warn("Failed to increment counter: {}", name, e);
-        }
-    }
-
-    @Override
-    public void recordTimer(String name, Duration duration, Map<String, String> tags) {
-        try {
-            metrics.recordTimer(name, duration.toMillis(), tags);
-        } catch (Exception e) {
-            logger.warn("Failed to record timer: {}", name, e);
-        }
-    }
-
-    @Override
-    public void recordGauge(String name, double value, Map<String, String> tags) {
-        try {
-            metrics.recordGauge(name, value, tags);
-        } catch (Exception e) {
-            logger.warn("Failed to record gauge: {}", name, e);
-        }
-    }
-
-    @Override
-    public long getQueueDepth(String topic) {
-        try {
-            return metrics.getQueueDepth(topic);
-        } catch (Exception e) {
-            logger.warn("Failed to get queue depth for topic: {}", topic, e);
-            return -1;
-        }
-    }
-
-    @Override
-    public Map<String, Number> getAllMetrics() {
-        try {
-            return metrics.getAllMetrics();
-        } catch (Exception e) {
-            logger.warn("Failed to get all metrics", e);
-            return new HashMap<>();
         }
     }
 

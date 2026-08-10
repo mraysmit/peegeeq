@@ -283,12 +283,26 @@ public class OutboxMetricsTest {
                 logger.info("  - Initial received: {}, Final received: {}", initialReceived, finalReceived);
                 logger.info("  - Initial processed: {}, Final processed: {}", initialProcessed, finalProcessed);
 
-                assertTrue(finalSent >= initialSent + messageCount, 
+                assertTrue(finalSent >= initialSent + messageCount,
                     "Messages sent should increase by at least " + messageCount);
-                assertTrue(finalReceived >= initialReceived + messageCount, 
+                assertTrue(finalReceived >= initialReceived + messageCount,
                     "Messages received should increase by at least " + messageCount);
-                assertTrue(finalProcessed >= initialProcessed + messageCount, 
+                assertTrue(finalProcessed >= initialProcessed + messageCount,
                     "Messages processed should increase by at least " + messageCount);
+
+                // Telemetry G3 (remediation step 4, pinned 2026-08-09): every OUTBOX send is
+                // TIMED — submission to completed INSERT — and feeds peegeeq.message.send.time
+                // via logSendOutcome. The native producer has the same pin in
+                // ConsumerModeMetricsTest; without this one, deleting the outbox timing
+                // passes every suite.
+                var sendTimer = manager.getMeterRegistry()
+                    .find("peegeeq.message.send.time").timer();
+                assertNotNull(sendTimer,
+                    "peegeeq.message.send.time must be fed by the outbox producer send path");
+                assertTrue(sendTimer.count() >= messageCount,
+                    "every outbox send must contribute a timed sample: expected >= "
+                        + messageCount + ", got " + sendTimer.count());
+
                 testContext.completeNow();
             })));
 

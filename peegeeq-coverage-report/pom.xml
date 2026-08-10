@@ -70,11 +70,6 @@
         </dependency>
         <dependency>
             <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-performance-test-harness</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>dev.mars</groupId>
             <artifactId>peegeeq-examples</artifactId>
             <version>${project.version}</version>
         </dependency>

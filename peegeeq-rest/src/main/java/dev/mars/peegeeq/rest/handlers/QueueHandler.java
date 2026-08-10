@@ -409,46 +409,8 @@ public class QueueHandler {
                     return queueFactory.isHealthy()
                             .compose(isHealthy -> queueFactory.getStats(queueName)
                                     .map(stats -> {
-                                        JsonObject response = new JsonObject()
-                                                .put("queueName", queueName)
-                                                .put("setupId", setupId)
-                                                .put("implementationType", implementationType)
-                                                .put("healthy", isHealthy)
-                                                .put("totalMessages", stats.getTotalMessages())
-                                                .put("pendingMessages", stats.getPendingMessages())
-                                                .put("processedMessages", stats.getProcessedMessages())
-                                                .put("inFlightMessages", stats.getInFlightMessages())
-                                                .put("deadLetteredMessages", stats.getDeadLetteredMessages())
-                                                .put("messagesPerSecond", stats.getMessagesPerSecond())
-                                                .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
-                                                .put("successRatePercent", stats.getSuccessRatePercent())
-                                                .put("timestamp", System.currentTimeMillis());
-                                        // Telemetry G1/G2: app-side percentiles per queue. The
-                                        // fields are ABSENT when nothing has been measured by
-                                        // this backend instance — absence is the "no data"
-                                        // signal; zeroes would claim a 0 ms tail.
-                                        var percentiles = stats.getProcessingTimePercentiles();
-                                        if (percentiles != null) {
-                                            response
-                                                    .put("processingTimeP50Ms", percentiles.p50Ms())
-                                                    .put("processingTimeP95Ms", percentiles.p95Ms())
-                                                    .put("processingTimeP99Ms", percentiles.p99Ms())
-                                                    .put("processingTimeSampleCount", percentiles.sampleCount());
-                                        }
-                                        var deliveryLatency = stats.getDeliveryLatencyPercentiles();
-                                        if (deliveryLatency != null) {
-                                            response
-                                                    .put("deliveryLatencyP50Ms", deliveryLatency.p50Ms())
-                                                    .put("deliveryLatencyP95Ms", deliveryLatency.p95Ms())
-                                                    .put("deliveryLatencyP99Ms", deliveryLatency.p99Ms())
-                                                    .put("deliveryLatencySampleCount", deliveryLatency.sampleCount());
-                                        }
-                                        if (stats.getCreatedAt() != null) {
-                                            response.put("firstMessageAt", stats.getCreatedAt().toString());
-                                        }
-                                        if (stats.getLastMessageAt() != null) {
-                                            response.put("lastMessageAt", stats.getLastMessageAt().toString());
-                                        }
+                                        JsonObject response = queueStatsJson(
+                                                setupId, queueName, implementationType, isHealthy, stats);
                                         logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
                                                 queueName, implementationType, isHealthy,
                                                 stats.getTotalMessages(), stats.getPendingMessages());
@@ -475,6 +437,55 @@ public class QueueHandler {
                 });
     }
     
+    /**
+     * The flat queue-stats payload — the ONE owner of the shape both `GET .../stats` and the
+     * SSE stats stream emit, so the two cannot drift (utilities-ui's telemetryService parses
+     * exactly these field names).
+     *
+     * <p>Telemetry G1/G2: the percentile blocks are ABSENT when nothing has been measured by
+     * this backend instance — absence is the "no data" signal; zeroes would claim a 0 ms tail.
+     */
+    static JsonObject queueStatsJson(String setupId, String queueName, String implementationType,
+            boolean healthy, dev.mars.peegeeq.api.messaging.QueueStats stats) {
+        JsonObject response = new JsonObject()
+                .put("queueName", queueName)
+                .put("setupId", setupId)
+                .put("implementationType", implementationType)
+                .put("healthy", healthy)
+                .put("totalMessages", stats.getTotalMessages())
+                .put("pendingMessages", stats.getPendingMessages())
+                .put("processedMessages", stats.getProcessedMessages())
+                .put("inFlightMessages", stats.getInFlightMessages())
+                .put("deadLetteredMessages", stats.getDeadLetteredMessages())
+                .put("messagesPerSecond", stats.getMessagesPerSecond())
+                .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
+                .put("successRatePercent", stats.getSuccessRatePercent())
+                .put("timestamp", System.currentTimeMillis());
+        var percentiles = stats.getProcessingTimePercentiles();
+        if (percentiles != null) {
+            response
+                    .put("processingTimeP50Ms", percentiles.p50Ms())
+                    .put("processingTimeP95Ms", percentiles.p95Ms())
+                    .put("processingTimeP99Ms", percentiles.p99Ms())
+                    .put("processingTimeSampleCount", percentiles.sampleCount());
+        }
+        var deliveryLatency = stats.getDeliveryLatencyPercentiles();
+        if (deliveryLatency != null) {
+            response
+                    .put("deliveryLatencyP50Ms", deliveryLatency.p50Ms())
+                    .put("deliveryLatencyP95Ms", deliveryLatency.p95Ms())
+                    .put("deliveryLatencyP99Ms", deliveryLatency.p99Ms())
+                    .put("deliveryLatencySampleCount", deliveryLatency.sampleCount());
+        }
+        if (stats.getCreatedAt() != null) {
+            response.put("firstMessageAt", stats.getCreatedAt().toString());
+        }
+        if (stats.getLastMessageAt() != null) {
+            response.put("lastMessageAt", stats.getLastMessageAt().toString());
+        }
+        return response;
+    }
+
     /**
      * Parses and validates the message request from the HTTP request body.
      */

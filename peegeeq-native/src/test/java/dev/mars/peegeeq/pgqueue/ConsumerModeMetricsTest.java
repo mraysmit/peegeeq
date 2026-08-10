@@ -266,6 +266,18 @@ public class ConsumerModeMetricsTest {
                 double finalProcessed = processedCounter.count();
                 logger.info(" Final metrics - Sent: {}, Received: {}, Processed: {}",
                     finalSent, finalReceived, finalProcessed);
+
+                // Telemetry G3 (remediation step 4, 2026-08-09): every send is TIMED at the
+                // producer — submission to completed INSERT — and feeds
+                // peegeeq.message.send.time. Before this, the timer name existed only as an
+                // unfed overload; asserting the count pins that the producer actually measures.
+                Timer sendTimer = meterRegistry.find("peegeeq.message.send.time").timer();
+                assertNotNull(sendTimer,
+                    "peegeeq.message.send.time must be fed by the producer send path");
+                assertTrue(sendTimer.count() >= messageCount,
+                    "every send must contribute a timed sample: expected >= " + messageCount
+                        + ", got " + sendTimer.count());
+
                 consumer.close();
                 producer.close();
                 return (Void) null;

@@ -20,19 +20,19 @@ import java.time.Instant;
 
 /**
  * Information about a consumer group.
+ *
+ * <p>{@code memberCount} and {@code lastActivity} are null when the source payload
+ * carries no value for them: the create response emits neither, the management
+ * listing emits no lastActivity, and the consumer-group handler encodes "no stats
+ * yet" as 0L epoch millis, which also maps to null. The previous shape carried a
+ * {@code pendingMessages} field with no source in any server payload and a
+ * {@code create(...)} factory that default-filled it; both were deleted
+ * (reshaped 2026-08-10, consumer-groups contract review).
  */
 public record ConsumerGroupInfo(
     String groupName,
     String queueName,
-    int memberCount,
-    long pendingMessages,
+    Integer memberCount,
     Instant lastActivity
 ) {
-    /**
-     * Creates a new consumer group info.
-     */
-    public static ConsumerGroupInfo create(String groupName, String queueName) {
-        return new ConsumerGroupInfo(groupName, queueName, 0, 0, Instant.now());
-    }
 }
-

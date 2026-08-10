@@ -23,7 +23,6 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -128,13 +127,13 @@ public class PeeGeeQSelfContainedDemoTest {
             })
             .compose(v -> {
                 assertTrue(manager.isHealthy(), "System should be healthy");
-                return manager.getSystemStatus();
+                return manager.getHealthCheckManager().getOverallHealthAsync();
             })
-            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
-                assertNotNull(systemStatus, "System status should not be null");
-                assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
-                assertTrue(systemStatus.isStarted(), "System should be started");
-                assertEquals("demo", systemStatus.getProfile());
+            .onComplete(testContext.succeeding(overallHealth -> testContext.verify(() -> {
+                assertNotNull(overallHealth, "Overall health should not be null");
+                assertNotNull(manager.getMetrics().getSummary(), "Metrics summary should not be null");
+                assertTrue(manager.isStarted(), "System should be started");
+                assertEquals("demo", manager.getConfiguration().getProfile());
                 testContext.completeNow();
             })));
     }
@@ -144,9 +143,9 @@ public class PeeGeeQSelfContainedDemoTest {
         manager = createManager();
         manager.start()
             .compose(v -> manager.getVertx().timer(1000).mapEmpty())
-            .compose(v -> manager.getSystemStatus())
-            .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
-                assertNotNull(status, "System status should be available");
+            .compose(v -> manager.getHealthCheckManager().getOverallHealthAsync())
+            .onComplete(testContext.succeeding(overallHealth -> testContext.verify(() -> {
+                assertNotNull(overallHealth, "Overall health should be available");
                 assertTrue(manager.isHealthy(), "System should be healthy");
                 testContext.completeNow();
             })));

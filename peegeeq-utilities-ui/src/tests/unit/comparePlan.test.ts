@@ -16,11 +16,19 @@
  * - the verdict refuses to declare a winner unless BOTH sides completed, and
  *   cites delivery latency only when BOTH sides actually measured it
  *
+ * Added for G.2e:
+ * - a churn delta is RECONCILED once its insert count reaches the rows the run
+ *   acknowledged; the acknowledged count is a lower bound, because the churn
+ *   tables are shared by topic
+ * - a delta that cannot be computed is not reconciled — unknown is not settled
+ *
  * No mocks: every function here is pure.
  */
 import { describe, it, expect } from 'vitest'
 import {
+  CHURN_TABLE,
   churnDeltaFor,
+  churnReconciled,
   compareVerdict,
   distinctSetupIds,
   latencySampleDelta,
@@ -111,6 +119,7 @@ function dbSnapshot(tables: DbTableStats[], sampledAt = 1000): DbTelemetrySnapsh
       locksTotal: 0,
       locksWaiting: 0,
       xidAge: 0,
+      notifyQueueUsage: 0,
       walRecords: 0,
       walBytes: 0,
       walLsnBytes: 0,
@@ -317,6 +326,54 @@ describe('comparePlan', () => {
 
     expect(delta).not.toBeNull()
     expect(delta!.indexScans).toBeUndefined()
+  })
+
+  // ── churn reconciliation (G.2e) ───────────────────────────────────────────
+
+  it('names the churn-bearing table each implementation actually writes', () => {
+    // Both implementations route through these shared tables by topic; the
+    // per-queue table named after the queue is an inert marker. Mapped to the
+    // queue-named table, every churn figure would read zero.
+    expect(CHURN_TABLE.native).toBe('queue_messages')
+    expect(CHURN_TABLE.outbox).toBe('outbox')
+  })
+
+  it('reconciles when the insert delta reaches the rows the run acknowledged', () => {
+    const pair = dbPair([table({ nTupIns: 5 })], [table({ nTupIns: 15 })])
+    expect(churnReconciled(pair, 'queue_messages', 10)).toBe(true)
+  })
+
+  it('reconciles when the insert delta EXCEEDS the acknowledged count', () => {
+    // queue_messages and outbox are shared by topic, so another producer's rows
+    // land in the same counter. The acknowledged count is a lower bound on what
+    // this run put there, never an exact expectation.
+    const pair = dbPair([table({ nTupIns: 0 })], [table({ nTupIns: 40 })])
+    expect(churnReconciled(pair, 'queue_messages', 10)).toBe(true)
+  })
+
+  it('does NOT reconcile while the insert delta falls short of the acknowledged count', () => {
+    // Ten messages acknowledged and zero rows inserted cannot both be true:
+    // the database has not yet made those inserts visible in pg_stat_user_tables.
+    const pair = dbPair([table({ nTupIns: 0 })], [table({ nTupIns: 0 })])
+    expect(churnReconciled(pair, 'queue_messages', 10)).toBe(false)
+  })
+
+  it('does NOT reconcile when the delta cannot be computed at all', () => {
+    // Unknown is not reconciled. A failed read or an absent table says nothing
+    // about whether the counters caught up, and treating it as settled would
+    // freeze an unknowable figure into the report.
+    const failed: TelemetryPair<DbTelemetrySnapshot> = {
+      baseline: { ok: false, error: 'Request failed with status code 503' },
+      final: { ok: true, snapshot: dbSnapshot([table({ nTupIns: 12000 })]) },
+    }
+    expect(churnReconciled(failed, 'queue_messages', 10)).toBe(false)
+    expect(churnReconciled(dbPair([], [table()]), 'queue_messages', 10)).toBe(false)
+  })
+
+  it('reconciles immediately when the run acknowledged nothing', () => {
+    // A run that sent nothing is owed no rows, so there is nothing to wait for.
+    const pair = dbPair([table({ nTupIns: 7 })], [table({ nTupIns: 7 })])
+    expect(churnReconciled(pair, 'queue_messages', 0)).toBe(true)
   })
 
   // ── latency sample deltas ─────────────────────────────────────────────────

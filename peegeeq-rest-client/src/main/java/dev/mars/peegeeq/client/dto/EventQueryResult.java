@@ -16,15 +16,22 @@
 
 package dev.mars.peegeeq.client.dto;
 
-import dev.mars.peegeeq.api.BiTemporalEvent;
-
 import java.util.List;
 
 /**
  * Result of querying events from an event store.
+ *
+ * <p>Maps the query payload's {@code events} array, {@code totalCount} and
+ * {@code hasMore} keys. The old shape held the non-instantiable
+ * {@code BiTemporalEvent} interface and could never be populated from the wire
+ * (event-stores contract review, 2026-08-10).</p>
+ *
+ * @param events the page of events
+ * @param total the endpoint's totalCount across all pages
+ * @param hasMore whether more events exist beyond this page
  */
 public record EventQueryResult(
-    List<BiTemporalEvent> events,
+    List<EventInfo> events,
     long total,
     boolean hasMore
 ) {
@@ -42,4 +49,3 @@ public record EventQueryResult(
         return events == null ? 0 : events.size();
     }
 }
-
