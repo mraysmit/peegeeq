@@ -191,6 +191,7 @@ class RuntimeDatabaseSetupServiceTest {
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String id) { return null; }
             @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String id) { return null; }
             @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String id) { return null; }
+            @Override public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String id) { return null; }
             @Override public io.vertx.core.Future<Void> close() {
                 closeCalled[0] = true;
                 return io.vertx.core.Future.succeededFuture();

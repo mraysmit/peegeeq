@@ -21,7 +21,6 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
@@ -120,7 +119,6 @@ public class PeeGeeQManagerIntegrationTest {
         assertNotNull(manager.getHealthCheckManager());
         assertNotNull(manager.getMetrics());
         assertNotNull(manager.getCircuitBreakerManager());
-        assertNotNull(manager.getBackpressureManager());
         assertNotNull(manager.getDeadLetterQueueManager());
     }
 
@@ -130,12 +128,8 @@ public class PeeGeeQManagerIntegrationTest {
             .compose(v -> manager.getVertx().timer(2000))
             .compose(v -> {
                 assertTrue(manager.isHealthy(), "System should be healthy after start");
-                return manager.getSystemStatus();
-            })
-            .compose(status -> {
-                assertNotNull(status);
-                assertTrue(status.isStarted());
-                assertEquals("test", status.getProfile());
+                assertTrue(manager.isStarted());
+                assertEquals("test", manager.getConfiguration().getProfile());
                 return manager.stop();
             })
             .onSuccess(v -> testContext.completeNow())
@@ -223,29 +217,8 @@ public class PeeGeeQManagerIntegrationTest {
             .onFailure(testContext::failNow);
     }
 
-    @Test
-    void testBackpressure(VertxTestContext testContext) {
-        manager.start()
-            .compose(v -> {
-                try {
-                    BackpressureManager backpressureManager = manager.getBackpressureManager();
-                    assertNotNull(backpressureManager);
-
-                    String result = backpressureManager.execute("test-op", () -> "success");
-                    assertEquals("success", result);
-
-                    BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
-                    assertNotNull(metrics);
-                    assertEquals(1, metrics.getSuccessfulOperations());
-                    assertEquals(0, metrics.getFailedOperations());
-                    return Future.succeededFuture();
-                } catch (Exception e) {
-                    return Future.failedFuture(e);
-                }
-            })
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
-    }
+    // testBackpressure deleted 2026-08-09 with the BackpressureManager itself
+    // (metrics-stack review: constructed but never guarded any operation).
 
     @Test
     void testDeadLetterQueue(VertxTestContext testContext) {
@@ -292,25 +265,22 @@ public class PeeGeeQManagerIntegrationTest {
         assertTrue(metricsConfig.isEnabled());
     }
 
+    // testSystemStatusReporting was rewritten 2026-08-09: getSystemStatus()/SystemStatus
+    // were deleted (no production caller). The same live facts are asserted through the
+    // direct accessors the deleted aggregate used to wrap.
     @Test
     void testSystemStatusReporting(VertxTestContext testContext) {
         manager.start()
             .compose(v -> manager.getVertx().timer(2000))
-            .compose(v -> manager.getSystemStatus())
-            .compose(status -> {
-                assertNotNull(status);
-                assertTrue(status.isStarted());
-                assertEquals("test", status.getProfile());
-
-                assertNotNull(status.getHealthStatus());
-                assertNotNull(status.getMetricsSummary());
-                assertNotNull(status.getBackpressureMetrics());
-                assertNotNull(status.getDeadLetterStats());
-
-                String statusString = status.toString();
-                assertNotNull(statusString);
-                assertTrue(statusString.contains("started=true"));
-                assertTrue(statusString.contains("profile='test'"));
+            .compose(v -> {
+                assertTrue(manager.isStarted());
+                assertEquals("test", manager.getConfiguration().getProfile());
+                assertNotNull(manager.getHealthCheckManager().getOverallHealthInternal());
+                assertNotNull(manager.getMetrics().getSummary());
+                return manager.getDeadLetterQueueManager().getStatistics();
+            })
+            .compose(deadLetterStats -> {
+                assertNotNull(deadLetterStats);
                 return Future.succeededFuture();
             })
             .onSuccess(v -> testContext.completeNow())
@@ -320,9 +290,8 @@ public class PeeGeeQManagerIntegrationTest {
     @Test
     void testResourceCleanup(VertxTestContext testContext) {
         manager.start()
-            .compose(v -> manager.getSystemStatus())
-            .compose(statusBeforeClose -> {
-                assertTrue(statusBeforeClose.isStarted());
+            .compose(v -> {
+                assertTrue(manager.isStarted());
                 return manager.stop();
             })
             .onSuccess(v -> testContext.completeNow())

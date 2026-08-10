@@ -137,6 +137,8 @@ export default function MessageGeneratorPage() {
   >({ native: null, outbox: null })
   const [compareReport, setCompareReport] = useState<CompareReport | null>(null)
   const [comparing, setComparing] = useState(false)
+  /** How many sides have reached a terminal state — 0, 1 or 2. */
+  const [compareSettledSides, setCompareSettledSides] = useState(0)
   const compareHandleRef = useRef<CompareHandle | null>(null)
 
   /** The steps the results panel shows: a ramp's steps ARE phases. */
@@ -257,13 +259,20 @@ export default function MessageGeneratorPage() {
     }
     setCompareReport(null)
     setCompareProgress({ native: null, outbox: null })
+    setCompareSettledSides(0)
     compareHandleRef.current = createComparisonRunner().start(base, compareSettings, {
       onSideProgress: (progress) =>
         setCompareProgress((prev) => ({ ...prev, [progress.side]: progress })),
+      // Each side settles before the report exists: the runner holds the report
+      // back until the final database sample accounts for the run. Without this
+      // count Zone E would go on saying both sides are running for the whole of
+      // that window.
+      onSideSettled: () => setCompareSettledSides((prev) => prev + 1),
       onCompareComplete: (report) => {
         compareHandleRef.current = null
         setComparing(false)
         setCompareProgress({ native: null, outbox: null })
+        setCompareSettledSides(0)
         setCompareReport(report)
         message.success('Comparison complete.')
       },
@@ -271,6 +280,7 @@ export default function MessageGeneratorPage() {
         compareHandleRef.current = null
         setComparing(false)
         setCompareProgress({ native: null, outbox: null })
+        setCompareSettledSides(0)
         // Never silent: no report will exist, and the reason says why.
         message.error(reason)
       },
@@ -629,6 +639,7 @@ export default function MessageGeneratorPage() {
             progress={compareProgress}
             report={compareReport}
             requested={requestedFor(rateSettings)}
+            settledSides={compareSettledSides}
           />
         </Card>
       ) : (

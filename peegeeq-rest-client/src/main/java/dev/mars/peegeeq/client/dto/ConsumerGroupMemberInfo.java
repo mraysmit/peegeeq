@@ -20,6 +20,12 @@ import java.time.Instant;
 
 /**
  * Information about a consumer group member.
+ *
+ * <p>Every field has a source in the join payload; the server's member id key is
+ * {@code consumerId}, mapped to {@code memberId} here. {@code joinedAt} is null
+ * when the server reports none. The previous {@code create(...)} factory
+ * default-filled topic/isActive/joinedAt/memberCount and was deleted
+ * (consumer-groups contract review, 2026-08-10).
  */
 public record ConsumerGroupMemberInfo(
     String memberId,
@@ -30,13 +36,4 @@ public record ConsumerGroupMemberInfo(
     Instant joinedAt,
     int memberCount
 ) {
-    /**
-     * Creates a basic member info.
-     */
-    public static ConsumerGroupMemberInfo create(String memberId, String memberName, String groupName) {
-        return new ConsumerGroupMemberInfo(
-            memberId, memberName, groupName, null, true, Instant.now(), 1
-        );
-    }
 }
-

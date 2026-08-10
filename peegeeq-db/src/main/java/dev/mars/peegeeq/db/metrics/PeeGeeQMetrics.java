@@ -27,17 +27,6 @@ import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.IdentityHashMap;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.TreeMap;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Comprehensive metrics collection for PeeGeeQ message queue system.
@@ -69,20 +58,23 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private Counter messagesReceived;
     private Counter messagesProcessed;
     private Counter messagesFailed;
-    private Counter messagesRetried;
     private Counter messagesDeadLettered;
 
     // Timers
+    // messagesRetried and databaseOperationTime were DELETED 2026-08-09 (metrics-stack
+    // review backlog): no production code ever fed either — the retried counter and the
+    // database-operation timer permanently reported 0, fabricated healthy signals. Native
+    // retry accounting lives in the retry_count column; re-add a meter only together with
+    // the production call that feeds it.
     private Timer messageProcessingTime;
-    private Timer databaseOperationTime;
     private Timer connectionAcquisitionTime;
 
     // Gauges
-    private final AtomicLong activeConnections = new AtomicLong(0);
-    private final AtomicLong idleConnections = new AtomicLong(0);
-    private final AtomicLong pendingConnections = new AtomicLong(0);
-    private final ConcurrentMap<GaugeKey, DynamicGaugeEntry> dynamicGaugeValues = new ConcurrentHashMap<>();
-
+    // The three peegeeq.connection.pool.* gauges that lived here were DELETED by the
+    // metrics-stack remediation (2026-08-09): no production code ever fed them, so they
+    // permanently reported 0 — a fabricated healthy signal. Client-side acquire-wait is now
+    // MEASURED by the manager's acquisition canary (recordConnectionAcquisition + the
+    // saturation snapshot); the server-side connection breakdown comes from pg_stat_activity.
     /**
      * Constructor using reactive Pool for Vert.x 5.x patterns.
      * This is the only constructor - pure Vert.x reactive implementation.
@@ -124,11 +116,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             .tag("instance", instanceId)
             .register(registry);
 
-        messagesRetried = Counter.builder("peegeeq.messages.retried")
-            .description("Total number of message retry attempts")
-            .tag("instance", instanceId)
-            .register(registry);
-
         messagesDeadLettered = Counter.builder("peegeeq.messages.dead_lettered")
             .description("Total number of messages sent to dead letter queue")
             .tag("instance", instanceId)
@@ -140,29 +127,8 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             .tag("instance", instanceId)
             .register(registry);
 
-        databaseOperationTime = Timer.builder("peegeeq.database.operation.time")
-            .description("Time taken for database operations")
-            .tag("instance", instanceId)
-            .register(registry);
-
         connectionAcquisitionTime = Timer.builder("peegeeq.connection.acquisition.time")
             .description("Time taken to acquire database connections")
-            .tag("instance", instanceId)
-            .register(registry);
-
-        // Connection pool gauges
-        Gauge.builder("peegeeq.connection.pool.active", activeConnections::get)
-            .description("Number of active database connections")
-            .tag("instance", instanceId)
-            .register(registry);
-
-        Gauge.builder("peegeeq.connection.pool.idle", idleConnections::get)
-            .description("Number of idle database connections")
-            .tag("instance", instanceId)
-            .register(registry);
-
-        Gauge.builder("peegeeq.connection.pool.pending", pendingConnections::get)
-            .description("Number of pending connection requests")
             .tag("instance", instanceId)
             .register(registry);
 
@@ -212,10 +178,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         }
     }
 
-    public void recordMessageSendError(String topic) {
-        recordMessageFailed(topic, "send_error");
-    }
-
     @Override
     public void recordMessageReceived(String topic) {
         if (messagesReceived != null) {
@@ -230,22 +192,10 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         }
     }
 
-    public void recordMessageReceived(String topic, long durationMs) {
-        recordMessageReceived(topic);
-        // Record timing if needed
-        if (registry != null) {
-            Timer.builder("peegeeq.message.receive.time")
-                .tag("instance", instanceId)
-                .tag("topic", topic)
-                .register(registry)
-                .record(Duration.ofMillis(durationMs));
-        }
-    }
-
-    public void recordMessageReceiveError(String topic) {
-        recordMessageFailed(topic, "receive_error");
-    }
-
+    // recordMessageReceived(String,long), recordMessageAcknowledged and the
+    // recordMessageSendError/ReceiveError/AckError wrappers were DELETED 2026-08-09
+    // (metrics-stack review backlog): zero production callers — the first two had zero
+    // callers anywhere, including tests.
     @Override
     public void recordMessageProcessed(String topic, Duration processingTime) {
         if (messagesProcessed != null) {
@@ -365,21 +315,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     }
 
     @Override
-    public void recordMessageRetried(String topic, int retryCount) {
-        if (messagesRetried != null) {
-            messagesRetried.increment();
-        }
-        if (registry != null) {
-            Counter.builder("peegeeq.messages.retried.by.topic")
-                .tag("instance", instanceId)
-                .tag("topic", topic)
-                .tag("retry_count", String.valueOf(retryCount))
-                .register(registry)
-                .increment();
-        }
-    }
-
-    @Override
     public void recordMessageDeadLettered(String topic, String reason) {
         if (messagesDeadLettered != null) {
             messagesDeadLettered.increment();
@@ -394,194 +329,21 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         }
     }
 
-    public void recordMessageAcknowledged(String topic, long durationMs) {
-        // Record acknowledgment as a successful processing
-        recordMessageProcessed(topic, Duration.ofMillis(durationMs));
-
-        if (registry != null) {
-            Timer.builder("peegeeq.message.ack.time")
-                .tag("instance", instanceId)
-                .tag("topic", topic)
-                .register(registry)
-                .record(Duration.ofMillis(durationMs));
-        }
-    }
-
-    public void recordMessageAckError(String topic) {
-        recordMessageFailed(topic, "ack_error");
-    }
-
-    // Database operation metrics
-    public void recordDatabaseOperation(String operation, Duration duration) {
-        if (databaseOperationTime != null) {
-            databaseOperationTime.record(duration);
-        }
-        if (registry != null) {
-            Timer.builder("peegeeq.database.operation.time.by.operation")
-                .tag("instance", instanceId)
-                .tag("operation", operation)
-                .register(registry)
-                .record(duration);
-        }
-    }
-
     public void recordConnectionAcquisition(Duration duration) {
         if (connectionAcquisitionTime != null) {
             connectionAcquisitionTime.record(duration);
         }
     }
 
-    // Connection pool metrics
-    public void updateConnectionPoolMetrics(int active, int idle, int pending) {
-        if (activeConnections != null) {
-            activeConnections.set(active);
-        }
-        if (idleConnections != null) {
-            idleConnections.set(idle);
-        }
-        if (pendingConnections != null) {
-            pendingConnections.set(pending);
-        }
-    }
-
-    // Generic metrics methods for provider interface
-    @Override
-    public void incrementCounter(String name, Map<String, String> tags) {
-        if (registry != null) {
-            Counter.Builder builder = Counter.builder(name)
-                .tag("instance", instanceId);
-
-            if (tags != null) {
-                tags.forEach(builder::tag);
-            }
-
-            builder.register(registry).increment();
-        }
-    }
-
-    public void recordTimer(String name, long durationMs, Map<String, String> tags) {
-        recordTimer(name, Duration.ofMillis(durationMs), tags);
-    }
-
-    @Override
-    public void recordTimer(String name, Duration duration, Map<String, String> tags) {
-        if (registry != null) {
-            Timer.Builder builder = Timer.builder(name)
-                .tag("instance", instanceId);
-
-            if (tags != null) {
-                tags.forEach(builder::tag);
-            }
-
-            builder.register(registry).record(duration);
-        }
-    }
-
-    @Override
-    public void recordGauge(String name, double value, Map<String, String> tags) {
-        if (registry == null) {
-            return;
-        }
-
-        GaugeKey gaugeKey = new GaugeKey(name, instanceId, tags);
-        DynamicGaugeEntry entry = dynamicGaugeValues.computeIfAbsent(gaugeKey, key -> new DynamicGaugeEntry());
-        entry.value.set(value);
-        entry.ensureRegistered(registry, gaugeKey);
-    }
-
-    private static final class DynamicGaugeEntry {
-        private final AtomicReference<Double> value = new AtomicReference<>(0.0);
-        private final Set<MeterRegistry> registeredRegistries =
-            Collections.newSetFromMap(new IdentityHashMap<>());
-
-        private void ensureRegistered(MeterRegistry registry, GaugeKey key) {
-            synchronized (this) {
-                if (registeredRegistries.contains(registry)) {
-                    return;
-                }
-
-                Gauge.Builder<AtomicReference<Double>> builder = Gauge.builder(key.name, value, ref -> {
-                    Double current = ref.get();
-                    return current != null ? current : 0.0;
-                }).tag("instance", key.instanceId);
-
-                key.tags.forEach(builder::tag);
-                builder.register(registry);
-                registeredRegistries.add(registry);
-            }
-        }
-    }
-
-    private static final class GaugeKey {
-        private final String name;
-        private final String instanceId;
-        private final Map<String, String> tags;
-
-        private GaugeKey(String name, String instanceId, Map<String, String> tags) {
-            this.name = name;
-            this.instanceId = instanceId;
-            if (tags == null || tags.isEmpty()) {
-                this.tags = Map.of();
-            } else {
-                this.tags = Map.copyOf(new TreeMap<>(tags));
-            }
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) return true;
-            if (!(o instanceof GaugeKey that)) return false;
-            return Objects.equals(name, that.name)
-                && Objects.equals(instanceId, that.instanceId)
-                && Objects.equals(tags, that.tags);
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(name, instanceId, tags);
-        }
-    }
-
-    @Override
-    public long getQueueDepth(String topic) {
-        // Returns cached native queue depth - refreshed periodically by refreshDepthCache()
-        return (long) cachedNativeDepth;
-    }
+    // The generic pass-through surface (incrementCounter, recordTimer, recordGauge with its
+    // dynamic-gauge machinery, getAllMetrics) was DELETED 2026-08-09 (metrics-stack review
+    // backlog): zero production callers — a speculative API that let anything register
+    // unnamed meters outside the defined contract. TestSupportMetrics (peegeeq-test-support)
+    // is an independent class and keeps its own same-named methods.
 
     @Override
     public String getInstanceId() {
         return instanceId;
-    }
-
-    @Override
-    public Map<String, Number> getAllMetrics() {
-        Map<String, Number> metrics = new HashMap<>();
-
-        if (messagesSent != null) {
-            metrics.put("messages_sent", messagesSent.count());
-        }
-        if (messagesReceived != null) {
-            metrics.put("messages_received", messagesReceived.count());
-        }
-        if (messagesProcessed != null) {
-            metrics.put("messages_processed", messagesProcessed.count());
-        }
-        if (messagesFailed != null) {
-            metrics.put("messages_failed", messagesFailed.count());
-        }
-
-        metrics.put("outbox_queue_depth", cachedOutboxDepth);
-        metrics.put("native_queue_depth", cachedNativeDepth);
-        metrics.put("dead_letter_queue_depth", cachedDeadLetterDepth);
-
-        if (activeConnections != null) {
-            metrics.put("active_connections", activeConnections.get());
-        }
-        if (idleConnections != null) {
-            metrics.put("idle_connections", idleConnections.get());
-        }
-
-        return metrics;
     }
 
     // Queue depth synchronous reads from cache for gauges and MetricsProvider
@@ -646,64 +408,12 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         });
     }
 
-    /**
-     * Persists metrics to database for historical analysis.
-     * Returns a Future for non-blocking database operations.
-     */
-    public Future<Void> persistMetrics(MeterRegistry registry) {
-        if (reactivePool == null || closing) {
-            return Future.succeededFuture();
-        }
+    // persistMetrics/persistCounter were DELETED by the metrics-stack remediation
+    // (2026-08-09): they INSERTed four counters into queue_metrics on a timer, a table no
+    // production code ever read — and one absent from setup-service-provisioned schemas, so
+    // the write failed every interval forever. Write-only persistence is dead weight; it
+    // returns only with a real reader.
 
-        return reactivePool.withTransaction(connection -> {
-            // Double-check closing flag inside transaction callback - pool may have started
-            // closing between the initial check and this callback execution
-            if (closing) {
-                return Future.succeededFuture();
-            }
-            
-            // Persist key metrics using reactive patterns
-            Future<Void> future = Future.succeededFuture();
-
-            if (messagesSent != null) {
-                future = future.compose(v -> persistCounter(connection, "messages_sent", messagesSent));
-            }
-            if (messagesReceived != null) {
-                future = future.compose(v -> persistCounter(connection, "messages_received", messagesReceived));
-            }
-            if (messagesProcessed != null) {
-                future = future.compose(v -> persistCounter(connection, "messages_processed", messagesProcessed));
-            }
-            if (messagesFailed != null) {
-                future = future.compose(v -> persistCounter(connection, "messages_failed", messagesFailed));
-            }
-
-            return future.onSuccess(v -> logger.debug("Persisted metrics to database using reactive patterns"));
-        }).onFailure(throwable -> {
-            // Check if this is a connection error during shutdown (expected during cleanup)
-            String errorMsg = throwable.getMessage();
-            boolean isConnectionError = errorMsg != null &&
-                (errorMsg.contains("Connection refused") ||
-                 errorMsg.contains("connection may have been lost") ||
-                 errorMsg.contains("underlying connection"));
-
-            if (isConnectionError) {
-                logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
-            } else {
-                logger.error("Failed to persist metrics to database", throwable);
-            }
-        });
-    }
-
-    /**
-     * Persists a counter metric to the database using Vert.x SqlConnection.
-     */
-    private Future<Void> persistCounter(io.vertx.sqlclient.SqlConnection connection, String name, Counter counter) {
-        String sql = "INSERT INTO queue_metrics (metric_name, metric_value, tags) VALUES ($1, $2, $3::jsonb)";
-        return connection.preparedQuery(sql)
-            .execute(io.vertx.sqlclient.Tuple.of(name, counter.count(), "{}"))
-            .mapEmpty();
-    }
 
     /**
      * Health check using Vert.x Pool.
@@ -728,15 +438,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     }
 
     /**
-     * Gets the MeterRegistry used by this metrics instance.
-     *
-     * @return The MeterRegistry
-     */
-    public MeterRegistry getRegistry() {
-        return registry;
-    }
-
-    /**
      * Performance metrics summary.
      */
     public MetricsSummary getSummary() {
@@ -747,9 +448,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             messagesFailed != null ? messagesFailed.count() : 0.0,
             cachedOutboxDepth,
             cachedNativeDepth,
-            cachedDeadLetterDepth,
-            activeConnections != null ? activeConnections.get() : 0L,
-            idleConnections != null ? idleConnections.get() : 0L
+            cachedDeadLetterDepth
         );
     }
 
@@ -764,12 +463,10 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         private final double outboxQueueDepth;
         private final double nativeQueueDepth;
         private final double deadLetterQueueDepth;
-        private final long activeConnections;
-        private final long idleConnections;
 
         public MetricsSummary(double messagesSent, double messagesReceived, double messagesProcessed,
                             double messagesFailed, double outboxQueueDepth, double nativeQueueDepth,
-                            double deadLetterQueueDepth, long activeConnections, long idleConnections) {
+                            double deadLetterQueueDepth) {
             this.messagesSent = messagesSent;
             this.messagesReceived = messagesReceived;
             this.messagesProcessed = messagesProcessed;
@@ -777,8 +474,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             this.outboxQueueDepth = outboxQueueDepth;
             this.nativeQueueDepth = nativeQueueDepth;
             this.deadLetterQueueDepth = deadLetterQueueDepth;
-            this.activeConnections = activeConnections;
-            this.idleConnections = idleConnections;
         }
 
         // Getters
@@ -789,8 +484,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         public double getOutboxQueueDepth() { return outboxQueueDepth; }
         public double getNativeQueueDepth() { return nativeQueueDepth; }
         public double getDeadLetterQueueDepth() { return deadLetterQueueDepth; }
-        public long getActiveConnections() { return activeConnections; }
-        public long getIdleConnections() { return idleConnections; }
 
         public double getSuccessRate() {
             double total = messagesProcessed + messagesFailed;

@@ -61,7 +61,10 @@
         <module>peegeeq-service-manager</module>
         <module>peegeeq-pg-sidecar</module>
         <module>peegeeq-test-support</module>
-        <module>peegeeq-performance-test-harness</module>
+        <!-- peegeeq-performance-test-harness DELETED 2026-08-09: every figure it
+             reported was a hardcoded constant returned after Thread.sleep - fabricated
+             performance results. Real load tests live in the modules under -Pperformance-tests
+             (e.g. peegeeq-db fanout suites). -->
         <module>peegeeq-examples</module>
         <module>peegeeq-migrations</module>
         <module>peegeeq-openapi</module>

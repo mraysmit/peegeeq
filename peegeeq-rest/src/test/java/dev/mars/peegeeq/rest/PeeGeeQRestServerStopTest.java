@@ -74,6 +74,7 @@ class PeeGeeQRestServerStopTest {
             @Override public DeadLetterService getDeadLetterServiceForSetup(String id) { return null; }
             @Override public HealthService getHealthServiceForSetup(String id) { return null; }
             @Override public QueueFactoryProvider getQueueFactoryProviderForSetup(String id) { return null; }
+            @Override public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) { return null; }
             @Override public Future<Void> close() {
                 closeCalled.set(true);
                 return Future.succeededFuture();

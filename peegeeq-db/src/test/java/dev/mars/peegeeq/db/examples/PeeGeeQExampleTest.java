@@ -22,7 +22,6 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -97,13 +96,13 @@ public class PeeGeeQExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getSystemStatus())
-            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
-                assertNotNull(systemStatus, "System status should not be null");
-                assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
-                logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
+            .compose(v -> manager.getHealthCheckManager().getOverallHealthAsync())
+            .onComplete(testContext.succeeding(overallHealth -> testContext.verify(() -> {
+                assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
+                assertNotNull(overallHealth, "Overall health should not be null");
+                logger.info("Health status retrieved: {}", overallHealth.status());
 
-                assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
+                assertNotNull(manager.getMetrics().getSummary(), "Metrics summary should not be null");
                 logger.info("Metrics system operational");
                 
                 PeeGeeQConfiguration config = manager.getConfiguration();
@@ -181,14 +180,14 @@ public class PeeGeeQExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", containerProps), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getSystemStatus())
-            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
+            .compose(v -> manager.getHealthCheckManager().getOverallHealthAsync())
+            .onComplete(testContext.succeeding(overallHealth -> testContext.verify(() -> {
                 // Health monitoring
-                assertNotNull(systemStatus.getHealthStatus());
-                logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
-                
+                assertNotNull(overallHealth);
+                logger.info("Health monitoring demonstrated: {}", overallHealth.status());
+
                 // Metrics collection
-                assertNotNull(systemStatus.getMetricsSummary());
+                assertNotNull(manager.getMetrics().getSummary());
                 logger.info("Metrics collection demonstrated");
                 
                 // Configuration

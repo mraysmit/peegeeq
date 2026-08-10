@@ -1,12 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { useManagementStore } from './managementStore'
+import { useManagementStore, mergeOverviewSystemStats } from './managementStore'
 
 const baseState = {
     systemStats: {
         totalQueues: 0,
         totalConsumerGroups: 0,
         totalEventStores: 0,
-        totalMessages: 0,
         messagesPerSecond: 0,
         monitoringSessions: 0,
         activeSubscriptions: 0,
@@ -154,7 +153,7 @@ describe('managementStore', () => {
     describe('updateChartData', () => {
         const stats = {
             totalQueues: 3, totalConsumerGroups: 2, totalEventStores: 1,
-            totalMessages: 100, messagesPerSecond: 5.5,
+            messagesPerSecond: 5.5,
             monitoringSessions: 2, activeSubscriptions: 1,
             dbPool: { active: 4, idle: 3, pending: 1, total: 8, perSetup: [] },
             uptime: '1m 30s',
@@ -187,6 +186,49 @@ describe('managementStore', () => {
         })
     })
 
+    // ── overview mapping ───────────────────────────────────────────────────────
+
+    describe('mergeOverviewSystemStats', () => {
+        // State as left by the last monitoring-stream frame.
+        const streamFed = {
+            totalQueues: 1, totalConsumerGroups: 1, totalEventStores: 1,
+            messagesPerSecond: 7.5,
+            monitoringSessions: 3, activeSubscriptions: 2,
+            dbPool: { active: 5, idle: 2, pending: 1, total: 8, perSetup: [] },
+            uptime: '2m',
+        }
+
+        it('maps the fields the overview endpoint emits', () => {
+            const merged = mergeOverviewSystemStats(streamFed, {
+                totalQueues: 4, totalConsumerGroups: 2, totalEventStores: 6, uptime: '10m',
+            })
+            expect(merged.totalQueues).toBe(4)
+            expect(merged.totalConsumerGroups).toBe(2)
+            expect(merged.totalEventStores).toBe(6)
+            expect(merged.uptime).toBe('10m')
+        })
+
+        it('preserves stream-owned fields the overview does not emit', () => {
+            // The previous mapping replaced the whole systemStats object, so every
+            // HTTP poll reset these four fields to 0 until the next stream frame.
+            const merged = mergeOverviewSystemStats(streamFed, {
+                totalQueues: 4, totalConsumerGroups: 2, totalEventStores: 6, uptime: '10m',
+            })
+            expect(merged.messagesPerSecond).toBe(7.5)
+            expect(merged.monitoringSessions).toBe(3)
+            expect(merged.activeSubscriptions).toBe(2)
+            expect(merged.dbPool).toEqual({ active: 5, idle: 2, pending: 1, total: 8, perSetup: [] })
+        })
+
+        it('keeps stream-owned fields even when the response has no systemStats', () => {
+            const merged = mergeOverviewSystemStats(streamFed, undefined)
+            expect(merged.totalQueues).toBe(0)
+            expect(merged.uptime).toBe('0s')
+            expect(merged.messagesPerSecond).toBe(7.5)
+            expect(merged.dbPool.active).toBe(5)
+        })
+    })
+
     // ── system stats ───────────────────────────────────────────────────────────
 
     describe('setSystemStats', () => {
@@ -194,7 +236,7 @@ describe('managementStore', () => {
             const before = useManagementStore.getState().lastUpdated
             const stats = {
                 totalQueues: 5, totalConsumerGroups: 3, totalEventStores: 2,
-                totalMessages: 200, messagesPerSecond: 10,
+                messagesPerSecond: 10,
                 monitoringSessions: 3, activeSubscriptions: 2,
                 dbPool: { active: 8, idle: 4, pending: 0, total: 12, perSetup: [] },
                 uptime: '5m',

@@ -70,7 +70,6 @@ public class PeeGeeQTestSchemaInitializer {
         /** Bi-temporal event log with triggers */
         BITEMPORAL,
         /** Metrics and monitoring tables */
-        METRICS,
         /** Consumer group fanout tables and functions */
         CONSUMER_GROUP_FANOUT,
         /**
@@ -195,11 +194,6 @@ public class PeeGeeQTestSchemaInitializer {
             if (componentSet.contains(SchemaComponent.BITEMPORAL)) {
                 stmt.execute("TRUNCATE TABLE bitemporal_subscriptions CASCADE");
                 stmt.execute("TRUNCATE TABLE bitemporal_event_log CASCADE");
-            }
-
-            if (componentSet.contains(SchemaComponent.METRICS)) {
-                stmt.execute("TRUNCATE TABLE queue_metrics CASCADE");
-                stmt.execute("TRUNCATE TABLE connection_pool_metrics CASCADE");
             }
 
             if (componentSet.contains(SchemaComponent.CONSUMER_GROUP_FANOUT)) {

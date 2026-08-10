@@ -280,13 +280,15 @@ async function routeDeleteSetupEndpoints(page: Page): Promise<void> {
     }
   })
 
-  // DELETE /api/v1/database-setup/{id}
-  await page.route('**/api/v1/database-setup/**', (route: Route) => {
-    if (route.request().method() === 'DELETE') {
+  // POST /api/v1/setups/{id}/database/drop — the ONLY destructive path since the guarded
+  // detach/drop lifecycle (5a1755de, 2026-07-19). The plain "Delete" flow this stub used to
+  // fake (DELETE /api/v1/database-setup/{id}) no longer exists anywhere in the UI.
+  await page.route('**/api/v1/setups/**/database/drop', (route: Route) => {
+    if (route.request().method() === 'POST') {
       route.fulfill({
         status: 503,
         contentType: 'application/json',
-        body: JSON.stringify({ error: 'Cannot delete setup: service unavailable', timestamp: new Date().toISOString() }),
+        body: JSON.stringify({ error: 'Cannot drop database: service unavailable', timestamp: new Date().toISOString() }),
       })
     } else {
       route.continue()
@@ -294,8 +296,14 @@ async function routeDeleteSetupEndpoints(page: Page): Promise<void> {
   })
 }
 
-test.describe('Database setup delete — API error path', () => {
-  test('E5: deleteSetup_503_showsGenericErrorToast', async ({ page }) => {
+test.describe('Database drop — API error path', () => {
+  // Rewritten 2026-08-09: the previous E5 tested a "Delete" dropdown item and a
+  // DELETE /database-setup call that the guarded detach/drop rework (2026-07-19) removed.
+  // It had been failing on a locator that matches nothing — asserting a dead flow — since
+  // then. This version walks the REAL destructive path: Drop Database… → type-to-confirm →
+  // POST .../database/drop → 503 → the server's error text surfaces and the modal STAYS OPEN
+  // (the failure keeps the user in context; dropTarget is only cleared on success).
+  test('E5: dropDatabase_503_showsServerErrorToastAndKeepsModalOpen', async ({ page }) => {
     await routeDeleteSetupEndpoints(page)
     await page.goto('/database-setups')
 
@@ -303,20 +311,25 @@ test.describe('Database setup delete — API error path', () => {
     const row = page.locator('tr').filter({ hasText: 'fake-setup' })
     await expect(row).toBeVisible({ timeout: 10000 })
 
-    // Click the MoreOutlined (⋯) actions button in that row
-    await row.locator('.anticon-more').click()
+    // Open the row's actions dropdown and take the destructive entry
+    await row.getByTestId('setup-action-btn-fake-setup').click()
+    await page.locator('.ant-dropdown-menu-item').filter({ hasText: 'Drop Database' }).click()
 
-    // Click Delete in the dropdown menu
-    await page.locator('.ant-dropdown-menu-item').filter({ hasText: 'Delete' }).click()
-
-    // Confirm the Modal.confirm dialog — the danger "Delete" button is the primary button
-    const confirmBtn = page.locator('.ant-modal-confirm-btns .ant-btn-dangerous')
+    // The type-to-confirm modal: the danger button stays DISABLED until the exact
+    // database name (from the stubbed details endpoint) is typed — the guard itself.
+    const confirmBtn = page.getByTestId('drop-database-confirm-btn')
     await expect(confirmBtn).toBeVisible({ timeout: 5000 })
+    await expect(confirmBtn).toBeDisabled()
+    await page.getByTestId('drop-database-confirm-input').fill('testdb')
+    await expect(confirmBtn).toBeEnabled()
     await confirmBtn.click()
 
-    // DatabaseSetups.handleDeleteSetup now shows server error text
+    // handleDropDatabase surfaces the server's own error text
     await expect(
-      page.locator('.ant-message-error').filter({ hasText: 'Cannot delete setup: service unavailable' }).first(),
+      page.locator('.ant-message-error').filter({ hasText: 'Cannot drop database: service unavailable' }).first(),
     ).toBeVisible({ timeout: 5000 })
+
+    // The modal stays open on failure — the user keeps their context, nothing was dropped
+    await expect(confirmBtn).toBeVisible()
   })
 })

@@ -16,29 +16,29 @@
 
 package dev.mars.peegeeq.client.dto;
 
+import java.time.Instant;
+
 /**
- * Information about subscription options for a consumer group.
+ * Subscription options for a consumer group, as both subscription endpoints emit them.
+ *
+ * <p>Union of the update payload and the get payload, each carrying a nested
+ * {@code subscriptionOptions} object with {@code startPosition} and the heartbeat
+ * settings: {@code status} is null where the payload omits it (the update response),
+ * and {@code startFromMessageId}/{@code startFromTimestamp} are null unless the
+ * corresponding start position is configured. The previous shape (maxConcurrency/
+ * visibilityTimeoutMs/maxRetries/retryDelayMs/autoAcknowledge/deadLetterQueue)
+ * matched no server payload, and its defaults(...) factory fabricated values
+ * (reshaped 2026-08-10, consumer-groups contract review).
  */
 public record SubscriptionOptionsInfo(
     String setupId,
     String queueName,
     String groupName,
     String status,
-    int maxConcurrency,
-    long visibilityTimeoutMs,
-    int maxRetries,
-    long retryDelayMs,
-    boolean autoAcknowledge,
-    String deadLetterQueue
+    String startPosition,
+    int heartbeatIntervalSeconds,
+    int heartbeatTimeoutSeconds,
+    Long startFromMessageId,
+    Instant startFromTimestamp
 ) {
-    /**
-     * Creates default subscription options.
-     */
-    public static SubscriptionOptionsInfo defaults(String setupId, String queueName, String groupName) {
-        return new SubscriptionOptionsInfo(
-            setupId, queueName, groupName, "ACTIVE",
-            1, 30000, 3, 1000, false, null
-        );
-    }
 }
-

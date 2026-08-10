@@ -143,13 +143,15 @@ public class ManagementApiHandler {
             JsonArray consumerGroups = cf.resultAt(1);
             JsonArray eventStores = cf.resultAt(2);
 
+            // No "messagesPerSecond" here: the old field summed per-queue lifetime
+            // averages (total/(last-first) since queue creation) — not a rate of
+            // anything. Deleted 2026-08-09 (metrics-stack review); the live rate is
+            // the monitoring stream's backlog change rate.
             int totalMessages = 0;
-            double messagesPerSecond = 0.0;
             for (Object obj : queues) {
                 if (obj instanceof JsonObject) {
                     JsonObject q = (JsonObject) obj;
                     totalMessages += q.getInteger("messages", 0);
-                    messagesPerSecond += q.getDouble("messageRate", 0.0);
                 }
             }
 
@@ -160,7 +162,6 @@ public class ManagementApiHandler {
                     .put("totalConsumerGroups", consumerGroups.size())
                     .put("totalEventStores", eventStores.size())
                     .put("totalMessages", totalMessages)
-                    .put("messagesPerSecond", messagesPerSecond)
                     .put("queues", queues)
                     .put("consumerGroups", consumerGroups)
                     .put("eventStores", eventStores);
@@ -174,7 +175,6 @@ public class ManagementApiHandler {
                         .put("totalConsumerGroups", 0)
                         .put("totalEventStores", 0)
                         .put("totalMessages", 0)
-                        .put("messagesPerSecond", 0.0)
                         .put("queues", new JsonArray())
                         .put("consumerGroups", new JsonArray())
                         .put("eventStores", new JsonArray()));
@@ -192,7 +192,6 @@ public class ManagementApiHandler {
         int totalConsumerGroups = 0;
         int totalEventStores = 0;
         int totalMessages = 0;
-        double messagesPerSecond = 0.0;
 
         for (Object obj : setups) {
             if (obj instanceof JsonObject) {
@@ -201,17 +200,18 @@ public class ManagementApiHandler {
                 totalConsumerGroups += setup.getInteger("totalConsumerGroups", 0);
                 totalEventStores += setup.getInteger("totalEventStores", 0);
                 totalMessages += setup.getInteger("totalMessages", 0);
-                messagesPerSecond += setup.getDouble("messagesPerSecond", 0.0);
             }
         }
 
+        // No "messagesPerSecond": the old field summed per-queue lifetime averages —
+        // not a rate. Deleted 2026-08-09 (metrics-stack review); the live rate is the
+        // monitoring stream's backlog change rate.
         return new JsonObject()
                 .put("totalSetups", totalSetups)
                 .put("totalQueues", totalQueues)
                 .put("totalConsumerGroups", totalConsumerGroups)
                 .put("totalEventStores", totalEventStores)
                 .put("totalMessages", totalMessages)
-                .put("messagesPerSecond", messagesPerSecond)
                 .put("activeConnections", activeConnections)
                 .put("uptime", getUptimeString());
     }
@@ -334,6 +334,17 @@ public class ManagementApiHandler {
                 });
     }
 
+    /**
+     * A queue's error rate (0..1) derived from real stats: the DEAD-LETTER fraction — messages
+     * that terminally failed, out of everything seen (metrics-stack review backlog, 2026-08-09;
+     * replaces a hardcoded 0.0 that two UI views rendered as "0.00%" on the evidence of
+     * nothing). Deliberately NOT {@code 1 - successRatePercent}: that counts PENDING messages
+     * against success, so a healthy queue with a backlog would read as erroring.
+     */
+    static double errorRateFrom(dev.mars.peegeeq.api.messaging.QueueStats stats) {
+        return stats.getDeadLetterRatePercent() / 100.0;
+    }
+
     private Future<JsonArray> getQueuesForSetup(String setupId) {
         return setupService.getSetupResult(setupId)
                 .compose(setupResult -> {
@@ -349,14 +360,18 @@ public class ManagementApiHandler {
                                 getRealConsumerCount(setupResult, queueName).compose(consumerCount ->
                                     Future.all(
                                             factory.countMessages(queueName),
-                                            getRealMessageRate(setupResult, queueName),
-                                            getRealAvgProcessingTime(setupResult, queueName),
+                                            // ONE stats read supplies rate, avg time AND the real
+                                            // error rate — this block previously ran getStats
+                                            // twice via helpers, threw the rest away, and put a
+                                            // hardcoded 0.0 beside them as "errorRate".
+                                            factory.getStats(queueName),
                                             factory.isHealthy()
                                     ).map(cf -> {
                                             long messageCount = cf.resultAt(0);
-                                            double messageRate = cf.resultAt(1);
-                                            double avgProcessingTime = cf.resultAt(2);
-                                            boolean healthy = cf.resultAt(3);
+                                            dev.mars.peegeeq.api.messaging.QueueStats stats = cf.resultAt(1);
+                                            double messageRate = stats.getMessagesPerSecond();
+                                            double avgProcessingTime = stats.getAvgProcessingTimeMs();
+                                            boolean healthy = cf.resultAt(2);
                                             JsonObject statistics = new JsonObject()
                                                     .put("totalMessages", messageCount)
                                                     .put("activeConsumers", consumerCount)
@@ -375,7 +390,7 @@ public class ManagementApiHandler {
                                                     .put("consumerCount", consumerCount)
                                                     .put("consumers", consumerCount)
                                                     .put("messageRate", messageRate)
-                                                    .put("errorRate", 0.0)
+                                                    .put("errorRate", errorRateFrom(stats))
                                                     .put("statistics", statistics)
                                                     .put("createdAt", setupResult.getCreatedAt())
                                                     .put("updatedAt", Instant.now().toString());
@@ -523,12 +538,14 @@ public class ManagementApiHandler {
         systemMetricsCache.put("cpuCores", runtime.availableProcessors());
         systemMetricsCache.put("threadsActive", Thread.activeCount());
 
-        // Async: sum real throughput and message counts across all active setups.
-        // Uses the same helpers as getSystemOverview so the numbers are consistent.
+        // Async: sum real message counts across all active setups. Uses the same
+        // helpers as getSystemOverview so the numbers are consistent. No
+        // "messagesPerSecond": the old field summed per-queue lifetime averages —
+        // not a rate. Deleted 2026-08-09 (metrics-stack review).
         setupService.getAllActiveSetupIds()
                 .compose(activeSetupIds -> {
                     if (activeSetupIds.isEmpty()) {
-                        return Future.succeededFuture(new long[]{0L, 0L}); // {totalMessages, totalMsgPerSec*1000}
+                        return Future.succeededFuture(0L);
                     }
                     List<Future<JsonArray>> queuesFutures = new ArrayList<>();
                     for (String sid : activeSetupIds) {
@@ -536,28 +553,23 @@ public class ManagementApiHandler {
                     }
                     return Future.all(queuesFutures).map(cf -> {
                         long totalMessages = 0;
-                        long totalMsgPerSecx1000 = 0; // accumulate as long to avoid FP issues
                         for (int i = 0; i < cf.size(); i++) {
                             JsonArray queues = cf.resultAt(i);
                             for (Object obj : queues) {
                                 if (obj instanceof JsonObject q) {
                                     totalMessages += q.getLong("messages", 0L);
-                                    totalMsgPerSecx1000 += (long) (q.getDouble("messageRate", 0.0) * 1000);
                                 }
                             }
                         }
-                        return new long[]{totalMessages, totalMsgPerSecx1000};
+                        return totalMessages;
                     });
                 })
-                .compose(counts ->
-                    getTotalActiveConnections().map(connections -> new Object[]{counts, connections})
+                .compose(totalMessages ->
+                    getTotalActiveConnections().map(connections -> new Object[]{totalMessages, connections})
                 )
                 .onSuccess(tuple -> {
-                    long[] counts = (long[]) tuple[0];
-                    int connections = (int) tuple[1];
-                    systemMetricsCache.put("totalMessages", counts[0]);
-                    systemMetricsCache.put("messagesPerSecond", counts[1] / 1000.0);
-                    systemMetricsCache.put("activeConnections", connections);
+                    systemMetricsCache.put("totalMessages", (Long) tuple[0]);
+                    systemMetricsCache.put("activeConnections", (Integer) tuple[1]);
                 })
                 .onFailure(e -> logger.debug("Failed to update messaging metrics in cache: {}", e.getMessage()));
     }

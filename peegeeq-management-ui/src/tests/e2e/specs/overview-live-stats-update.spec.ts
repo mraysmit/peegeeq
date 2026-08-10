@@ -107,7 +107,7 @@ test.describe('Overview – Live SSE Metrics Stats Card Update', () => {
         await expect(card.locator('.ant-statistic-content-value')).toHaveText(/\d+/, { timeout: 5000 })
     })
 
-    test('06 Messages/sec card shows a numeric value populated via the SSE pipeline', async ({ page }) => {
+    test('06 Backlog change card shows a numeric value populated via the SSE pipeline', async ({ page }) => {
         test.setTimeout(20000)
 
         await page.goto('/')
@@ -115,7 +115,7 @@ test.describe('Overview – Live SSE Metrics Stats Card Update', () => {
 
         await expect(page.getByTestId('sse-status')).toContainText('Connected', { timeout: 15000 })
 
-        const card = page.locator('.ant-statistic').filter({ hasText: 'Messages/sec' })
+        const card = page.locator('.ant-statistic').filter({ hasText: 'Backlog change' })
         await expect(card).toBeVisible()
         await expect(card.locator('.ant-statistic-content-value')).toHaveText(/\d+/, { timeout: 5000 })
     })

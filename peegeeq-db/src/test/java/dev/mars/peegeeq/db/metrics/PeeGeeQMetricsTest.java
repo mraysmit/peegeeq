@@ -129,7 +129,6 @@ class PeeGeeQMetricsTest {
             connection.query("DELETE FROM dead_letter_queue WHERE topic = 'test-topic'").execute()
                 .compose(result -> connection.query("DELETE FROM outbox WHERE topic = 'test-topic'").execute())
                 .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic = 'test-topic'").execute())
-                .compose(result -> connection.query("DELETE FROM queue_metrics").execute())
                 .mapEmpty()
         ).onSuccess(v -> logger.debug("Cleaned up test data for PeeGeeQMetrics test isolation"))
          .mapEmpty();
@@ -213,17 +212,6 @@ class PeeGeeQMetricsTest {
     }
 
     @Test
-    void testMessageRetriedMetrics() {
-        metrics.bindTo(meterRegistry);
-
-        metrics.recordMessageRetried("topic1", 1);
-        metrics.recordMessageRetried("topic1", 2);
-        metrics.recordMessageRetried("topic2", 1);
-
-        assertEquals(3.0, meterRegistry.get("peegeeq.messages.retried").tag("instance", "test-instance").counter().count());
-    }
-
-    @Test
     void testMessageDeadLetteredMetrics() {
         metrics.bindTo(meterRegistry);
 
@@ -231,17 +219,6 @@ class PeeGeeQMetricsTest {
         metrics.recordMessageDeadLettered("topic2", "poison_message");
 
         assertEquals(2.0, meterRegistry.get("peegeeq.messages.dead_lettered").tag("instance", "test-instance").counter().count());
-    }
-
-    @Test
-    void testDatabaseOperationMetrics() {
-        metrics.bindTo(meterRegistry);
-
-        Duration operationTime = Duration.ofMillis(50);
-        metrics.recordDatabaseOperation("select", operationTime);
-        metrics.recordDatabaseOperation("insert", operationTime);
-
-        assertEquals(2, meterRegistry.get("peegeeq.database.operation.time").tag("instance", "test-instance").timer().count());
     }
 
     @Test
@@ -256,14 +233,14 @@ class PeeGeeQMetricsTest {
     }
 
     @Test
-    void testConnectionPoolMetrics() {
+    void connectionPoolGaugesAreNotFabricated() {
         metrics.bindTo(meterRegistry);
-        
-        metrics.updateConnectionPoolMetrics(3, 2, 1);
-        
-        assertEquals(3.0, meterRegistry.get("peegeeq.connection.pool.active").gauge().value());
-        assertEquals(2.0, meterRegistry.get("peegeeq.connection.pool.idle").gauge().value());
-        assertEquals(1.0, meterRegistry.get("peegeeq.connection.pool.pending").gauge().value());
+
+        // Deleted 2026-08-09: never fed in production, permanently 0 — a fabricated healthy
+        // signal. Acquire-wait is now a measured canary sample (see SaturationSnapshot tests).
+        assertNull(meterRegistry.find("peegeeq.connection.pool.active").gauge());
+        assertNull(meterRegistry.find("peegeeq.connection.pool.idle").gauge());
+        assertNull(meterRegistry.find("peegeeq.connection.pool.pending").gauge());
     }
 
     @Test
@@ -324,24 +301,8 @@ class PeeGeeQMetricsTest {
         assertEquals(66.67, mixedSummary.getSuccessRate(), 0.01); // 2 success out of 3 total
     }
 
-    @Test
-    void testMetricsPersistence(VertxTestContext testContext) {
-        metrics.bindTo(meterRegistry);
-        metrics.recordMessageSent("topic1");
-        metrics.recordMessageReceived("topic1");
-        metrics.recordMessageProcessed("topic1", Duration.ofMillis(100));
-
-        metrics.persistMetrics(meterRegistry)
-            .compose(v -> reactivePool.withConnection(connection ->
-                connection.preparedQuery("SELECT COUNT(*) FROM queue_metrics")
-                    .execute()
-                    .map(rowSet -> rowSet.iterator().next().getInteger(0))
-            ))
-            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
-                assertTrue(count > 0);
-                testContext.completeNow();
-            })));
-    }
+    // testMetricsPersistence deleted 2026-08-09 with persistMetrics itself: write-only
+    // queue_metrics persistence had no production reader and was removed.
 
     @Test
     void testHealthCheck(VertxTestContext testContext) {

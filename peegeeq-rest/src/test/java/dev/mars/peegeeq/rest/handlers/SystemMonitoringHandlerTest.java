@@ -229,6 +229,82 @@ class SystemMonitoringHandlerTest {
             .onFailure(testContext::failNow);
     }
 
+    /**
+     * Telemetry gap G3 — event-loop lag, PRODUCED per setup in core (remediation step 1,
+     * 2026-08-09).
+     *
+     * <p>The measurement lives in {@code PeeGeeQManager}: each setup samples its OWN Vert.x —
+     * the loop that carries its queue work — and this handler only reads
+     * {@code getSaturationSnapshotForSetup} at collection time. The 2026-08-08 version sampled
+     * the REST server's loop inside this handler, which measured the wrong loop and made
+     * production depend on the collector.
+     *
+     * <p>This test provisions a setup, so its manager's sampler runs; the field must appear on
+     * frames that see the setup, carrying per-setup attribution. Values are asserted as real
+     * measurements (present, non-negative, evidenced by a sample count), never against a
+     * threshold — a threshold would pin the test box, not the metric.
+     */
+    @Test
+    @Order(3)
+    void testMetricsCarryEventLoopLag(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== G3: system_stats carries per-setup event-loop lag ===");
+
+        WebSocketConnectOptions options = new WebSocketConnectOptions()
+            .setHost("localhost")
+            .setPort(TEST_PORT)
+            .setURI("/ws/monitoring");
+
+        vertx.createWebSocketClient().connect(options)
+            .onSuccess(ws -> {
+                ws.textMessageHandler(message -> {
+                    JsonObject msg = new JsonObject(message);
+                    if (!"system_stats".equals(msg.getString("type"))) {
+                        return;
+                    }
+                    JsonObject probe = msg.getJsonObject("data");
+                    // Absence on early frames is CORRECT behaviour, twice over: frames before
+                    // the setup is visible have nothing to read, and frames within ~500 ms of
+                    // manager start precede the sampler's first tick (observed in a real run:
+                    // a frame 670 ms after setup creation legitimately carried no lag). The
+                    // contract is presence-EVENTUALLY; the VertxTestContext timeout bounds it,
+                    // so a deleted sampler fails this test as a timeout.
+                    if (probe == null
+                            || probe.getInteger("totalSetups", 0) < 1
+                            || probe.getNumber("eventLoopLagMs") == null) {
+                        return;
+                    }
+                    testContext.verify(() -> {
+                        logger.info("system_stats payload: {}", probe.encode());
+
+                        Number lag = probe.getNumber("eventLoopLagMs");
+                        assertTrue(lag.doubleValue() >= 0.0,
+                            "eventLoopLagMs must be a real measurement, not negative: " + lag);
+
+                        // Attribution: the per-setup array names the loop the figure came from.
+                        JsonArray saturation = probe.getJsonArray("saturation");
+                        assertNotNull(saturation, "saturation per-setup array must accompany the headline");
+                        assertTrue(saturation.size() >= 1, "at least the provisioned setup must report");
+                        JsonObject entry = saturation.getJsonObject(0);
+                        assertNotNull(entry.getString("setupId"), "each entry names its setup");
+                        assertTrue(entry.getLong("sampleCount") >= 1,
+                            "the figure must be backed by at least one sample: " + entry.encode());
+                        assertEquals(60, entry.getInteger("windowSeconds"),
+                            "the rolling-window length is part of the contract");
+
+                        ws.close();
+                        testContext.completeNow();
+                    });
+                });
+                ws.exceptionHandler(testContext::failNow);
+            })
+            .onFailure(testContext::failNow);
+    }
+
+    // testMetricsCarryNotifyQueueUsage was removed 2026-08-09: notifyQueueUsage moved to the
+    // db-telemetry cluster block, where DatabaseTelemetryHandlerIntegrationTest pins it. The
+    // metrics-stack review puts DB-produced signals beside the other PostgreSQL cluster
+    // signals, not in the monitoring stream.
+
     @Test
     @Order(3)
     void testWebSocketMonitoringReceivesMetrics(Vertx vertx, VertxTestContext testContext) {
@@ -830,12 +906,12 @@ class SystemMonitoringHandlerTest {
 
                                         } else if ("system_stats".equals(type) && configured.get()) {
                                             JsonObject data = msg.getJsonObject("data");
-                                            long totalMessages = data.getLong("totalMessages", 0L);
+                                            long totalPendingMessages = data.getLong("totalPendingMessages", 0L);
                                             double rate = data.getDouble("messagesPerSecond", -1.0);
                                             int tick = statsTick.incrementAndGet();
 
-                                            logger.info("§8.2 tick {} — totalMessages={} messagesPerSecond={}",
-                                                    tick, totalMessages, rate);
+                                            logger.info("§8.2 tick {} — totalPendingMessages={} messagesPerSecond={}",
+                                                    tick, totalPendingMessages, rate);
 
                                             if (tick == 1) {
                                                 // First post-configure tick: messages are pending.
@@ -854,7 +930,7 @@ class SystemMonitoringHandlerTest {
                                                 assertEquals(0.0, rate, 0.01,
                                                         "§8.2 regression: messagesPerSecond must be 0 when " +
                                                         "no new messages were enqueued or dequeued since the " +
-                                                        "previous tick (pending count unchanged at " + totalMessages +
+                                                        "previous tick (pending count unchanged at " + totalPendingMessages +
                                                         "). Got " + rate + " — indicates lifetime-average formula " +
                                                         "still in use: totalMessages / (uptime / 1000.0).");
                                                 ws.close();

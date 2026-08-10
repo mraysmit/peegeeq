@@ -421,6 +421,10 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.get("/api/v1/queues/:setupId/:queueName/messages/stream")
                 .handler(sseHandler::handleQueueMessageStream);
         router.get("/api/v1/sse/queues/:setupId").handler(sseHandler::handleQueueUpdates);
+        // Fast per-queue stats stream (telemetry G4): >= 1 Hz reads of the typed core seam,
+        // same frame shape as GET .../stats by construction (QueueHandler.queueStatsJson).
+        router.get("/api/v1/queues/:setupId/:queueName/stats/stream")
+                .handler(sseHandler::handleQueueStatsStream);
 
         // Queue routes - Phase 4: Consumer Group Management
         router.post("/api/v1/queues/:setupId/:queueName/consumer-groups").handler(consumerGroupHandler::createConsumerGroup);

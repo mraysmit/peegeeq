@@ -16,29 +16,30 @@
 
 package dev.mars.peegeeq.client.dto;
 
-import java.time.Instant;
+import java.util.Map;
 
 /**
  * Statistics for an event store.
+ *
+ * <p>Maps the stats payload's nested {@code stats} object
+ * {@code {eventStoreName, totalEvents, totalCorrections, eventCountsByType}}
+ * plus the wrapper's {@code setupId}. The old shape's uniqueEventIds/
+ * oldestEventTime/newestEventTime/eventsPerSecond fields had no source in any
+ * payload and were deleted rather than default-filled, along with the
+ * {@code basic()} factory that fabricated them (event-stores contract review,
+ * 2026-08-10).</p>
+ *
+ * @param storeName the event store name (wire key {@code stats.eventStoreName})
+ * @param setupId the setup identifier
+ * @param totalEvents total events stored
+ * @param totalCorrections total corrections stored
+ * @param eventCountsByType per-event-type counts, or null when the payload carries none
  */
 public record EventStoreStats(
     String storeName,
     String setupId,
     long totalEvents,
     long totalCorrections,
-    long uniqueEventIds,
-    Instant oldestEventTime,
-    Instant newestEventTime,
-    double eventsPerSecond
+    Map<String, Long> eventCountsByType
 ) {
-    /**
-     * Creates basic event store stats.
-     */
-    public static EventStoreStats basic(String storeName, String setupId, long totalEvents) {
-        return new EventStoreStats(
-            storeName, setupId, totalEvents, 0, totalEvents, 
-            null, null, 0.0
-        );
-    }
 }
-

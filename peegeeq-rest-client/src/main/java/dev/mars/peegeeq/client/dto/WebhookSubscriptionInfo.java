@@ -20,6 +20,15 @@ import java.time.Instant;
 
 /**
  * Information about a webhook subscription.
+ *
+ * <p>Carries exactly the fields the endpoints emit. The create payload carries
+ * {subscriptionId, setupId, queueName, webhookUrl, status, createdAt}; the get
+ * payload adds consecutiveFailures and, once a delivery has been attempted,
+ * lastDeliveryAttempt/lastSuccessfulDelivery. consecutiveFailures is therefore
+ * nullable — the create payload omits it. The previous shape's maxRetries/
+ * retryDelayMs/messagesDelivered/messagesFailed/lastDeliveryAt fields had no
+ * source in any payload and were deleted (deadletter-webhooks contract review,
+ * 2026-08-10).</p>
  */
 public record WebhookSubscriptionInfo(
     String subscriptionId,
@@ -27,22 +36,9 @@ public record WebhookSubscriptionInfo(
     String queueName,
     String webhookUrl,
     String status,
-    int maxRetries,
-    long retryDelayMs,
-    long messagesDelivered,
-    long messagesFailed,
     Instant createdAt,
-    Instant lastDeliveryAt
+    Integer consecutiveFailures,
+    Instant lastDeliveryAttempt,
+    Instant lastSuccessfulDelivery
 ) {
-    /**
-     * Creates a basic webhook subscription info.
-     */
-    public static WebhookSubscriptionInfo create(String subscriptionId, String setupId, 
-                                                   String queueName, String webhookUrl) {
-        return new WebhookSubscriptionInfo(
-            subscriptionId, setupId, queueName, webhookUrl, 
-            "ACTIVE", 3, 1000, 0, 0, Instant.now(), null
-        );
-    }
 }
-

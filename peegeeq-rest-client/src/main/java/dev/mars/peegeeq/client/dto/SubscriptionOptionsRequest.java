@@ -18,66 +18,65 @@ package dev.mars.peegeeq.client.dto;
 
 /**
  * Request object for setting subscription options.
+ *
+ * <p>Serializes exactly the keys the server's subscription-options parser reads:
+ * {@code startPosition} (FROM_NOW/FROM_BEGINNING/FROM_MESSAGE_ID/FROM_TIMESTAMP),
+ * {@code startFromMessageId}, {@code startFromTimestamp} (ISO-8601 string),
+ * {@code heartbeatIntervalSeconds} and {@code heartbeatTimeoutSeconds}. Null fields
+ * are omitted server-side (the parser skips JSON nulls). The previous shape
+ * (maxConcurrency/visibilityTimeoutMs/maxRetries/retryDelayMs/autoAcknowledge/
+ * deadLetterQueue) had no reader on the server — every field was silently ignored
+ * (reshaped 2026-08-10, consumer-groups contract review).
  */
 public class SubscriptionOptionsRequest {
 
-    private int maxConcurrency = 1;
-    private long visibilityTimeoutMs = 30000;
-    private int maxRetries = 3;
-    private long retryDelayMs = 1000;
-    private boolean autoAcknowledge = false;
-    private String deadLetterQueue;
+    private String startPosition;
+    private Long startFromMessageId;
+    private String startFromTimestamp;
+    private Integer heartbeatIntervalSeconds;
+    private Integer heartbeatTimeoutSeconds;
 
     public SubscriptionOptionsRequest() {}
 
     // Getters and setters
-    public int getMaxConcurrency() { return maxConcurrency; }
-    public void setMaxConcurrency(int maxConcurrency) { this.maxConcurrency = maxConcurrency; }
+    public String getStartPosition() { return startPosition; }
+    public void setStartPosition(String startPosition) { this.startPosition = startPosition; }
 
-    public long getVisibilityTimeoutMs() { return visibilityTimeoutMs; }
-    public void setVisibilityTimeoutMs(long visibilityTimeoutMs) { this.visibilityTimeoutMs = visibilityTimeoutMs; }
+    public Long getStartFromMessageId() { return startFromMessageId; }
+    public void setStartFromMessageId(Long startFromMessageId) { this.startFromMessageId = startFromMessageId; }
 
-    public int getMaxRetries() { return maxRetries; }
-    public void setMaxRetries(int maxRetries) { this.maxRetries = maxRetries; }
+    public String getStartFromTimestamp() { return startFromTimestamp; }
+    public void setStartFromTimestamp(String startFromTimestamp) { this.startFromTimestamp = startFromTimestamp; }
 
-    public long getRetryDelayMs() { return retryDelayMs; }
-    public void setRetryDelayMs(long retryDelayMs) { this.retryDelayMs = retryDelayMs; }
+    public Integer getHeartbeatIntervalSeconds() { return heartbeatIntervalSeconds; }
+    public void setHeartbeatIntervalSeconds(Integer heartbeatIntervalSeconds) { this.heartbeatIntervalSeconds = heartbeatIntervalSeconds; }
 
-    public boolean isAutoAcknowledge() { return autoAcknowledge; }
-    public void setAutoAcknowledge(boolean autoAcknowledge) { this.autoAcknowledge = autoAcknowledge; }
-
-    public String getDeadLetterQueue() { return deadLetterQueue; }
-    public void setDeadLetterQueue(String deadLetterQueue) { this.deadLetterQueue = deadLetterQueue; }
+    public Integer getHeartbeatTimeoutSeconds() { return heartbeatTimeoutSeconds; }
+    public void setHeartbeatTimeoutSeconds(Integer heartbeatTimeoutSeconds) { this.heartbeatTimeoutSeconds = heartbeatTimeoutSeconds; }
 
     // Fluent builder methods
-    public SubscriptionOptionsRequest withMaxConcurrency(int maxConcurrency) {
-        this.maxConcurrency = maxConcurrency;
+    public SubscriptionOptionsRequest withStartPosition(String startPosition) {
+        this.startPosition = startPosition;
         return this;
     }
 
-    public SubscriptionOptionsRequest withVisibilityTimeoutMs(long visibilityTimeoutMs) {
-        this.visibilityTimeoutMs = visibilityTimeoutMs;
+    public SubscriptionOptionsRequest withStartFromMessageId(Long startFromMessageId) {
+        this.startFromMessageId = startFromMessageId;
         return this;
     }
 
-    public SubscriptionOptionsRequest withMaxRetries(int maxRetries) {
-        this.maxRetries = maxRetries;
+    public SubscriptionOptionsRequest withStartFromTimestamp(String startFromTimestamp) {
+        this.startFromTimestamp = startFromTimestamp;
         return this;
     }
 
-    public SubscriptionOptionsRequest withRetryDelayMs(long retryDelayMs) {
-        this.retryDelayMs = retryDelayMs;
+    public SubscriptionOptionsRequest withHeartbeatIntervalSeconds(Integer heartbeatIntervalSeconds) {
+        this.heartbeatIntervalSeconds = heartbeatIntervalSeconds;
         return this;
     }
 
-    public SubscriptionOptionsRequest withAutoAcknowledge(boolean autoAcknowledge) {
-        this.autoAcknowledge = autoAcknowledge;
-        return this;
-    }
-
-    public SubscriptionOptionsRequest withDeadLetterQueue(String deadLetterQueue) {
-        this.deadLetterQueue = deadLetterQueue;
+    public SubscriptionOptionsRequest withHeartbeatTimeoutSeconds(Integer heartbeatTimeoutSeconds) {
+        this.heartbeatTimeoutSeconds = heartbeatTimeoutSeconds;
         return this;
     }
 }
-

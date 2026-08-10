@@ -163,9 +163,12 @@ class PeeGeeQRestClientTest {
         HttpServer server = vertx.createHttpServer();
         server.requestHandler(req -> {
             requestUri.set(req.uri());
+            // The stub mirrors the real query payload keys the client reads:
+            // the endpoint emits totalCount, not total (event-stores contract
+            // review, 2026-08-10).
             req.response()
                 .putHeader("content-type", "application/json")
-                .end("{\"events\":[],\"total\":0,\"hasMore\":false}");
+                .end("{\"events\":[],\"totalCount\":0,\"hasMore\":false}");
         }).listen(0).onSuccess(httpServer -> {
             PeeGeeQClient localClient = PeeGeeQRestClient.create(vertx, ClientConfig.builder()
                 .baseUrl("http://localhost:" + httpServer.actualPort())

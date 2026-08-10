@@ -178,6 +178,10 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     5 // Default priority
             );
 
+                // Telemetry G3 (remediation step 4): the write is timed from submission to
+                // completed INSERT — acquisition plus execution, the write latency a caller
+                // experiences — and recorded via the timed overload below.
+                long sendStartNanos = System.nanoTime();
                 // Use withTransaction for automatic commit/rollback and search_path support
                 return pool.<Void>withTransaction(conn ->
                     conn.preparedQuery(sql)
@@ -186,7 +190,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                         // Get the auto-generated ID from the database
                         Long generatedId = result.iterator().next().getLong("id");
                         logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
-                        metrics.recordMessageSent(topic);
+                        metrics.recordMessageSent(topic,
+                            (System.nanoTime() - sendStartNanos) / 1_000_000L);
 
                         // Send NOTIFY to wake up consumers using the database-generated ID
                         return conn.preparedQuery("SELECT pg_notify($1, $2)")
@@ -296,6 +301,10 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     priority,
                     idempotencyKey);
 
+                // Telemetry G3 (remediation step 4): the write is timed from submission to
+                // completed INSERT — acquisition plus execution, the write latency a caller
+                // experiences — and recorded via the timed overload below.
+                long sendStartNanos = System.nanoTime();
                 // Use withTransaction for automatic commit/rollback and search_path support
                 return pool.<Void>withTransaction(conn ->
                     conn.preparedQuery(sql)
@@ -305,7 +314,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                         Long generatedId = result.iterator().next().getLong("id");
                         logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup,
                             messageId, generatedId);
-                        metrics.recordMessageSent(topic);
+                        metrics.recordMessageSent(topic,
+                            (System.nanoTime() - sendStartNanos) / 1_000_000L);
 
                         // Send NOTIFY to wake up consumers using the database-generated ID
                         return conn.preparedQuery("SELECT pg_notify($1, $2)")
