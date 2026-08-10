@@ -173,6 +173,11 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     }
 
     @Override
+    public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) {
+        return delegate.getSaturationSnapshotForSetup(setupId);
+    }
+
+    @Override
     public Future<DatabaseConfig> getDatabaseConfig(String setupId) {
         return delegate.getDatabaseConfig(setupId);
     }

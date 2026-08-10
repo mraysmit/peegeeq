@@ -21,7 +21,6 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
-import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -42,7 +41,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
-import java.util.Map;
 import java.util.Properties;
 
 import java.util.concurrent.ExecutorService;
@@ -198,7 +196,6 @@ class PeeGeeQExampleTest {
             .compose(v -> demonstrateHealthChecks(manager))
             .compose(v -> { demonstrateMetrics(manager); return Future.<Void>succeededFuture(); })
             .compose(v -> { demonstrateCircuitBreaker(manager); return Future.<Void>succeededFuture(); })
-            .compose(v -> demonstrateBackpressure(manager))
             .compose(v -> demonstrateDeadLetterQueue(manager))
             .compose(v -> monitorSystemBriefly(manager))
             .eventually(() -> manager.closeReactive()
@@ -230,13 +227,17 @@ class PeeGeeQExampleTest {
 
         boolean isHealthy = manager.isHealthy();
         logger.info(">> Overall Health: {}", isHealthy ? "UP" : "DOWN");
+        logger.info(">> Manager Started: {}", manager.isStarted());
 
-        // Get system status which includes health information
-        return manager.getSystemStatus()
-            .onSuccess(status -> {
-                logger.info("System Status: {}", status);
-                // Note: Individual health component details are not exposed in the current API
-                // This is a simplified demonstration
+        // Read health directly from the health check manager
+        return manager.getHealthCheckManager().getOverallHealthAsync()
+            .onSuccess(health -> {
+                logger.info("Health Status: {} ({} healthy, {} degraded, {} unhealthy of {} components)",
+                    health.status(), health.getHealthyCount(), health.getDegradedCount(),
+                    health.getUnhealthyCount(), health.getComponentCount());
+                health.components().forEach((name, componentHealth) ->
+                    logger.info("  {} -> {} ({})", name, componentHealth.state(),
+                        componentHealth.message() != null ? componentHealth.message() : "OK"));
                 logger.info("Health check demonstration completed");
             })
             .mapEmpty();
@@ -244,23 +245,11 @@ class PeeGeeQExampleTest {
 
     private void demonstrateMetrics(PeeGeeQManager manager) {
         logger.info("=== Metrics Demo ===");
-        logger.info("Simulating message processing...");
 
-        PeeGeeQMetrics metrics = manager.getMetrics();
-
-        // Simulate some metrics using the correct API
-        for (int i = 0; i < 10; i++) {
-            metrics.incrementCounter("messages.sent", Map.of("topic", "demo-topic"));
-            metrics.incrementCounter("messages.received", Map.of("topic", "demo-topic"));
-            if (i < 6) {
-                metrics.incrementCounter("messages.processed", Map.of("topic", "demo-topic"));
-            } else {
-                metrics.incrementCounter("messages.failed", Map.of("topic", "demo-topic"));
-            }
-        }
+        // deleted 2026-08-09 with the generic metrics surface (zero production callers, metrics-stack review).
 
         // Display metrics summary
-        PeeGeeQMetrics.MetricsSummary summary = metrics.getSummary();
+        PeeGeeQMetrics.MetricsSummary summary = manager.getMetrics().getSummary();
         logger.info("> Messages Sent: {}", summary.getMessagesSent());
         logger.info("> Messages Received: {}", summary.getMessagesReceived());
         logger.info("> Messages Processed: {}", summary.getMessagesProcessed());
@@ -303,45 +292,7 @@ class PeeGeeQExampleTest {
         logger.info("Circuit breaker demonstration completed");
     }
 
-    private Future<Void> demonstrateBackpressure(PeeGeeQManager manager) {
-        logger.info("=== Backpressure Demo ===");
-        logger.info("Simulating concurrent operations...");
-
-        BackpressureManager backpressureManager = manager.getBackpressureManager();
-        ScheduledExecutorService executor = Executors.newScheduledThreadPool(5);
-
-        for (int i = 0; i < 10; i++) { // Reduced for test
-            final int operationId = i;
-            executor.submit(() -> {
-                try {
-                    String result = backpressureManager.execute("demo-backpressure", () ->
-                        "Operation " + operationId + " completed"
-                    );
-                    logger.debug("Backpressure result: {}", result);
-                } catch (BackpressureManager.BackpressureException e) {
-                    logger.warn("Backpressure rejected operation {}: {}", operationId, e.getMessage());
-                } catch (Exception e) {
-                    logger.error("Operation {} failed", operationId, e);
-                }
-            });
-        }
-
-        // Wait briefly for operations to complete using Vert.x timer
-        return vertx.timer(1000)
-            .onSuccess(v -> {
-                BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
-                logger.info(">> Total Requests: {}", metrics.getTotalRequests());
-                logger.info(" > Successful Operations: {}", metrics.getSuccessfulOperations());
-                logger.info(" > Rejected Requests: {}", metrics.getRejectedRequests());
-                logger.info(" > Current Utilization: {}%", metrics.getUtilization() * 100);
-                logger.info(" > Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
-            })
-            .eventually(() -> {
-                shutdownExecutorGracefully(executor, "backpressure-demo");
-                return Future.<Void>succeededFuture();
-            })
-            .mapEmpty();
-    }
+    // demonstrateBackpressure deleted 2026-08-09 with the BackpressureManager (metrics-stack review: constructed but never guarded any operation).
 
     private Future<Void> demonstrateDeadLetterQueue(PeeGeeQManager manager) {
         logger.info("=== Dead Letter Queue Demo ===");
@@ -372,14 +323,16 @@ class PeeGeeQExampleTest {
         ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor();
 
         monitor.scheduleAtFixedRate(() -> {
-            manager.getSystemStatus()
-                .onSuccess(status -> {
-                    logger.info("System Status: {}", status);
-                    if (!status.getHealthStatus().isHealthy()) {
+            manager.getHealthCheckManager().getOverallHealthAsync()
+                .onSuccess(health -> {
+                    logger.info("System Health: {} (started: {}, {} healthy, {} unhealthy of {} components)",
+                        health.status(), manager.isStarted(), health.getHealthyCount(),
+                        health.getUnhealthyCount(), health.getComponentCount());
+                    if (!health.isHealthy()) {
                         logger.warn("System health degraded!");
-                        status.getHealthStatus().getComponents().forEach((name, health) -> {
-                            if (!health.isHealthy()) {
-                                logger.warn("  Unhealthy component: {} - {}", name, health.getMessage());
+                        health.components().forEach((name, componentHealth) -> {
+                            if (!componentHealth.isHealthy()) {
+                                logger.warn("  Unhealthy component: {} - {}", name, componentHealth.message());
                             }
                         });
                     }

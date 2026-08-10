@@ -17,8 +17,6 @@ package dev.mars.peegeeq.api.database;
  */
 
 import java.time.Duration;
-import java.util.Collections;
-import java.util.Map;
 
 /**
  * No-operation implementation of MetricsProvider.
@@ -47,6 +45,11 @@ public final class NoOpMetricsProvider implements MetricsProvider {
     public void recordMessageSent(String topic) {
         // No-op
     }
+
+    @Override
+    public void recordMessageSent(String topic, long durationMs) {
+        // No-op
+    }
     
     @Override
     public void recordMessageReceived(String topic) {
@@ -66,36 +69,6 @@ public final class NoOpMetricsProvider implements MetricsProvider {
     @Override
     public void recordMessageDeadLettered(String topic, String reason) {
         // No-op
-    }
-    
-    @Override
-    public void recordMessageRetried(String topic, int retryCount) {
-        // No-op
-    }
-    
-    @Override
-    public void incrementCounter(String name, Map<String, String> tags) {
-        // No-op
-    }
-    
-    @Override
-    public void recordTimer(String name, Duration duration, Map<String, String> tags) {
-        // No-op
-    }
-    
-    @Override
-    public void recordGauge(String name, double value, Map<String, String> tags) {
-        // No-op
-    }
-    
-    @Override
-    public long getQueueDepth(String topic) {
-        return 0;
-    }
-    
-    @Override
-    public Map<String, Number> getAllMetrics() {
-        return Collections.emptyMap();
     }
     
     @Override

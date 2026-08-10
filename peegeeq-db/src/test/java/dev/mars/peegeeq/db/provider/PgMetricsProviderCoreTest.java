@@ -112,56 +112,14 @@ public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
         // Verify no exception thrown
     }
 
-    @Test
-    void testRecordMessageRetried() {
-        metricsProvider.recordMessageRetried("test-topic", 3);
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testIncrementCounter() {
-        Map<String, String> tags = new HashMap<>();
-        tags.put("topic", "test-topic");
-        tags.put("status", "success");
-        
-        metricsProvider.incrementCounter("test.counter", tags);
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testIncrementCounterEmptyTags() {
-        metricsProvider.incrementCounter("test.counter", new HashMap<>());
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testRecordGauge() {
-        metricsProvider.recordGauge("test.gauge", 42.0, new HashMap<>());
-        // Verify no exception thrown
-    }
-
-    @Test
-    void testRecordTimer() {
-        metricsProvider.recordTimer("test.timer", Duration.ofMillis(100), new HashMap<>());
-        // Verify no exception thrown
-    }
+    // The incrementCounter/recordGauge/recordTimer/getAllMetrics tests were deleted
+    // 2026-08-09 with the generic pass-through metrics surface itself (zero production
+    // callers, metrics-stack review backlog).
 
     @Test
     void testGetInstanceId() {
         String instanceId = metricsProvider.getInstanceId();
         assertEquals("test-instance", instanceId);
-    }
-
-    @Test
-    void testGetQueueDepth() {
-        long depth = metricsProvider.getQueueDepth("test-topic");
-        assertTrue(depth >= 0);
-    }
-
-    @Test
-    void testGetAllMetrics() {
-        Map<String, Number> allMetrics = metricsProvider.getAllMetrics();
-        assertNotNull(allMetrics);
     }
 
     // ── Processing-time percentiles (telemetry G1 — Phase T.1) ──────────────

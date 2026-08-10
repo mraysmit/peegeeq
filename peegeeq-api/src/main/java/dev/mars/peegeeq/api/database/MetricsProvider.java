@@ -19,7 +19,6 @@ package dev.mars.peegeeq.api.database;
 import dev.mars.peegeeq.api.messaging.DurationPercentiles;
 
 import java.time.Duration;
-import java.util.Map;
 
 /**
  * Interface for metrics collection in PeeGeeQ message queue system.
@@ -44,6 +43,20 @@ public interface MetricsProvider {
      * @param topic The topic the message was sent to
      */
     void recordMessageSent(String topic);
+
+    /**
+     * Records that a message was sent to a topic, with the write's duration — submission to
+     * completed INSERT, the write latency the caller experienced (telemetry §4 gap G3).
+     *
+     * <p>Deliberately abstract, not a default: a default delegating to the untimed overload
+     * would let an implementation silently drop the duration — the exact signal this method
+     * exists to carry — by forgetting to override. Every implementation states what it does
+     * with the measurement.
+     *
+     * @param topic      The topic the message was sent to
+     * @param durationMs Submission-to-completion time of the write, in milliseconds
+     */
+    void recordMessageSent(String topic, long durationMs);
 
     /**
      * Records that a message was received from a topic.
@@ -76,13 +89,10 @@ public interface MetricsProvider {
      */
     void recordMessageDeadLettered(String topic, String reason);
 
-    /**
-     * Records that a message was retried.
-     *
-     * @param topic The topic the message was from
-     * @param retryCount The current retry count
-     */
-    void recordMessageRetried(String topic, int retryCount);
+    // recordMessageRetried was DELETED 2026-08-09 (metrics-stack review backlog): no
+    // producer or consumer ever called it, so the peegeeq.messages.retried counter
+    // permanently reported 0. Native retry accounting lives in the retry_count column;
+    // re-add the method only together with the production call that feeds it.
 
     /**
      * Records a message's delivery latency — enqueue to claim, measured on
@@ -101,53 +111,17 @@ public interface MetricsProvider {
     }
 
     // ========================================================================
-    // Generic metrics methods
-    // ========================================================================
-
-    /**
-     * Increments a counter metric.
-     *
-     * @param name The name of the counter
-     * @param tags Additional tags for the metric
-     */
-    void incrementCounter(String name, Map<String, String> tags);
-
-    /**
-     * Records a timer metric.
-     *
-     * @param name The name of the timer
-     * @param duration The duration to record
-     * @param tags Additional tags for the metric
-     */
-    void recordTimer(String name, Duration duration, Map<String, String> tags);
-
-    /**
-     * Records a gauge metric.
-     *
-     * @param name The name of the gauge
-     * @param value The value to record
-     * @param tags Additional tags for the metric
-     */
-    void recordGauge(String name, double value, Map<String, String> tags);
-
-    // ========================================================================
     // Query methods
     // ========================================================================
 
-    /**
-     * Gets the current queue depth for a topic.
-     *
-     * @param topic The topic to check
-     * @return The current queue depth
-     */
-    long getQueueDepth(String topic);
-
-    /**
-     * Gets all current metrics as a map.
-     *
-     * @return A map of metric names to their current numeric values
-     */
-    Map<String, Number> getAllMetrics();
+    // getQueueDepth(String topic) was DELETED 2026-08-09 (metrics-stack review backlog):
+    // every implementation ignored the topic argument and returned a global figure, and no
+    // production code called it. Live depth signals are the peegeeq.queue.depth.* gauges.
+    //
+    // The generic pass-through methods (incrementCounter, recordTimer, recordGauge,
+    // getAllMetrics) were DELETED the same day: zero production callers — a speculative
+    // surface that let anything register unnamed meters outside this contract. The interface
+    // now carries exactly the message-lifecycle signals producers and consumers feed.
 
     /**
      * Gets the processing-time distribution recorded for a topic via

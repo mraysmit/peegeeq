@@ -28,11 +28,23 @@
  * telemetry failure aborting a run that is already putting load on a database
  * — would be worse, and a read that silently returned zeroes would report an
  * idle database for a run that hammered it.
+ *
+ * **The FINAL database sample is re-read until it accounts for the run (G.2e).**
+ * PostgreSQL does not make a committed INSERT visible in `pg_stat_user_tables`
+ * at commit — each backend accumulates its counters and flushes them on a rate
+ * limit — and the two sides commit on DIFFERENT connections. A single read
+ * after both sides settle can therefore report one side's inserts correctly and
+ * the other's as zero, which is how "10 acknowledged, 0 rows inserted" reached
+ * a screenshot. The fix observes the condition rather than guessing an
+ * interval: re-read until each side's insert delta reaches the rows that side
+ * acknowledged, bounded by a deadline, and record the read as unusable if it
+ * never does. Agreement between two consecutive samples is NOT the condition —
+ * two reads of a backend that has not flushed agree with each other.
  */
 import { message } from 'antd'
 import { createPublicationEngine } from './publicationEngine'
 import type { PublicationEngine } from './publicationEngine'
-import { checkCompareTargets, distinctSetupIds } from './comparePlan'
+import { CHURN_TABLE, checkCompareTargets, churnDeltaFor, churnReconciled, distinctSetupIds } from './comparePlan'
 import { captureDbTelemetry, captureQueueStats } from '../services/telemetryService'
 import type { RunConfig, RunSummary } from '../types/generator'
 import type {
@@ -45,10 +57,35 @@ import type {
   DbTelemetrySnapshot,
   QueueStatsSnapshot,
   TelemetryCapture,
+  TelemetryPair,
 } from '../types/compare'
 
 /** The two sides, in the order they are started and reported. */
 const SIDES: readonly CompareSideName[] = ['native', 'outbox']
+
+/**
+ * How long to wait between re-reads of an unreconciled final database sample.
+ * Matches the backend's own churn poll (`DatabaseTelemetryHandlerIntegrationTest`),
+ * which faces the same statistics-flush lag.
+ */
+export const CHURN_SETTLE_INTERVAL_MS = 500
+
+/**
+ * How long to keep re-reading before reporting the churn as unavailable.
+ *
+ * Past this the run's figures are stated as unknown rather than as the last
+ * reading, which would be a row count the database had not yet made visible.
+ *
+ * MEASURED, not guessed. A 10-message-per-side comparison against a
+ * TestContainers PostgreSQL settled after 17 attempts spanning 9.0 s. The
+ * backend's own churn poll uses 15 s for the same lag, which would have left a
+ * 1.66x margin over a measurement taken on an idle machine with a trivial load
+ * — too close for a figure whose failure mode is silently rendering as unknown.
+ * 60 s is that measurement with room for a slower machine and a real load. The
+ * cost of the larger bound is paid only when the counters never catch up, which
+ * is the case where the answer is "unknown" regardless.
+ */
+export const CHURN_SETTLE_DEADLINE_MS = 60_000
 
 export interface CompareHooks {
   /** Fires on every engine tick, per side, while both are live. */
@@ -82,12 +119,29 @@ export interface ComparisonRunnerDeps {
   ) => Promise<TelemetryCapture<QueueStatsSnapshot>>
   captureDb?: (setupId: string) => Promise<TelemetryCapture<DbTelemetrySnapshot>>
   newRunId?: () => string
+  setTimer?: (fn: () => void, ms: number) => ReturnType<typeof setTimeout>
 }
 
 /** One baseline-or-final telemetry sample across both sides and every setup. */
 interface TelemetrySample {
   stats: Record<CompareSideName, TelemetryCapture<QueueStatsSnapshot>>
   db: Record<string, TelemetryCapture<DbTelemetrySnapshot>>
+}
+
+/**
+ * What one setup's final database sample must show before its churn figures
+ * describe the run.
+ *
+ * Built only for setups whose BASELINE read succeeded and whose sides actually
+ * acknowledged something: with no baseline there is no delta to reconcile, and
+ * a run that sent nothing is owed no rows. Waiting in either case would burn
+ * the whole deadline to reach the same answer.
+ */
+interface ChurnExpectation {
+  setupId: string
+  /** The setup's baseline capture, known to have succeeded. */
+  baseline: TelemetryCapture<DbTelemetrySnapshot>
+  sides: Array<{ table: string; acknowledged: number }>
 }
 
 function messageOf(error: unknown): string {
@@ -120,6 +174,7 @@ export function createComparisonRunner(deps: ComparisonRunnerDeps = {}): Compari
   const captureStats = deps.captureStats ?? captureQueueStats
   const captureDb = deps.captureDb ?? captureDbTelemetry
   const newRunId = deps.newRunId ?? (() => crypto.randomUUID())
+  const setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms))
 
   return {
     start(base, settings, hooks) {
@@ -203,12 +258,132 @@ export function createComparisonRunner(deps: ComparisonRunnerDeps = {}): Compari
         finishWhenBothSettled()
       }
 
+      /** A delay expressed as a promise, so the poll reads as a sequence. */
+      function delay(ms: number): Promise<void> {
+        return new Promise((resolve) => {
+          setTimer(() => resolve(), ms)
+        })
+      }
+
+      /**
+       * What each setup's final sample must show, for the setups where that
+       * question can be answered at all.
+       */
+      function churnExpectations(sides: CompareSideResult[]): ChurnExpectation[] {
+        const bySetup = new Map<string, ChurnExpectation>()
+        for (const result of sides) {
+          if (result.summary.totalSent <= 0) continue
+          const setupId = result.target.setupId
+          const baselineCapture = baseline?.db[setupId]
+          if (baselineCapture === undefined || !baselineCapture.ok) continue
+          const expectation = bySetup.get(setupId) ?? {
+            setupId,
+            baseline: baselineCapture,
+            sides: [],
+          }
+          expectation.sides.push({
+            table: CHURN_TABLE[result.side],
+            acknowledged: result.summary.totalSent,
+          })
+          bySetup.set(setupId, expectation)
+        }
+        return [...bySetup.values()]
+      }
+
+      /**
+       * Whether re-reading could still change this setup's churn figures.
+       *
+       * A failed read can succeed next time. An insert delta short of the
+       * acknowledged rows can catch up when the writing backend flushes. A
+       * table the snapshot does not carry cannot appear by waiting — that is an
+       * absent table, not a stale counter.
+       */
+      function worthReReading(expectation: ChurnExpectation, current: TelemetrySample): boolean {
+        const capture = current.db[expectation.setupId]
+        if (!capture.ok) return true
+        const pair: TelemetryPair<DbTelemetrySnapshot> = {
+          baseline: expectation.baseline,
+          final: capture,
+        }
+        return expectation.sides.some(
+          (side) =>
+            churnDeltaFor(pair, side.table) !== null &&
+            !churnReconciled(pair, side.table, side.acknowledged)
+        )
+      }
+
+      /**
+       * Record each unreconciled setup's final read as unusable, carrying why.
+       *
+       * This reuses the existing failure channel rather than adding a new one:
+       * `churnDeltaFor` already yields null for a failed capture, so the panel
+       * renders the churn as unknown and the reason lands in its telemetry
+       * warning. Handing back the last reading instead would print a row count
+       * the database had not yet made visible.
+       */
+      function markChurnUnusable(
+        current: TelemetrySample,
+        outstanding: ChurnExpectation[]
+      ): TelemetrySample {
+        const db = { ...current.db }
+        for (const expectation of outstanding) {
+          const capture = db[expectation.setupId]
+          const cause = capture.ok
+            ? `its counters never reached the rows this run acknowledged (${expectation.sides
+                .map((side) => `${side.table} needs ${side.acknowledged}`)
+                .join(', ')})`
+            : capture.error
+          db[expectation.setupId] = {
+            ok: false,
+            error: `Database telemetry for ${expectation.setupId} did not settle within ${
+              CHURN_SETTLE_DEADLINE_MS / 1000
+            }s, so the churn for this run cannot be stated: ${cause}`,
+          }
+        }
+        return { ...current, db }
+      }
+
+      /**
+       * Re-read the final database sample until it accounts for the run.
+       *
+       * Recursive rather than a loop so each attempt is a fresh continuation
+       * with its own deadline check, and so the interval is a scheduled wait
+       * rather than a blocking one.
+       */
+      async function settleChurn(
+        current: TelemetrySample,
+        expectations: ChurnExpectation[],
+        deadline: number
+      ): Promise<TelemetrySample> {
+        const outstanding = expectations.filter((e) => worthReReading(e, current))
+        if (outstanding.length === 0) return current
+        if (Date.now() >= deadline) return markChurnUnusable(current, outstanding)
+
+        await delay(CHURN_SETTLE_INTERVAL_MS)
+        const captures = await Promise.all(outstanding.map((e) => safeDb(e.setupId)))
+        const db = { ...current.db }
+        outstanding.forEach((expectation, index) => {
+          db[expectation.setupId] = captures[index]
+        })
+        // Only the db sample is re-read. Re-reading /stats would move the
+        // latency sample delta after the run had already ended, crediting this
+        // run with measurements taken after it finished.
+        return settleChurn({ ...current, db }, expectations, deadline)
+      }
+
       function finishWhenBothSettled(): void {
         const native = nativeResult
         const outbox = outboxResult
         if (settled || native === null || outbox === null) return
         settled = true
         sample()
+          .then((captured) =>
+            settleChurn(
+              captured,
+              churnExpectations([native, outbox]),
+              Date.now() + CHURN_SETTLE_DEADLINE_MS
+            )
+          )
           .then((final) => {
             const report: CompareReport = {
               native,

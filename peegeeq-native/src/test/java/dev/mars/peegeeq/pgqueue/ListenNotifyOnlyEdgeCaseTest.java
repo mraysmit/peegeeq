@@ -140,7 +140,14 @@ class ListenNotifyOnlyEdgeCaseTest {
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info(" Received existing message {}: {}", count, message.getPayload());
-            atLeastOneReceived.flag();
+            // Flag only the FIRST delivery: the checkpoint is strict (exactly one flag) while
+            // THREE messages are in flight and the assertion is "at least 1". Unguarded, the
+            // second delivery threw "Strict checkpoint flagged too many times" — the test
+            // errored precisely because delivery WORKED (surfaced by -Pall-tests 2026-08-09;
+            // same guard pattern as PostgreSQLErrorHandlingTest's checkpointCount).
+            if (count == 1) {
+                atLeastOneReceived.flag();
+            }
             return Future.succeededFuture();
         }).onFailure(testContext::failNow);
 

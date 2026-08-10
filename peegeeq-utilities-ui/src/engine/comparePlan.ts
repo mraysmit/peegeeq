@@ -175,6 +175,46 @@ function findTable(snapshot: DbTelemetrySnapshot, tableName: string): DbTableSta
 }
 
 /**
+ * The churn-bearing table each implementation actually writes (telemetry §4A
+ * "Verified schema").
+ *
+ * The per-queue table named after the queue is an inert marker: native and
+ * outbox both route through these shared tables by topic. Mapped to the
+ * queue-named table, every churn figure would read zero.
+ */
+export const CHURN_TABLE: Record<CompareSideName, string> = {
+  native: 'queue_messages',
+  outbox: 'outbox',
+}
+
+/**
+ * Whether a table's churn delta accounts for the rows a run acknowledged.
+ *
+ * PostgreSQL does not make a committed INSERT visible in `pg_stat_user_tables`
+ * at commit: each backend accumulates its counters and flushes them on a rate
+ * limit. The two publish paths commit on DIFFERENT connections, so one sample
+ * can read one side's inserts correctly and the other's as zero — "10
+ * acknowledged, 0 rows inserted", which cannot both be true.
+ *
+ * The acknowledged count is a LOWER BOUND, not an expectation: `queue_messages`
+ * and `outbox` are shared by topic, so another producer's rows land in the same
+ * counter. Meeting or exceeding it is the settle condition.
+ *
+ * A delta that cannot be computed at all is NOT reconciled. Unknown is not
+ * settled, and treating it as settled would freeze an unknowable figure into
+ * the report.
+ */
+export function churnReconciled(
+  pair: TelemetryPair<DbTelemetrySnapshot>,
+  tableName: string,
+  acknowledged: number
+): boolean {
+  const delta = churnDeltaFor(pair, tableName)
+  if (delta === null) return false
+  return delta.insertedTuples >= acknowledged
+}
+
+/**
  * How many latency measurements THIS run contributed, or null when that cannot
  * be known.
  *

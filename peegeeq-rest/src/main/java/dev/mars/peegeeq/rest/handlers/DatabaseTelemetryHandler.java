@@ -120,7 +120,12 @@ public class DatabaseTelemetryHandler {
             "     WHERE db.datname = current_database()) AS locks_total, " +
             "  (SELECT COUNT(*)::int FROM pg_locks l JOIN pg_database db ON l.database = db.oid " +
             "     WHERE db.datname = current_database() AND NOT l.granted) AS locks_waiting, " +
-            "  (SELECT age(datfrozenxid) FROM pg_database WHERE datname = current_database()) AS xid_age, " +
+            "  (SELECT age(datfrozenxid) FROM pg_database WHERE datname = current_database()) AS xid_age, "
+            // NOTIFY queue usage (telemetry G3, moved from system_stats 2026-08-09): the native
+            // queue signals consumers with NOTIFY, and when this fixed-size INSTANCE-wide buffer
+            // fills, NOTIFY blocks committing transactions. The fraction is 0..1 and always
+            // reportable — PostgreSQL is the producer; this endpoint only reads.
+            + "  pg_notification_queue_usage()::float8 AS notify_queue_usage, " +
             "  (SELECT wal_records FROM pg_stat_wal) AS wal_records, " +
             "  (SELECT wal_bytes::bigint FROM pg_stat_wal) AS wal_bytes, " +
             "  pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::bigint AS wal_lsn_bytes, " +
@@ -237,6 +242,7 @@ public class DatabaseTelemetryHandler {
                 .put("locksTotal", row.getInteger("locks_total"))
                 .put("locksWaiting", row.getInteger("locks_waiting"))
                 .put("xidAge", row.getInteger("xid_age"))
+                .put("notifyQueueUsage", row.getDouble("notify_queue_usage"))
                 .put("walRecords", row.getLong("wal_records"))
                 .put("walBytes", row.getLong("wal_bytes"))
                 .put("walLsnBytes", row.getLong("wal_lsn_bytes"))

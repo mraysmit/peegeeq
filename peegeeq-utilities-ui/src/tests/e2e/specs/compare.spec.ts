@@ -110,9 +110,20 @@ test.describe('Native-vs-Outbox comparison mode', () => {
       // necessarily ours. It MAY already be ours, though — CompareTargets
       // auto-selects the first — and clicking an already-selected antd option
       // races the dropdown closing itself. Only open it when a change is needed.
+      // TYPE-TO-FILTER then ENTER, never a dropdown-wide click: antd virtualizes long
+      // option lists, so under -Pall-tests (thirteen prior projects' setups in the reused
+      // container) this spec's own setup is not even in the DOM until filtered (surfaced
+      // 2026-08-09; the select gained showSearch for exactly this). Enter takes the
+      // filtered list's active option, which keeps the interaction scoped to the select
+      // being edited. A `.ant-select-dropdown:visible` locator does NOT: the first row's
+      // dropdown is still in the DOM while the second row's is open, so getByTitle matched
+      // the same setup in both and failed on strict mode (2026-08-10). The full timestamped
+      // SETUP_ID filters to exactly one option, and the assertion below proves which one
+      // was taken.
       if ((await current.textContent()) !== SETUP_ID) {
         await row.locator(`.ant-select:has(#compare-${side}-setup)`).click()
-        await page.locator('.ant-select-dropdown:visible').getByTitle(SETUP_ID).click()
+        await page.keyboard.type(SETUP_ID)
+        await page.keyboard.press('Enter')
       }
       await expect(current).toHaveText(SETUP_ID)
     }
@@ -157,12 +168,48 @@ test.describe('Native-vs-Outbox comparison mode', () => {
     // this asserts real publishing to two queues at once, not local counters.
     await expect(page.getByTestId('compare-native-acked')).toHaveText('10', { timeout: 120000 })
     await expect(page.getByTestId('compare-outbox-acked')).toHaveText('10')
-    await expect(page.getByTestId('compare-native-status')).toHaveText('COMPLETED')
+    // Both sides have now stopped, but the report is held back until the final
+    // database sample accounts for the run — a window measured at ~9 s here.
+    // Through it the panel must NOT still claim the sides are running.
+    //
+    // This is the only assertion that can bite the page's `onSideSettled`
+    // wiring: deleting it leaves the count at zero for ever, and no unit test
+    // sees that — the page cannot start a comparison without a backend, and the
+    // panel's own tests are handed the count directly. Same blind spot as the
+    // CompareTargets onChange defect (§4.4 of the G.2 handoff).
+    //
+    // If PostgreSQL ever made the statistics visible immediately this would
+    // fail rather than pass quietly, which is the correct signal: the settle
+    // poll would then be unnecessary.
+    await expect(page.getByTestId('compare-live-note')).toContainText(
+      /waiting for the database statistics/i,
+      { timeout: 30000 }
+    )
+
+    // The report is published only after the final database sample accounts for
+    // the run, so it can lag both sides settling by up to the settle deadline.
+    await expect(page.getByTestId('compare-native-status')).toHaveText('COMPLETED', {
+      timeout: 40000,
+    })
     await expect(page.getByTestId('compare-outbox-status')).toHaveText('COMPLETED')
 
     // Requested is derived from the shared load, identical for both sides.
     await expect(page.getByTestId('compare-native-requested')).toHaveText('10')
     await expect(page.getByTestId('compare-outbox-requested')).toHaveText('10')
+
+    // The §4A database churn, which is the comparison only the DB layer can
+    // give. Asserted because the suite previously passed while the outbox side
+    // read "10 acknowledged, 0 rows inserted": PostgreSQL flushes each
+    // backend's statistics on a rate limit, and the two publish paths commit on
+    // different connections, so a single final sample can catch one side and
+    // miss the other. A "0" here is that defect; a "—" means the counters never
+    // reconciled within the settle deadline.
+    //
+    // Exact counts are safe: this spec provisions its own database, so nothing
+    // else writes these tables. They also pin the table mapping — mapped to the
+    // queue-named table (an inert marker) both figures would read 0.
+    await expect(page.getByTestId('compare-native-churnInserted')).toHaveText('10')
+    await expect(page.getByTestId('compare-outbox-churnInserted')).toHaveText('10')
 
     // A verdict exists and does NOT refuse — both sides completed.
     await expect(page.getByTestId('compare-verdict')).toBeVisible()

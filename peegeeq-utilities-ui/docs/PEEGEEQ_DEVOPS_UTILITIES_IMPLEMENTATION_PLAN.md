@@ -515,8 +515,77 @@ reason and never a zeroed snapshot; `churnDeltaFor` returns null rather than a z
 **Verified 2026-08-07:** unit **52 files, 811 tests**; e2e **91/91 across 14 projects** (8.1 min),
 `14-compare` de-flaked at `--repeat-each=2 --retries=0` (**8/8**); `tsc --noEmit` 0 errors; lint
 **0 errors, 0 warnings**. 10 mutation probes across G.2a–G.2c, each applied, verified, and reverted.
-**Not done:** screenshots not regenerated (no Compare capture exists — regenerating rewrites
-committed PNGs, so it stays the user's action).
+~~**Not done:** screenshots not regenerated (no Compare capture exists — regenerating rewrites
+committed PNGs, so it stays the user's action).~~ *(Superseded 2026-08-07: `47-compare-mode.png`
+and `48-compare-results.png` were captured and committed. **Design-doc Appendix A still has no
+entries for either** — verified 2026-08-08, and the only loose end from that capture run.)*
+
+### G.2e — the churn figures were under-reported, 2026-08-08
+
+**The defect capture 48 shows.** The outbox column read **10 acknowledged and 0 rows inserted**,
+which cannot both be true. It was found by the screenshot run, not by the suite: `compare.spec.ts`
+asserted acknowledged counts and terminal statuses and **never asserted a churn figure**, so it
+passed with this wrong.
+
+**Not an error-handling defect.** `churnDeltaFor` renders `—` when it cannot know, and the cell
+showed `0` — so the `outbox` table was found in BOTH snapshots and the delta genuinely computed as
+zero. The code behaved correctly on stale inputs. Nor was it the table mapping: querying the
+surviving databases directly showed `outbox` `ins=10` with ten real rows.
+
+**Cause.** PostgreSQL does not make a committed INSERT visible in `pg_stat_user_tables` at commit —
+each backend accumulates its counters and flushes them on a rate limit — and the native and outbox
+publish paths commit on **different connections**. One final sample can therefore catch one side and
+miss the other, in the same query.
+
+**The originally proposed fix was unsound and was rejected.** The G.2 handoff proposed polling until
+*two consecutive samples agree*. Two reads of a backend that has not flushed **agree with each
+other**, so it terminates early and reports the same zero. This was not argued — it was implemented
+as a mutation and the suite failed it. Stability is not completeness.
+
+**What shipped instead** mirrors the condition the backend's own churn poll already uses
+([DatabaseTelemetryHandlerIntegrationTest](../../peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/handlers/DatabaseTelemetryHandlerIntegrationTest.java)):
+re-read the final sample until each side's insert delta reaches the rows that side **acknowledged**,
+bounded by a deadline. The acknowledged count is a LOWER BOUND, not an expectation — the churn
+tables are shared by topic. On deadline the final capture becomes a **failure capture**, so
+`churnDeltaFor` yields null and the panel renders `—` with the reason: no new type, no new render
+path, and never a zero.
+
+**Three guards, each covering a case where waiting cannot help:** a run that acknowledged nothing is
+owed no rows; a failed BASELINE read can never produce a delta; and a table absent from the snapshot
+cannot appear by waiting — that is an absent table, not a stale counter.
+
+**The deadline is measured, not inherited.** Instrumented against a real backend, a 10-message-per-
+side comparison settled after **17 attempts spanning 9.0 s**. The backend's 15 s would have left a
+1.66x margin on an idle machine with a trivial load, and the failure mode is silently rendering `—`,
+so the bound is **60 s**.
+
+**A consequence that had to be fixed with it.** Holding the report for the settle window left Zone E
+saying *"Both sides are running"* for seconds after both had stopped. The panel now takes
+`settledSides` (required, not defaulted) and states three truthful states. `onSideSettled` was
+declared on `CompareHooks` and **never consumed by the page** until now.
+
+| Step | What |
+|---|---|
+| G.2e | [comparePlan.ts](../src/engine/comparePlan.ts) — `CHURN_TABLE` moved here from the panel (one definition, two readers) and new pure `churnReconciled`; [comparisonRunner.ts](../src/engine/comparisonRunner.ts) — `settleChurn` recursive poll + `CHURN_SETTLE_INTERVAL_MS`/`CHURN_SETTLE_DEADLINE_MS`; [CompareResultsPanel.tsx](../src/pages/generator/CompareResultsPanel.tsx) — `settledSides`, three live notes; [MessageGeneratorPage.tsx](../src/pages/generator/MessageGeneratorPage.tsx) — count wiring; [compare.spec.ts](../src/tests/e2e/specs/compare.spec.ts) — asserts both churn figures are exactly `10`, and asserts the waiting note |
+
+**Two of the new tests were toothless and the probes caught it** — both `does not poll…` cases passed
+with their guards deleted, the absent-table guard covering for them. The scenarios were changed (a
+FAILING final read is the only way a run owed no rows could end up waiting), not the guards. That is
+the third time in this feature's history a Compare test passed with the thing it named removed.
+
+**One seam is unreachable from unit tests.** Deleting the page's `onSideSettled` wiring passes
+`tsc` **and all 27 page tests** — the page cannot start a comparison without a backend, and the
+panel's own tests are handed the count directly. Only the e2e assertion bites it; verified by
+applying that mutation and watching `14-compare` fail on `compare-live-note`.
+
+**Verified 2026-08-08:** unit **52 files, 826 tests**; e2e **91/91 across 14 projects** (5.7 min);
+`14-compare` de-flaked at `--repeat-each=3 --retries=0` (**12/12**); `tsc --noEmit` and lint clean.
+**10 mutation probes**, each applied, observed red on the intended test, and reverted.
+**Not done:** the BASELINE carries the same lag in the opposite direction — unflushed statistics
+from earlier activity make it too low and INFLATE the delta. Untouched. A quiescence check (two
+baselines agreeing) is sound *there* precisely because nothing is owed yet at baseline, which is
+what makes it unsound at the final sample; it costs ~1 s on every comparison start and was left as
+a decision rather than assumed.
 
 ### G.1a (part 1) — ramp planning and knee detection, 2026-08-02
 
@@ -980,10 +1049,731 @@ everything in Phases A–G except those two is client-side or uses telemetry tha
 | T.1 | G1 | ✅ **DONE 2026-08-04** — Latency percentiles (p50/p95/p99 + mean + sampleCount) per queue via the per-topic Micrometer histogram both consumers feed at ack; exposed on `/stats` (`processingTime*Ms` fields, ABSENT when unmeasured); replaces the hardcoded 0.0 `avgProcessingTimeMs` with the histogram mean. App-side scope recorded on `DurationPercentiles`: per-instance, resets on restart (decided over SQL percentiles — native deletes processed rows). Evidence: db 48/48, native 13/13, outbox 6/6 (`logs/t2-*-20260804.txt`) | telemetry §4 G1 |
 | T.2 | G2 | ✅ **DONE 2026-08-04** — Delivery latency (enqueue → claim) computed INSIDE the claim statement on the DATABASE clock (`now() - created_at` in the claim RETURNING, both consumers, all four SQL variants), recorded to `peegeeq.message.delivery.latency.by.topic` tagged by implementation type; `deliveryLatency*Ms` on `/stats`, same absent-when-unmeasured contract. Same evidence runs as T.1 | telemetry §4 G2 |
 | T.3 | G6 | ✅ **DONE 2026-08-05** — enqueue timestamp + client headers on the LIVE SSE message frame (`enqueuedAt`, `headers`); see the T.3 record below. The browse endpoint already satisfied G6 — confirmed against a running backend BEFORE any code was written — so the real gap was the stream. Additive: the pre-existing emit-time `timestamp` is kept and documented, so no SSE consumer breaks | telemetry §4 G6 |
-| T.4 | G3 | Resource-saturation metrics **beyond** the `dbPool` already in `/sse/metrics`: DB write latency, event-loop lag, NOTIFY backlog, pool acquire-wait | telemetry §4 G3 |
-| T.5 | G4 | Raise `/sse/metrics` cadence to **≥ 1 Hz**, or add a fast per-run/per-queue stream | telemetry §5 |
+| T.4 | G3 | Resource-saturation metrics **beyond** the `dbPool` already in `/sse/metrics`: DB write latency, event-loop lag, NOTIFY backlog, pool acquire-wait. **Probed 2026-08-08 — the gap IS where the row says**, unlike T.3: all four are absent from the live payload and from Micrometer entirely (the only latency meters that exist are `peegeeq.message.delivery.latency.by.topic` (T.2, enqueue→claim), `peegeeq.monitoring.collection.duration`, `peegeeq.http.requests.duration`, `peegeeq.notices.handler.duration`). `dbPool` carries `active/idle/pending/total/perSetup` — `pending` is a depth proxy, not acquire-wait latency | telemetry §4 G3 |
+| T.5 | G4 | ~~Raise `/sse/metrics` cadence to **≥ 1 Hz**~~, or add a fast per-run/per-queue stream. **Probed 2026-08-08 — the gap is NOT where the row says.** See the T.5 probe record below | telemetry §5 |
 | T.6 | G5 | **Per-run / correlation scoping** of metrics (or accept dedicated-queue-per-run as the tool-side workaround) | telemetry §4 G5 |
-| T.7 | G7 | ✅ **DONE 2026-08-06 (module-verified; whole-repo gate blocked by an unrelated pre-existing `peegeeq-db` failure — see the T.7 record below)** — `GET /api/v1/setups/{setupId}/db-telemetry` returns one snapshot: per-table `pg_stat_user_tables` + `pg_statio_user_tables` + size stats for every table in the setup's schema, plus the cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age, commit/rollback/deadlock). Errors surface as 404/503 — never fabricated zeroes. Evidence: `peegeeq-rest` core 172/172, integration 332/332 (`logs/peegeeq-rest-*-20260806.txt`) | telemetry §4A |
+| T.7 | G7 | ✅ **DONE 2026-08-06** (module-verified; the `peegeeq-db` blocker noted here was ~~unresolved~~ **fixed in `ed2e3d00`, the same commit — confirmed 2026-08-08, see the T.7 record below**) — `GET /api/v1/setups/{setupId}/db-telemetry` returns one snapshot: per-table `pg_stat_user_tables` + `pg_statio_user_tables` + size stats for every table in the setup's schema, plus the cluster signals (long-txn/`xmin`, locks, WAL, checkpoints, xid-age, commit/rollback/deadlock). Errors surface as 404/503 — never fabricated zeroes. Evidence: `peegeeq-rest` core 172/172, integration 332/332 (`logs/peegeeq-rest-*-20260806.txt`) | telemetry §4A |
+
+### T.4 — event-loop lag (1 of 4), 2026-08-08
+
+> **Superseded 2026-08-09 by the metrics stack review below.** Both fields shipped under this
+> record are collector-produced, which violates the architecture rule the owner stated on
+> 2026-08-09 (core produces; REST only collects). `eventLoopLagMs` additionally samples the WRONG
+> Vert.x — the REST server's, not the per-setup manager loops that carry queue work. The code is
+> still in place; re-homing it is remediation step 1.
+
+**Shipped:** `eventLoopLagMs` on the `/sse/metrics` + `/ws/monitoring` payload
+([SystemMonitoringHandler](../../peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/SystemMonitoringHandler.java)).
+A periodic timer measures how late it actually fires; that drift is the loop's unavailability.
+This is the G3 signal no other field can stand in for — a blocked event loop reports normal memory,
+normal threads and a normal pool while everything queues behind it.
+
+**MAX since the previous read, not a mean.** Saturation is spikes; a mean over the collection window
+averages them away, so the number would read healthy at the moment it matters. Read-and-reset, not a
+running maximum — a running maximum would pin the payload to the worst moment since startup for
+ever, so one transient stall would make the stream read saturated permanently.
+
+**Absent until sampled — and that is what makes the test real.** The first version emitted `0.0`
+by default and its test asserted presence and non-negativity. A mutation probe deleting the sampler
+entirely **passed**: `0.0 >= 0` holds whether or not anything ever measures. The field is now
+OMITTED until a measurement exists, matching the T.1/T.3/T.7 absence-not-zero contract, and the same
+probe now fails on `eventLoopLagMs must be present`. A zero would have asserted a perfectly
+responsive event loop on the evidence of nothing.
+
+**Verified:** `SystemMonitoringHandlerTest` **19/19** (`-Pall-tests -pl :peegeeq-rest`); mutation
+probe applied, observed red, reverted. Sampler timer cancelled first in `close()`.
+
+**Also shipped: NOTIFY backlog (2 of 4).** `notifyQueueUsage` — `pg_notification_queue_usage()`
+riding on the existing per-setup `pg_stat_activity` read rather than a second round trip. The native
+queue signals consumers with `NOTIFY`; when that fixed-size instance-wide buffer fills, `NOTIFY`
+blocks committing transactions, which presents as write latency with no cause visible in any
+app-level counter. **MAX across setups, not a sum** — the figure is instance-wide, so setups sharing
+a server report the same value and summing would multiply it. **Omitted when no setup could be
+read**: the surrounding failure path fabricates zeros for the pool counts (the TYPED-ERASURE the
+`.recover()` audit catalogues) and extending that here would report an empty NOTIFY queue for a
+server nobody could reach. `SystemMonitoringHandlerTest` **20/20**; probe (merge removed) detected,
+though as a 34 s timeout rather than a clean assertion failure — detection works, diagnostics are
+poorer than the lag test's, and that is not yet understood.
+
+**BLOCKED — the remaining 2 of 4 need a decision, not just code.** DB write latency and pool
+acquire-wait can only be measured inside `peegeeq-db`, and **the registries are not shared**:
+`PeeGeeQRestServer` builds its own `PrometheusMeterRegistry`, while `PeeGeeQDatabaseSetupService`
+constructs a **fresh `SimpleMeterRegistry` per manager** (lines 238, 373). Anything recorded in the
+DB layer is therefore invisible to the monitoring payload the other two G3 metrics landed in. This
+is why T.1/T.2 surfaced their percentiles through `/stats` on `QueueHandler` and not through the SSE
+stream. Three routes, none free:
+
+1. **Thread the REST registry into the managers** the setup service creates — changes a core class
+   every module depends on.
+2. **Surface via `/stats`**, following the proven T.1/T.2 path — consistent, but splits the four G3
+   signals across two endpoints, so a saturation view has to join them.
+3. **Expose a metrics accessor per setup** and have the REST layer pull at collection time.
+
+Route 2 matches precedent; route 1 is the only one that puts all four G3 signals in one payload.
+~~**Not chosen — recorded for the next session rather than decided unilaterally.**~~ *(Decided
+2026-08-09 by the owner's architecture rule — see the review below. Route 1 is dead: injecting the
+REST registry into the managers makes metric production depend on the collector. The compliant
+shape is route 3 restated: core produces into manager-owned registries and exposes typed
+snapshots; REST pulls at collection time, exactly as `/stats` already does.)*
+
+### Metrics stack review — 2026-08-09
+
+**Trigger.** T.4 was being built collector-first: two G3 metrics were added inside the REST layer.
+The owner then stated the rule: **the core produces all metrics unconditionally; the REST layer is
+an optional, stateless, idempotent collector.** Reading state PostgreSQL itself maintains
+(`pg_stat_*`, `pg_notification_queue_usage()`) is collection, not production.
+
+**Method.** 10-agent audit: 6 parallel mappers (registry topology, peegeeq-db production,
+messaging-module production, REST exposition field-by-field, persistence/lifecycle, consumers),
+3 adversarial verifiers instructed to refute each load-bearing claim with file:line, 1 coverage
+critic. Static reading only — no runtime probe was executed, and no behavioural claim below should
+be treated as runtime-verified.
+
+**The one correct seam, and the template for everything else.** T.1/T.2, verified end to end:
+consumers record delivery latency at claim and processing time at ack into the manager-owned
+registry → `PeeGeeQMetrics.percentilesFor` snapshots the identical timer → `QueueFactory.getStats`
+returns typed `QueueStats`/`DurationPercentiles` (absence-not-zero) → REST `QueueHandler` flattens
+and adds nothing. Production does not depend on REST. Every finding below is a deviation from this
+shape.
+
+**Findings (adversarially confirmed unless marked):**
+
+| # | Finding | Evidence |
+|---|---|---|
+| 1 | **Two disjoint metric worlds.** `GET /metrics` scrapes only REST-process meters (JVM binders, HTTP timers, monitoring self-metrics). Every core meter lands in a per-setup `SimpleMeterRegistry` no exporter or production caller ever reads. The accessors exist — `PeeGeeQManager.getMeterRegistry()`, `PeeGeeQMetrics.getRegistry()` — with **zero production callers**. The Spring examples prove the injectable bridge works (`PeeGeeQConfig.java:80-83`) | `PeeGeeQRestServer.java:120,539-542`; `PeeGeeQDatabaseSetupService.java:238,373`; `PeeGeeQManager.java:543` |
+| 2 | **Dead instrumentation inside core.** The connection-acquisition Timer is registered and **never fed**; the pool active/idle/pending gauges permanently report 0; nothing times DML client-side; `peegeeq.messages.retried` is never incremented; `ConsumerGroupMetrics` is test-only; `CompletionTracker` is never constructed; `recordDatabaseOperation` has zero callers. Two of T.4's four rows are therefore "feed the existing meter", not "add a metric" | `PeeGeeQMetrics.java:148` + verifier confirmations |
+| 3 | **`persistMetrics` fails every interval, forever, in setup-service-provisioned schemas** — `queue_metrics` is not in the provisioned DDL. Where the table does exist it is write-only (no production reader; the retention function is defined and never invoked, so it also grows unboundedly) | `PeeGeeQMetrics.java:668-706`; `PeeGeeQManager.java:855-874` |
+| 4 | **`messagesPerSecond` is three different quantities under one name.** SSE/WS: REST-held delta of the summed PENDING counts — backlog growth, clamped to ≥ 0 (reads 0 during steady consumption), reset on REST restart, divergent per connected client. Management endpoints: lifetime enqueue average. Neither is throughput. Stream `totalMessages` is the summed pending backlog, misnamed | `SystemMonitoringHandler.java:97-98,633-638,725-742,1043-1052` |
+| 5 | **The two 2026-08-08 G3 fields are collector-produced.** `eventLoopLagMs` samples the REST server's Vert.x; the per-setup loops that actually carry queue work are never measured, and the metric ceases to exist when REST is down — wrong producer AND wrong loop. `notifyQueueUsage` is a compliant SQL read, but its natural home is db-telemetry's cluster block beside the other Postgres cluster signals. **Zero consumers exist for either field** | `SystemMonitoringHandler.java`; consumers map |
+| 6 | **Vert.x built-in Micrometer support is unused at every `Vertx` construction site.** It provides pool and event-loop metrics natively | no `MicrometerMetricsOptions` in any src/main |
+| 7 | **Fabrications.** Per-queue `errorRate` hardcoded `0.0` (`ManagementApiHandler.java:378`). The performance-test-harness returns hardcoded constants after `Thread.sleep` as if measured (`NativeQueuePerformanceTestSuite.java:107-157`) — fabricated performance results | critic, file-verified |
+| 8 | **Production gaps and orphaned families.** peegeeq-bitemporal produces zero meters (log-only `SimplePerformanceMonitor`). Notice metrics, resilience4j circuit-breaker metrics, client/pool lifecycle counters all exist — and all land in the same unexported registries | `PgBiTemporalEventStore.java:111`; `CircuitBreakerManager.java:68-70` |
+| 9 | **Collector-on-collector.** service-manager federates `/api/v1/management/metrics`, itself a REST-held TTL cache. And management-ui's `managementStore` reads `monitoringSessions`/`dbPool` from `/management/overview`, an endpoint that does not emit them | `FederatedManagementHandler`; `ManagementApiHandler.java:482-563` |
+
+**Claims the verifiers corrected (kept per working agreement #6):** "no scrape route exists" —
+REFUTED, `GET /metrics` exists and serves the REST registry; "the manager registry is unreachable,
+no getter exists" — PARTLY, the getters exist with no callers; "nothing in the entire repository
+reads queue_metrics" — PARTLY, one unit test reads a row count.
+
+**Target architecture (the rule applied):**
+
+1. **Production in core, unconditionally.** Every measurement lives in the module that owns the
+   measured thing: per-setup event-loop lag sampled by `PeeGeeQManager` on its own Vert.x;
+   acquire-wait by feeding the already-registered timer at the acquisition site in
+   `PgConnectionManager`; write latency at the client DML seam. Registries stay manager-owned and
+   injectable (the Spring examples are the proof it works).
+2. **Typed snapshot hand-off.** `QueueStats` is the precedent. A saturation snapshot accessor
+   beside it carries the G3 signals. Absence-not-zero throughout.
+3. **REST holds no metric state.** Rates are derived by the consumer from two samples (the §4A
+   baseline-and-delta discipline the db-telemetry tools already follow), never from REST-held
+   `prev*` fields.
+4. **`GET /metrics` stays honestly scoped** to REST-process health unless bridging core registries
+   into it becomes a decided requirement.
+
+**Remediation order (replaces the T.4/T.5 plan of record):**
+1. ✅ **DONE 2026-08-09** — Re-home event-loop lag (record below).
+2. ✅ **DONE 2026-08-09** — `notifyQueueUsage` moved into db-telemetry's cluster block (record below).
+3. ✅ **DONE 2026-08-09** — acquisition canary + fabricated gauges deleted (record below).
+4. ✅ **DONE 2026-08-09** — producer send timing at every send site (record below).
+5. ✅ **DONE 2026-08-09** — persistMetrics deleted; rate semantics corrected (record below).
+6. ✅ **DONE 2026-08-09** — jitter phase fix + fast per-queue stats stream (record below).
+
+### Remediation steps 3–6, 2026-08-09
+
+**Step 3 — pool acquire-wait is now measured; the fabricated gauges are gone.**
+`PeeGeeQManager` runs a 5 s CANARY: one real, timed `getConnection()` against its own pool, with
+an overlap guard so a queued canary never stacks a second behind it. Under exhaustion the canary
+queues behind real work, so it measures exactly the wait a caller experiences. It feeds both the
+already-registered `peegeeq.connection.acquisition.time` timer and a second rolling window on the
+saturation snapshot — `SetupSaturationSnapshot` now carries `Window eventLoopLag` and
+`Window poolAcquireWait` (shared nested `Window` record; each absent independently, since the
+samplers run on different cadences). REST's `mergeSaturation` surfaces both per setup plus
+worst-across-setups headlines (`eventLoopLagMs`, `poolAcquireWaitMs`). A failed canary acquisition
+is logged with the time it waited and NEVER recorded as a sample — the wait ended in refusal, not
+acquisition. The three `peegeeq.connection.pool.*` gauges, `updateConnectionPoolMetrics`, and the
+`MetricsSummary` connection fields were **deleted**: nothing ever fed them, so they permanently
+reported 0 — a fabricated healthy signal. Their ABSENCE is now pinned by
+`connectionPoolGaugesAreNotFabricated` in both metrics test classes, so re-registering them
+without a real feed fails the build.
+
+**Step 4 — every producer send is timed.** Native (2 sites) and outbox (3 sites, via
+`logSendOutcome`) time submission-to-completed-INSERT — the write latency the caller experiences —
+and feed `peegeeq.message.send.time` through `recordMessageSent(topic, durationMs)`. That overload
+existed since T-era with ZERO production callers because it was never on the `MetricsProvider`
+interface; it is now on the interface as an **abstract** method (the ServiceProvider precedent: a
+default delegating to the untimed overload would let an implementation silently drop the duration
+by forgetting to override). `ConsumerModeMetricsTest` pins that every send contributes a timed
+sample.
+
+**Step 5 — the fail-forever loop and the dead rate state are gone.**
+- `persistMetrics`/`persistCounter` and their manager timer are **deleted**: queue_metrics was
+  write-only (no production reader in the repo) and absent from setup-provisioned schemas, so the
+  timer failed every interval forever at ERROR level. `PeeGeeQMetricsLogLevelTest` (whose whole
+  subject was those log levels) deleted with it; the timer-guard race test retargeted to the
+  depth-cache task. The `queue_metrics`/`connection_pool_metrics` DDL still exists in migrations —
+  recorded as debt, removable when migrations are next touched.
+- The handler-level `prevTotalMessages` delta in `SystemMonitoringHandler` is **deleted**: every
+  streaming path overwrote its output via `withPerConnectionRate` before any client saw it — dead
+  state. The PER-CONNECTION delta **stays, reclassified**: it is the §4A consumer-side
+  baseline-and-delta held for one client session, and the §8.2 regression test deliberately pins
+  its semantics ("0 when nothing changed") — replacing it with core's lifetime average would
+  regress exactly what §8.2 was written to prevent. Two honest corrections: the clamp is gone
+  (a draining backlog now reads NEGATIVE instead of a fabricated 0), and the javadoc names the
+  quantity — a backlog change rate, not throughput. `totalMessages` (really the summed pending
+  backlog) keeps its name this pass: renaming breaks management-ui's pinned payload shape, so it
+  is recorded as a consumer-coordinated rename, not smuggled in.
+
+**Step 6 — the cadence blockers found by the T.5 probe are fixed, and G4 has its stream.**
+- Jitter at all three `/sse/metrics`/WS sites is now a ONE-OFF PHASE offset
+  (`setPeriodic(initialDelay, period)`), never an addition to the period — the probe measured the
+  old form delivering 0.52 Hz against a 1 Hz request.
+- New `GET /api/v1/queues/{setupId}/{queueName}/stats/stream?intervalMs=1000` (clamp 200–10000,
+  default 1000): per-queue SSE built on the typed core seam. Each tick is a fresh idempotent read
+  (`isHealthy` + `getStats`) flattened by `QueueHandler.queueStatsJson` — extracted as the ONE
+  owner of the flat shape, so the stream and `GET .../stats` cannot drift and utilities-ui's
+  parser holds for both. In-flight tick guard (a slow DB must not turn the observer into load); a
+  failed read ENDS the stream with a stated `error` event — a stream that silently stopped
+  sampling would read as a healthy queue with frozen numbers. `QueueStatsStreamIntegrationTest`
+  pins cadence (≥ 8 frames in 3 s at 250 ms), the shared shape, freshness (mid-stream sends appear
+  in later frames), and 404 for unknown queue/setup.
+
+**Evidence (scoped runs; the whole-repo gate follows separately):** core
+`SaturationSnapshotIntegrationTest` 4/4; `PeeGeeQMetricsCoreTest`+`PeeGeeQMetricsTest` 49/49;
+native `ConsumerModeMetricsTest` 3/3; REST `QueueStatsStreamIntegrationTest` 4/4 +
+`SystemMonitoringHandlerTest` 19/19 + `DatabaseTelemetryHandlerIntegrationTest` 4/4;
+banned-pattern grep clean across all touched files. Mutation probes recorded beside this entry.
+
+**Known gaps, stated:** (1) no automated pin for the jitter phase fix — the discriminating test
+is flaky by construction (it races real timers), so the live probe measurement stands as the
+evidence and the fix is three mechanically-identical lines; (2) outbox send timing has no
+outbox-side e2e pin (the native pin + the interface-level `testRecordMessageSentWithDuration`
+cover the mechanism; an outbox equivalent of the native pin is the cheap follow-up); (3) the
+signed rate is a semantic change management-ui will now display during drain (negative values) —
+its Overview consumes the field, and that display decision belongs to management-ui.
+
+### The `-Pall-tests` gate — GREEN, 2026-08-09
+
+**Every module passed under `-Pall-tests`.** Run as `mvn clean test -Pall-tests` plus the doc's own
+`-rf` resume form after each failure was fixed — five resumes, logs
+`logs/all-tests-20260809.txt` + `all-tests-resume{2..6}-20260809.txt`. Every module's pass
+postdates every change that touches it. Full-suite figures where the log states them:
+`peegeeq-native` 374 (6 skipped), `peegeeq-rest` 3:34, management-ui e2e **482** (E5 rewritten),
+utilities-ui unit **826** + e2e **91/91**. Stated honestly: this is a resume CHAIN, not one
+uninterrupted invocation; a ceremonial single pass is the user's call.
+
+**Five test defects surfaced by the gate and fixed en route — none in the remediation code:**
+
+1. `PostgreSQLErrorHandlingTest` (native): teardown budget of 30 s EQUAL to closeReactive's
+   internal worst case — failed identically under `-Pall-tests` on **2026-05-23** and 2026-08-09,
+   passes in isolation both times. Budget aligned to 60 s; the slow-close mechanism under load is
+   recorded as undiagnosed.
+2. `ListenNotifyOnlyEdgeCaseTest` (native): a STRICT single-flag checkpoint flagged on every
+   delivery with three messages in flight and an "at least 1" assertion — it errored precisely
+   when delivery worked. Guarded on the first delivery (its sibling test's own pattern).
+3. `ManualHealthCheckTest` (service-manager): hardcoded ports 8090–8092 collide with Docker
+   Desktop's backend — and Docker must run for TestContainers, so the collision was structural.
+   Rewritten on ephemeral ports (`listen(0)` + `actualPort()`); the test that held a fixed port
+   for 10 s of wall-clock per run now asserts the start/verify/close lifecycle.
+4. `api-error-paths.spec.ts` E5 (management-ui): asserted a "Delete" dropdown flow the guarded
+   detach/drop rework (`5a1755de`, 2026-07-19) removed — SEVEN WEEKS of asserting a dead flow.
+   Rewritten against the real destructive path: Drop Database… → type-to-confirm guard (button
+   disabled until the exact name) → stubbed 503 → server error text surfaces, modal stays open.
+   Note: the 2026-08-06 "whole-repo gate green" record cannot be reconciled with this spec's
+   state; either that run skipped the management-ui e2e leg or the record was wrong.
+5. `compare.spec.ts` + `CompareTargets.tsx` (utilities-ui): the compare setup Select had no
+   `showSearch`, and antd VIRTUALIZES long option lists — under `-Pall-tests`, thirteen prior
+   projects' accumulated setups pushed the spec's own setup out of the rendered DOM entirely.
+   The documented fix for this exact class (the management-ui `SetupScopeBar` precedent):
+   `showSearch` + `optionFilterProp` on the component, type-to-filter in the spec.
+
+### The five recorded gaps — closed, 2026-08-09
+
+1. **Jitter cadence pin (was "flaky by construction" — that claim was wrong).**
+   `SseMetricsCadencePinTest` (CORE, no DB: `ControllableSetupService.defaults()` reports zero
+   setups): the handler is constructed with `jitterMs = 5000` against a 1 s interval, and the
+   assertion covers only PURE-PERIOD gaps (the immediate initial send and the phase-offset first
+   gap are excluded). Fixed world ~1 s, period-bug world ~6 s, threshold 3.5 s — wide of both.
+   Mutation probe (SSE site reverted to period-added jitter) failed with "Periodic gap of
+   3935 ms … jitter is inflating the PERIOD again". Deterministic where the naive test races
+   real timers.
+2. **Outbox send-time pin.** `OutboxMetricsTest` now asserts every outbox send contributes a
+   timed `peegeeq.message.send.time` sample, mirroring the native pin. Probe (timing reverted in
+   `logSendOutcome`) red on "must be fed by the outbox producer send path". 4/4.
+3. **Stream field renamed: `totalMessages` → `totalPendingMessages`.** The value was always the
+   summed PENDING backlog; the old name read as a lifetime total. Renamed through the handler,
+   `withPerConnectionRate`, the per-connection seeding, and the §8.2 regression test. The
+   backfill entries' own `totalMessages` (a genuine total) keeps its name. management-ui's
+   store field `totalMessages` was DELETED — nothing rendered it, and its two sources carried
+   two different quantities.
+4. **The rate is single-sourced and the tile names its quantity.** The Overview tile (was
+   "Messages/sec") is now **"Backlog change"**: it shows the stream's signed per-session backlog
+   change rate, and the HTTP overview's lifetime enqueue average is NO longer mapped into the
+   same store field — one source, one meaning; the tile reads 0 until the first stream frame.
+   Both overview e2e title pins updated. mgmt-ui tsc clean, store tests 23/23.
+5. **The dead DDL is gone.** `V019__Drop_Unused_Metrics_Tables.sql` drops `queue_metrics`,
+   `connection_pool_metrics` and the never-invoked `cleanup_old_metrics` function (Flyway
+   discipline: a new migration, never an edit to applied V001). Both migration tests now assert
+   their ABSENCE (the sweep initially missed the FUNCTIONS list — the migrations suite caught
+   it; 53/53 after). The dead `SchemaComponent.METRICS` (zero external users) and three inline
+   `CREATE TABLE queue_metrics` test scaffolds in peegeeq-db are removed. peegeeq-db affected
+   classes 9/9.
+
+   Still true and recorded: the undiagnosed slow-close-under-load mechanism behind the
+   `PostgreSQLErrorHandlingTest` teardown boundary remains open — it is a production-lifecycle
+   diagnosis, not a metrics gap.
+
+### Review backlog, item 1: peegeeq-performance-test-harness DELETED, 2026-08-09
+
+The metrics-stack review's critic found that **every figure the module reported was a hardcoded
+constant returned after `Thread.sleep`** — 10000.0 notifications/sec, 2.5 ms latency, 7936.51
+queries/sec, all invented, piped through a report generator as measurements. `Thread.sleep` is
+itself a banned pattern. Verified before deleting: no suite touched a database, queue, or pool;
+the only consumers were the root reactor and the coverage-report aggregation; real load tests
+already exist in the modules under `-Pperformance-tests` (the peegeeq-db fanout suites among
+them). Per the delete-dead-mechanisms rule the module is gone — reactor entry, coverage-report
+dependency, directory (38 files), and the commands doc's reference (dated correction). Reversible
+via git if a real harness is ever built; it returns only measuring something.
+
+### Review backlog, item 2: errorRate is now a real figure, 2026-08-09
+
+`ManagementApiHandler`'s queue listing put a hardcoded `errorRate: 0.0` beside real statistics —
+two management-ui views rendered "0.00%" regardless of failures. It is now
+`errorRateFrom(stats)` = the **dead-letter fraction** (terminally failed / seen), deliberately
+NOT `1 - successRatePercent`: that formula counts PENDING messages against success, so a healthy
+queue with a backlog would read as erroring — `ManagementApiErrorRateTest` pins exactly that
+case (80 pending, 0 dead-lettered → 0.0). TDD: compile-level red (seam absent) → green 3/3;
+integration 38/38; probe (fabrication reintroduced) red. The listing block also consolidated
+three per-queue stats queries into one `getStats` read.
+
+*(Correction 2026-08-09, later the same day: statements in items below that called
+peegeeq-rest-client a "zero-test module" were WRONG. It has 5 test files / 48 tests (33
+core + 15 integration). A stale `target/test-classes` made incremental scoped runs report
+"Tests run: 0" — "Nothing to compile - all classes are up to date" over stale class files;
+`mvn clean test` runs all 33 core tests. The true statement: none of its tests cover the
+management getters, which is why those survived broken. The stale-target trap the
+test-commands doc documents for the gate applies to scoped runs too.)*
+
+### Review backlog, item 3: aggregate messagesPerSecond deleted, store clobber fixed, 2026-08-09
+
+Four defects in one family — a lifetime average dressed as a rate, and clients reading fields
+endpoints do not emit.
+
+1. **Aggregate `messagesPerSecond` DELETED at all three REST emit sites** (overview
+   `systemStats`, per-setup summaries, `/management/metrics` cache). The value summed per-queue
+   `total/(last−first)` lifetime averages (PgNativeQueueFactory) — not a rate of anything. The
+   live system rate is the monitoring stream's backlog change rate; one mechanism. Per-queue
+   `messageRate`/`statistics.messagesPerSecond` KEPT — a real per-queue quantity with a pinned
+   contract. Absence pins added to both overview tests and the metrics test.
+2. **FederatedManagementHandler stopped re-aggregating it** (overview + metrics paths,
+   per-instance entries + `totalMessagesPerSecond`). Summing the `getDouble` defaults after
+   step 1 would have fabricated zeros.
+3. **managementStore clobber fixed.** Every HTTP overview poll replaced the whole `systemStats`
+   object, zeroing four stream-owned fields (`messagesPerSecond`, `monitoringSessions`,
+   `activeSubscriptions`, `dbPool`) until the next frame — gap D's own fix had this bug (it
+   wrote a literal 0). It also pushed a chart point built from the clobbered data. New pure
+   `mergeOverviewSystemStats(current, overviewStats)` maps only what the endpoint emits and
+   preserves stream-owned fields; the chart call in `fetchSystemData` is removed (stream frames
+   are the only chart source). Three new vitest tests.
+4. **rest-client dead read fixed.** `getQueues()` read flat `messagesPerSecond`, which the
+   endpoint has never emitted — every `QueueInfo.messagesPerSecond` was the 0.0 default. Now
+   reads `messageRate`.
+
+TDD: TS red (missing export, 3 failed) → green 26/26. Java red (both overview absence pins,
+38 run / 2 failures) → green 38/38. Probes: all three Java pins red under reintroduced
+fabrication — the metrics pin was TOOTHLESS on first probe (single re-read raced the async
+cache fill) and was strengthened to poll until the fill lands before asserting absence; store
+probe (clobber reintroduced) 2 red. All restored, final greens: rest 38/38, service-manager
+core 56/56 + integration 32 run 0 failures (15 pre-existing conditional skips), rest-client
+compiles (module has zero tests), vitest 26/26, tsc clean.
+
+**Not checked**: federation aggregation output shape has no test anywhere — the
+FederatedManagementHandler deletions are compile-verified only. The rest-client `messageRate`
+fix is unverified by any test (zero-test module). management-ui e2e specs not run this pass.
+**Found, not fixed** (recorded for the backlog): rest-client `getSystemOverview()` parses into
+a `SystemOverview` dto whose fields are disjoint from the real payload (`totalEvents`,
+`uptimeSeconds` — never emitted) using a default `ObjectMapper`, which rejects unknown
+properties — by static reading it should fail on every call; not verified by execution.
+
+### Review backlog, item 4: dead/unfed meters deleted (mechanical tier), 2026-08-09
+
+A 6-agent verification workflow enumerated every definition, caller, and payload reference
+before any deletion (verdicts with file:line evidence; ~400k tokens). Deleted — each confirmed
+with zero production callers:
+
+1. **`peegeeq.messages.retried` chain**: PeeGeeQMetrics field + registration +
+   `recordMessageRetried`, the `MetricsProvider` abstract method, NoOp + PgMetricsProvider
+   overrides, three test methods. The counter permanently scraped as 0; native retry
+   accounting lives in the `retry_count` column and never called this seam.
+2. **`ConsumerGroupMetrics`** — entire class + its integration test file + two dependent test
+   methods in RemainingPrometheusMetricsIntegrationTest (+ orphaned helper/imports). Never
+   constructed in production; its eight `peegeeq.subscriptions.*`/`peegeeq.detection.*`/
+   `peegeeq.blocked.messages` meters existed only inside its own tests. Follow-on orphan
+   `DeadConsumerDetectionJob.getTotalRunTimeMs()` deleted (field kept — feeds the run-summary log).
+3. **`recordDatabaseOperation`** + `databaseOperationTime` timer + registration + two tests.
+4. **`getQueueDepth(String topic)`** from MetricsProvider + all three implementors + its test —
+   every implementation ignored the topic argument; `cachedNativeDepth` machinery KEPT (feeds
+   the live `peegeeq.queue.depth.*` gauges).
+5. **Sweep extras the audit missed** (completeness agent): `recordMessageReceived(String,long)`
+   overload and `recordMessageAcknowledged` (zero callers anywhere, including tests — their
+   timers were never even registered), `recordMessageSendError`/`ReceiveError`/`AckError`
+   wrappers (test-only), `getRegistry()` (zero callers).
+
+New regression lock `deadMetersAreNotFabricated` pins the ABSENCE of the retried counter and
+database-operation timer (same pattern as `connectionPoolGaugesAreNotFabricated`). Probe:
+re-registering the retried counter → red on exactly that pin → restored. Greens: api + db
+install, all seven dependent modules compile, four touched suites 59/59 (surefire's per-class
+counts scramble under parallel methods — the XML method lists were verified instead: zero
+deleted methods executed). Superseded handoff docs PHASE_G2/PHASE_T deleted.
+
+### Review backlog, item 5: the three deferred deletions executed, 2026-08-09
+
+User ruling: none of the three are part of the metrics design — delete.
+
+1. **Generic `MetricsProvider` quartet DELETED** (`incrementCounter`, `recordTimer` both
+   overloads, `recordGauge` + the DynamicGaugeEntry/GaugeKey machinery, `getAllMetrics`) from
+   the interface and all three implementors, plus their tests. The interface now carries
+   exactly the message-lifecycle signals producers and consumers feed. `TestSupportMetrics`
+   (peegeeq-test-support) is independent and untouched.
+2. **`SystemStatus` + `getSystemStatus()` + `BackpressureManager` DELETED** (class, field,
+   construction, accessor, BackpressureManagerTest). Seven test files across four modules
+   rewired to assert the same live facts through direct accessors (`isStarted()`,
+   `getHealthCheckManager().getOverallHealthAsync()`, `getMetrics().getSummary()`,
+   `getDeadLetterQueueManager().getStatistics()`); backpressure-demo test methods deleted with
+   dated comments. An outbox test comment that blamed a teardown hang on "the
+   BackpressureManager permit" was corrected — nothing ever passed through that manager, so
+   the attribution was disproven, not just stale. `getSummary()`/`MetricsSummary` KEPT: it
+   reads real counters and many tests verify alive meters through it.
+3. **`CompletionTracker` RELOCATED to test scope** (peegeeq-db/src/test, same package), its
+   metrics constructor and `peegeeq.completions.total` counter deleted with the move.
+   Production now honestly has no REFERENCE_COUNTING completion writer (it never had a wired
+   one); the six suites that use the tracker as a harness to drive the alive readers
+   (fetcher, retry, cleanup) compile unchanged against the fixture. The fixture's javadoc
+   forbids silent re-promotion. RemainingPrometheusMetricsIntegrationTest deleted entirely
+   (both surviving tests tested the deleted meter).
+
+Verification: repo-wide sweep zero references to any deleted API outside dated comments; all
+modules test-compile; suites green — peegeeq-db 89/89 (manager integration, metrics core ×2,
+examples ×2, CompletionTracker fixture ×2, tracing, fetcher harness), peegeeq-native 18/18,
+peegeeq-examples 2/2.
+
+*(Correction 2026-08-10: "all modules test-compile" was FALSE for peegeeq-runtime — the
+check ran without `clean` and incremental compilation skipped a stale test class. The user's
+`mvn clean test` caught it: RuntimeDatabaseSetupServiceTest's anonymous DatabaseSetupService
+was missing getSaturationSnapshotForSetup — an implementor missed by the remediation because
+the sweep matched "implements ServiceProvider", not DatabaseSetupService. Fixed (null
+override, fake precedent); corrected implementor sweep balances across all nine files; the
+resumed clean core run is green across all 12 remaining modules. Third stale-target incident
+this session — compile checks and scoped runs both require `clean` to be evidence.)* Three example-file rewires were done by parallel subagents with
+signature-verified accessor mappings and banned-pattern sweeps; their reports flagged
+pre-existing antipatterns (timer-as-readiness-guard, narration logging, fire-and-forget DLQ
+moves in example tests) which were left in place — recorded here as known debt.
+
+**Not run** (performance-tagged, compile-verified only): PeeGeeQPerformanceTest, the P2–P4
+fanout suites, FanoutPerformanceValidationTest. **Not checked**: external consumers of the
+published peegeeq-api/peegeeq-db artifacts; out-of-repo dashboards scraping the removed series.
+
+### Review backlog, item 6: bitemporal appends now produce metrics, 2026-08-09
+
+The bitemporal module recorded ZERO metrics — a system doing only event-store writes scraped
+as completely idle. Every successful append now records through the manager's
+`PeeGeeQMetrics` via the existing `recordMessageSent(topic, durationMs)` seam — the same
+meters the native and outbox producers feed (`peegeeq.messages.sent`, `.by.topic`,
+`peegeeq.message.send.time`), topic = the store's table name. Zero new meter names;
+core-produces, no REST involvement.
+
+Instrumented at the four funnels (each covers its overloads and, for single appends, both
+the direct and event-bus-distribution branches): `appendOwnTransaction`, `appendCorrection`
+(8-arg), `appendInTransaction` (8-arg, records the INSERT's completion — the caller-owned
+transaction may still roll back afterwards, same accepted semantics as the outbox in-tx
+send), `appendBatch`. Batch semantics: counter counts EVENTS (N), timer gets ONE sample —
+the single measured write; N identical samples would fabricate distribution mass. Failed
+appends record nothing (producer precedent). `MetricsProvider` field is null-safe to
+`NoOpMetricsProvider.INSTANCE`.
+
+TDD: `BiTemporalAppendMetricsIntegrationTest` (4 tests: absence-before/presence-after,
+batch N-counter/1-timer, correction records, closed-store failure records nothing) written
+first → red 3/4 ("must feed ... expected: not null") → impl → green 4/4 → probes: recording
+bypassed (2 reds) + timed-per-event (timer pin red "expected 1 but was 5") → restored →
+green 4/4 → full module regression `-Pintegration-tests -pl :peegeeq-bitemporal` 352/352.
+Banned-pattern sweep clean.
+
+**Not checked**: the subscribe/consume path still records nothing (recordMessageReceived/
+Processed for bitemporal subscriptions — follow-up decision); query-path metrics deliberately
+not added (no consumer; accretion).
+
+### Review backlog, item 7: rest-client management getters fixed against the real contracts, 2026-08-09
+
+The zero-test module's four management getters were written against an imagined contract —
+every call failed against a real server: `getSystemOverview()` strict-Jackson-parsed the
+whole body into a dto with fields the endpoint never emits (`totalEvents`,
+`deadLetterMessages`, `systemStatus`, `uptimeSeconds`); `getQueues()`/
+`getConsumerGroups()`/`getEventStores()` called `bodyAsJsonArray()` on endpoints that wrap
+their arrays in objects (`{queues: [...]}` etc.).
+
+Fixes: `SystemOverview` record reshaped to mirror the `systemStats` block one-to-one
+(totalSetups/Queues/ConsumerGroups/EventStores, totalMessages, activeConnections, uptime;
+dead `empty()` deleted — zero callers); `getSystemOverview` maps by hand from
+`systemStats`; the three list getters unwrap their named arrays.
+
+TDD: new `RestClientManagementContractSmokeTest` (peegeeq-integration-tests, which depends
+on both server and client — the module's first client-vs-real-server coverage): overview
+cross-checked field-by-field against the raw payload, getQueues verified to return a queue
+created through the API with name+setupId mapped, both other getters pinned to unwrap.
+Red: compile-level on the two accessors the old dto lacked. Green 4/4. Probes: overview
+mapping pointed at the root (red "expected 1 but was 0" on a real setup count) + getQueues
+reverted to `bodyAsJsonArray` (errored) → restored → full smoke suite 79/79.
+
+**Not checked**: the ~26 other `parseResponse` call sites (setup/queue-operation dtos) were
+NOT audited against their endpoints — same defect class possible; recorded for the backlog.
+The unused `mockito-core` dependency in the rest-client pom remains (no-mocking rule makes
+it dead weight).
+
+### Review backlog, item 8: full rest-client dto audit — 26 of 44 typed methods MISMATCH, 2026-08-09
+
+A 6-agent workflow audited every typed client method field-by-field against its owning
+server handler (~445k tokens; verdicts with file:line evidence). Result: **26 MISMATCH, 18
+MATCH** — beyond the four management getters already fixed, most of the client's typed
+surface was written against imagined contracts. Defect families:
+
+1. **Non-deserializable core dtos**: `createSetup`/`listSetups`/`getSetup` parse into
+   `dev.mars.peegeeq.api.setup.DatabaseSetupResult`, which has NO Jackson creator (parse
+   fails at instantiation on every call) and carries live-object fields
+   (`Map<String,QueueFactory>`) a wire payload can never hold.
+2. **Object-vs-array wrapping** (same family as the fixed management getters):
+   `listSetups`, `sendBatch`, `listConsumerGroups`, `listDeadLetters`, `listSubscriptions`,
+   and the event-store list shapes.
+3. **Enum-vs-object**: `getSetupStatus` Jackson-parses `{setupId, status}` into a bare enum.
+4. **Fields never emitted / strict-parse rejections** across consumer-group, subscription-
+   options, webhook, and event-store dtos (`appendEvent`, `queryEvents`, `getEvent`,
+   `getEventVersions`, `appendCorrection`, `getEventAsOf`, `getEventStoreStats`,
+   `streamEvents` all MISMATCH).
+
+MATCH (18): deleteSetup, addQueue, addEventStore, sendMessage, getQueueBindings,
+purgeQueue, deleteConsumerGroup, leaveConsumerGroup, deleteSubscriptionOptions,
+getDeadLetter, reprocessDeadLetter, deleteDeadLetter, getDeadLetterStats, getSubscription,
+pause/resume/cancelSubscription, updateHeartbeat, deleteWebhookSubscription,
+deleteEventStore, getGlobalHealth, getMetrics — mostly void/raw-JSON methods that never
+typed-parse a response.
+
+**Load-bearing fact**: the module has ZERO in-repo consumers — no production module,
+example, or UI uses `PeeGeeQClient`; its only consumer is the contract smoke test added
+today. Its 48 existing tests are green but none exercise the typed response parsing of the
+26 broken methods. Also done this pass: dead mockito dependencies removed from its pom
+(no test referenced them; no-mocking rule).
+
+**DECISION PENDING (user)**: the client is the outward-facing typed library for the REST
+API, and fixing the 26 methods requires reshaping public dtos and several `PeeGeeQClient`
+interface signatures (e.g. `listSetups` can only honestly return setup IDs; `createSetup`
+must return a wire-shaped record, not `DatabaseSetupResult`). Options: (a) fix all 26
+against the real contracts with per-group contract smoke tests — the audit's fixScopes
+enumerate each change; (b) strip the broken typed surface down to the working 18 + raw
+JsonObject accessors; (c) delete the module as unconsumed fiction. Recommendation: (a) —
+it is the only programmatic client of the REST API and the repair path is fully enumerated.
+
+### Review backlog, item 9: all 26 rest-client mismatches fixed against the real contracts, 2026-08-10
+
+User ruling: option (a). Executed as five sequential TDD phases (every fix touches
+PeeGeeQRestClient.java), each by a subagent with the audit fixScope as spec, server payloads
+re-verified in the handlers, red captured where honestly producible, and a new contract
+smoke test per group in peegeeq-integration-tests (real server via SmokeTestBase — the
+module's first end-to-end typed coverage):
+
+- **A setups**: createSetup→`SetupResultInfo` (old parse failed at instantiation — dto had
+  no Jackson creator), listSetups→`List<String>` (endpoint emits ids only), getSetup→new
+  `SetupDetailsInfo`, getSetupStatus reads the status field. Red: compile-level.
+- **B messages-stats**: sendBatch sends the `{messages:[...]}` wrapper the server requires
+  and builds results from `messageIds` (failures fail the future); getQueueStats/
+  getQueueDetails manual lenient mapping (`QueueDetailsInfo` reshaped — four fields had no
+  source); getQueueConsumers extracts `groupName` from the object items. Three runtime reds
+  captured (400 on the bare array; two strict-parse rejections).
+- **C consumer-groups + FIX 0**: cross-cutting defect FOUND BEYOND THE AUDIT — Vert.x
+  `JsonObject` request bodies serialized through plain Jackson as `{"map":...,"empty":...}`,
+  corrupting the request side of ~8 methods including audit-MATCH ones; fixed at the
+  request helper (encode() for JsonObject/JsonArray), red captured (400 "Consumer group
+  name is required"). Five methods remapped; `ConsumerGroupInfo`/`ConsumerGroupMemberInfo`/
+  `SubscriptionOptionsRequest`/`SubscriptionOptionsInfo` reshaped to real contracts,
+  fabricating factory methods deleted. Sweep catch: management `getConsumerGroups()` read
+  keys the payload never carries and fabricated 0/0/now() per row — remapped honestly.
+  Server-truth deviations recorded (FROM_NOW resolves server-side and does not round-trip).
+- **D dead-letters/webhooks**: listDeadLetters sends limit/offset (not page/pageSize) and
+  parses the bare array (`DeadLetterListResponse` DELETED — server emits no total; returns
+  `List<DeadLetterMessageInfo>`); cleanupDeadLetters sends retentionDays as query param and
+  FAILS on a missing `messagesDeleted` (the old default-0 read masked the defect);
+  listSubscriptions reads the bare array; webhook dtos reshaped (imagined fields deleted;
+  `consecutiveFailures` nullable — create omits it). Three runtime reds captured; notable:
+  the old webhook create had NO red — strict Jackson silently default-filled the imagined
+  fields, the quietest form of the fabrication class.
+- **E eventstores**: new concrete `EventInfo` (+`EventAppendResult`, `EventCorrectionResult`)
+  replaces parsing into the BiTemporalEvent interface across all eight methods; envelope
+  unwraps (`event`/`events`/`versions`/`stats`); query param `asOf`→`transactionTime`;
+  request dtos serialize the server's keys (`metadata`, `eventData`, `validFrom` — the
+  fixScope's claimed `validTime` alias was DISPROVEN server-side and not used); queryEvents
+  now transmits every handler-accepted filter param and fails explicitly on the unsupported
+  `headerFilters`; `EventStoreStats` reshaped (four never-emitted fields deleted); SSE
+  stream typed to `EventInfo`, control frames skipped. Red: 400 on the old request keys.
+
+Verification: five new contract smoke tests + all regressions green after every phase;
+final consolidated runs — **smoke suite 84/84** (79 pre-existing + 5 new), client **33/33
+core + 15/15 integration** (clean builds; the stale-target trap avoided with `clean`).
+
+**Not checked** (accumulated from phase reports): getQueueConsumers/DLQ-item/subscription-
+item mappings never exercised against non-empty payloads (no REST route populates them in
+the smoke flow); streamEvents not runtime-verified (control-frame readiness unobservable
+through the typed stream); SSE error frames skipped silently; page>0 offset translation;
+webhook delivery timestamps never non-null; sub-second Instant precision from decimal-epoch
+payloads (~microsecond, double-parse limit). Stale docs: PEEGEEQ_REST_CLIENT_GUIDE.md still
+documents old shapes and shows a banned toCompletionStage example; management-ui/utilities-ui
+TS types and peegeeq-openapi yaml mention old dto names (they do not compile against Java).
+Pre-existing test debt flagged: PeeGeeQRestClientTest `.onComplete(ar->...)` idiom,
+RestClientIntegrationTest hand-rolled container setup.
+
+### SubscriptionOptionsCoreTest rewritten on the real integration pattern, 2026-08-10
+
+Found while classifying the exceptions in the user's core-run log: all nine tests in
+peegeeq-rest's SubscriptionOptionsCoreTest hit a hardcoded port with NO server started,
+caught the connection failure, logged "skipping assertions" and returned green — permanently
+vacuous ("Tests run: 9, Failures: 0" with zero assertions executed). Repo-wide sweep: the
+pattern exists nowhere else. Rewritten on the ManagementApiIntegrationTest pattern (real
+server + TestContainers + real consumer groups created via REST), INTEGRATION-tagged, all
+skip-guards deleted. Two of the old expectations were fiction against the real handler and
+are now pinned to reality: update without an existing consumer group is 404 (new test 10),
+and delete of a missing subscription is idempotent 204, never 404. 10/10 green; probe
+(fictional 404 reinstated) red "expected 404 but was 204" → restored → 10/10.
+
+**Review backlog still open**: rest-client guide/openapi doc refresh; bitemporal
+subscribe-path metrics; Vert.x built-in Micrometer unused; the federated
+collector-on-collector tier; example-test antipattern debt.
+
+### Timer-guard findings from the user's integration run, 2026-08-10
+
+The changed-module integration run failed on ONE error in 723 peegeeq-db tests:
+`PeeGeeQManagerTimerGuardTest.testTimerFailuresEscalateWarnToError` threw
+ConcurrentModificationException — the test streamed its `synchronizedList` of captured log
+events while the manager's depth-cache timer (production code, still legitimately firing
+against the stopped DB) appended concurrently. Fixed: `eventsAtLevel` streams over the
+`snapshot()` copy; assertions are threshold-based so a still-growing capture is sound.
+5/5 green. The remaining six modules were reactor-SKIPPED, not failed.
+
+### Changed-module integration run, 2026-08-10 (rerun after the timer-guard fix)
+
+1801 tests across 7 modules, **one error**. Six modules fully green: peegeeq-db 723,
+peegeeq-native 189 (6 conditional skips), peegeeq-bitemporal 352, peegeeq-rest 347
+(includes the rewritten SubscriptionOptionsCoreTest), peegeeq-rest-client 15,
+peegeeq-service-manager 32 (15 conditional skips). peegeeq-examples: 143 run, 1 error.
+
+**The error is a teardown hang, not a test-logic failure.**
+`ConsumerGroupResilienceTest.testConsumerFailureRecovery`: the test body PASSED and logged
+its success assertions; the `@AfterEach` then logged "Tearing down" and produced NONE of its
+three continuation lines ("PeeGeeQ manager closed" / "Error closing manager" / "teardown
+completed") for 30 s, until VertxExtension's default timeout failed it. The
+`manager.closeReactive()` Future never settled. Distinguishing detail: that teardown alone
+carried an in-flight un-ACKed message ("Shutdown during completion of message 2461 - message
+may be stuck in PROCESSING"); the class's other two teardowns had none and completed in
+~14 ms. Symptom class matches the long-open "slow-close-under-load" item and the recorded
+closeReactive/per-setup-Vert.x continuation-drop pattern.
+
+**Load-dependent, not deterministic**: the SAME binary passes the class in isolation
+(3/3, 18.8 s, verified today) and hung only under the full-module concurrent run. It also
+ran green in the 2026-08-09 gate (16.3 s) and 2026-05-31 (16.2 s) — most other gate logs
+never reached it, so "no prior error marker" is largely absence-of-execution, not evidence
+of health.
+
+**NOT established** (stated rather than guessed): whether this session's changes affect its
+probability — no causal evidence either way, and the same-binary isolation pass means the
+trigger is timing. The mechanism inside `closeReactive()` could NOT be read from this log:
+peegeeq-examples' logback-test.xml sets `dev.mars.peegeeq` to WARN, so the manager's own
+close-sequence INFO lines are suppressed. Diagnosing which close step stalls requires a
+rerun of that module with the manager logger at INFO/DEBUG.
+
+**Production concern surfaced by the diagnosis (open, user's call)**: once escalated past
+`TIMER_FAILURE_ESCALATION_THRESHOLD`, PeeGeeQManager logs a FULL ERROR with stack trace on
+EVERY tick (~1/s) indefinitely while the DB is down — no rate limit, no once-per-transition
+logging (PeeGeeQManager.java:824-834). During a sustained outage that is ~1 ERROR/sec per
+manager instance (one manager per setup), flooding logs exactly when they matter. The
+retry-forever is the deliberate auto-recovery design; the unbounded repeat-ERROR logging is
+the questionable part. An initial "not in production code" classification of the CME was
+wrong and retracted — the concurrent writer WAS production; only the unsafe iteration was
+test code.
+
+### Remediation steps 1–2 — event-loop lag re-homed, notifyQueueUsage moved, 2026-08-09
+
+**Step 2 (smaller, shipped first).** `pg_notification_queue_usage()` now rides on db-telemetry's
+`CLUSTER_STATS_SQL` and lands in the cluster block as `notifyQueueUsage` (always present, 0..1 —
+PostgreSQL is the producer, the endpoint is a collector, exactly like every other cluster signal).
+Removed from system_stats entirely: the SQL column, the per-setup merge, the top-level field and
+its REST test. `DbClusterStats` in utilities-ui gained the required field; both unit-test fixtures
+updated. TDD: assertion added to `DatabaseTelemetryHandlerIntegrationTest#testClusterSignalsPresent`,
+run red (`cluster block must carry notifyQueueUsage`), then green **4/4**.
+
+**Step 1 — the measurement now lives where the measured thing lives.**
+
+- **peegeeq-api:** new `SetupSaturationSnapshot` record (`metrics` package) with nested
+  `EventLoopLag(maxMs, latestMs, sampleCount, windowSeconds)`; `ServiceProvider` gained
+  `getSaturationSnapshotForSetup(setupId)` — **deliberately abstract, not a default**: the audit
+  found `reloadPersistedSetups` as a default that `RuntimeDatabaseSetupService` silently fails to
+  forward, and a null-returning default here would have let the delegator swallow the real
+  snapshot the same way. The compiler then surfaced **eight** implementors, including four
+  anonymous classes two `implements DatabaseSetupService` greps had missed — the abstract choice
+  doing exactly its job.
+- **peegeeq-db:** `EventLoopLagTracker` — a rolling 60 s window of samples, **read-idempotent**:
+  snapshot() computes max/latest over the window without mutating it, because the owner's rule is
+  that REST is idempotent, and a read-and-reset accessor lets the first collector steal the window
+  from every other. `PeeGeeQManager` schedules the 500 ms sampler beside its other metrics timers
+  (same `closing` guard family, cancelled in `stopBackgroundTasks`), measuring drift on **its own
+  Vert.x** — the loop that carries the setup's queue work. `getSaturationSnapshot()` is the typed
+  accessor; the setup service resolves it per setup like every other `getXxxForSetup`.
+- **peegeeq-rest:** the 2026-08-08 REST-local sampler is **deleted** (fields, timer, close-path
+  cancel). `mergeSaturation` reads each setup's snapshot at collection time; the payload carries
+  per-setup attribution (`saturation[]`: setupId, max, latest, sampleCount, windowSeconds) and a
+  top-level `eventLoopLagMs` = worst window-max across setups. Both omitted until a setup has
+  sampled — and early absence is CORRECT (a real run showed a frame 670 ms after setup creation,
+  before the first 500 ms tick), so the REST test waits for presence-eventually rather than
+  asserting on the first eligible frame.
+- **Verified:** metrics default ON (`peegeeq.metrics.enabled` → `true`) and the setup-provisioning
+  path does not override it, so provisioned managers sample — checked before trusting the test.
+  Core: `SaturationSnapshotIntegrationTest` **3/3** (sampled-after-start via recursive-timer poll;
+  idempotent double-read; unstarted manager reports ABSENCE, not zero). REST:
+  `SystemMonitoringHandlerTest` **19/19**, `DatabaseTelemetryHandlerIntegrationTest` **4/4**.
+  utilities-ui: tsc clean, comparePlan+comparisonRunner **57/57**. Banned-pattern grep across all
+  twelve touched files: clean (three hits are prose in comments).
+- **TDD deviation, stated:** the sampler was implemented before its core test existed. Red was
+  reconstructed per the standing rule: the test was written after, run green, then each behaviour
+  mutation-probed red (sampler recording deleted; snapshot made read-and-reset; REST merge
+  deleted) — probe results recorded with this entry.
+
+**Not checked:** nothing was executed — all findings are code-structure facts, and runtime claims
+(scrape contents, the fail-forever loop firing) need probes; src/test trees; UI derivation code;
+pom dependency declarations. **No code was changed by this review.**
+
+### T.5 — probe first, 2026-08-08 (no code written yet)
+
+**The cadence knob is already capable of 1 Hz; two other things stop it being delivered.** Probed
+against a live backend (`GET /sse/metrics?interval=1`, 12 s, zero setups — field presence and timing
+do not need a provisioned database):
+
+| Measured | Value |
+|---|---|
+| Requested interval | `1` s (`minIntervalSeconds` is already **1**, so the row's "raise the cadence" is a no-op) |
+| Actual frame gaps | **1932, 1934, 1936, 1933, 1933, 1935 ms** — a steady **0.52 Hz** |
+| Metric frames byte-identical to the previous frame | **4 of 7** |
+
+**Cause 1 — jitter inflates the PERIOD, not the phase.**
+`intervalMs = interval * 1000L + jitter`, where `jitter = random.nextInt(config.jitterMs())` is drawn
+**once at connection setup** and then reused for every tick of `setPeriodic`. Its stated purpose is
+to spread load across connections, which wants a one-off *phase* offset; as written it permanently
+slows every connection by up to **2x**. The constant ~933 ms added to all six gaps is that single
+draw, visible.
+
+**Cause 2 — a 5 s metrics cache sits behind the stream.** `cacheTtlMs` defaults to **5000**, so
+`collectMetricsFromServices()` runs at most every 5 s and faster polling re-sends the same object.
+That is what the 4 identical frames are. Raising the cadence alone would deliver more copies of the
+same numbers.
+
+**So implementing the row as written would change a knob that is already capable and leave both
+actual blockers in place** — the exact T.3 failure mode. The work is: make the jitter a one-off
+phase offset rather than a per-tick period addition, and stop the cache TTL exceeding the
+connection's own interval. **Neither is written yet**, and both change behaviour for existing SSE
+consumers (management-ui reads this stream), so the shape is a decision, not a detail.
 
 ### T.3 — enqueue timestamp + client headers on the live stream, 2026-08-05
 
@@ -1065,6 +1855,30 @@ antipatterns doc lists `Future`-returning closes as event-loop-safe, which makes
 defect rather than the test — but that changes a core teardown contract every module depends on.
 The remaining two errors (`BackfillServiceConcurrencyTest.testBackfillHeavyLoad_100kMessages`,
 `PeeGeeQManagerTimerGuardTest.testTimerFailuresEscalateWarnToError`) were **not** investigated.
+
+> **RESOLVED — verified 2026-08-08. The paragraph above is history, not current state.** The fix
+> landed in **`ed2e3d00` itself**, the same commit as T.7, and this record was never updated to say
+> so. The teardown was changed from
+> `.eventually(() -> ownsVertx ? vertx.close() : Future.succeededFuture())` to
+> `.transform(this::releaseOwnedVertx)`, which completes the caller-visible promise **first** and
+> only then queues `vertx.close()` via `runOnContext` — exactly the "continuation killed by closing
+> the Vert.x from inside its own event loop" cause diagnosed above. The design decision recorded as
+> "deliberately left open" was in fact taken: the **service** was fixed, not the test.
+>
+> Evidence (this session): `SetupBindingPersistenceIntegrationTest` in isolation
+> (`-Pintegration-tests -Dtest=…`) **8 run, 0 failures, 0 errors**, where the record above says
+> 6 errors reproduced. Both other named errors also pass in a full module run:
+> `PeeGeeQManagerTimerGuardTest` 1/1, `BackfillServiceConcurrencyTest` 5/5.
+> `mvn test -Pall-tests -pl :peegeeq-db` → **1123 run, 0 failures, 0 errors, BUILD SUCCESS**
+> (`logs/peegeeq-db-alltests-20260808.txt`).
+>
+> **One anomaly is unexplained and is NOT being reported as green.** In that full-module run
+> surefire recorded `tests="1"` for `SetupBindingPersistenceIntegrationTest` — a class with eight
+> `@Test` methods, no `@Nested`, no `@Disabled` — while the log shows a *different* method
+> (`reloadReconnectsPersistedSetupsAndSkipsBadEntries`) executing inside it. Seven tests are
+> unaccounted for in the module run's own accounting. In isolation all eight are reported. Until
+> that is understood, the module total is not solid evidence for this class, and the whole-repo
+> gate has NOT been re-run — only `peegeeq-db` was.
 
 **Unblocks G.2.** With G1 (T.1), G2 (T.2), G6 (T.3) and now G7, the native-vs-outbox comparison has
 its full telemetry dependency set. ~~No UI consumes `db-telemetry` yet.~~ *(Superseded 2026-08-07:

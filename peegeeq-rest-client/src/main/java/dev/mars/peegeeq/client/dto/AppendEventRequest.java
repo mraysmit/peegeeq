@@ -16,18 +16,31 @@
 
 package dev.mars.peegeeq.client.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
 /**
  * Request to append an event to an event store.
+ *
+ * <p>The server parses this with a strict mapper that rejects unknown keys, so
+ * the wire keys must match its EventRequest exactly: headers serializes as
+ * 'metadata' (the old 'headers' key was refused with 400 on every call), and
+ * validTime serializes as 'validFrom' — the server's 'validTime' alias is a
+ * String field it Instant.parse()s, which rejects the decimal epoch-seconds
+ * form Jackson writes for an Instant, silently dropping the value (event-stores
+ * contract review, 2026-08-10). The 'payload' key is the server's accepted
+ * eventData alias.</p>
  */
 public class AppendEventRequest {
 
     private String eventType;
     private Object payload;
+    @JsonProperty("validFrom")
     private Instant validTime;
+    @JsonProperty("metadata")
     private Map<String, String> headers;
     private String correlationId;
     private String aggregateId;

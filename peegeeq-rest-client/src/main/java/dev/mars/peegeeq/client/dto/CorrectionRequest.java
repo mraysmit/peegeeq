@@ -16,15 +16,25 @@
 
 package dev.mars.peegeeq.client.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import java.time.Instant;
 
 /**
  * Request to append a correction to an existing event.
+ *
+ * <p>The server parses this with a strict mapper that rejects unknown keys, so
+ * the wire keys must match its CorrectionRequest exactly: correctedPayload
+ * serializes as 'eventData' and validTime as 'validFrom' — the old field names
+ * were refused with 400 on every call (event-stores contract review,
+ * 2026-08-10).</p>
  */
 public class CorrectionRequest {
 
+    @JsonProperty("eventData")
     private Object correctedPayload;
     private String correctionReason;
+    @JsonProperty("validFrom")
     private Instant validTime;
 
     public CorrectionRequest() {}

@@ -247,16 +247,6 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                     )
                     """);
 
-                // Create queue_metrics table
-                stmt.execute("""
-                    CREATE TABLE IF NOT EXISTS queue_metrics (
-                        id BIGSERIAL PRIMARY KEY,
-                        metric_name VARCHAR(100) NOT NULL,
-                        metric_value DOUBLE PRECISION NOT NULL,
-                        tags JSONB DEFAULT '{}',
-                        timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-                    )
-                    """);
 
                 // V010: Consumer Group Fanout Tables
                 // Create outbox_topics table

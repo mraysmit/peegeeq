@@ -93,9 +93,18 @@ public class SystemMonitoringHandler {
     // Metrics caching
     private final AtomicReference<CachedMetrics> cachedMetrics = new AtomicReference<>();
 
-    // Rate tracking: previous sample point for delta-based messagesPerSecond
-    private final AtomicLong prevTotalMessages = new AtomicLong(0L);
-    private final AtomicLong prevMessagesTimestampMs = new AtomicLong(0L);
+    // The handler-level prevTotalMessages/prevMessagesTimestampMs delta state that lived here
+    // was DELETED by the metrics-stack remediation (2026-08-09): every streaming path
+    // overwrote its output via withPerConnectionRate before any client saw it, so it was dead
+    // state whose only effect was collection-cadence noise inside the cache. The per-CONNECTION
+    // baselines below are a different thing and stay: they are the §4A consumer-side
+    // baseline-and-delta, held for one client session — pinned by the §8.2 regression test.
+
+    // The REST-local event-loop lag sampler that lived here (2026-08-08) was removed by the
+    // metrics-stack remediation (2026-08-09): it sampled the REST server's OWN loop — never the
+    // per-setup manager loops that carry queue work — and it made metric production depend on
+    // the collector. The measurement now lives in PeeGeeQManager; this handler only reads
+    // setupService.getSaturationSnapshotForSetup(setupId) at collection time.
 
     /**
      * Cached metrics with TTL to reduce GC pressure
@@ -283,16 +292,20 @@ public class SystemMonitoringHandler {
         // Send initial stats update immediately (off event loop).
         // This MUST be a fresh collection, not a cached one: the per-connection rate
         // baseline is seeded here. A stale cache (TTL can exceed the streaming interval)
-        // would seed an out-of-date totalMessages, making the next tick report a spurious
+        // would seed an out-of-date totalPendingMessages, making the next tick report a spurious
         // delta. Forcing a fresh collect also primes the shared cache so subsequent ticks
         // observe a consistent baseline.
         sendInitialMetricsToWebSocket(connection);
 
-        // Start per-connection streaming with jitter
+        // Start per-connection streaming. Jitter is a ONE-OFF PHASE offset (initial delay),
+        // never an addition to the period: the T.5 probe measured the old period-added form
+        // slowing every connection to 0.52 Hz when 1 Hz was requested (metrics-stack
+        // remediation step 6, 2026-08-09). Spreading connections across the interval is the
+        // initial delay's job; the period stays exactly what the client asked for.
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
-        long intervalMs = connection.updateInterval * 1000L + jitter;
+        long intervalMs = connection.updateInterval * 1000L;
 
-        long timerId = vertx.setPeriodic(intervalMs, id -> {
+        long timerId = vertx.setPeriodic(Math.max(1L, jitter), intervalMs, id -> {
             sendMetricsToWebSocket(connection);
         });
 
@@ -406,11 +419,12 @@ public class SystemMonitoringHandler {
         // Send initial stats update immediately (off event loop)
         sendMetricsToSse(connection, () -> cleanupSSEConnection(connectionId, clientIp));
 
-        // Start per-connection metrics streaming with jitter
+        // Start per-connection metrics streaming — jitter as phase offset only (see the
+        // WebSocket connect-path comment).
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
-        long intervalMs = interval * 1000L + jitter;
+        long intervalMs = interval * 1000L;
 
-        long metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
+        long metricsTimerId = vertx.setPeriodic(Math.max(1L, jitter), intervalMs, id -> {
             sendMetricsToSse(connection, () -> cleanupSSEConnection(connectionId, clientIp));
         });
 
@@ -533,7 +547,7 @@ public class SystemMonitoringHandler {
                             .put("totalQueues", 0)
                             .put("totalConsumerGroups", 0)
                             .put("totalEventStores", 0)
-                            .put("totalMessages", 0L)
+                            .put("totalPendingMessages", 0L)
                             .put("activeConsumerConnections", 0)
                             .put("activeSubscriptions", 0)
                             .put("pausedSubscriptions", 0)
@@ -542,6 +556,7 @@ public class SystemMonitoringHandler {
                             .put("subscribedTopics", new JsonArray())
                             .put("activeBackfills", new JsonArray())
                             .put("dbPoolPerSetup", new JsonArray())
+                            .put("saturationPerSetup", new JsonArray())
                             .put("totalSetups", activeSetupIds.size()));
 
                     for (String setupId : activeSetupIds) {
@@ -551,18 +566,17 @@ public class SystemMonitoringHandler {
                     return accumulator;
                 })
                 .map(agg -> {
-                    int totalMessages_i = agg.getInteger("totalMessages", 0);
-                    long totalMessages = agg.getLong("totalMessages", (long) totalMessages_i);
+                    int totalPending_i = agg.getInteger("totalPendingMessages", 0);
+                    long totalPendingMessages = agg.getLong("totalPendingMessages", (long) totalPending_i);
                     int totalConsumerGroups = agg.getInteger("totalConsumerGroups", 0);
-                    // Delta rate: messages added since last collection, not lifetime average
-                    long prevMessages = prevTotalMessages.getAndSet(totalMessages);
-                    long prevTimestamp = prevMessagesTimestampMs.getAndSet(now);
-                    long intervalMs = now - prevTimestamp;
-                    double messagesPerSecond = prevTimestamp > 0 && intervalMs > 0 && totalMessages >= prevMessages
-                            ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
+                    // messagesPerSecond is NOT computed here: a rate needs two samples and a
+                    // session to belong to, and this method is a stateless single collection.
+                    // Each streaming connection derives its own rate from its own previous
+                    // frame (withPerConnectionRate) — the §4A baseline-and-delta discipline,
+                    // done by the consumer's session rather than by collector-held state.
                     JsonArray topicsArray = agg.getJsonArray("subscribedTopics", new JsonArray());
 
-                    return new JsonObject()
+                    JsonObject stats = new JsonObject()
                             .put("type", "system_stats")
                             .put("timestamp", now)
                             .put("uptime", getUptimeString(uptime))
@@ -571,7 +585,6 @@ public class SystemMonitoringHandler {
                             .put("memoryMax", runtime.maxMemory())
                             .put("cpuCores", runtime.availableProcessors())
                             .put("threadsActive", Thread.activeCount())
-                            .put("messagesPerSecond", messagesPerSecond)
                             // Phase 11: the old composite "activeConnections" (browser sessions +
                             // subscription count) was meaningless. Emit three distinct dimensions.
                             .put("monitoringSessions", totalConnections.get())
@@ -582,7 +595,10 @@ public class SystemMonitoringHandler {
                                     .put("pending", agg.getInteger("dbPoolPending", 0))
                                     .put("total", agg.getInteger("dbPoolTotal", 0))
                                     .put("perSetup", agg.getJsonArray("dbPoolPerSetup", new JsonArray())))
-                            .put("totalMessages", totalMessages)
+                            // Renamed from "totalMessages" 2026-08-09: the value has always
+                            // been the summed PENDING backlog across queues, and the old name
+                            // read as a lifetime total. The name now states the quantity.
+                            .put("totalPendingMessages", totalPendingMessages)
                             .put("totalQueues", agg.getInteger("totalQueues", 0))
                             .put("totalConsumerGroups", totalConsumerGroups)
                             .put("totalEventStores", agg.getInteger("totalEventStores", 0))
@@ -595,6 +611,25 @@ public class SystemMonitoringHandler {
                                     .put("total", totalConsumerGroups)
                                     .put("topics", topicsArray.size()))
                             .put("activeBackfills", agg.getJsonArray("activeBackfills", new JsonArray()));
+
+                    // Telemetry G3 (remediation step 1): per-setup event-loop lag, PRODUCED by
+                    // each setup's own manager on its own Vert.x — this collector only reads
+                    // snapshots. Top-level eventLoopLagMs is the WORST window-max across setups
+                    // (the single saturation headline); the per-setup array carries attribution.
+                    // Both are omitted when no setup has sampled — absence, never zero.
+                    JsonArray saturation = agg.getJsonArray("saturationPerSetup", new JsonArray());
+                    if (!saturation.isEmpty()) {
+                        stats.put("saturation", saturation);
+                        Double worstLag = agg.getDouble("eventLoopLagWorstMs");
+                        if (worstLag != null) {
+                            stats.put("eventLoopLagMs", worstLag);
+                        }
+                        Double worstAcquire = agg.getDouble("poolAcquireWaitWorstMs");
+                        if (worstAcquire != null) {
+                            stats.put("poolAcquireWaitMs", worstAcquire);
+                        }
+                    }
+                    return stats;
                 })
                 .transform(ar -> {
                     if (ar.failed()) {
@@ -651,8 +686,8 @@ public class SystemMonitoringHandler {
                             });
 
                     return setupMessagesFut.compose(setupMessages -> {
-                        long totalMessagesNow = agg.getLong("totalMessages", 0L) + setupMessages;
-                        agg.put("totalMessages", totalMessagesNow);
+                        long totalPendingNow = agg.getLong("totalPendingMessages", 0L) + setupMessages;
+                        agg.put("totalPendingMessages", totalPendingNow);
 
                         // Consumer Groups and Connections (async listSubscriptions returns Future)
                         dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
@@ -671,7 +706,10 @@ public class SystemMonitoringHandler {
                     })
                     // Phase 11: collect this setup's live DB connection breakdown (active/idle/pending)
                     .compose(aggAfterSubs -> collectDbPoolForSetup(setupId)
-                            .map(pool -> mergeDbPool(aggAfterSubs, pool)));
+                            .map(pool -> mergeDbPool(aggAfterSubs, pool)))
+                    // Telemetry G3 (remediation step 1): read the setup's saturation snapshot.
+                    // A pure read of core-produced state — this collector never measures.
+                    .map(aggAfterPool -> mergeSaturation(setupId, aggAfterPool));
                 })
                 .transform(ar -> {
                     if (ar.failed()) {
@@ -732,6 +770,45 @@ public class SystemMonitoringHandler {
                     }
                     return Future.succeededFuture(ar.result());
                 });
+    }
+
+    /**
+     * Merges a setup's saturation snapshot into the accumulator (telemetry G3).
+     *
+     * <p>Read-only against core state: {@code getSaturationSnapshotForSetup} is idempotent and
+     * the measurement exists whether or not this collector ever runs. A setup whose sampler has
+     * not measured yet (manager starting, metrics disabled) contributes NOTHING — no zeroed
+     * entry, matching the absence contract the failure paths in this class historically broke.
+     */
+    private JsonObject mergeSaturation(String setupId, JsonObject agg) {
+        dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot snapshot =
+                setupService.getSaturationSnapshotForSetup(setupId);
+        if (snapshot == null || (snapshot.eventLoopLag() == null && snapshot.poolAcquireWait() == null)) {
+            return agg;
+        }
+        JsonObject entry = new JsonObject().put("setupId", setupId);
+        dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot.Window lag = snapshot.eventLoopLag();
+        if (lag != null) {
+            entry.put("eventLoopLagMaxMs", lag.maxMs())
+                 .put("eventLoopLagLatestMs", lag.latestMs())
+                 .put("sampleCount", lag.sampleCount())
+                 .put("windowSeconds", lag.windowSeconds());
+            Double worst = agg.getDouble("eventLoopLagWorstMs");
+            agg.put("eventLoopLagWorstMs", worst == null ? lag.maxMs() : Math.max(worst, lag.maxMs()));
+        }
+        // The acquisition canary runs on a slower cadence (5 s) than the lag sampler (500 ms),
+        // so each component is present independently — never zero-filled to line them up.
+        dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot.Window acquire = snapshot.poolAcquireWait();
+        if (acquire != null) {
+            entry.put("poolAcquireWaitMaxMs", acquire.maxMs())
+                 .put("poolAcquireWaitLatestMs", acquire.latestMs())
+                 .put("poolAcquireWaitSampleCount", acquire.sampleCount());
+            Double worstAcquire = agg.getDouble("poolAcquireWaitWorstMs");
+            agg.put("poolAcquireWaitWorstMs",
+                    worstAcquire == null ? acquire.maxMs() : Math.max(worstAcquire, acquire.maxMs()));
+        }
+        agg.getJsonArray("saturationPerSetup", new JsonArray()).add(entry);
+        return agg;
     }
 
     /** Merges a single setup's DB pool breakdown into the aggregate accumulator. */
@@ -853,11 +930,11 @@ public class SystemMonitoringHandler {
             vertx.cancelTimer(connection.timerId);
         }
 
-        // Start new timer with jitter
+        // Start new timer — jitter as phase offset only (see the connect-path comment).
         long jitter = config.jitterMs() > 0 ? random.nextInt((int) config.jitterMs()) : 0;
-        long intervalMs = interval * 1000L + jitter;
+        long intervalMs = interval * 1000L;
 
-        long timerId = vertx.setPeriodic(intervalMs, id -> {
+        long timerId = vertx.setPeriodic(Math.max(1L, jitter), intervalMs, id -> {
             sendMetricsToWebSocket(connection);
         });
 
@@ -927,21 +1004,25 @@ public class SystemMonitoringHandler {
     }
 
     /**
-     * Returns a copy of {@code metrics} with {@code messagesPerSecond} replaced by a
-     * per-connection delta rate: messages added since this connection's previous sample,
-     * divided by the elapsed interval. Both the WebSocket and SSE streaming paths use this
-     * so a client sees the SAME rate semantics regardless of transport — rather than the
-     * WebSocket reporting a per-connection delta while SSE forwarded the shared cached value.
-     * The first sample on a connection reports {@code 0.0} (no prior point to delta against).
+     * Returns a copy of {@code metrics} with {@code messagesPerSecond} set to this
+     * connection's own delta: the change in the summed PENDING backlog since this
+     * connection's previous frame, divided by the elapsed interval. That is what the field
+     * has always measured (§8.2 pins "0 when nothing changed"), stated honestly: it is a
+     * BACKLOG CHANGE RATE, not throughput — and since 2026-08-09 it is SIGNED, so a draining
+     * backlog reads negative instead of being clamped to a fabricated 0.
+     *
+     * <p>This per-connection state is the §4A consumer-side baseline-and-delta, held for one
+     * client session — not collector-owned metric state. The first frame reports {@code 0.0}
+     * (no prior point to delta against).
      */
     private static JsonObject withPerConnectionRate(JsonObject metrics, long nowMs,
             AtomicLong prevTotalMessages, AtomicLong prevMessagesTimestampMs) {
-        long totalMessages = metrics.getLong("totalMessages", 0L);
-        long prevMessages = prevTotalMessages.getAndSet(totalMessages);
+        long totalPending = metrics.getLong("totalPendingMessages", 0L);
+        long prevMessages = prevTotalMessages.getAndSet(totalPending);
         long prevTs = prevMessagesTimestampMs.getAndSet(nowMs);
         long intervalMs = nowMs - prevTs;
-        double rate = prevTs > 0 && intervalMs > 0 && totalMessages >= prevMessages
-                ? (totalMessages - prevMessages) / (intervalMs / 1000.0) : 0.0;
+        double rate = prevTs > 0 && intervalMs > 0
+                ? (totalPending - prevMessages) / (intervalMs / 1000.0) : 0.0;
         return metrics.copy().put("messagesPerSecond", rate);
     }
 
@@ -964,7 +1045,7 @@ public class SystemMonitoringHandler {
                             .description("Time taken to collect and aggregate system metrics")
                             .register(meterRegistry));
                     cachedMetrics.set(new CachedMetrics(metrics, now));
-                    connection.prevTotalMessages.set(metrics.getLong("totalMessages", 0L));
+                    connection.prevTotalMessages.set(metrics.getLong("totalPendingMessages", 0L));
                     connection.prevMessagesTimestampMs.set(now);
                     connection.sendMetrics(metrics.copy().put("messagesPerSecond", 0.0));
                     connection.lastActivity = now;

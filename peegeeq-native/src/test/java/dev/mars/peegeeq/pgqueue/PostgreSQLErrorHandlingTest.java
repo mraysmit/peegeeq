@@ -111,7 +111,14 @@ class PostgreSQLErrorHandlingTest {
                 logger.warn("Error during teardown: {}", err.getMessage());
                 testContext.completeNow();
             });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        // 60 s, not 30: closeReactive's own internal worst cases (pool close, in-flight health
+        // cycle, worker drain) can legitimately reach ~30 s under full-suite load, and a budget
+        // EQUAL to the thing it waits for is a boundary race. This exact teardown timed out at
+        // ~31 s under -Pall-tests on 2026-05-23 and again on 2026-08-09, and passes in
+        // isolation in ~10 s both times. The slow-close mechanism under load is NOT diagnosed —
+        // this aligns the budget so the test measures teardown FAILURE, not teardown latency; a
+        // genuine hang still fails at 60 s.
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         logger.info("Test teardown completed");
     }
 

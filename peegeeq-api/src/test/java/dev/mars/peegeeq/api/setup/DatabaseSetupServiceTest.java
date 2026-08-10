@@ -29,6 +29,7 @@ class DatabaseSetupServiceTest {
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) { return null; }
         };
 
         // Test primary Future-returning methods
@@ -79,6 +80,7 @@ class DatabaseSetupServiceTest {
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) { return null; }
         };
 
         Future<Void> closeFuture = service.close();
@@ -104,6 +106,7 @@ class DatabaseSetupServiceTest {
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) { return null; }
+            @Override public dev.mars.peegeeq.api.metrics.SetupSaturationSnapshot getSaturationSnapshotForSetup(String setupId) { return null; }
         };
 
         Future<SetupReloadReport> reloadFuture = service.reloadPersistedSetups();

@@ -168,6 +168,14 @@ class ManagementApiHandlerTest {
                 assertTrue(stats.containsKey("totalEventStores"), "totalEventStores should be present");
                 assertTrue(stats.containsKey("uptime"), "uptime should be present");
 
+                // systemStats must not claim a system throughput rate. The old
+                // "messagesPerSecond" summed per-queue LIFETIME averages
+                // (total/(last-first) since queue creation) — not a rate of
+                // anything. Deleted 2026-08-09 (metrics-stack review); the live
+                // rate is the monitoring stream's backlog change rate.
+                assertFalse(stats.containsKey("messagesPerSecond"),
+                    "systemStats must not fabricate a system rate from lifetime averages");
+
                 logger.info("System overview response: {}", overview.encode());
                 logger.info("System overview endpoint test passed");
                 testContext.completeNow();
@@ -317,9 +325,44 @@ class ManagementApiHandlerTest {
                 assertTrue(metrics.getInteger("cpuCores") > 0, "cpuCores should be positive");
 
                 logger.info("System metrics response: {}", metrics.encode());
+
+                // The messaging figures are written into the cache asynchronously;
+                // poll until that fill lands (totalMessages present), then assert
+                // the payload does not carry "messagesPerSecond" — the old field
+                // summed per-queue lifetime averages (deleted 2026-08-09,
+                // metrics-stack review). Polling makes the absence check
+                // deterministic: both fields were written by the same block, so a
+                // single immediate re-read could pass before a reintroduced
+                // fabrication ever reached the cache.
+                pollUntilMessagingFiguresFilled(vertx, testContext, System.currentTimeMillis() + 10_000);
+            })));
+    }
+
+    /**
+     * Re-reads GET /management/metrics until the asynchronous cache fill has
+     * landed (totalMessages present), then asserts the filled payload carries
+     * no "messagesPerSecond". Fails if the fill never lands before the deadline.
+     */
+    private void pollUntilMessagingFiguresFilled(Vertx vertx, VertxTestContext testContext, long deadlineMs) {
+        client.get(TEST_PORT, "localhost", "/api/v1/management/metrics")
+            .timeout(10000)
+            .send()
+            .onComplete(testContext.succeeding(response -> {
+                JsonObject cached = response.bodyAsJsonObject();
+                if (!cached.containsKey("totalMessages")) {
+                    if (System.currentTimeMillis() > deadlineMs) {
+                        testContext.failNow(new AssertionError(
+                            "metrics cache never filled its messaging figures within the deadline"));
+                        return;
+                    }
+                    vertx.setTimer(100, id -> pollUntilMessagingFiguresFilled(vertx, testContext, deadlineMs));
+                    return;
+                }
+                testContext.verify(() -> assertFalse(cached.containsKey("messagesPerSecond"),
+                    "metrics must not fabricate a system rate from lifetime averages"));
                 logger.info("System metrics endpoint test passed");
                 testContext.completeNow();
-            })));
+            }));
     }
 
     /**

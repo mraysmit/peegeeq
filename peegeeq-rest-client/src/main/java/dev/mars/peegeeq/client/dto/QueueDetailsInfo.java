@@ -17,10 +17,14 @@
 package dev.mars.peegeeq.client.dto;
 
 import java.time.Instant;
-import java.util.List;
 
 /**
  * Detailed information about a queue.
+ *
+ * <p>Reshaped 2026-08-10 (messages-stats contract review): the former fields
+ * pendingMessages/processedMessages/deadLetterMessages/consumerIds had no source in
+ * the {@code GET /api/v1/queues/:setupId/:queueName} payload and were dropped rather
+ * than default-filled.
  */
 public record QueueDetailsInfo(
     String queueName,
@@ -28,11 +32,7 @@ public record QueueDetailsInfo(
     String implementationType,
     boolean healthy,
     long totalMessages,
-    long pendingMessages,
-    long processedMessages,
-    long deadLetterMessages,
     int consumerCount,
-    List<String> consumerIds,
     Instant createdAt
 ) {
     /**
@@ -41,8 +41,7 @@ public record QueueDetailsInfo(
     public static QueueDetailsInfo basic(String queueName, String setupId, String implementationType) {
         return new QueueDetailsInfo(
             queueName, setupId, implementationType, true,
-            0, 0, 0, 0, 0, List.of(), Instant.now()
+            0, 0, Instant.now()
         );
     }
 }
-

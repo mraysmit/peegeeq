@@ -46,7 +46,7 @@ test.describe('Overview – Live Stats Values', () => {
 
         await expect(page.getByTestId('sse-status')).toContainText('Connected', { timeout: 15000 })
 
-        const card = page.locator('.ant-statistic').filter({ hasText: 'Messages/sec' })
+        const card = page.locator('.ant-statistic').filter({ hasText: 'Backlog change' })
         await expect(card).toBeVisible()
 
         const valueEl = card.locator('.ant-statistic-content-value')

@@ -251,6 +251,150 @@ public class ServerSentEventsHandler {
         });
     }
 
+    // ── Fast per-queue stats stream (telemetry G4 — metrics-stack remediation step 6) ────────
+    //
+    // §5 of the telemetry requirements wants ≥ 1 Hz per-queue figures for G.1b's breaking-point
+    // attribution. /sse/metrics cannot honestly provide that: it aggregates every setup behind
+    // a 5 s system-stats cache. This stream is the decided alternative — per-QUEUE, built on
+    // the same typed core seam as GET .../stats (QueueFactory.getStats → QueueStats →
+    // QueueHandler.queueStatsJson), so the frame shape is identical to /stats by construction.
+    // The collector holds no metric state: every tick is a fresh idempotent read of
+    // core-produced numbers, and rate/delta derivation stays with the consumer (§4A).
+
+    /** Interval clamp: ≥ 1 Hz is the requirement; 200 ms is the floor so a typo cannot turn a stats stream into load. */
+    private static final long STATS_STREAM_MIN_INTERVAL_MS = 200L;
+    private static final long STATS_STREAM_MAX_INTERVAL_MS = 10_000L;
+    private static final long STATS_STREAM_DEFAULT_INTERVAL_MS = 1_000L;
+
+    /**
+     * SSE URL: GET /api/v1/queues/{setupId}/{queueName}/stats/stream?intervalMs=1000
+     *
+     * <p>Emits a {@code stats} event per tick carrying exactly the GET .../stats payload.
+     * Non-destructive: getStats is a read. A tick that FAILS ends the stream with an
+     * {@code error} event carrying the reason — a stream that silently stopped sampling would
+     * read as a healthy queue with frozen numbers.
+     */
+    public void handleQueueStatsStream(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String queueName = ctx.pathParam("queueName");
+
+        if (!dev.mars.peegeeq.api.messaging.TopicNameValidator.isValid(queueName)) {
+            ctx.response().setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("error", "Invalid queue name").encode());
+            return;
+        }
+
+        long intervalMs = parseIntervalMs(ctx.request().getParam("intervalMs"));
+
+        setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.failedFuture(new IllegalStateException(
+                                "Setup not found or not active: " + setupId));
+                    }
+                    QueueFactory factory = setupResult.getQueueFactories().get(queueName);
+                    if (factory == null) {
+                        return Future.failedFuture(new IllegalStateException(
+                                "Queue not found: " + queueName));
+                    }
+                    return Future.succeededFuture(factory);
+                })
+                .onSuccess(factory -> startQueueStatsStream(ctx, setupId, queueName, factory, intervalMs))
+                .onFailure(err -> ctx.response().setStatusCode(404)
+                        .putHeader("content-type", "application/json")
+                        .end(new JsonObject().put("error", err.getMessage()).encode()));
+    }
+
+    private void startQueueStatsStream(RoutingContext ctx, String setupId, String queueName,
+            QueueFactory factory, long intervalMs) {
+        String connectionId = "stats-stream-" + connectionIdCounter.incrementAndGet();
+        HttpServerResponse response = ctx.response();
+        response.putHeader("Content-Type", "text/event-stream")
+                .putHeader("Cache-Control", "no-cache")
+                .putHeader("Connection", "keep-alive")
+                .setChunked(true);
+
+        logger.info("Queue stats stream connected: {} for {}/{} at {} ms", connectionId, setupId,
+                queueName, intervalMs);
+
+        writeSSEEvent(response, "connected", new JsonObject()
+                .put("connectionId", connectionId)
+                .put("setupId", setupId)
+                .put("queueName", queueName)
+                .put("intervalMs", intervalMs)
+                .put("timestamp", System.currentTimeMillis()));
+
+        long[] timerIdRef = {0};
+        Runnable stop = () -> {
+            if (timerIdRef[0] != 0) {
+                vertx.cancelTimer(timerIdRef[0]);
+                timerIdRef[0] = 0;
+            }
+        };
+
+        // The in-flight guard: at 200 ms ticks a slow database can out-wait the interval, and
+        // stacking reads would turn the observer into load (the same rule as the manager's
+        // acquisition canary).
+        java.util.concurrent.atomic.AtomicBoolean tickRunning =
+                new java.util.concurrent.atomic.AtomicBoolean(false);
+
+        Runnable tick = () -> {
+            if (response.closed()) {
+                stop.run();
+                return;
+            }
+            if (!tickRunning.compareAndSet(false, true)) {
+                return;
+            }
+            factory.isHealthy()
+                    .compose(healthy -> factory.getStats(queueName)
+                            .map(stats -> QueueHandler.queueStatsJson(
+                                    setupId, queueName, factory.getImplementationType(), healthy, stats)))
+                    .onSuccess(json -> {
+                        tickRunning.set(false);
+                        writeSSEEvent(response, "stats", json);
+                    })
+                    .onFailure(err -> {
+                        tickRunning.set(false);
+                        // The stream ENDS on a failed read: continuing would emit nothing while
+                        // looking connected, and a frozen "healthy" frame is worse than a
+                        // stated failure. The client reconnects if it still wants the stream.
+                        logger.warn("Queue stats stream {} ending after failed read for {}/{}: {}",
+                                connectionId, setupId, queueName, err.getMessage());
+                        stop.run();
+                        writeSSEEvent(response, "error", new JsonObject()
+                                .put("error", "Stats read failed: " + err.getMessage())
+                                .put("timestamp", System.currentTimeMillis()));
+                        if (!response.closed()) {
+                            response.end();
+                        }
+                    });
+        };
+
+        // First sample immediately, then the periodic cadence.
+        tick.run();
+        timerIdRef[0] = vertx.setPeriodic(intervalMs, id -> tick.run());
+
+        ctx.request().connection().closeHandler(v -> {
+            logger.info("Queue stats stream closed: {}", connectionId);
+            stop.run();
+        });
+    }
+
+    private static long parseIntervalMs(String param) {
+        if (param == null) {
+            return STATS_STREAM_DEFAULT_INTERVAL_MS;
+        }
+        try {
+            long requested = Long.parseLong(param);
+            return Math.max(STATS_STREAM_MIN_INTERVAL_MS,
+                    Math.min(STATS_STREAM_MAX_INTERVAL_MS, requested));
+        } catch (NumberFormatException e) {
+            return STATS_STREAM_DEFAULT_INTERVAL_MS;
+        }
+    }
+
     /**
      * Writes a single SSE event directly to an HTTP response.
      */

@@ -16,7 +16,6 @@
 
 package dev.mars.peegeeq.client;
 
-import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
@@ -25,7 +24,6 @@ import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import dev.mars.peegeeq.api.health.HealthStatusInfo;
 import dev.mars.peegeeq.api.health.OverallHealthInfo;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
-import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.client.dto.*;
@@ -46,13 +44,12 @@ import java.util.List;
  * PeeGeeQClient client = PeeGeeQRestClient.create(vertx, ClientConfig.defaults());
  * 
  * client.createSetup(request)
- *     .onSuccess(result -> System.out.println("Setup created: " + result.getSetupId()))
+ *     .onSuccess(result -> System.out.println("Setup created: " + result.setupId()))
  *     .onFailure(err -> System.err.println("Failed: " + err.getMessage()));
  * }</pre>
  * 
  * @see PeeGeeQRestClient
  */
-@SuppressWarnings("rawtypes") // BiTemporalEvent used raw REST client payload type unknown at compile time
 public interface PeeGeeQClient extends AutoCloseable {
 
     // ========================================================================
@@ -63,24 +60,24 @@ public interface PeeGeeQClient extends AutoCloseable {
      * Creates a new database setup with queues and event stores.
      *
      * @param request the setup configuration
-     * @return future containing the setup result
+     * @return future containing the setup creation result
      */
-    Future<DatabaseSetupResult> createSetup(DatabaseSetupRequest request);
+    Future<SetupResultInfo> createSetup(DatabaseSetupRequest request);
 
     /**
      * Lists all active database setups.
      *
-     * @return future containing list of setup results
+     * @return future containing the list of active setup IDs
      */
-    Future<List<DatabaseSetupResult>> listSetups();
+    Future<List<String>> listSetups();
 
     /**
      * Gets details for a specific setup.
      *
      * @param setupId the setup identifier
-     * @return future containing the setup result
+     * @return future containing the setup details
      */
-    Future<DatabaseSetupResult> getSetup(String setupId);
+    Future<SetupDetailsInfo> getSetup(String setupId);
 
     /**
      * Deletes a database setup and all associated resources.
@@ -163,7 +160,7 @@ public interface PeeGeeQClient extends AutoCloseable {
      *
      * @param setupId the setup identifier
      * @param queueName the queue name
-     * @return future containing list of consumer IDs
+     * @return future containing list of consumer group names
      */
     Future<List<String>> getQueueConsumers(String setupId, String queueName);
 
@@ -288,12 +285,16 @@ public interface PeeGeeQClient extends AutoCloseable {
     /**
      * Lists dead letter messages with pagination.
      *
+     * <p>Returns the page's messages directly: the endpoint emits a bare array and
+     * no total count, so no wrapper with total/hasMore can be populated honestly
+     * (deadletter-webhooks contract review, 2026-08-10).</p>
+     *
      * @param setupId the setup identifier
      * @param page the page number (0-based)
      * @param pageSize the page size
-     * @return future containing the dead letter list response
+     * @return future containing the dead letter messages of the requested page
      */
-    Future<DeadLetterListResponse> listDeadLetters(String setupId, int page, int pageSize);
+    Future<List<DeadLetterMessageInfo>> listDeadLetters(String setupId, int page, int pageSize);
 
     /**
      * Gets a specific dead letter message.
@@ -334,7 +335,8 @@ public interface PeeGeeQClient extends AutoCloseable {
      * Cleans up old dead letter messages.
      *
      * @param setupId the setup identifier
-     * @param olderThanDays delete messages older than this many days
+     * @param olderThanDays delete messages that failed more than this many days ago
+     *                      (sent as the endpoint's retentionDays query parameter)
      * @return future containing number of messages deleted
      */
     Future<Long> cleanupDeadLetters(String setupId, int olderThanDays);
@@ -438,12 +440,17 @@ public interface PeeGeeQClient extends AutoCloseable {
     /**
      * Appends an event to an event store.
      *
+     * <p>Returns the endpoint's append confirmation: the endpoint emits
+     * {@code {eventStoreName, setupId, eventId, eventType, version,
+     * transactionTime}}, not the stored event itself (event-stores contract
+     * review, 2026-08-10).</p>
+     *
      * @param setupId the setup identifier
      * @param storeName the event store name
      * @param request the event to append
-     * @return future containing the appended event
+     * @return future containing the append result
      */
-    Future<BiTemporalEvent> appendEvent(String setupId, String storeName, AppendEventRequest request);
+    Future<EventAppendResult> appendEvent(String setupId, String storeName, AppendEventRequest request);
 
     /**
      * Queries events from an event store.
@@ -463,7 +470,7 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @param eventId the event identifier
      * @return future containing the event
      */
-    Future<BiTemporalEvent> getEvent(String setupId, String storeName, String eventId);
+    Future<EventInfo> getEvent(String setupId, String storeName, String eventId);
 
     /**
      * Gets all versions of an event.
@@ -473,19 +480,24 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @param eventId the event identifier
      * @return future containing list of event versions
      */
-    Future<List<BiTemporalEvent>> getEventVersions(String setupId, String storeName, String eventId);
+    Future<List<EventInfo>> getEventVersions(String setupId, String storeName, String eventId);
 
     /**
      * Appends a correction to an event.
+     *
+     * <p>Returns the endpoint's correction confirmation: the endpoint emits
+     * {@code {eventStoreName, setupId, originalEventId, correctionEventId,
+     * version, transactionTime, correctionReason}}, not the correction event
+     * itself (event-stores contract review, 2026-08-10).</p>
      *
      * @param setupId the setup identifier
      * @param storeName the event store name
      * @param eventId the event identifier
      * @param request the correction request
-     * @return future containing the corrected event
+     * @return future containing the correction result
      */
-    Future<BiTemporalEvent> appendCorrection(String setupId, String storeName, String eventId,
-                                              CorrectionRequest request);
+    Future<EventCorrectionResult> appendCorrection(String setupId, String storeName, String eventId,
+                                                   CorrectionRequest request);
 
     /**
      * Gets an event as of a specific transaction time.
@@ -493,10 +505,11 @@ public interface PeeGeeQClient extends AutoCloseable {
      * @param setupId the setup identifier
      * @param storeName the event store name
      * @param eventId the event identifier
-     * @param asOfTime the transaction time to query at
+     * @param asOfTime the transaction time to query at (sent as the endpoint's
+     *                 transactionTime query parameter)
      * @return future containing the event as it was at that time
      */
-    Future<BiTemporalEvent> getEventAsOf(String setupId, String storeName, String eventId, Instant asOfTime);
+    Future<EventInfo> getEventAsOf(String setupId, String storeName, String eventId, Instant asOfTime);
 
     /**
      * Gets statistics for an event store.
@@ -566,12 +579,16 @@ public interface PeeGeeQClient extends AutoCloseable {
     /**
      * Streams events from an event store using SSE.
      *
+     * <p>Only per-event frames ({@code type: "event"}) are emitted; the
+     * stream's control frames (connection/subscribed/heartbeat/error) are
+     * skipped (event-stores contract review, 2026-08-10).</p>
+     *
      * @param setupId the setup identifier
      * @param storeName the event store name
      * @param options streaming options
      * @return a read stream of events
      */
-    ReadStream<BiTemporalEvent> streamEvents(String setupId, String storeName, StreamOptions options);
+    ReadStream<EventInfo> streamEvents(String setupId, String storeName, StreamOptions options);
 
     /**
      * Streams messages from a queue using SSE.

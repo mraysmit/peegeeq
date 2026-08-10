@@ -117,8 +117,6 @@ class MigrationIntegrationTest {
                 "dead_letter_queue",
                 "bitemporal_event_log",
             "bitemporal_subscriptions",
-                "queue_metrics",
-                "connection_pool_metrics",
                 "message_processing",
                 "outbox_topics",  // V010
                 "outbox_topic_subscriptions"  // V010
@@ -129,6 +127,13 @@ class MigrationIntegrationTest {
         assertThat(actualTables)
                 .as("All required tables should exist")
                 .containsAll(expectedTables);
+
+        // V019 (2026-08-09): the write-only metrics persistence tables are DROPPED. Their
+        // ABSENCE is the contract now - recreating them without a reader reintroduces dead
+        // weight (queue_metrics was written on a timer and read by nothing, ever).
+        assertThat(actualTables)
+                .as("V019 must have dropped the write-only metrics tables")
+                .doesNotContain("queue_metrics", "connection_pool_metrics");
         
         log.info(" All {} required tables verified (including V010 tables)", expectedTables.size());
     }
@@ -377,7 +382,6 @@ class MigrationIntegrationTest {
                 "create_consumer_group_entries_for_new_message",
                 "cleanup_completed_outbox_messages",
                 "notify_bitemporal_event",
-                "cleanup_old_metrics",
                 "get_events_as_of_time"
         );
 
@@ -386,6 +390,13 @@ class MigrationIntegrationTest {
         assertThat(actualFunctions)
                 .as("All required functions should exist")
                 .containsAll(expectedFunctions);
+
+        // V019 (2026-08-09): cleanup_old_metrics was the retention function for the write-only
+        // metrics tables — defined, never invoked by anything, dropped with its tables. Its
+        // ABSENCE is the contract now.
+        assertThat(actualFunctions)
+                .as("V019 must have dropped the never-invoked metrics retention function")
+                .doesNotContain("cleanup_old_metrics");
     }
 
     @Test

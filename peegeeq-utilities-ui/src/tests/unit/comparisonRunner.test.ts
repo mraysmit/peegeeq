@@ -23,12 +23,27 @@
  * - stop() stops both sides; stopping before the engines start prevents them
  *   starting and says so
  *
+ * Added for G.2e — the churn settle poll:
+ * - the final db sample is re-read until each side's insert delta reaches the
+ *   rows that side acknowledged; a single read races PostgreSQL's per-backend
+ *   statistics flush and can report one side's inserts as zero
+ * - agreement between two consecutive samples is NOT the settle condition: two
+ *   reads of a backend that has not flushed agree with each other
+ * - when the counters never reconcile, the final read is recorded as unusable,
+ *   so the churn renders as unknown rather than as zero
+ * - a run that acknowledged nothing, and a failed baseline, are not polled at
+ *   all: neither can ever reconcile
+ *
  * No module mocking: the engine factory, the telemetry captures and the run-id
  * source are injected, and these tests pass real fakes (the profileRunner
  * pattern).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { createComparisonRunner } from '../../engine/comparisonRunner'
+import {
+  CHURN_SETTLE_DEADLINE_MS,
+  CHURN_SETTLE_INTERVAL_MS,
+  createComparisonRunner,
+} from '../../engine/comparisonRunner'
 import { useGeneratorStore } from '../../stores/generatorStore'
 import type {
   EngineCallbacks,
@@ -39,6 +54,7 @@ import type { MessageTemplate, RunConfig, RunStatus, RunSummary } from '../../ty
 import type {
   CompareSettings,
   CompareTarget,
+  DbTableStats,
   DbTelemetrySnapshot,
   QueueStatsSnapshot,
   TelemetryCapture,
@@ -132,6 +148,7 @@ function dbSnapshot(setupId: string): DbTelemetrySnapshot {
       locksTotal: 0,
       locksWaiting: 0,
       xidAge: 0,
+      notifyQueueUsage: 0,
       walRecords: 0,
       walBytes: 0,
       walLsnBytes: 0,
@@ -146,6 +163,66 @@ function dbSnapshot(setupId: string): DbTelemetrySnapshot {
       numbackends: 1,
       blksHit: 0,
       blksRead: 0,
+    },
+  }
+}
+
+function tableStats(tableName: string, nTupIns: number): DbTableStats {
+  return {
+    tableName,
+    nTupIns,
+    nTupUpd: 0,
+    nTupDel: 0,
+    nTupHotUpd: 0,
+    nLiveTup: 0,
+    nDeadTup: 0,
+    seqScan: 0,
+    idxScan: 0,
+    vacuumCount: 0,
+    autovacuumCount: 0,
+    heapBlksHit: 0,
+    heapBlksRead: 0,
+    heapBytes: 0,
+    indexBytes: 0,
+    totalBytes: 0,
+  }
+}
+
+/** A db snapshot carrying the two churn-bearing tables at stated insert counts. */
+function dbSnapshotWith(
+  setupId: string,
+  queueMessagesIns: number,
+  outboxIns: number
+): TelemetryCapture<DbTelemetrySnapshot> {
+  return {
+    ok: true,
+    snapshot: {
+      ...dbSnapshot(setupId),
+      tables: [
+        tableStats('queue_messages', queueMessagesIns),
+        tableStats('outbox', outboxIns),
+      ],
+    },
+  }
+}
+
+/**
+ * A db-telemetry reader that walks a scripted list of captures, repeating the
+ * last one once the script runs out.
+ *
+ * The script is how a stats-flush lag is expressed: the same query returns a
+ * counter that is right for one table and stale for the other, then catches up
+ * on a later read. A single fixed snapshot cannot express that at all, which is
+ * why the existing fake could not have caught this.
+ */
+function scriptedDb(script: Array<TelemetryCapture<DbTelemetrySnapshot>>) {
+  const calls: string[] = []
+  return {
+    calls,
+    captureDb: async (setupId: string): Promise<TelemetryCapture<DbTelemetrySnapshot>> => {
+      const capture = script[Math.min(calls.length, script.length - 1)]
+      calls.push(setupId)
+      return capture
     },
   }
 }
@@ -684,6 +761,222 @@ describe('comparisonRunner', () => {
     expect(report.outbox.summary.totalSent).toBe(0)
     expect(report.outbox.errorReason).toMatch(/failed to start/i)
     expect(report.native.summary.finalStatus).toBe('completed')
+  })
+
+  // ── churn settle poll (G.2e) ──────────────────────────────────────────────
+  //
+  // PostgreSQL does not make a committed INSERT visible in pg_stat_user_tables
+  // at commit: each backend accumulates its counters and flushes them on a rate
+  // limit. The native and outbox publish paths commit on DIFFERENT connections,
+  // so a single final sample can read one side correctly and the other as zero.
+  // "10 acknowledged, 0 rows inserted" is what that looks like on screen, and it
+  // is the defect these tests exist to prevent.
+
+  it('keeps re-reading the final db sample until the counters reflect the acknowledged sends', async () => {
+    const engines = fakeEngines()
+    const telemetry = fakeTelemetry()
+    const db = scriptedDb([
+      dbSnapshotWith('s1', 0, 0), // baseline
+      dbSnapshotWith('s1', 10, 0), // final #1 — the outbox backend has not flushed
+      dbSnapshotWith('s1', 10, 10), // final #2 — it has now
+    ])
+    const onCompareComplete = vi.fn()
+    const runner = createComparisonRunner({
+      createEngine: engines.createEngine,
+      captureStats: telemetry.captureStats,
+      captureDb: db.captureDb,
+      newRunId: nextId,
+    })
+
+    runner.start(makeBase(), makeSettings(), { onCompareComplete })
+    await vi.advanceTimersByTimeAsync(0)
+    engines.complete('orders', makeSummary({ totalSent: 10 }))
+    engines.complete('events', makeSummary({ totalSent: 10 }))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // The first final read is short by ten rows on the outbox side, so the
+    // report is not built on it.
+    expect(onCompareComplete).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(CHURN_SETTLE_INTERVAL_MS)
+
+    expect(onCompareComplete).toHaveBeenCalledTimes(1)
+    expect(db.calls).toEqual(['s1', 's1', 's1'])
+    const report = onCompareComplete.mock.calls[0][0]
+    expect(report.telemetry.db.s1.final.ok).toBe(true)
+    const tables = report.telemetry.db.s1.final.snapshot.tables
+    expect(tables.find((t: DbTableStats) => t.tableName === 'outbox').nTupIns).toBe(10)
+
+    // Only the db sample is re-read. Re-reading /stats would move the latency
+    // sample delta after the run had already ended, crediting this run with
+    // measurements taken after it finished.
+    expect(telemetry.statsCalls).toHaveLength(4)
+  })
+
+  it('does NOT stop polling because two consecutive samples agree', async () => {
+    const engines = fakeEngines()
+    const telemetry = fakeTelemetry()
+    const db = scriptedDb([
+      dbSnapshotWith('s1', 0, 0), // baseline
+      dbSnapshotWith('s1', 10, 0), // final #1
+      dbSnapshotWith('s1', 10, 0), // final #2 — identical, and still wrong
+      dbSnapshotWith('s1', 10, 10), // final #3 — the flush lands
+    ])
+    const onCompareComplete = vi.fn()
+    const runner = createComparisonRunner({
+      createEngine: engines.createEngine,
+      captureStats: telemetry.captureStats,
+      captureDb: db.captureDb,
+      newRunId: nextId,
+    })
+
+    runner.start(makeBase(), makeSettings(), { onCompareComplete })
+    await vi.advanceTimersByTimeAsync(0)
+    engines.complete('orders', makeSummary({ totalSent: 10 }))
+    engines.complete('events', makeSummary({ totalSent: 10 }))
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(CHURN_SETTLE_INTERVAL_MS)
+
+    // Two reads of a backend that has not flushed return the same number and
+    // agree with each other. Stability is not completeness — stopping here
+    // reports the zero it was meant to fix.
+    expect(onCompareComplete).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(CHURN_SETTLE_INTERVAL_MS)
+
+    expect(onCompareComplete).toHaveBeenCalledTimes(1)
+    const report = onCompareComplete.mock.calls[0][0]
+    const tables = report.telemetry.db.s1.final.snapshot.tables
+    expect(tables.find((t: DbTableStats) => t.tableName === 'outbox').nTupIns).toBe(10)
+  })
+
+  it('reports the churn as UNAVAILABLE, never zero, when the counters never reconcile', async () => {
+    const engines = fakeEngines()
+    const telemetry = fakeTelemetry()
+    const db = scriptedDb([
+      dbSnapshotWith('s1', 0, 0), // baseline
+      dbSnapshotWith('s1', 10, 0), // every final read, forever
+    ])
+    const onCompareComplete = vi.fn()
+    const runner = createComparisonRunner({
+      createEngine: engines.createEngine,
+      captureStats: telemetry.captureStats,
+      captureDb: db.captureDb,
+      newRunId: nextId,
+    })
+
+    runner.start(makeBase(), makeSettings(), { onCompareComplete })
+    await vi.advanceTimersByTimeAsync(0)
+    engines.complete('orders', makeSummary({ totalSent: 10 }))
+    engines.complete('events', makeSummary({ totalSent: 10 }))
+    await vi.advanceTimersByTimeAsync(0)
+    await vi.advanceTimersByTimeAsync(CHURN_SETTLE_DEADLINE_MS + CHURN_SETTLE_INTERVAL_MS)
+
+    expect(onCompareComplete).toHaveBeenCalledTimes(1)
+    const report = onCompareComplete.mock.calls[0][0]
+    // Handing back the unreconciled snapshot would put "0 rows inserted" next to
+    // "10 acknowledged" on screen. The read is recorded as unusable instead, so
+    // churnDeltaFor yields null and the panel renders it as unknown.
+    expect(report.telemetry.db.s1.final.ok).toBe(false)
+    expect(report.telemetry.db.s1.final.error).toMatch(/acknowledg/i)
+    expect(report.telemetry.db.s1.final.error).toContain('s1')
+
+    // Bounded: it gives up at the deadline rather than polling for ever.
+    const maxCalls = 2 + Math.ceil(CHURN_SETTLE_DEADLINE_MS / CHURN_SETTLE_INTERVAL_MS)
+    expect(db.calls.length).toBeLessThanOrEqual(maxCalls)
+  })
+
+  it('does not poll at all when neither side acknowledged anything', async () => {
+    const engines = fakeEngines()
+    const telemetry = fakeTelemetry()
+    // The final read FAILS: that is the only way a run owed no rows could end
+    // up waiting, so it is the case that proves the guard is doing something.
+    const db = scriptedDb([
+      dbSnapshotWith('s1', 4, 4), // baseline
+      { ok: false, error: 'db telemetry unavailable: 503' }, // final
+    ])
+    const onCompareComplete = vi.fn()
+    const runner = createComparisonRunner({
+      createEngine: engines.createEngine,
+      captureStats: telemetry.captureStats,
+      captureDb: db.captureDb,
+      newRunId: nextId,
+    })
+
+    runner.start(makeBase(), makeSettings(), { onCompareComplete })
+    await vi.advanceTimersByTimeAsync(0)
+    engines.stop('orders', makeSummary({ totalSent: 0 }))
+    engines.stop('events', makeSummary({ totalSent: 0 }))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // Nothing was sent, so no rows are owed and there is nothing to wait for —
+    // not even a read that could be retried.
+    expect(onCompareComplete).toHaveBeenCalledTimes(1)
+    expect(db.calls).toEqual(['s1', 's1'])
+    // The read's own reason survives, unwrapped: it never entered the settle
+    // path, so nothing "failed to settle".
+    const report = onCompareComplete.mock.calls[0][0]
+    expect(report.telemetry.db.s1.final.error).toBe('db telemetry unavailable: 503')
+  })
+
+  it('does not poll when the BASELINE read failed — the delta can never be computed', async () => {
+    const engines = fakeEngines()
+    const telemetry = fakeTelemetry()
+    const db = scriptedDb([
+      { ok: false, error: 'baseline unavailable: 503' }, // baseline
+      { ok: false, error: 'db telemetry unavailable: 503' }, // final
+    ])
+    const onCompareComplete = vi.fn()
+    const runner = createComparisonRunner({
+      createEngine: engines.createEngine,
+      captureStats: telemetry.captureStats,
+      captureDb: db.captureDb,
+      newRunId: nextId,
+    })
+
+    runner.start(makeBase(), makeSettings(), { onCompareComplete })
+    await vi.advanceTimersByTimeAsync(0)
+    engines.complete('orders', makeSummary({ totalSent: 10 }))
+    engines.complete('events', makeSummary({ totalSent: 10 }))
+    await vi.advanceTimersByTimeAsync(0)
+
+    // With no baseline there is no delta to reconcile, so waiting for one would
+    // burn the whole deadline to reach the same answer.
+    expect(onCompareComplete).toHaveBeenCalledTimes(1)
+    expect(db.calls).toEqual(['s1', 's1'])
+  })
+
+  it('retries a FAILING final db read and lands its reason at the deadline', async () => {
+    const engines = fakeEngines()
+    const telemetry = fakeTelemetry()
+    const db = scriptedDb([
+      dbSnapshotWith('s1', 0, 0), // baseline
+      { ok: false, error: 'db telemetry unavailable: 503' }, // every final read
+    ])
+    const onCompareComplete = vi.fn()
+    const runner = createComparisonRunner({
+      createEngine: engines.createEngine,
+      captureStats: telemetry.captureStats,
+      captureDb: db.captureDb,
+      newRunId: nextId,
+    })
+
+    runner.start(makeBase(), makeSettings(), { onCompareComplete })
+    await vi.advanceTimersByTimeAsync(0)
+    engines.complete('orders', makeSummary({ totalSent: 10 }))
+    engines.complete('events', makeSummary({ totalSent: 10 }))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(onCompareComplete).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(CHURN_SETTLE_DEADLINE_MS + CHURN_SETTLE_INTERVAL_MS)
+
+    expect(onCompareComplete).toHaveBeenCalledTimes(1)
+    expect(db.calls.length).toBeGreaterThan(2)
+    const report = onCompareComplete.mock.calls[0][0]
+    // The read's own reason survives: "503" is a more actionable statement than
+    // "the counters did not reconcile".
+    expect(report.telemetry.db.s1.final.ok).toBe(false)
+    expect(report.telemetry.db.s1.final.error).toMatch(/503/)
   })
 
   it('stop() is idempotent and never settles the comparison twice', async () => {
