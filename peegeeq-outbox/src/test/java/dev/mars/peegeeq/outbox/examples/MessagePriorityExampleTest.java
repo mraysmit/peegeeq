@@ -135,8 +135,8 @@ public class MessagePriorityExampleTest {
                     testContext.completeNow();
                 })
                 .onFailure(err -> {
-                    logger.warn("Error closing manager: {}", err.getMessage());
-                    testContext.completeNow();
+                    logger.error("Error closing manager", err);
+                    testContext.failNow(err);
                 });
         } else {
             logger.info(" Message Priority Example Test teardown completed");

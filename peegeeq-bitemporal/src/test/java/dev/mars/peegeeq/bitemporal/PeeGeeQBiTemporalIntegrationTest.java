@@ -173,8 +173,8 @@ class PeeGeeQBiTemporalIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(e -> {
-                    logger.warn("Manager close warning: {}", e.getMessage());
-                    testContext.completeNow();
+                    logger.error("Manager close failed", e);
+                    testContext.failNow(e);
                 });
         } else {
             testContext.completeNow();

@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.RowSet;
@@ -300,6 +301,17 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         if (payload == null) {
             return Future.failedFuture(new IllegalArgumentException("Message payload cannot be null"));
+        }
+
+        // TransactionPropagation is defined in terms of the transaction bound to the current
+        // Vert.x context. Off a context there is nothing to propagate, and Pool.withTransaction
+        // dereferences the null context internally: the caller sees a NullPointerException from
+        // Vert.x internals instead of a statement of what it did wrong.
+        if (propagation != null && Vertx.currentContext() == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "TransactionPropagation requires a Vert.x context. Call sendInOwnTransaction(..., propagation) "
+                    + "from a Vert.x context (for example inside vertx.runOnContext(...) or a Future callback), "
+                    + "or use an overload without a TransactionPropagation argument."));
         }
 
         try {

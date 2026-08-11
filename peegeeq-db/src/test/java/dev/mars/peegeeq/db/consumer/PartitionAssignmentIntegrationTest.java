@@ -87,8 +87,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(t -> {
-                    logger.info("PartitionAssignment test setup complete (cleanup skipped: {})", t.getMessage());
-                    testContext.completeNow();
+                    logger.error("Setup failed: could not clean stale test data", t);
+                    testContext.failNow(t);
                 });
     }
 

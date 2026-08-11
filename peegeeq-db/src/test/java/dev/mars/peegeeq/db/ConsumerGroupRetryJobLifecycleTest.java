@@ -84,8 +84,8 @@ public class ConsumerGroupRetryJobLifecycleTest {
             manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(e -> {
-                    logger.warn("Exception during tearDown: {}", e.getMessage());
-                    testContext.completeNow();
+                    logger.error("Exception during tearDown", e);
+                    testContext.failNow(e);
                 });
         } else {
             testContext.completeNow();

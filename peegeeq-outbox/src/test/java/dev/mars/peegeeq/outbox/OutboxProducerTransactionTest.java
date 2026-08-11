@@ -14,6 +14,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -145,62 +146,75 @@ public class OutboxProducerTransactionTest {
 
     @Test
     @DisplayName("Test sendInOwnTransaction(payload, propagation)")
-    void testsendInOwnTransactionPropagation(VertxTestContext testContext) throws Exception {
+    void testsendInOwnTransactionPropagation(Vertx vertx, VertxTestContext testContext) throws Exception {
         String payload = "tx-propagation-" + System.currentTimeMillis();
-        
-        producer.sendInOwnTransaction(payload, TransactionPropagation.CONTEXT)
-            .onSuccess(v -> {
-                logger.info("Successfully sent message with TransactionPropagation.CONTEXT");
-                testContext.completeNow();
-            })
-            .onFailure(e -> {
-                // TransactionPropagation may fail without active transaction context
-                logger.info("TransactionPropagation test completed (expected failure without context): {}", e.getMessage());
-                testContext.completeNow();
-            });
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+
+        // TransactionPropagation binds to the transaction on the current Vert.x context, so the
+        // call must be made from one. Invoking it from the JUnit thread is the misuse case and
+        // has its own test below.
+        vertx.getOrCreateContext().runOnContext(ignored ->
+            producer.sendInOwnTransaction(payload, TransactionPropagation.CONTEXT)
+                .onSuccess(v -> {
+                    logger.info("Successfully sent message with TransactionPropagation.CONTEXT");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow));
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendInOwnTransaction(payload, headers, propagation)")
-    void testsendInOwnTransactionHeadersAndPropagation(VertxTestContext testContext) throws Exception {
+    void testsendInOwnTransactionHeadersAndPropagation(Vertx vertx, VertxTestContext testContext) throws Exception {
         String payload = "tx-headers-prop-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("type", "test");
-        
-        producer.sendInOwnTransaction(payload, headers, TransactionPropagation.CONTEXT)
-            .onSuccess(v -> {
-                logger.info("Successfully sent message with headers and propagation");
-                testContext.completeNow();
-            })
-            .onFailure(e -> {
-                logger.info("Headers + propagation test completed: {}", e.getMessage());
-                testContext.completeNow();
-            });
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+
+        vertx.getOrCreateContext().runOnContext(ignored ->
+            producer.sendInOwnTransaction(payload, headers, TransactionPropagation.CONTEXT)
+                .onSuccess(v -> {
+                    logger.info("Successfully sent message with headers and propagation");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow));
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendInOwnTransaction(payload, headers, correlationId, propagation)")
-    void testsendInOwnTransactionFullParameters(VertxTestContext testContext) throws Exception {
+    void testsendInOwnTransactionFullParameters(Vertx vertx, VertxTestContext testContext) throws Exception {
         String payload = "tx-full-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("full", "test");
         String correlationId = "full-corr-" + System.currentTimeMillis();
-        
-        producer.sendInOwnTransaction(payload, headers, correlationId, TransactionPropagation.CONTEXT)
-            .onSuccess(v -> {
-                logger.info("Successfully sent message with all parameters");
+
+        vertx.getOrCreateContext().runOnContext(ignored ->
+            producer.sendInOwnTransaction(payload, headers, correlationId, TransactionPropagation.CONTEXT)
+                .onSuccess(v -> {
+                    logger.info("Successfully sent message with all parameters");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow));
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    @Test
+    @DisplayName("sendInOwnTransaction with propagation off a Vert.x context fails with a stated reason")
+    void testsendInOwnTransactionPropagationOffContextFailsWithStatedReason(VertxTestContext testContext) throws Exception {
+        // Called from the JUnit thread, where Vertx.currentContext() is null. Before the guard
+        // this surfaced as NullPointerException from inside Pool.withTransaction.
+        producer.sendInOwnTransaction("tx-offctx-" + System.currentTimeMillis(), TransactionPropagation.CONTEXT)
+            .onSuccess(v -> testContext.failNow("Expected propagation off a Vert.x context to fail"))
+            .onFailure(e -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, e);
+                assertTrue(e.getMessage().startsWith("TransactionPropagation requires a Vert.x context"),
+                    "Failure must state the requirement, not leak a Vert.x internal error. Was: " + e.getMessage());
                 testContext.completeNow();
-            })
-            .onFailure(e -> {
-                logger.info("Full parameters test completed: {}", e.getMessage());
-                testContext.completeNow();
-            });
-        
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+            }));
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -225,10 +239,12 @@ public class OutboxProducerTransactionTest {
     void testsendInOwnTransactionNullPayload(VertxTestContext testContext) throws Exception {
         producer.sendInOwnTransaction(null)
             .onSuccess(v -> testContext.failNow("Should have thrown exception for null payload"))
-            .onFailure(e -> {
+            .onFailure(e -> testContext.verify(() -> {
                 logger.info("Correctly rejected null payload: {}", e.getMessage());
+                assertInstanceOf(IllegalArgumentException.class, e);
+                assertEquals("Message payload cannot be null", e.getMessage());
                 testContext.completeNow();
-            });
+            }));
         
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }

@@ -1370,8 +1370,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
         return store.close()
                 .compose(v -> tempPool.withTransaction(conn ->
-                        conn.query("DROP TABLE IF EXISTS " + schema + "." + tableName + "_aggregate_summary CASCADE").execute()
-                                .compose(r -> conn.query("DROP TABLE IF EXISTS " + schema + "." + tableName + " CASCADE").execute())
+                        conn.query("DROP TABLE IF EXISTS " + dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator
+                                        .qualify(schema, tableName + "_aggregate_summary") + " CASCADE").execute()
+                                .compose(r -> conn.query("DROP TABLE IF EXISTS " + dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator
+                                        .qualify(schema, tableName) + " CASCADE").execute())
                                 // Keep the self-describing registry in step with the dropped table — same
                                 // transaction, so the drop and the de-registration commit or roll back together.
                                 .compose(r -> deleteObjectRegistry(conn, schema, tableName))

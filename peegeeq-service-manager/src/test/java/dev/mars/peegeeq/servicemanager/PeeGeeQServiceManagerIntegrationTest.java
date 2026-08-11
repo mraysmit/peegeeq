@@ -76,8 +76,8 @@ class PeeGeeQServiceManagerIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(throwable -> {
-                    logger.warn("Failed to undeploy Service Manager", throwable);
-                    testContext.completeNow();
+                    logger.error("Failed to undeploy Service Manager", throwable);
+                    testContext.failNow(throwable);
                 });
         } else {
             testContext.completeNow();

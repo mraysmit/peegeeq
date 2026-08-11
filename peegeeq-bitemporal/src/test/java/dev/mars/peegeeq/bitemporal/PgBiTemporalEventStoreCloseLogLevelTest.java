@@ -140,7 +140,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         }
 
         closeChain.onSuccess(v -> testContext.completeNow())
-                  .onFailure(e -> { log.warn("Teardown close error: {}", e.getMessage()); testContext.completeNow(); });
+                  .onFailure(e -> { log.error("Teardown close error", e); testContext.failNow(e); });
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

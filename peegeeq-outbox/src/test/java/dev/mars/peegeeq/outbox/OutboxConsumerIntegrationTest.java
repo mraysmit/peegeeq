@@ -108,8 +108,8 @@ class OutboxConsumerIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(e -> {
-                    logger.warn("Error stopping manager: {}", e.getMessage());
-                    testContext.completeNow();
+                    logger.error("Error stopping manager", e);
+                    testContext.failNow(e);
                 });
         } else {
             testContext.completeNow();

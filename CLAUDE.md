@@ -19,6 +19,13 @@
 - `Handler<AsyncResult` — callback style, banned
 - `\.onComplete\(ar -> .*succeeded` — use `.onSuccess`/`.onFailure` instead
 - `fire-and-forget Future` — every Future must be observed via `.onFailure(...)` or chained
+- pass-on-failure tests — an `.onFailure(err -> { ... })` block whose body reaches
+  `testContext.completeNow()` without an assertion. The test then passes whether the operation
+  succeeded or failed. The handler must call `testContext.failNow(err)`, or assert the expected
+  failure inside `testContext.verify(...)`. This applies to `@AfterEach` teardown as well: a
+  failed close leaks pool connections and must fail the test. Detection needs a body-scoped
+  scan, not a flat regex — a plain regex runs past the handler's closing brace and reports the
+  next `completeNow()` in an `else` branch as a hit.
 
 **Step 6.** If any existing code in the files you are reading uses a banned pattern, flag it. Do not copy it. "The file already does it" is not a defence — it is a pre-existing violation.
 
@@ -30,7 +37,7 @@
 
 ### Additional mandatory rules
 
-- **One phase at a time.** Make the change, then stop and report. Do not run tests. The user runs tests.
+- **One phase at a time.** Make the change, then stop and report. Run the scoped verification for that change yourself (`-Dtest=<Class>`, or a single module) and report the per-class `Tests run:` lines. `-Pall-tests` and any run over ~10 minutes belong to the user — that is the agent's foreground command timeout. Always pipe through `Tee-Object` and read the log, never the console.
 - **No error swallowing.** Every catch block must surface the error (`message.error(...)` in UI, log + propagate in Java). Silent catches are a defect.
 - **No mocking.** No Mockito, no mocked database connections, no mocked repositories. TestContainers for all database tests.
 - **Mirror existing patterns exactly.** Do not invent new patterns. Read the surrounding code first.

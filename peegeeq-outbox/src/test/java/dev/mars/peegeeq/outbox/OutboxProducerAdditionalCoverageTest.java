@@ -326,10 +326,12 @@ class OutboxProducerAdditionalCoverageTest {
         // Should return a failed future when trying to send after close
         testProducer.send("should-fail")
             .onSuccess(v -> testContext.failNow("Expected send after close to fail"))
-            .onFailure(err -> {
-                logger.info("Send after close fails gracefully");
+            .onFailure(err -> testContext.verify(() -> {
+                logger.info("Send after close correctly rejected: {}", err.getMessage());
+                assertInstanceOf(IllegalStateException.class, err);
+                assertEquals("Producer is closed", err.getMessage());
                 testContext.completeNow();
-            });
+            }));
         assertDoesNotThrow(() -> assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS)));
     }
 
