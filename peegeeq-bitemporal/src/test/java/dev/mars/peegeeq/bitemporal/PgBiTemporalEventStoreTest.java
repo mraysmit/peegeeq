@@ -186,8 +186,8 @@ class PgBiTemporalEventStoreTest {
                 .compose(v -> cleanupDatabase(vertx))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(e -> {
-                    logger.warn("Teardown warning: {}", e.getMessage());
-                    testContext.completeNow();
+                    logger.error("Teardown failed", e);
+                    testContext.failNow(e);
                 });
         } else {
             testContext.completeNow();

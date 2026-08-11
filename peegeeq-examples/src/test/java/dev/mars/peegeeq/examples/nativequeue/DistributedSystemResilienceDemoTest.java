@@ -374,8 +374,8 @@ class DistributedSystemResilienceDemoTest {
         manager.closeReactive()
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
-                logger.warn("Error during manager cleanup: {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("Error during manager cleanup", err);
+                testContext.failNow(err);
             });
 
         // Clean up system properties

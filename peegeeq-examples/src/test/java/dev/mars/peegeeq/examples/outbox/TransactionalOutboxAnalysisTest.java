@@ -136,8 +136,8 @@ public class TransactionalOutboxAnalysisTest {
                 ctx.completeNow();
             })
             .onFailure(err -> {
-                logger.warn("Error during teardown: {}", err.getMessage());
-                ctx.completeNow();
+                logger.error("Error during teardown", err);
+                ctx.failNow(err);
             });
         assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }

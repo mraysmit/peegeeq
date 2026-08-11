@@ -142,8 +142,8 @@ class NativeVsOutboxComparisonTest {
                 testContext.completeNow();
             })
             .onFailure(err -> {
-                logger.warn("Error during teardown: {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("Error during teardown", err);
+                testContext.failNow(err);
             });
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

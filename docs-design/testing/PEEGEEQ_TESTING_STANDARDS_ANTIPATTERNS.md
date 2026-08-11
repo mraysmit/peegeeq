@@ -2220,8 +2220,8 @@ void tearDown(VertxTestContext testContext) {
     manager.closeReactive()
         .onSuccess(v -> testContext.completeNow())
         .onFailure(err -> {
-            logger.warn("Error during manager cleanup: {}", err.getMessage());
-            testContext.completeNow();
+            logger.error("Error during manager cleanup", err);
+            testContext.failNow(err);   // do NOT swallow to completeNow()
         });
     // Do NOT close vertx here if @ExtendWith(VertxExtension.class) is present
 }
@@ -2239,8 +2239,8 @@ void tearDown(VertxTestContext testContext) {
         .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
         .onSuccess(v -> testContext.completeNow())
         .onFailure(err -> {
-            logger.warn("Error during reactive teardown: {}", err.getMessage());
-            testContext.completeNow();
+            logger.error("Error during reactive teardown", err);
+            testContext.failNow(err);   // do NOT swallow to completeNow()
         });
 }
 ```
@@ -2449,8 +2449,8 @@ void tearDown(VertxTestContext testContext) {
     manager.closeReactive()
         .onSuccess(v -> testContext.completeNow())
         .onFailure(err -> {
-            logger.warn("Error during manager cleanup: {}", err.getMessage());
-            testContext.completeNow();
+            logger.error("Error during manager cleanup", err);
+            testContext.failNow(err);   // do NOT swallow to completeNow()
         });
 }
 ```

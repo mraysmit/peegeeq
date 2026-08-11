@@ -145,25 +145,30 @@ class PartitionedConsumerSafetyIntegrationTest {
                     if (manager != null) {
                         manager.closeReactive()
                             .onSuccess(vv -> testContext.completeNow())
-                            .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
+                            .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
                     } else {
                         testContext.completeNow();
                     }
                 })
                 .onFailure(e -> {
-                    logger.warn("Cleanup failed: {}", e.getMessage());
+                    logger.error("Cleanup failed", e);
+                    // Still close the manager so the pool is released, but fail with the
+                    // original cleanup cause rather than the close outcome.
                     if (manager != null) {
                         manager.closeReactive()
-                            .onSuccess(vv -> testContext.completeNow())
-                            .onFailure(ee -> testContext.completeNow());
+                            .onSuccess(vv -> testContext.failNow(e))
+                            .onFailure(ee -> {
+                                logger.error("manager close also failed after cleanup failure", ee);
+                                testContext.failNow(e);
+                            });
                     } else {
-                        testContext.completeNow();
+                        testContext.failNow(e);
                     }
                 });
         } else if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
+                .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
         } else {
             testContext.completeNow();
         }

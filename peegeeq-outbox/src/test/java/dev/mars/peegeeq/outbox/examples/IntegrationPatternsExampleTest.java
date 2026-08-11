@@ -124,8 +124,8 @@ public class IntegrationPatternsExampleTest {
                     testContext.completeNow();
                 })
                 .onFailure(err -> {
-                    logger.warn("Error closing manager: {}", err.getMessage());
-                    testContext.completeNow();
+                    logger.error("Error closing manager", err);
+                    testContext.failNow(err);
                 });
         } else {
             logger.info(" Integration Patterns Example Test teardown completed");

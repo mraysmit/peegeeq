@@ -126,8 +126,8 @@ class HealthCheckManagerTest {
                 testContext.completeNow();
             })
             .onFailure(err -> {
-                logger.warn("Setup: Failed to cleanup test data: {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("Setup failed: could not clean test data", err);
+                testContext.failNow(err);
             });
     }
 

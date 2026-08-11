@@ -549,8 +549,8 @@ class EventSourcingCQRSDemoTest {
                 testContext.completeNow();
             })
             .onFailure(err -> {
-                logger.warn("Cleanup wait error: {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("Cleanup wait error", err);
+                testContext.failNow(err);
             });
     }
 

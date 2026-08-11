@@ -157,7 +157,7 @@ class ZeroSubscriptionProtectionDemoTest {
         cmClose
             .transform(ar -> manager.closeReactive())
             .onSuccess(v -> { logger.info("PeeGeeQ manager closed"); logger.info("Test teardown completed"); ctx.completeNow(); })
-            .onFailure(err -> { logger.error("Error closing manager", err); ctx.completeNow(); });
+            .onFailure(err -> { logger.error("Error closing manager", err); ctx.failNow(err); });
     }
 
     /**
