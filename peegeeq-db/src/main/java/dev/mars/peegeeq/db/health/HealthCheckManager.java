@@ -29,6 +29,7 @@ import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import dev.mars.peegeeq.db.resilience.CircuitBreakerManager;
+import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
 import io.github.resilience4j.circuitbreaker.CircuitBreaker;
 
 import java.time.Duration;
@@ -136,8 +137,16 @@ public class HealthCheckManager implements HealthService {
         return schemaName;
     }
 
+    /**
+     * Builds the schema-qualified table reference for health check SQL.
+     *
+     * <p>The schema is quoted. {@link #normalizeSchema} accepts any string matching
+     * SQL_IDENTIFIER, and that pattern matches reserved words such as {@code select} and
+     * {@code order}; unquoted, those produce {@code syntax error at or near "select" (42601)}
+     * and every queue health check reports a permanently failing queue.
+     */
     private String qualifiedTable(String table) {
-        return (schema == null || schema.isBlank()) ? table : (schema + "." + table);
+        return PostgreSqlIdentifierValidator.qualify(schema, table);
     }
 
     private String schemaContext() {

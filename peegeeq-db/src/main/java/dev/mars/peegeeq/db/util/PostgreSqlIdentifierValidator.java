@@ -224,8 +224,47 @@ public final class PostgreSqlIdentifierValidator {
     }
     
     /**
+     * Quotes a PostgreSQL identifier using double-quote escaping per the SQL standard.
+     *
+     * <p>Quoting is required for correctness, not only for safety. {@link #validate} and
+     * {@link #isValid} accept any string matching {@code ^[a-zA-Z_][a-zA-Z0-9_]*$}, and that
+     * pattern matches reserved words: {@code select}, {@code order} and {@code user} are all
+     * valid identifier text. Unquoted, {@code select.outbox} parses as the start of a SELECT
+     * clause and PostgreSQL rejects it with {@code syntax error at or near "select" (42601)}.
+     *
+     * @param identifier The identifier to quote
+     * @return The identifier wrapped in double quotes, with any embedded double quote doubled
+     * @throws IllegalArgumentException if identifier is null
+     */
+    public static String quote(String identifier) {
+        if (identifier == null) {
+            throw new IllegalArgumentException("identifier cannot be null");
+        }
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    /**
+     * Returns a schema-qualified table reference with the schema quoted, or the bare table
+     * name when no schema is configured (relying on the connection search_path).
+     *
+     * <p>The table name is not quoted. Table names in this project are fixed literals chosen
+     * by the code, not caller-supplied values; the schema is the caller-supplied part.
+     *
+     * @param schema The schema name, or null/blank for an unqualified reference
+     * @param table The table name
+     * @return The qualified table reference
+     * @throws IllegalArgumentException if table is null
+     */
+    public static String qualify(String schema, String table) {
+        if (table == null) {
+            throw new IllegalArgumentException("table cannot be null");
+        }
+        return (schema == null || schema.isBlank()) ? table : quote(schema) + "." + table;
+    }
+
+    /**
      * Checks if an identifier is valid without throwing an exception.
-     * 
+     *
      * @param identifier The identifier to check
      * @return true if valid, false otherwise
      */

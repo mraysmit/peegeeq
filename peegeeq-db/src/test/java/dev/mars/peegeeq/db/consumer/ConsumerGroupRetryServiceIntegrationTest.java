@@ -110,8 +110,11 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     testContext.completeNow();
                 })
                 .onFailure(t -> {
-                    logger.info("ConsumerGroupRetryService test setup complete (cleanup skipped: {})", t.getMessage());
-                    testContext.completeNow();
+                    // This class operates on global scans and needs a clean slate. A skipped
+                    // cleanup means the tests run against another class's leftovers, which
+                    // surfaces later as a failure attributed to the wrong test.
+                    logger.error("Setup failed: could not clean stale test data", t);
+                    testContext.failNow(t);
                 });
     }
 

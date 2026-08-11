@@ -108,8 +108,8 @@ class PostgreSQLErrorHandlingTest {
             .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> {
-                logger.warn("Error during teardown: {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("Error during teardown", err);
+                testContext.failNow(err);
             });
         // 60 s, not 30: closeReactive's own internal worst cases (pool close, in-flight health
         // cycle, worker drain) can legitimately reach ~30 s under full-suite load, and a budget
