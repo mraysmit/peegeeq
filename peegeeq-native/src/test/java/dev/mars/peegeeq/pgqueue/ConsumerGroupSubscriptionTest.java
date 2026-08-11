@@ -124,7 +124,7 @@ class ConsumerGroupSubscriptionTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> { logger.warn("manager close failed: {}", e.getMessage()); testContext.completeNow(); });
+                .onFailure(e -> { logger.error("manager close failed", e); testContext.failNow(e); });
         } else {
             testContext.completeNow();
         }

@@ -356,7 +356,7 @@ class MultiConfigurationManagerSimpleTest {
             })
             .onFailure(t -> {
                 logger.error("Failed to close manager", t);
-                testContext.completeNow();
+                testContext.failNow(t);
             });
     }
 

@@ -63,7 +63,7 @@ class MissingSchemaFailFastTest {
         if (peeGeeQManager != null) {
             peeGeeQManager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(e -> { logger.warn("Manager close: {}", e.getMessage()); testContext.completeNow(); });
+                .onFailure(e -> { logger.error("Manager close failed", e); testContext.failNow(e); });
         } else {
             testContext.completeNow();
         }

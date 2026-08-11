@@ -86,19 +86,19 @@ class OutboxQueueUnitTest {
                 queue.close()
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(err -> {
-                        logger.warn("Queue close failed in teardown, continuing", err);
-                        testContext.completeNow();
+                        logger.error("Queue close failed in teardown", err);
+                        testContext.failNow(err);
                     });
             } catch (Exception e) {
-                logger.warn("Queue close failed in teardown, continuing", e);
-                testContext.completeNow();
+                logger.error("Queue close failed in teardown", e);
+                testContext.failNow(e);
             }
         } else if (vertx != null) {
             vertx.close()
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(err -> {
-                    logger.warn("Vertx close failed in teardown, continuing", err);
-                    testContext.completeNow();
+                    logger.error("Vertx close failed in teardown", err);
+                    testContext.failNow(err);
                 });
         } else {
             testContext.completeNow();

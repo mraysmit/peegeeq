@@ -107,8 +107,8 @@ public class OutboxServerSideFilteringTest {
                 ctx.completeNow();
             })
             .onFailure(err -> {
-                logger.warn("Error during teardown: {}", err.getMessage());
-                ctx.completeNow();
+                logger.error("Error during teardown", err);
+                ctx.failNow(err);
             });
         Assertions.assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS));
     }

@@ -244,4 +244,53 @@ class PostgreSqlIdentifierValidatorTest {
         assertEquals(63, maxLength.length());
         assertDoesNotThrow(() -> PostgreSqlIdentifierValidator.validate(maxLength, "Queue"));
     }
+
+    @Test
+    void testQuoteWrapsIdentifierInDoubleQuotes() {
+        assertEquals("\"my_schema\"", PostgreSqlIdentifierValidator.quote("my_schema"));
+        assertEquals("\"public\"", PostgreSqlIdentifierValidator.quote("public"));
+    }
+
+    @Test
+    void testQuoteDoublesEmbeddedDoubleQuotes() {
+        assertEquals("\"we\"\"ird\"", PostgreSqlIdentifierValidator.quote("we\"ird"));
+    }
+
+    @Test
+    void testQuoteRejectsNull() {
+        assertThrows(IllegalArgumentException.class, () -> PostgreSqlIdentifierValidator.quote(null));
+    }
+
+    @Test
+    void testReservedWordSchemasPassValidationAndThereforeMustBeQuoted() {
+        // These are the defect. isValid accepts them because they match the identifier
+        // pattern, so nothing upstream rejects them; unquoted they produce
+        // "syntax error at or near ..." at query time.
+        for (String reserved : new String[] {"select", "order", "user", "table", "from"}) {
+            assertTrue(PostgreSqlIdentifierValidator.isValid(reserved),
+                "Reserved word '" + reserved + "' matches the identifier pattern, so quoting is the only defence");
+            assertEquals("\"" + reserved + "\".outbox",
+                PostgreSqlIdentifierValidator.qualify(reserved, "outbox"),
+                "Reserved-word schema must be quoted in the qualified reference");
+        }
+    }
+
+    @Test
+    void testQualifyQuotesSchemaButNotTable() {
+        assertEquals("\"tenant_acme\".outbox",
+            PostgreSqlIdentifierValidator.qualify("tenant_acme", "outbox"));
+    }
+
+    @Test
+    void testQualifyReturnsBareTableWhenSchemaAbsent() {
+        assertEquals("outbox", PostgreSqlIdentifierValidator.qualify(null, "outbox"));
+        assertEquals("outbox", PostgreSqlIdentifierValidator.qualify("", "outbox"));
+        assertEquals("outbox", PostgreSqlIdentifierValidator.qualify("   ", "outbox"));
+    }
+
+    @Test
+    void testQualifyRejectsNullTable() {
+        assertThrows(IllegalArgumentException.class,
+            () -> PostgreSqlIdentifierValidator.qualify("public", null));
+    }
 }

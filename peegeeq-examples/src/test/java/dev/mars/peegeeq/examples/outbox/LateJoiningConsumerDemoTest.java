@@ -157,7 +157,7 @@ class LateJoiningConsumerDemoTest {
         (connectionManager != null ? connectionManager.close() : io.vertx.core.Future.<Void>succeededFuture())
             .transform(ar -> manager != null ? manager.closeReactive() : io.vertx.core.Future.succeededFuture())
             .onSuccess(v -> { logger.info("Test teardown completed"); testContext.completeNow(); })
-            .onFailure(err -> { logger.warn("Teardown failed: {}", err.getMessage()); testContext.completeNow(); });
+            .onFailure(err -> { logger.error("Teardown failed", err); testContext.failNow(err); });
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 

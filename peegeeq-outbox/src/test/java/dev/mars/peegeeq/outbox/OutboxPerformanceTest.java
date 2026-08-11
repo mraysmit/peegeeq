@@ -39,7 +39,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -62,12 +61,12 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 
 /**
  * Performance tests for the outbox pattern implementation.
- * These tests are disabled by default and can be enabled with -Dpeegeeq.performance.tests=true
+ * These tests are excluded from the default profile by their PERFORMANCE tag and run under
+ * {@code mvn test -Pperformance-tests}.
  */
 @Tag(TestCategories.PERFORMANCE)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 public class OutboxPerformanceTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceTest.class);
@@ -135,9 +134,24 @@ public class OutboxPerformanceTest {
         manager.closeReactive()
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(err -> {
-                    logger.warn("Error during manager cleanup: {}", err.getMessage());
-                    testContext.completeNow();
+                    logger.error("Error during manager cleanup", err);
+                    testContext.failNow(err);
                 });
+    }
+
+    /**
+     * Surfaces a failed {@link VertxTestContext} as an assertion carrying its cause.
+     *
+     * <p>{@code awaitCompletion} returns true for a context that completed via {@code failNow},
+     * so without this check the test runs on past a failed send and fails later on derived state
+     * — a {@code NullPointerException} inside {@code Duration.between} rather than the send
+     * failure that caused it.
+     */
+    private static void failIfContextFailed(VertxTestContext testContext) {
+        if (testContext.failed()) {
+            throw new AssertionError("Async work failed before metrics could be computed",
+                    testContext.causeOfFailure());
+        }
     }
 
     @Test
@@ -181,6 +195,10 @@ public class OutboxPerformanceTest {
         // Wait for all messages to be processed (and for sends to have completed)
         assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS),
             "All messages should be processed within timeout");
+        // awaitCompletion returns true for a context that completed by failNow, so a failed send
+        // would otherwise leave sendCompleteTimeRef null and surface as an NPE in Duration.between,
+        // hiding the real cause.
+        failIfContextFailed(testContext);
         Instant processCompleteTime = Instant.now();
         Instant sendCompleteTime = sendCompleteTimeRef.get();
         Instant startTime = startTimeRef.get();
@@ -239,6 +257,7 @@ public class OutboxPerformanceTest {
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
             "All messages should be processed within timeout");
+        failIfContextFailed(testContext);
 
         // Calculate latency metrics
         double avgLatencyMs = (totalLatency.get() / (double) messageCount) / 1_000_000;
@@ -308,6 +327,7 @@ public class OutboxPerformanceTest {
         // Wait for all messages to be processed (and for all producer chains to finish)
         assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS),
             "All concurrent messages should be processed within timeout");
+        failIfContextFailed(testContext);
         Instant processCompleteTime = Instant.now();
         Instant sendCompleteTime = sendCompleteTimeRef.get();
         Instant startTime = startTimeRef.get();

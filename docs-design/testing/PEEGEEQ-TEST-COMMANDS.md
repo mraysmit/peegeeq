@@ -79,7 +79,11 @@ Get-Content logs\<name>.txt -Tail 30
 **Platform**: Windows / PowerShell only. Always pipe with `Tee-Object`. Never use `Select-String` or `Select-Object -Last N` on the live Maven stream.
 **Log naming**: `<description>-<YYYYMMDD>.txt`
 
-> Run all Maven commands manually in the terminal. Do not ask Copilot to execute them — the agent tool has a ~60KB output cap and unreliable timeout behaviour.
+> **Who runs what.** The agent runs scoped verification itself — `-Dtest=<Class>` or a single
+> module — and reports the per-class `Tests run:` lines. It must pipe through `Tee-Object` and
+> read the log file, not the console: that is what keeps the agent's output cap from truncating
+> the result. `-Pall-tests` and any run over ~10 minutes stay with the user or go to a background
+> run; 10 minutes is the agent's foreground command timeout.
 
 ---
 

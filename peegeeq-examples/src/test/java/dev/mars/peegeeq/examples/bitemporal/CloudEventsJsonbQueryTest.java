@@ -127,9 +127,8 @@ public class CloudEventsJsonbQueryTest {
                     testContext.completeNow();
                 })
                 .onFailure(err -> {
-                    logger.warn("Error during manager cleanup: {}", err.getMessage());
-                    logger.info("Teardown complete");
-                    testContext.completeNow();
+                    logger.error("Error during manager cleanup", err);
+                    testContext.failNow(err);
                 });
         } else {
             logger.info("Teardown complete");
