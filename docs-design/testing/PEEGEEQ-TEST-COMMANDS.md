@@ -41,10 +41,10 @@ more — it would be redundant.
 
 ```powershell
 
-# Full suite resume from — every tag, every module (~75m) — the commit/push/release GATE
+# Full suite resume from — every tag, every module (~90m) — explicit release GATE
 mvn test -Pall-tests -rf :peegeeq-examples 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 
-# Full suite — every tag, every module (~75m) — the commit/push/release GATE
+# Full suite — every tag, every module (~90m) — explicit release GATE
 mvn clean test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260526.txt
 
 # Core tests — all modules (default, ~30s)
@@ -80,26 +80,47 @@ Get-Content logs\<name>.txt -Tail 30
 **Log naming**: `<description>-<YYYYMMDD>.txt`
 
 > **Who runs what.** The agent runs scoped verification itself — `-Dtest=<Class>` or a single
-> module — and reports the per-class `Tests run:` lines. It must pipe through `Tee-Object` and
-> read the log file, not the console: that is what keeps the agent's output cap from truncating
-> the result. `-Pall-tests` and any run over ~10 minutes stay with the user or go to a background
-> run; 10 minutes is the agent's foreground command timeout.
+> module — after rebuilding the affected reactor slice. It reports the exact scope and
+> per-class `Tests run:` lines. It must pipe through `Tee-Object` and read the saved log, not
+> the live console. The approximately 90-minute `-Pall-tests` run stays with the owner or runs
+> only when explicitly requested as a release gate.
+
+---
+
+## REQUIRED: rebuild before targeted verification
+
+Every Java or Maven implementation change must be rebuilt and installed before targeted
+tests run. Scope the rebuild to the changed module and its upstream reactor dependencies:
+
+```powershell
+# One changed module
+mvn clean install -DskipTests -pl :peegeeq-db -am 2>&1 |
+    Tee-Object -FilePath logs\rebuild-peegeeq-db-20260526.txt
+
+# Multiple changed modules
+mvn clean install -DskipTests -pl :peegeeq-db,:peegeeq-outbox -am 2>&1 |
+    Tee-Object -FilePath logs\rebuild-db-outbox-20260526.txt
+```
+
+`-DskipTests` is allowed only for this rebuild/install prerequisite. It compiles test
+sources but does not execute them. Run the targeted verification immediately afterward.
+Never use `-Dmaven.test.skip=true` because it skips test compilation and can leave stale
+test artifacts undiscovered.
 
 ---
 
 ## RULE: scoped runs to iterate, `-Pall-tests` to gate
 
-**`-Pall-tests` takes ~75 minutes.** It is the **commit / push / release gate**, run
-deliberately once when the work is ready — not a step in the edit-test loop. Re-running a
-75-minute whole-repo suite to check a one-line edit is waste, and treating it as the *only*
-acceptable command makes test-driven development impossible.
+**`-Pall-tests` takes approximately 90 minutes.** It is an explicit owner-run
+commit / push / release gate, not a step in the edit-test loop. Normal verification uses
+the smallest relevant method, class, or module after the required rebuild.
 
 | Situation | Command |
 |---|---|
 | Writing a test, watching it fail, making it pass | The single test or class, scoped with `-pl` and `-Dtest=` |
 | Iterating on a module you are changing | That module, with the profile carrying its test mass |
-| Pre-change baseline | The modules you are about to touch, both profiles |
-| **Before commit / push / release** | **`mvn clean test -Pall-tests` — the gate** |
+| Pre-change baseline | The smallest relevant classes or modules, with the profiles carrying their test mass |
+| **Explicit commit / push / release gate** | **`mvn clean test -Pall-tests` — owner-run or explicitly requested** |
 | A failure `-Pall-tests` already identified | That specific test, scoped, until it is green |
 
 **What a scoped run is NOT.** It is evidence about the code you scoped it to, and nothing
@@ -111,15 +132,19 @@ unnoticed for months. That remains banned:
   *"`peegeeq-rest` integration: 504 passed"*.
 - `mvn test -pl :module` (no profile) runs `@Tag("core")` ONLY. It will silently skip every
   integration test in that module. Always name the profile you used when reporting.
-- A scoped green does not clear a change for commit. Only the gate does.
+- A scoped green establishes only the named scope. It does not establish whole-repository
+  health or replace an explicitly requested release gate.
 
 ---
 
-## 0 Pre-change baseline (before touching a module)
+## 0 Pre-change baseline
 
-Run both core and integration for every module you are about to change. This establishes the green baseline you will compare against after your changes.
+For a known class or method change, run that same targeted scope before and after the
+change. For a broad module change, run the module profiles carrying the affected test
+mass. This establishes the baseline without defaulting to the whole repository.
 
-For each module, run the profile that carries its meaningful test mass. Most modules have both core and integration tests; some (e.g. `peegeeq-db`) carry almost no core-tagged tests — their mass is entirely in integration.
+Most modules have both core and integration tests; some, including `peegeeq-db`, carry
+almost no core-tagged tests. Always select the profile that contains the target test.
 
 ```powershell
 # Example: D2.3 touches peegeeq-rest and peegeeq-db
