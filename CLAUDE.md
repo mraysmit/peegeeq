@@ -37,7 +37,17 @@
 
 ### Additional mandatory rules
 
-- **One phase at a time.** Make the change, then stop and report. Run the scoped verification for that change yourself (`-Dtest=<Class>`, or a single module) and report the per-class `Tests run:` lines. `-Pall-tests` and any run over ~10 minutes belong to the user — that is the agent's foreground command timeout. Always pipe through `Tee-Object` and read the log, never the console.
+- **One phase at a time.** Make the change, rebuild and verify that phase, then stop and report.
+- **Rebuild before verification.** After every Java or Maven implementation change, run
+  `mvn clean install -DskipTests -pl :<changed-module> -am` through `Tee-Object` before
+  downstream testing. This rebuilds the affected reactor slice and installs upstream
+  artifacts; `-DskipTests` is permitted only for this build step and still compiles tests.
+- **Run targeted tests.** The agent runs the smallest relevant test scope — method, class,
+  or single module — with the profile carrying that test's tag. Pipe Maven output through
+  `Tee-Object`, inspect the saved log, and report the exact scope and per-class `Tests run:`
+  counts. `BUILD SUCCESS` alone is not verification. The approximately 90-minute
+  `-Pall-tests` run is an owner-run or explicitly requested release gate, not part of the
+  normal edit-test loop.
 - **No error swallowing.** Every catch block must surface the error (`message.error(...)` in UI, log + propagate in Java). Silent catches are a defect.
 - **No mocking.** No Mockito, no mocked database connections, no mocked repositories. TestContainers for all database tests.
 - **Mirror existing patterns exactly.** Do not invent new patterns. Read the surrounding code first.

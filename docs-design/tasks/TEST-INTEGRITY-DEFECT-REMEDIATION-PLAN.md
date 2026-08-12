@@ -1,6 +1,8 @@
 # Test Integrity Defect Remediation Plan
 
 Opened: 2026-08-11
+Last reconciled: 2026-08-12 against commit
+`7ee3148dc26cff25a58d33c222163352460ad7a2`
 Origin: reading `logs/peegeeq-outbox-integration-20260811.txt` — a run reporting
 `Tests run: 537, Failures: 0, Errors: 0, Skipped: 0` and `BUILD SUCCESS` while logging
 46 ERROR-level exceptions.
@@ -28,23 +30,25 @@ Three forms of the same defect:
 
 ## Defect register
 
-Status values: `FIXED` (change made and verified this session), `EXPOSED` (now failing
+Status values: `FIXED` (change made and verified this session), `PARTIALLY FIXED` (some
+registered instances fixed, with enumerated work still open), `EXPOSED` (now failing
 honestly, not yet fixed), `OPEN` (not started), `NOT REPRODUCED` (diagnosed from artifacts
-only).
+only), and `MASKING FIXED, CAUSE EXPOSED` (the misleading failure was removed, revealing
+an unresolved cause).
 
 | ID | Defect | Status | Evidence |
 |---|---|---|---|
 | D1 | `HealthCheckManager` interpolates schema unquoted; reserved-word schema breaks every queue health check | FIXED | `PostgreSqlIdentifierValidatorTest` 20/20; `HealthCheckManagerTest` 16/16 |
 | D2 | `sendInOwnTransaction(..., TransactionPropagation)` throws NPE inside `Pool.withTransaction` | FIXED | `OutboxProducerTransactionTest` 20/20 |
 | D3 | `outbox_consumer_groups` has two incompatible DDL definitions; both background jobs fail every run | NOT REPRODUCED | `42703` in outbox integration log; template vs `V001` diff |
-| D4 | Pass-on-failure teardown/setup swallows — 53 sites | FIXED | 53 fixed across 6 modules; outbox, native, bitemporal, db Group B re-run green |
+| D4 | Pass-on-failure handlers — 53 fixed sites, 20 expression-lambda sites still open | PARTIALLY FIXED | 53 fixed across 6 modules; 10 setup/teardown and 10 test-body sites remain |
 | D4-A | 4 tests that pass when the subject fails — needs rewrite, not conversion | OPEN | see below; expect red once honest |
 | D5 | `-Pperformance-tests` never activates gated tests — redundant `@EnabledIfSystemProperty` gate on top of the tag | FIXED | 8 tests now execute (db 5, outbox 3); previously all skipped |
 | D6 | `OutboxPerformanceTest` NPE masked the send failure that caused it | MASKING FIXED, CAUSE EXPOSED | now `ConnectionPoolTooBusyException: max wait queue size of 128` |
 | D7 | Background timer failures log unbounded ERROR, no escalation, no health signal | OPEN | `totalRuns=1, totalFailures=1` both jobs; commit e79030da known gaps |
 | D8 | Antipatterns doc gave two opposite rules for `@AfterEach` failure handling | FIXED | 3 blocks corrected to `failNow` |
 | D9 | `CLAUDE.md` Step 5 guard list could not detect pass-on-failure | FIXED | entry added |
-| D10 | `PeeGeeQManager.closeReactive()` can return a Future that never settles | OPEN | commit e79030da known gaps; not re-observed |
+| D10 | `PeeGeeQManager.closeReactive()` can return a Future that never settles | OPEN | commit e79030da known gaps; third observation recorded as D12; not reproduced in two later full-native runs |
 | D11 | Unasserted ERROR logs do not fail the build | OPEN | 46 exceptions in a green run |
 | D12 | `PostgreSQLErrorHandlingTest` teardown exceeded a **60 s** budget — third occurrence of D10 | OPEN | `tearDown:121 expected: <true> but was: <false>`, class elapsed 65.5 s |
 | D13 | 6 `@Disabled` tests in `ConsumerGroupSubscriptionTest`, one hiding a known race condition | OPEN | 5× "requires SubscriptionManager integration", 1× "setMessageHandler() has a race condition" |
@@ -60,9 +64,10 @@ Raising the budget is the threshold-masking anti-fix the standards doc bans unde
 fix. This is the same defect as D10 (`closeReactive()` may never settle), now with a third
 observation and a harder bound.
 
-Compounding it: that same teardown is a D4 pass-on-failure site — `.onFailure(err -> { warn;
-completeNow(); })`. Teardown *failure* is swallowed; only teardown *timeout* fails the test.
-The P1b sweep fixes the swallow, which will make the real failure mode visible.
+Compounding it: that same teardown was a D4 pass-on-failure site —
+`.onFailure(err -> { warn; completeNow(); })`. The 53-site sweep committed in `7ee3148d`
+changed this specific handler to fail the test. That closes the error-swallowing instance;
+the unsettled-Future behaviour tracked by D10/D12 remains open.
 
 ### D13 detail
 
@@ -92,9 +97,10 @@ NullPointerException: ... "context" is null
   at OutboxProducer.lambda$sendInOwnTransactionInternal$0(OutboxProducer.java:330)
 ```
 
-Three tests reported green for five months while failing on every run. Unknown: whether a
-caller already on an event loop behaves differently. That is the first thing P2 must
-establish, and it may split the phase.
+Three tests reported green for five months while failing on every run. P2 established the
+context contract: the propagation path is covered from a Vert.x context, while an
+off-context call now returns a failed Future naming the context requirement. The updated
+`OutboxProducerTransactionTest` reports 20/20 green.
 
 ### D3 detail
 
@@ -135,25 +141,38 @@ Three `@BeforeEach` pre-cleanups swallowed their failure, so a class documented 
 "a clean slate" would run against another class's leftovers — the same mechanism as the
 cross-test pollution recorded at lines 847-922. Converted to `failNow`; 45 tests green.
 
-### D4 fixed, by module
+### D4 progress by module
+
+Committed in `7ee3148d`:
 
 | Module | Occurrences |
 |---|---|
-| peegeeq-native | 27 |
-| peegeeq-db | 10 |
-| peegeeq-examples | 9 |
-| peegeeq-rest | 3 |
-| peegeeq-bitemporal | 3 |
+| peegeeq-native | 18 |
+| peegeeq-outbox | 13 |
+| peegeeq-examples | 11 |
+| peegeeq-bitemporal | 5 |
+| peegeeq-db | 5 |
 | peegeeq-service-manager | 1 |
-| **Total** | **53 across 38 files** |
+| **Total** | **53 across 6 modules** |
+
+Still open:
+
+| Kind | Count | Distribution |
+|---|---:|---|
+| Setup / teardown expression lambdas | 10 | peegeeq-db 6; peegeeq-examples 4 |
+| Test-body expression lambdas | 10 | peegeeq-bitemporal 8; peegeeq-outbox 2 |
+| D4-A tests requiring contract rewrites | 4 | peegeeq-rest 3; peegeeq-db 1 |
+| **Total** | **24** | Counts remain estimates until the detector is hand-validated |
 
 Ruling (2026-08-11): `failNow` everywhere, including `@AfterEach`. A failed close leaks
 pool connections; the doc's own evidence is 232 silent teardown skips that cascaded into
 710 "too many clients" errors.
 
-Detection requires a body-scoped scan. A flat regex runs past the handler's closing brace
-and reports the next `completeNow()` in an `else` branch — that error produced an initial
-overcount of 75/52 before correction to 66/47.
+Detection requires a body-scoped scan that also recognizes expression lambdas. A flat
+regex runs past the handler's closing brace and reports the next `completeNow()` in an
+`else` branch — that error produced an initial overcount of 75/52 before correction to
+66/47. Later scans found the 20 expression-lambda sites listed above; the current detector
+has not been hand-validated.
 
 ### D5 detail — resolved
 
@@ -204,31 +223,33 @@ verification command. The agent runs the scoped verification and reports per-cla
 Fixed D8 and D9. Without these, any sweep would have been reintroducing the pattern from
 the standards doc's own "Correct Pattern" examples.
 
-### P1 — Pass-on-failure sweep (D4)
+### P1 — Pass-on-failure sweep (D4) — PARTIALLY COMPLETE
 
 Module by module, not one sweep. Each module's conversions are verified before the next.
 
-- **P1a peegeeq-outbox — COMPLETE.** 13 sites, 9 files. Integration set 66 tests / 3 errors
-  (the 3 are D2). `OutboxQueueUnitTest` 26/26. All 8 teardown conversions pass, so no
-  teardown was silently failing.
-- **P1b peegeeq-native** — 27 sites. Largest remaining.
-- **P1c** — peegeeq-db, examples, rest, bitemporal, service-manager. 26 sites.
+- **P1a peegeeq-outbox — COMPLETE.** 13 sites converted. After D2 was fixed, the changed
+  outbox classes reported 66 tests green; `OutboxQueueUnitTest` reported 26/26.
+- **P1b peegeeq-native — COMPLETE.** 18 sites converted; full module integration reported
+  189/189 green.
+- **P1c — COMPLETE for the enumerated sites.** peegeeq-db 5, peegeeq-examples 11,
+  peegeeq-bitemporal 5, peegeeq-service-manager 1. The changed db group reported 45/45
+  and bitemporal integration reported 352/352. Examples and service-manager were not
+  re-run during the recorded session.
+- **P1d — OPEN.** Read and remediate the 20 expression-lambda sites: 10 setup/teardown
+  handlers and 10 test-body handlers. The latter require contract analysis rather than
+  blind conversion.
+- **P1e / D4-A — OPEN.** Rewrite the 4 tests that currently accept subject failure.
 
 Exit: body-scoped scan returns zero for git-tracked test sources; each module's scoped run
 reported with per-class counts.
 
-### P2 — `TransactionPropagation` contract (D2)
+### P2 — `TransactionPropagation` contract (D2) — COMPLETE
 
-Entry: P1a complete (done) — the three tests now fail honestly.
+Three propagation tests now execute from a Vert.x context and assert success. A separate
+test pins the off-context contract, and `OutboxProducer` returns a failed Future naming
+the context requirement instead of surfacing a Vert.x-internal NPE.
 
-1. Probe first. Call `sendInOwnTransaction(..., CONTEXT)` from inside `vertx.runOnContext`
-   and assert the row lands. This establishes whether the path works at all. No test
-   currently proves it does.
-2. Depending on the probe: either guard the missing context and return a failed Future
-   naming the requirement, or fix the deeper defect the probe reveals.
-
-Exit: `OutboxProducerTransactionTest` green with both the on-context and off-context cases
-asserted.
+Exit evidence: `OutboxProducerTransactionTest` 20/20 green.
 
 ### P3 — Schema identifier quoting (D1) — COMPLETE except one test
 
@@ -247,13 +268,17 @@ Step 4.
    rate-limited summary carrying a consecutive-failure count, surfaced as a health signal.
    Apply to `ConsumerGroupRetryJob`, `DeadConsumerDetectionJob`, and the depth-cache timer.
 
-### P5 — Performance profile (D5, D6)
+### P5 — Performance profile and exposed throughput question (D5, D6) — PARTIALLY COMPLETE
 
-1. Forward the flag: add `<systemPropertyVariables>` to the surefire config, or change the
-   three gates to use the tag rather than a system property. Prefer one mechanism, not both.
-2. Then fix what the newly-running tests reveal, starting with D6.
+1. **D5 COMPLETE.** Removed the redundant `@EnabledIfSystemProperty` gates. The existing
+   performance tag is now the single selection mechanism, and all three classes execute
+   under `-Pperformance-tests` (8 tests total).
+2. **D6 AWAITING OWNER DECISION.** The newly executing throughput test exposes
+   `ConnectionPoolTooBusyException` when it fires 1000 concurrent sends at a pool with a
+   128-entry wait queue. Decide whether the test measures an enlarged pool or bounded
+   in-flight concurrency before changing it.
 
-Exit: `-Pperformance-tests` reports a non-zero executed count for all three classes.
+Profile-activation exit is satisfied. The D6 measurement decision remains open.
 
 ### P6 — Make unasserted ERROR logs fail the build (D11)
 
@@ -270,8 +295,10 @@ onto P4 or P5.
 
 ## Out of scope
 
-- **D10** (`closeReactive()` may never settle) — recorded in commit e79030da, observed once
-  in eleven runs, not re-observed here. Needs its own investigation.
+- **D10/D12** (`closeReactive()` may never settle) — the handover records a third
+  observation: teardown reached its 60-second budget although close-completion messages
+  appeared in the log. It did not reproduce in two later full-native runs. This remains
+  open and needs its own investigation.
 - **Converging the duplicate quoters** in `OutboxFactory` and `OutboxConsumer` onto
   `PostgreSqlIdentifierValidator`. Correct to do, but a pure refactor of working code; it
   waits until P3's tests are green.
