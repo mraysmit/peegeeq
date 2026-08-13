@@ -22,6 +22,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketClient;
@@ -111,19 +112,21 @@ class WebSocketHandlerTest {
         if (client != null) {
             client.close();
         }
+
+        Future<Void> cleanup = Future.succeededFuture();
         if (wsClient != null) {
-            wsClient.close();
+            cleanup = cleanup.compose(v -> wsClient.close());
         }
         if (deploymentId != null) {
-            vertx.undeploy(deploymentId)
-                .onSuccess(v -> {
-                    logger.info("Test cleanup completed");
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
+            cleanup = cleanup.eventually(() -> vertx.undeploy(deploymentId));
         }
+
+        cleanup
+            .onSuccess(v -> {
+                logger.info("Test cleanup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -194,8 +197,9 @@ class WebSocketHandlerTest {
                             assertEquals(testQueueName, msg.getString("queueName"));
 
                             // Close connection and complete test
-                            ws.close();
-                            testContext.completeNow();
+                            ws.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
                         }
                     });
                 });
@@ -241,8 +245,9 @@ class WebSocketHandlerTest {
                             logger.info("Sent ping");
                         } else if ("pong".equals(msg.getString("type"))) {
                             assertEquals("test-ping-123", msg.getString("id"));
-                            ws.close();
-                            testContext.completeNow();
+                            ws.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
                         }
                     });
                 });
@@ -290,17 +295,18 @@ class WebSocketHandlerTest {
                             logger.info("Sent subscribe");
                         } else if ("subscribed".equals(msg.getString("type"))) {
                             assertEquals("test-group", msg.getString("consumerGroup"));
-                            ws.close();
-                            testContext.completeNow();
+                            ws.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
                         }
                     });
                 });
 
                 // Fail the test if the expected 'subscribed' response never arrives.
                 vertx.setTimer(5000, id -> {
-                    ws.close();
-                    testContext.failNow(new AssertionError(
-                        "WebSocket subscription confirmation not received within 5 s"));
+                    AssertionError timeout = new AssertionError(
+                        "WebSocket subscription confirmation not received within 5 s");
+                    closeAndFail(ws, timeout, testContext);
                 });
 
                 ws.exceptionHandler(err -> {
@@ -346,17 +352,18 @@ class WebSocketHandlerTest {
                         } else if ("configured".equals(msg.getString("type"))) {
                             assertEquals(10, msg.getInteger("batchSize"));
                             assertEquals(30000L, msg.getLong("maxWaitTime"));
-                            ws.close();
-                            testContext.completeNow();
+                            ws.close()
+                                .onSuccess(v -> testContext.completeNow())
+                                .onFailure(testContext::failNow);
                         }
                     });
                 });
 
                 // Fail the test if the expected 'configured' response never arrives.
                 vertx.setTimer(5000, id -> {
-                    ws.close();
-                    testContext.failNow(new AssertionError(
-                        "WebSocket configuration confirmation not received within 5 s"));
+                    AssertionError timeout = new AssertionError(
+                        "WebSocket configuration confirmation not received within 5 s");
+                    closeAndFail(ws, timeout, testContext);
                 });
 
                 ws.exceptionHandler(err -> {
@@ -372,29 +379,30 @@ class WebSocketHandlerTest {
 
     @Test
     @Order(6)
-    void testWebSocketEndpointExists(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Test 6: WebSocket Endpoint Exists ===");
+    void testWebSocketPathRejectsPlainHttpRequest(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Test 6: WebSocket Path Rejects Plain HTTP Request ===");
 
-        // Test that the WebSocket upgrade endpoint exists via HTTP
         String wsPath = "/ws/queues/" + testSetupId + "/" + testQueueName;
 
         client.get(TEST_PORT, "localhost", wsPath)
             .timeout(5000)
             .send()
-            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
-                // WebSocket endpoints typically return 400 or 426 for non-WebSocket requests
-                // or 404 if not implemented
+            .onSuccess(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("HTTP request to WebSocket endpoint returned: {}", status);
+                assertEquals(404, status,
+                    "A plain HTTP request must not be accepted by the WebSocket-only handler");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
 
-                // Any response means the endpoint exists
-                assertTrue(status >= 200 || status >= 400,
-                    "Endpoint should respond with some status code");
-                testContext.completeNow();
-            })))
-            .onFailure(err -> {
-                logger.warn("HTTP request to WebSocket endpoint failed: {}", err.getMessage());
-                testContext.completeNow();
+    private static void closeAndFail(WebSocket ws, AssertionError failure, VertxTestContext testContext) {
+        ws.close()
+            .onSuccess(v -> testContext.failNow(failure))
+            .onFailure(closeError -> {
+                failure.addSuppressed(closeError);
+                testContext.failNow(failure);
             });
     }
 }
