@@ -68,7 +68,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *       with {@code VertxTestContext} for async coordination.</li>
  *   <li>All {@code awaitAsyncDelay()} calls replaced with {@code delay()} returning
  *       {@code Future<Void>} via Vert.x timer, composed into the chain.</li>
- *   <li>All {@code .toCompletionStage().toCompletableFuture().get()} bridges removed.</li>
+ *   <li>All blocking completion-stage bridges removed.</li>
  *   <li>{@code cleanupDatabase()} returns {@code Future<Void>} and is composed into
  *       setUp/tearDown chains.</li>
  * </ul>
@@ -77,7 +77,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026-01-12
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class PgBiTemporalEventStoreComplexTest {
@@ -140,7 +140,8 @@ class PgBiTemporalEventStoreComplexTest {
     }
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         Properties testProps = PeeGeeQTestConfig.builder()
                 .from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
@@ -152,8 +153,6 @@ class PgBiTemporalEventStoreComplexTest {
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
-
-        vertx = Vertx.vertx();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -168,8 +167,7 @@ class PgBiTemporalEventStoreComplexTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-            .transform(ar -> Future.succeededFuture(null))
-            .compose(v -> setupPool.close())
+            .eventually(setupPool::close)
             .compose(v -> manager.start())
             .onSuccess(v -> {
                 factory = new BiTemporalEventStoreFactory(vertx, manager);
@@ -192,7 +190,6 @@ class PgBiTemporalEventStoreComplexTest {
 
         closeFuture
             .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
-            .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
             .onSuccess(v -> {
                 testContext.completeNow();
             })
@@ -422,12 +419,11 @@ class PgBiTemporalEventStoreComplexTest {
                                 assertNull(retrieved, "Event should not exist after rollback")
                             );
                             return (Void) null;
-                        })
-                        .transform(ar -> Future.succeededFuture());
+                        });
                 }
                 return Future.succeededFuture();
             })
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
 
@@ -646,14 +642,14 @@ class PgBiTemporalEventStoreComplexTest {
     
     @Test
     void testAppendNullEventType(VertxTestContext testContext) throws Exception {
-        try {
-            eventStore.appendBuilder().eventType(null)
-                .payload(new TestEvent("x", "data", 1)).validTime(Instant.now()).execute()
-                .onSuccess(v -> testContext.failNow("Should have thrown for null event type"))
-                .onFailure(err -> testContext.completeNow());
-        } catch (IllegalStateException e) {
-            testContext.completeNow();
-        }
+        eventStore.appendBuilder().eventType(null)
+            .payload(new TestEvent("x", "data", 1)).validTime(Instant.now()).execute()
+            .onSuccess(v -> testContext.failNow("Should have failed for null event type"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err);
+                assertEquals("eventType is required and cannot be blank", err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -665,8 +661,12 @@ class PgBiTemporalEventStoreComplexTest {
     void testAppendEmptyEventType(VertxTestContext testContext) throws Exception {
         eventStore.appendBuilder().eventType("   ")
             .payload(new TestEvent("x", "data", 1)).validTime(Instant.now()).execute()
-            .onSuccess(v -> testContext.failNow("Should have thrown for empty event type"))
-            .onFailure(err -> testContext.completeNow());
+            .onSuccess(v -> testContext.failNow("Should have failed for empty event type"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err);
+                assertEquals("eventType is required and cannot be blank", err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -681,8 +681,12 @@ class PgBiTemporalEventStoreComplexTest {
         eventStore.appendBuilder().eventType("TestType")
             .payload(new TestEvent("x", "data", 1)).validTime(Instant.now())
             .headers(Map.of()).correlationId("corr").causationId(longCausationId).aggregateId("agg").execute()
-            .onSuccess(v -> testContext.failNow("Should have thrown for long causation ID"))
-            .onFailure(err -> testContext.completeNow());
+            .onSuccess(v -> testContext.failNow("Should have failed for long causation ID"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalArgumentException.class, err);
+                assertEquals("Causation ID cannot exceed 255 characters", err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -692,14 +696,14 @@ class PgBiTemporalEventStoreComplexTest {
     
     @Test
     void testAppendNullPayload(VertxTestContext testContext) throws Exception {
-        try {
-            eventStore.appendBuilder().eventType("TestType")
-                .payload(null).validTime(Instant.now()).execute()
-                .onSuccess(v -> testContext.failNow("Should have thrown for null payload"))
-                .onFailure(err -> testContext.completeNow());
-        } catch (IllegalStateException | NullPointerException e) {
-            testContext.completeNow();
-        }
+        eventStore.appendBuilder().eventType("TestType")
+            .payload(null).validTime(Instant.now()).execute()
+            .onSuccess(v -> testContext.failNow("Should have failed for null payload"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err);
+                assertEquals("payload is required", err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -722,13 +726,10 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals("hello-world", fetched.getPayload());
                 assertTrue(fetched.getPayload() instanceof String,
                     "Object payload should unwrap to scalar value, not a wrapper map");
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -759,13 +760,10 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals(true, boolFetched.getPayload());
                 assertTrue(boolFetched.getPayload() instanceof Boolean,
                     "Boolean Object payload should unwrap to Boolean scalar");
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -802,19 +800,16 @@ class PgBiTemporalEventStoreComplexTest {
                 eventId, "LegacyScalar",
                 validTime.atOffset(ZoneOffset.UTC),
                 "\"legacy-scalar\"", "{}", eventId, null, null))
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertEquals("legacy-scalar", fetched.getPayload());
                 assertTrue(fetched.getPayload() instanceof String);
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -851,19 +846,16 @@ class PgBiTemporalEventStoreComplexTest {
                 eventId, "LegacyArray",
                 validTime.atOffset(ZoneOffset.UTC),
                 "[1,2,3]", "{}", eventId, null, null))
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertTrue(fetched.getPayload() instanceof List, "Array JSON should deserialize to List for Object payload");
                 assertEquals(List.of(1, 2, 3), fetched.getPayload());
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -873,14 +865,14 @@ class PgBiTemporalEventStoreComplexTest {
     
     @Test
     void testAppendNullValidTime(VertxTestContext testContext) throws Exception {
-        try {
-            eventStore.appendBuilder().eventType("TestType")
-                .payload(new TestEvent("x", "data", 1)).validTime(null).execute()
-                .onSuccess(v -> testContext.failNow("Should have thrown for null valid time"))
-                .onFailure(err -> testContext.completeNow());
-        } catch (IllegalStateException | NullPointerException e) {
-            testContext.completeNow();
-        }
+        eventStore.appendBuilder().eventType("TestType")
+            .payload(new TestEvent("x", "data", 1)).validTime(null).execute()
+            .onSuccess(v -> testContext.failNow("Should have failed for null valid time"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err);
+                assertEquals("validTime is required", err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -894,8 +886,12 @@ class PgBiTemporalEventStoreComplexTest {
         
         eventStore.appendCorrection(fakeId, "BadCorrection",
             new TestEvent("x", "data", 1), Instant.now(), "Invalid")
-            .onSuccess(v -> testContext.failNow("Should have thrown for non-existent correction target"))
-            .onFailure(err -> testContext.completeNow());
+            .onSuccess(v -> testContext.failNow("Should have failed for non-existent correction target"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalArgumentException.class, err);
+                assertEquals("Cannot correct non-existent event: " + fakeId, err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -908,11 +904,11 @@ class PgBiTemporalEventStoreComplexTest {
         String fakeId = UUID.randomUUID().toString();
         
         eventStore.getById(fakeId)
-            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
+            .onSuccess(result -> testContext.verify(() -> {
                 assertNull(result);
                 testContext.completeNow();
-            })))
-            .onFailure(err -> testContext.completeNow()); // Either null or exception acceptable
+            }))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1018,27 +1014,31 @@ class PgBiTemporalEventStoreComplexTest {
     
     @Test
     void testCloseIdempotent(VertxTestContext testContext) throws Exception {
-        eventStore.close();
-        
-        assertDoesNotThrow(() -> {
-            eventStore.close();
-            eventStore.close();
-        });
+        eventStore.close()
+            .compose(v -> eventStore.close())
+            .compose(v -> eventStore.close())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
-        testContext.completeNow();
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
     
     @Test
     void testAppendAfterClose(VertxTestContext testContext) throws Exception {
         TestEvent payload = new TestEvent("after-close", "data", 123);
-        
-        eventStore.close();
 
-        delay(200)
-            .compose(v -> eventStore.appendBuilder().eventType("AfterClose").payload(payload).validTime(Instant.now()).execute())
-            .onSuccess(v -> testContext.completeNow()) // May succeed depending on implementation
-            .onFailure(err -> testContext.completeNow()); // Expected in some implementations
+        eventStore.close()
+            .compose(v -> eventStore.appendBuilder().eventType("AfterClose")
+                .payload(payload).validTime(Instant.now()).execute())
+            .onSuccess(v -> testContext.failNow("Append should fail after the event store is closed"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err);
+                assertEquals("Event store is closed", err.getMessage());
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2677,19 +2677,16 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "NullHeaders", eventId))
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertNotNull(fetched.getHeaders(), "Null headers column should produce empty map, not null");
                 assertTrue(fetched.getHeaders().isEmpty(), "Null headers column should produce empty map");
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2720,20 +2717,17 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "NullValueHeaders", eventId))
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
                 assertEquals("yes", fetched.getHeaders().get("present"));
                 assertFalse(fetched.getHeaders().containsKey("absent"),
                     "Null-valued JSONB header entry should be skipped");
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2762,7 +2756,7 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "LegacyNumber", eventId))
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
@@ -2770,13 +2764,10 @@ class PgBiTemporalEventStoreComplexTest {
                     "Raw numeric JSONB should deserialize to Number, got: "
                     + fetched.getPayload().getClass().getSimpleName());
                 assertEquals(42, ((Number) fetched.getPayload()).intValue());
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2805,7 +2796,7 @@ class PgBiTemporalEventStoreComplexTest {
 
         pool.preparedQuery(insertSql)
             .execute(io.vertx.sqlclient.Tuple.of(eventId, "LegacyBool", eventId))
-            .compose(v -> pool.close())
+            .eventually(pool::close)
             .compose(v -> objectStore.getById(eventId))
             .onSuccess(fetched -> testContext.verify(() -> {
                 assertNotNull(fetched);
@@ -2813,13 +2804,10 @@ class PgBiTemporalEventStoreComplexTest {
                     "Raw boolean JSONB should deserialize to Boolean, got: "
                     + fetched.getPayload().getClass().getSimpleName());
                 assertEquals(true, fetched.getPayload());
-                objectStore.close();
-                testContext.completeNow();
             }))
-            .onFailure(err -> {
-                objectStore.close();
-                testContext.failNow(err);
-            });
+            .eventually(objectStore::close)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
