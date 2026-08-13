@@ -33,6 +33,7 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -42,6 +43,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -173,7 +175,8 @@ public class CrossLayerPropagationIntegrationTest {
             .setPort(postgres.getFirstMappedPort())
             .setDatabase(testDatabaseName)
             .setUser(postgres.getUsername())
-            .setPassword(postgres.getPassword());
+            .setPassword(postgres.getPassword())
+            .setProperties(Map.of("search_path", PostgreSQLTestConstants.TEST_SCHEMA));
 
         PoolOptions poolOptions = new PoolOptions().setMaxSize(5);
         pgPool = PgBuilder.pool()
@@ -368,24 +371,23 @@ public class CrossLayerPropagationIntegrationTest {
                 logger.info("High priority message sent");
 
                 // Verify messages in database have correct priorities
-                return pgPool.query(
-                    "SELECT priority FROM " + QUEUE_NAME + " ORDER BY created_at DESC LIMIT 2"
-                ).execute();
+                return pgPool.preparedQuery(
+                    "SELECT priority FROM queue_messages "
+                        + "WHERE topic = $1 AND priority IN (1, 10) ORDER BY priority"
+                ).execute(Tuple.of(QUEUE_NAME));
             })
             .onSuccess(rows -> {
                 testContext.verify(() -> {
                     logger.info("Database query returned {} rows", rows.size());
-                    // Just verify we can query - priority verification depends on schema
+                    assertEquals(2, rows.size(), "Both priority messages should be persisted");
+                    var iterator = rows.iterator();
+                    assertEquals(1, iterator.next().getInteger("priority"));
+                    assertEquals(10, iterator.next().getInteger("priority"));
                     logger.info("Priority message sending cross-layer verification complete");
+                    testContext.completeNow();
                 });
-                testContext.completeNow();
             })
-            .onFailure(err -> {
-                // Database query might fail if table structure is different - that's OK
-                logger.info("Database verification skipped: {}", err.getMessage());
-                logger.info("Priority message sending via REST verified (DB check skipped)");
-                testContext.completeNow();
-            });
+            .onFailure(testContext::failNow);
     }
 
     // ========== Test 6: Health Check REST API Cross-Layer ==========
@@ -645,4 +647,3 @@ public class CrossLayerPropagationIntegrationTest {
             .onFailure(testContext::failNow);
     }
 }
-

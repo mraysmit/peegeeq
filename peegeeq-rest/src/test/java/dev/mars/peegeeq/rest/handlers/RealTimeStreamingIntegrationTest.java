@@ -22,8 +22,10 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
+import io.vertx.core.http.WebSocket;
 import io.vertx.core.http.WebSocketClient;
 import io.vertx.core.http.WebSocketConnectOptions;
 import io.vertx.core.json.JsonArray;
@@ -38,6 +40,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -115,19 +119,21 @@ class RealTimeStreamingIntegrationTest {
         if (client != null) {
             client.close();
         }
+
+        Future<Void> cleanup = Future.succeededFuture();
         if (wsClient != null) {
-            wsClient.close();
+            cleanup = cleanup.compose(v -> wsClient.close());
         }
         if (deploymentId != null) {
-            vertx.undeploy(deploymentId)
-                .onSuccess(v -> {
-                    logger.info("Test cleanup completed");
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
+            cleanup = cleanup.eventually(() -> vertx.undeploy(deploymentId));
         }
+
+        cleanup
+            .onSuccess(v -> {
+                logger.info("Test cleanup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -184,32 +190,53 @@ class RealTimeStreamingIntegrationTest {
             .setPort(TEST_PORT)
             .setURI(wsPath);
 
+        AtomicBoolean completed = new AtomicBoolean(false);
+
         wsClient.connect(options)
             .onSuccess(ws -> {
                 logger.info("WebSocket connected successfully");
 
+                long timeoutId = vertx.setTimer(5000, id -> {
+                    if (completed.compareAndSet(false, true)) {
+                        AssertionError timeout = new AssertionError(
+                            "WebSocket welcome frame not received within 5 seconds");
+                        closeAndFail(ws, timeout, testContext);
+                    }
+                });
+
                 ws.textMessageHandler(message -> {
+                    if (!completed.compareAndSet(false, true)) {
+                        return;
+                    }
+                    vertx.cancelTimer(timeoutId);
+
                     testContext.verify(() -> {
                         JsonObject msg = new JsonObject(message);
                         logger.info("Received WebSocket message: {}", msg.encode());
-
-                        if ("welcome".equals(msg.getString("type"))) {
-                            assertNotNull(msg.getString("connectionId"));
-                            ws.close();
-                            testContext.completeNow();
-                        }
+                        assertEquals("welcome", msg.getString("type"));
+                        assertNotNull(msg.getString("connectionId"));
+                        assertEquals(testSetupId, msg.getString("setupId"));
+                        assertEquals(testQueueName, msg.getString("queueName"));
                     });
-                });
 
-                // Set timeout in case no welcome message
-                vertx.setTimer(5000, id -> {
-                    ws.close();
-                    testContext.completeNow();
+                    ws.close()
+                        .onSuccess(v -> testContext.completeNow())
+                        .onFailure(testContext::failNow);
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                if (completed.compareAndSet(false, true)) {
+                    testContext.failNow(err);
+                }
+            });
+    }
+
+    private static void closeAndFail(WebSocket ws, AssertionError failure, VertxTestContext testContext) {
+        ws.close()
+            .onSuccess(v -> testContext.failNow(failure))
+            .onFailure(closeError -> {
+                failure.addSuppressed(closeError);
+                testContext.failNow(failure);
             });
     }
 
