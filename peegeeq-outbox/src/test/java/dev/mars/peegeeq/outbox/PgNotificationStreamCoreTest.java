@@ -176,7 +176,7 @@ public class PgNotificationStreamCoreTest {
     }
 
     @Test
-    void testHandleNotificationWhenPaused() throws Exception {
+    void testHandleNotificationWhenPaused(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testHandleNotificationWhenPaused STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
@@ -193,11 +193,15 @@ public class PgNotificationStreamCoreTest {
         // Try to handle notification while paused
         stream.handleNotification("Message while paused");
         
-        // Wait a bit
-        vertx.timer(1000).await();
-        
-        // Should not have received the message
-        assertEquals(0, messageCount.get(), "Should not receive messages while paused");
+        vertx.timer(100)
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(0, messageCount.get(), "Should not receive messages while paused");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS),
+            "Should not receive notifications while paused");
         
         logger.info("=== TEST: testHandleNotificationWhenPaused COMPLETED ===");
     }

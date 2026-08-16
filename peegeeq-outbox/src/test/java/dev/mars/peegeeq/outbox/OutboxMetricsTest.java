@@ -46,8 +46,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -76,45 +76,39 @@ public class OutboxMetricsTest {
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, PostgreSQLTestConstants.TEST_SCHEMA, SchemaComponent.QUEUE_ALL);
         testTopic = "metrics-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
-                .schema(PostgreSQLTestConstants.TEST_SCHEMA).build();
+                .schema(PostgreSQLTestConstants.TEST_SCHEMA)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 outboxFactory = new OutboxFactory(databaseService, manager.getObjectMapper());
                 producer = outboxFactory.createProducer(testTopic, String.class);
                 consumer = outboxFactory.createConsumer(testTopic, String.class);
-                testContext.completeNow();
+                return (Void) null;
             })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        if (consumer != null) {
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    void tearDown(VertxTestContext testContext) {
+        logger.info("Tearing down OutboxMetricsTest");
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMetricsIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMetricsIntegration(Vertx vertx, VertxTestContext testContext) {
         String testMessage = "Metrics test message";
 
         // Get initial metrics
@@ -134,34 +128,23 @@ public class OutboxMetricsTest {
             logger.info("Processing message for metrics test: {}", message.getPayload());
             messageProcessed.tryComplete();
             return Future.succeededFuture();
-        });
-
-        // Send a message, wait for processing, then poll metrics in executeBlocking
-        producer.send(testMessage)
+        })
+            .compose(v -> producer.send(testMessage))
             .compose(v -> {
                 logger.info("Message sent, waiting for processing...");
                 return messageProcessed.future();
             })
-            .compose(v -> {
-                Promise<Void> p = Promise.promise();
-                long[] ids = new long[2];
-                ids[0] = vertx.setPeriodic(100, id -> {
+            .compose(v -> awaitCondition(
+                    vertx,
+                    () -> {
                     var m = manager.getMetrics().getSummary();
-                    if (m.getMessagesSent() > initialSent
+                    return m.getMessagesSent() > initialSent
                             && m.getMessagesReceived() > initialReceived
-                            && m.getMessagesProcessed() > initialProcessed) {
-                        vertx.cancelTimer(ids[0]);
-                        vertx.cancelTimer(ids[1]);
-                        p.tryComplete();
-                    }
-                });
-                ids[1] = vertx.setTimer(10_000, id -> {
-                    vertx.cancelTimer(ids[0]);
-                    p.tryFail(new AssertionError("Metrics were not updated within 10 seconds"));
-                });
-                return p.future();
-            })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                            && m.getMessagesProcessed() > initialProcessed;
+                    },
+                    "Metrics were not updated within 10 seconds",
+                    100))
+            .onSuccess(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalSent = finalMetrics.getMessagesSent();
                 double finalReceived = finalMetrics.getMessagesReceived();
@@ -179,9 +162,8 @@ public class OutboxMetricsTest {
                 assertTrue(finalProcessed > initialProcessed, 
                     "Messages processed count should increase (was " + initialProcessed + ", now " + finalProcessed + ")");
                 testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -189,41 +171,27 @@ public class OutboxMetricsTest {
         var healthCheckManager = manager.getHealthCheckManager();
         assertNotNull(healthCheckManager, "Health check manager should be available");
 
-        // Poll on the event loop until the health check becomes healthy.
-        Promise<Void> healthReady = Promise.promise();
-        long[] ids = new long[2];
-        ids[0] = vertx.setPeriodic(200, id -> {
-            var status = healthCheckManager.getOverallHealth();
-            if (status != null && status.isHealthy()) {
-                vertx.cancelTimer(ids[0]);
-                vertx.cancelTimer(ids[1]);
-                healthReady.tryComplete();
-            }
-        });
-        ids[1] = vertx.setTimer(10_000, id -> {
-            vertx.cancelTimer(ids[0]);
-            healthReady.tryFail(new AssertionError("Health check did not become healthy within 10 seconds"));
-        });
-        healthReady.future()
-        .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+        awaitCondition(
+                vertx,
+                () -> {
+                    var status = healthCheckManager.getOverallHealth();
+                    return status != null && status.isHealthy();
+                },
+                "Health check did not become healthy within 10 seconds",
+                100)
+        .onSuccess(v -> testContext.verify(() -> {
             var healthStatus = healthCheckManager.getOverallHealth();
             logger.info("Health check status: {}", healthStatus.status());
             logger.info("Health check components: {}", healthStatus.components());
             assertTrue(healthStatus.isHealthy(),
                 "System should be healthy: " + healthStatus.components());
             testContext.completeNow();
-        })));
-
-        try {
-            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            fail("Health check test interrupted");
-        }
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleMessageMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMultipleMessageMetrics(Vertx vertx, VertxTestContext testContext) {
         int messageCount = 5;
         
         // Get initial metrics
@@ -241,38 +209,20 @@ public class OutboxMetricsTest {
                 allProcessed.tryComplete();
             }
             return Future.succeededFuture();
-        });
-
-        // Send multiple messages
-        Future<Void> sendChain = Future.succeededFuture();
-        for (int i = 0; i < messageCount; i++) {
-            final int idx = i;
-            sendChain = sendChain.compose(v -> producer.send("Metrics test message " + idx));
-        }
-
-        // Wait for all messages processed, then poll metrics in executeBlocking
-        sendChain
+        })
+            .compose(v -> sendMessages(messageCount))
             .compose(v -> allProcessed.future())
-            .compose(v -> {
-                Promise<Void> p = Promise.promise();
-                long[] ids = new long[2];
-                ids[0] = vertx.setPeriodic(100, id -> {
+            .compose(v -> awaitCondition(
+                    vertx,
+                    () -> {
                     var m = manager.getMetrics().getSummary();
-                    if (m.getMessagesSent() >= initialSent + messageCount
+                    return m.getMessagesSent() >= initialSent + messageCount
                             && m.getMessagesReceived() >= initialReceived + messageCount
-                            && m.getMessagesProcessed() >= initialProcessed + messageCount) {
-                        vertx.cancelTimer(ids[0]);
-                        vertx.cancelTimer(ids[1]);
-                        p.tryComplete();
-                    }
-                });
-                ids[1] = vertx.setTimer(10_000, id -> {
-                    vertx.cancelTimer(ids[0]);
-                    p.tryFail(new AssertionError("Metrics were not updated within 10 seconds"));
-                });
-                return p.future();
-            })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                            && m.getMessagesProcessed() >= initialProcessed + messageCount;
+                    },
+                    "Metrics were not updated within 10 seconds",
+                    100))
+            .onSuccess(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalSent = finalMetrics.getMessagesSent();
                 double finalReceived = finalMetrics.getMessagesReceived();
@@ -304,13 +254,12 @@ public class OutboxMetricsTest {
                         + messageCount + ", got " + sendTimer.count());
 
                 testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testErrorMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testErrorMetrics(Vertx vertx, VertxTestContext testContext) {
         String testMessage = "Message that will cause error";
         
         // Get initial metrics
@@ -325,28 +274,15 @@ public class OutboxMetricsTest {
             logger.info("INTENTIONAL FAILURE: Processing message that will fail");
             errorOccurred.tryComplete();
             throw new RuntimeException("Intentional error for metrics testing");
-        });
-
-        // Send message, wait for error, then poll metrics in executeBlocking
-        producer.send(testMessage)
+        })
+            .compose(v -> producer.send(testMessage))
             .compose(v -> errorOccurred.future())
-            .compose(v -> {
-                Promise<Void> p = Promise.promise();
-                long[] ids = new long[2];
-                ids[0] = vertx.setPeriodic(100, id -> {
-                    if (manager.getMetrics().getSummary().getMessagesFailed() > initialErrors) {
-                        vertx.cancelTimer(ids[0]);
-                        vertx.cancelTimer(ids[1]);
-                        p.tryComplete();
-                    }
-                });
-                ids[1] = vertx.setTimer(10_000, id -> {
-                    vertx.cancelTimer(ids[0]);
-                    p.tryFail(new AssertionError("Error metrics were not updated within 10 seconds"));
-                });
-                return p.future();
-            })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+            .compose(v -> awaitCondition(
+                    vertx,
+                    () -> manager.getMetrics().getSummary().getMessagesFailed() > initialErrors,
+                    "Error metrics were not updated within 10 seconds",
+                    100))
+            .onSuccess(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalErrors = finalMetrics.getMessagesFailed();
 
@@ -355,10 +291,34 @@ public class OutboxMetricsTest {
                 assertTrue(finalErrors > initialErrors, 
                     "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
                 testContext.completeNow();
-            })));
+            }))
+            .onFailure(testContext::failNow);
+    }
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+    private Future<Void> sendMessages(int messageCount) {
+        Future<Void> sendChain = Future.succeededFuture();
+        for (int index = 0; index < messageCount; index++) {
+            int messageIndex = index;
+            sendChain = sendChain.compose(
+                    v -> producer.send("Metrics test message " + messageIndex));
+        }
+        return sendChain;
+    }
+
+    private Future<Void> awaitCondition(
+            Vertx vertx,
+            BooleanSupplier condition,
+            String timeoutMessage,
+            int remainingAttempts) {
+        if (condition.getAsBoolean()) {
+            return Future.succeededFuture();
+        }
+        if (remainingAttempts <= 0) {
+            return Future.failedFuture(new AssertionError(timeoutMessage));
+        }
+        return vertx.timer(100)
+                .compose(v -> awaitCondition(
+                        vertx, condition, timeoutMessage, remainingAttempts - 1));
     }
 }
-
 

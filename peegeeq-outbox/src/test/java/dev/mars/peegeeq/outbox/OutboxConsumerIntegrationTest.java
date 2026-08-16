@@ -42,7 +42,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -76,45 +75,34 @@ class OutboxConsumerIntegrationTest {
         // Configure system properties for TestContainer
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().onSuccess(v -> {
-            // Get client factory from manager
-            clientFactory = manager.getClientFactory();
-            objectMapper = new ObjectMapper();
-            logger.info("OutboxConsumer integration test setup completed");
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        manager.start()
+                .map(v -> {
+                    clientFactory = manager.getClientFactory();
+                    objectMapper = new ObjectMapper();
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) {
-            try {
-                consumer.close();
-            } catch (Exception e) {
-                logger.warn("Error closing consumer: {}", e.getMessage());
-            }
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> {
-                    logger.info("OutboxConsumer integration test teardown completed");
-                    testContext.completeNow();
-                })
-                .onFailure(e -> {
-                    logger.error("Error stopping manager", e);
-                    testContext.failNow(e);
-                });
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        Future<Void> closeConsumer = consumer != null
+                ? consumer.closeAsync()
+                : Future.succeededFuture();
+        closeConsumer
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -179,47 +167,47 @@ class OutboxConsumerIntegrationTest {
     }
 
     @Test
-    void testClose_WhenNotSubscribed() throws Exception {
+    void testClose_WhenNotSubscribed(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When
-        consumer.close();
-
-        // Then - should close successfully
-        consumer = null; // Prevent double-close in tearDown
+        consumer.closeAsync()
+                .onSuccess(v -> {
+                    consumer = null;
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClose_MultipleInvocations() throws Exception {
+    void testClose_MultipleInvocations(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
 
         // When - close multiple times
-        consumer.close();
-        consumer.close();
-
-        // Then - should handle multiple closes gracefully
-        consumer = null;
+        consumer.closeAsync()
+                .compose(v -> consumer.closeAsync())
+                .onSuccess(v -> {
+                    consumer = null;
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSubscribe_ThrowsWhenClosed() throws Exception {
+    void testSubscribe_ThrowsWhenClosed(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler = message -> {
-            // no-op handler
-            return null;
-        };
-        consumer.close();
-
-        // When/Then
-        Future<Void> result = consumer.subscribe(handler);
-        assertTrue(result.failed(), "subscribe on closed consumer should return a failed future");
-        assertInstanceOf(IllegalStateException.class, result.cause(),
-                "subscribe on closed consumer should fail with IllegalStateException");
-
-        consumer = null;
+        consumer.closeAsync()
+                .onSuccess(v -> testContext.verify(() -> {
+                    Future<Void> result = consumer.subscribe(successfulHandler());
+                    assertTrue(result.failed(), "subscribe on closed consumer should return a failed future");
+                    assertInstanceOf(IllegalStateException.class, result.cause());
+                    consumer = null;
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -241,15 +229,12 @@ class OutboxConsumerIntegrationTest {
     }
 
     @Test
-    void testSubscribe_Success() {
+    void testSubscribe_Success(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler = message -> {
-            return null;
-        };
-
-        // When/Then - should not throw
-        assertDoesNotThrow(() -> consumer.subscribe(handler));
+        consumer.subscribe(successfulHandler())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -262,89 +247,67 @@ class OutboxConsumerIntegrationTest {
     }
 
     @Test
-    void testUnsubscribe_AfterSubscribe() {
+    void testUnsubscribe_AfterSubscribe(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler = message -> {
-            return null;
-        };
-        consumer.subscribe(handler);
-
-        // When
-        consumer.unsubscribe();
-
-        // Then - should complete without error
+        consumer.subscribe(successfulHandler())
+                .onSuccess(v -> {
+                    consumer.unsubscribe();
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClose_AfterSubscribe() throws Exception {
+    void testClose_AfterSubscribe(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler = message -> {
-            return null;
-        };
-        consumer.subscribe(handler);
-
-        // When
-        consumer.close();
-
-        // Then - should close successfully
-        consumer = null;
+        consumer.subscribe(successfulHandler())
+                .compose(v -> consumer.closeAsync())
+                .onSuccess(v -> {
+                    consumer = null;
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleSubscribe_Attempts() {
+    void testMultipleSubscribe_Attempts(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler1 = message -> {
-            return null;
-        };
-        MessageHandler<String> handler2 = message -> {
-            return null;
-        };
-
-        // When - subscribe twice
-        consumer.subscribe(handler1);
-        consumer.subscribe(handler2);
-
-        // Then - should complete without exception (replaces handler)
+        consumer.subscribe(successfulHandler())
+                .compose(v -> consumer.subscribe(successfulHandler()))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testUnsubscribe_MultipleInvocations() {
+    void testUnsubscribe_MultipleInvocations(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler = message -> {
-            return null;
-        };
-        consumer.subscribe(handler);
-
-        // When - unsubscribe multiple times
-        consumer.unsubscribe();
-        consumer.unsubscribe();
-
-        // Then - should handle multiple unsubscribes gracefully (idempotent)
+        consumer.subscribe(successfulHandler())
+                .onSuccess(v -> {
+                    consumer.unsubscribe();
+                    consumer.unsubscribe();
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSubscribe_AfterUnsubscribe() {
+    void testSubscribe_AfterUnsubscribe(VertxTestContext testContext) {
         // Given
         consumer = new OutboxConsumer<>(clientFactory, objectMapper, "test-topic", String.class, null);
-        MessageHandler<String> handler1 = message -> {
-            return null;
-        };
-        MessageHandler<String> handler2 = message -> {
-            return null;
-        };
+        consumer.subscribe(successfulHandler())
+                .compose(v -> {
+                    consumer.unsubscribe();
+                    return consumer.subscribe(successfulHandler());
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
 
-        consumer.subscribe(handler1);
-        consumer.unsubscribe();
-
-        // When - subscribe again after unsubscribe
-        // Then - should allow re-subscription
-        assertDoesNotThrow(() -> consumer.subscribe(handler2));
+    private MessageHandler<String> successfulHandler() {
+        return message -> Future.succeededFuture();
     }
 }
-
-
-

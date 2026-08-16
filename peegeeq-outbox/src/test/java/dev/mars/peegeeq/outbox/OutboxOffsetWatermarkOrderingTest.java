@@ -36,7 +36,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
@@ -46,8 +45,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -61,6 +58,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -88,16 +86,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       {@code docs-design/analysis/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md}.</li>
  * </ol>
  *
- * <p>Vert.x 5 reactive only no {@code CompletableFuture}, no blocking
- * {@code .get()}/{@code .join()}, no {@code Thread.sleep}.</p>
+ * <p>Uses Vert.x 5 reactive APIs exclusively and avoids blocking bridges and
+ * thread-based delays.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 @DisplayName("Outbox OFFSET_WATERMARK core ordering verification")
 class OutboxOffsetWatermarkOrderingTest {
-
-    private static final Logger logger = LoggerFactory.getLogger(OutboxOffsetWatermarkOrderingTest.class);
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -107,7 +103,7 @@ class OutboxOffsetWatermarkOrderingTest {
     private QueueFactory factory;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         // Schema: outbox tables + the consumer-group/fanout tables that hold
         // outbox_topics and outbox_topic_subscriptions used by OFFSET_WATERMARK.
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
@@ -121,34 +117,40 @@ class OutboxOffsetWatermarkOrderingTest {
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        databaseService = new PgDatabaseService(manager);
-        QueueFactoryProvider provider = new PgQueueFactoryProvider();
-        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
-        factory = provider.createFactory("outbox", (DatabaseService) databaseService);
+        manager.start()
+                .compose(v -> {
+                    databaseService = new PgDatabaseService(manager);
+                    QueueFactoryProvider provider = new PgQueueFactoryProvider();
+                    OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+                    factory = provider.createFactory("outbox", (DatabaseService) databaseService);
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) {
-        if (factory != null) {
-            try {
-                factory.close();
-            } catch (Exception e) {
-                logger.warn("Error closing factory: {}", e.getMessage());
-            }
-        }
-        if (manager != null) {
-            try {
-                manager.closeReactive().await();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
-            }
-        }
-        // Brief settle so connection pools fully release before the next test.
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(500, id -> delay.complete());
-        delay.future().await();
+    void tearDown(Vertx vertx, VertxTestContext testContext) {
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
+                .transform(factoryResult -> {
+                    Future<Void> closeManager = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return closeManager.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                // Brief settle so connection pools fully release before the next test.
+                .eventually(() -> vertx.timer(500).mapEmpty())
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // ------------------------------------------------------------------
@@ -156,11 +158,9 @@ class OutboxOffsetWatermarkOrderingTest {
     // ------------------------------------------------------------------
     @Test
     @DisplayName("OFFSET_WATERMARK preserves per-key order when two keys are interleaved")
-    void perKeyOrdering_twoKeysInterleaved(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void perKeyOrdering_twoKeysInterleaved(VertxTestContext testContext) throws Exception {
         String topic = "owm-pkorder-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "owm-pkorder-group";
-
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         int perKey = 10;
         int total = perKey * 2;
@@ -172,7 +172,8 @@ class OutboxOffsetWatermarkOrderingTest {
         received.put("A", Collections.synchronizedList(new ArrayList<>()));
         received.put("B", Collections.synchronizedList(new ArrayList<>()));
         Set<String> seen = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint = testContext.checkpoint(total);
+        AtomicInteger receivedCount = new AtomicInteger();
+        Promise<Void> receivedAll = Promise.promise();
 
         group.setMessageHandler(message -> {
             String payload = message.getPayload();
@@ -182,14 +183,16 @@ class OutboxOffsetWatermarkOrderingTest {
             }
             String key = payload.substring(0, 1);
             received.get(key).add(payload);
-            checkpoint.flag();
+            if (receivedCount.incrementAndGet() == total) {
+                receivedAll.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
         // Send all messages first, interleaved across keys A and B, then start the
         // consumer group. With FROM_BEGINNING the group discovers existing partitions
         // at join time and replays from the start.
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain = configureOffsetWatermarkTopic(topic, groupName);
         for (int i = 0; i < perKey; i++) {
             String aPayload = "A-" + i;
             String bPayload = "B-" + i;
@@ -199,23 +202,24 @@ class OutboxOffsetWatermarkOrderingTest {
         }
         sendChain
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
+                .compose(v -> receivedAll.future())
+                .map(v -> {
+                    assertEquals(perKey, received.get("A").size(), "key A should receive all its messages");
+                    assertEquals(perKey, received.get("B").size(), "key B should receive all its messages");
+                    for (int i = 0; i < perKey; i++) {
+                        assertEquals("A-" + i, received.get("A").get(i),
+                                "key A out-of-order at index " + i);
+                        assertEquals("B-" + i, received.get("B").get(i),
+                                "key B out-of-order at index " + i);
+                    }
+                    return (Void) null;
+                })
+                .eventually(() -> group.stopGracefully())
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                 "Should receive all " + total + " messages within timeout");
-
-        // Per-key ordering assertions.
-        assertEquals(perKey, received.get("A").size(), "key A should receive all its messages");
-        assertEquals(perKey, received.get("B").size(), "key B should receive all its messages");
-        for (int i = 0; i < perKey; i++) {
-            assertEquals("A-" + i, received.get("A").get(i),
-                    "key A out-of-order at index " + i);
-            assertEquals("B-" + i, received.get("B").get(i),
-                    "key B out-of-order at index " + i);
-        }
-
-        producer.close();
-        group.stopGracefully().await();
     }
 
     // ------------------------------------------------------------------
@@ -223,11 +227,9 @@ class OutboxOffsetWatermarkOrderingTest {
     // ------------------------------------------------------------------
     @Test
     @DisplayName("OFFSET_WATERMARK preserves per-key order across three independent keys")
-    void perKeyOrdering_threeKeys(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void perKeyOrdering_threeKeys(VertxTestContext testContext) throws Exception {
         String topic = "owm-multi-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "owm-multi-group";
-
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         List<String> keys = List.of("X", "Y", "Z");
         int perKey = 8;
@@ -241,7 +243,8 @@ class OutboxOffsetWatermarkOrderingTest {
             received.put(k, Collections.synchronizedList(new ArrayList<>()));
         }
         Set<String> seen = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint = testContext.checkpoint(total);
+        AtomicInteger receivedCount = new AtomicInteger();
+        Promise<Void> receivedAll = Promise.promise();
 
         group.setMessageHandler(message -> {
             String payload = message.getPayload();
@@ -250,12 +253,14 @@ class OutboxOffsetWatermarkOrderingTest {
             }
             String key = payload.substring(0, 1);
             received.get(key).add(payload);
-            checkpoint.flag();
+            if (receivedCount.incrementAndGet() == total) {
+                receivedAll.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
         // Round-robin sends across all three keys.
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain = configureOffsetWatermarkTopic(topic, groupName);
         for (int i = 0; i < perKey; i++) {
             for (String k : keys) {
                 String payload = k + "-" + i;
@@ -264,22 +269,24 @@ class OutboxOffsetWatermarkOrderingTest {
         }
         sendChain
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
+                .compose(v -> receivedAll.future())
+                .map(v -> {
+                    for (String k : keys) {
+                        List<String> list = received.get(k);
+                        assertEquals(perKey, list.size(), "key " + k + " should receive all its messages");
+                        for (int i = 0; i < perKey; i++) {
+                            assertEquals(k + "-" + i, list.get(i),
+                                    "key " + k + " out-of-order at index " + i);
+                        }
+                    }
+                    return (Void) null;
+                })
+                .eventually(() -> group.stopGracefully())
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                 "Should receive all " + total + " messages within timeout");
-
-        for (String k : keys) {
-            List<String> list = received.get(k);
-            assertEquals(perKey, list.size(), "key " + k + " should receive all its messages");
-            for (int i = 0; i < perKey; i++) {
-                assertEquals(k + "-" + i, list.get(i),
-                        "key " + k + " out-of-order at index " + i);
-            }
-        }
-
-        producer.close();
-        group.stopGracefully().await();
     }
 
     // ------------------------------------------------------------------
@@ -289,11 +296,9 @@ class OutboxOffsetWatermarkOrderingTest {
     // ------------------------------------------------------------------
     @Test
     @DisplayName("OFFSET_WATERMARK without messageGroup funnels to __default__ partition (serial order)")
-    void noMessageGroup_funnelsToDefaultPartition(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void noMessageGroup_funnelsToDefaultPartition(VertxTestContext testContext) throws Exception {
         String topic = "owm-default-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "owm-default-group";
-
-        configureOffsetWatermarkTopic(topic, groupName).await();
 
         int total = 10;
 
@@ -302,7 +307,8 @@ class OutboxOffsetWatermarkOrderingTest {
 
         List<String> received = Collections.synchronizedList(new ArrayList<>());
         Set<String> seen = ConcurrentHashMap.newKeySet();
-        Checkpoint checkpoint = testContext.checkpoint(total);
+        AtomicInteger receivedCount = new AtomicInteger();
+        Promise<Void> receivedAll = Promise.promise();
 
         group.setMessageHandler(message -> {
             String payload = message.getPayload();
@@ -310,32 +316,35 @@ class OutboxOffsetWatermarkOrderingTest {
                 return Future.succeededFuture();
             }
             received.add(payload);
-            checkpoint.flag();
+            if (receivedCount.incrementAndGet() == total) {
+                receivedAll.tryComplete();
+            }
             return Future.succeededFuture();
         });
 
         // No messageGroup  all rows funnel through the `__default__` partition.
-        Future<Void> sendChain = Future.succeededFuture();
+        Future<Void> sendChain = configureOffsetWatermarkTopic(topic, groupName);
         for (int i = 0; i < total; i++) {
             String payload = "msg-" + i;
             sendChain = sendChain.compose(v -> producer.send(payload));
         }
         sendChain
                 .compose(v -> group.start(SubscriptionOptions.fromBeginning()))
+                .compose(v -> receivedAll.future())
+                .map(v -> {
+                    assertEquals(total, received.size(), "should receive all messages");
+                    for (int i = 0; i < total; i++) {
+                        assertEquals("msg-" + i, received.get(i),
+                                "default-partition delivery out-of-order at index " + i);
+                    }
+                    return (Void) null;
+                })
+                .eventually(() -> group.stopGracefully())
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                 "Should receive all " + total + " messages within timeout");
-
-        // Single-partition serial delivery  producer order is preserved.
-        assertEquals(total, received.size(), "should receive all messages");
-        for (int i = 0; i < total; i++) {
-            assertEquals("msg-" + i, received.get(i),
-                    "default-partition delivery out-of-order at index " + i);
-        }
-
-        producer.close();
-        group.stopGracefully().await();
     }
 
     /**

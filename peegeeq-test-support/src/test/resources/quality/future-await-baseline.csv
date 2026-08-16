@@ -4,24 +4,5 @@
 # To FIX a file: remediate it, then update or delete its row here in the same commit.
 # Baseline captured: 2026-05-18. Total allowed violations: 468.
 path,count
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/BatchOperationsWithPropagationExampleTest.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/MessagePriorityExampleTest.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupIntegrationTest.java,6
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionTest.java,20
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupTest.java,9
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerSurgicalCoverageTest.java,15
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxDeadLetterQueueTest.java,8
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxDirectExceptionHandlingTest.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxExceptionHandlingDemonstrationTest.java,4
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxOffsetWatermarkOrderingTest.java,9
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxOffsetWatermarkWiringTest.java,3
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxParallelProcessingTest.java,3
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxProducerCoreTest.java,7
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxSchemaQuotingTest.java,5
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/PerformanceBenchmarkTest.java,8
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/PgNotificationStreamCoreTest.java,1
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/StuckMessageRecoveryIntegrationTest.java,16
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ZombieVertxReproA.java,2
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/ZombieVertxReproB.java,2
 peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/RestApiExampleTest.java,1
 peegeeq-rest/src/test/java/dev/mars/peegeeq/rest/examples/RestApiStreamingExampleTest.java,8

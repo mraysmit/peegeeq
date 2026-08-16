@@ -38,15 +38,16 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Properties;
 import java.util.UUID;
-
-import java.util.concurrent.TimeUnit;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -87,123 +88,127 @@ public class OutboxConsumerErrorHandlingTest {
 
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
-                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
                 .build();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 DatabaseService databaseService = new PgDatabaseService(manager);
                 outboxFactory = new OutboxFactory(databaseService, config);
                 producer = outboxFactory.createProducer(testTopic, String.class);
                 consumer = outboxFactory.createConsumer(testTopic, String.class);
-                testContext.completeNow();
+                return (Void) null;
             })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) {
-            try { consumer.close(); } catch (Exception e) { logger.warn("Error closing consumer", e); }
-        }
-        if (producer != null) {
-            try { producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
-        }
         Future<Void> closeChain = outboxFactory != null
                 ? outboxFactory.close()
                 : Future.succeededFuture();
         closeChain
-                .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
+                .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHandlerExceptionWithRetry(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint checkpoint = testContext.checkpoint(3);
-        AtomicInteger attemptCount = new AtomicInteger(0);
+    void testHandlerExceptionWithRetry(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger attemptCount = new AtomicInteger();
 
         consumer.subscribe(message -> {
-        logger.info("Test: handler exception with retry");
             int attempt = attemptCount.incrementAndGet();
-            checkpoint.flag();
-            
             if (attempt < 3) {
                 throw new RuntimeException("Simulated handler failure on attempt " + attempt);
             }
-            // Third attempt succeeds
             return Future.succeededFuture();
-        });
-
-        producer.send("test-message").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
-            "Should process message with retries");
-        assertEquals(3, attemptCount.get(), 
-            "Should have attempted 3 times");
+        })
+            .compose(v -> producer.send("test-message"))
+            .compose(v -> awaitStatus(vertx, "COMPLETED", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertState(row, attemptCount, 3, "COMPLETED", 2);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHandlerExceptionReachesMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint checkpoint = testContext.checkpoint();
-        AtomicInteger attemptCount = new AtomicInteger(0);
+    void testHandlerExceptionReachesMaxRetries(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger attemptCount = new AtomicInteger();
 
         consumer.subscribe(message -> {
-        logger.info("Test: handler exception reaches max retries");
             attemptCount.incrementAndGet();
-            checkpoint.flag();
             return Future.failedFuture(new RuntimeException("Always fails"));
-        });
-
-        producer.send("failing-message").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process at least once");
-        assertTrue(attemptCount.get() > 0);
+        })
+            .compose(v -> producer.send("failing-message"))
+            .compose(v -> awaitStatus(vertx, "DEAD_LETTER", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertState(row, attemptCount, 4, "DEAD_LETTER", 3);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testUnsubscribeDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint processingStarted = testContext.checkpoint();
+    void testUnsubscribeDuringProcessing(Vertx vertx, VertxTestContext testContext) {
+        Promise<Void> processingStarted = Promise.promise();
+        Promise<Void> finishGate = Promise.promise();
+        AtomicInteger processed = new AtomicInteger();
 
         consumer.subscribe(message -> {
-        logger.info("Test: unsubscribe during processing");
-            processingStarted.flag();
-            // Simulate async processing via non-blocking delay
-            return vertx.timer(100).<Void>mapEmpty();
-        });
-
-        producer.send("test-message").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
-            "Processing should start");
-
-        // Unsubscribe while the handler is still in-flight (100ms timer not yet fired)
-        consumer.unsubscribe();
-
-        // Send another message - should not be processed (fire-and-forget; logged on failure)
-        producer.send("ignored-message").onFailure(err -> logger.warn("ignored-message send failed: {}", err.getMessage()));
+            processed.incrementAndGet();
+            processingStarted.tryComplete();
+            return finishGate.future();
+        })
+            .compose(v -> producer.send("test-message"))
+            .compose(v -> processingStarted.future())
+            .compose(v -> {
+                consumer.unsubscribe();
+                return producer.send("ignored-message");
+            })
+            .compose(v -> {
+                finishGate.tryComplete();
+                return awaitTerminalCounts(vertx, 1, 1, 100);
+            })
+            .onSuccess(row -> testContext.verify(() -> {
+                assertTerminalCounts(row, 1, 1);
+                assertEquals(1, processed.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCloseDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint processingStarted = testContext.checkpoint();
-        
+    void testCloseDuringProcessing(Vertx vertx, VertxTestContext testContext) {
+        Promise<Void> processingStarted = Promise.promise();
+        Promise<Void> finishGate = Promise.promise();
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+
         consumer.subscribe(message -> {
-        logger.info("Test: close during processing");
-            processingStarted.flag();
-            return vertx.timer(100).<Void>mapEmpty();
-        });
-
-        producer.send("test-message").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
-            "Processing should start");
-
-        // Close consumer during processing
-        assertDoesNotThrow(() -> consumer.close(), 
-            "Close should not throw exception");
+            processingStarted.tryComplete();
+            return finishGate.future();
+        })
+            .compose(v -> producer.send("test-message"))
+            .compose(v -> processingStarted.future())
+            .compose(v -> {
+                Future<Void> closeFuture = typedConsumer.closeAsync();
+                finishGate.tryComplete();
+                return closeFuture;
+            })
+            .compose(v -> producer.send("message-after-close"))
+            .compose(v -> awaitTerminalCounts(vertx, 1, 1, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertTerminalCounts(row, 1, 1);
+                Future<Void> resubscribe = typedConsumer.subscribe(message -> Future.succeededFuture());
+                assertTrue(resubscribe.failed());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -217,50 +222,44 @@ public class OutboxConsumerErrorHandlingTest {
     }
 
     @Test
-    void testMultipleSubscribeCallsLogsWarning() {
-        logger.info("Test: set consumer group name");
-        // First subscription should succeed
-        consumer.subscribe(message -> Future.succeededFuture());
+    void testMultipleSubscribeCallsLogsWarning(VertxTestContext testContext) {
+        consumer.subscribe(message -> Future.succeededFuture())
+            .compose(v -> consumer.subscribe(message -> Future.succeededFuture()))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
 
-        // Second subscription should not throw, just log warning and skip startPolling
-        assertDoesNotThrow(
-            () -> consumer.subscribe(message -> Future.succeededFuture()),
-            "Second subscribe should not throw, just log warning");
-    }    @Test
+    @Test
     void testUnsubscribeBeforeSubscribe() {
         assertDoesNotThrow(() -> consumer.unsubscribe(), 
             "Unsubscribe before subscribe should not throw");
     }
 
     @Test
-    void testCloseBeforeSubscribe() {
-        assertDoesNotThrow(() -> consumer.close(), 
-            "Close before subscribe should not throw");
+    void testCloseBeforeSubscribe(VertxTestContext testContext) {
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+        typedConsumer.closeAsync()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCloseMultipleTimes(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: close before subscribe");
-        Checkpoint checkpoint = testContext.checkpoint();
-        
+    void testCloseMultipleTimes(Vertx vertx, VertxTestContext testContext) {
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
         consumer.subscribe(message -> {
-            checkpoint.flag();
             return Future.succeededFuture();
-        });
-        producer.send("test-message").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
-            "Message should be received");
-
-        assertDoesNotThrow(() -> {
-            consumer.close();
-            consumer.close(); // Second close
-            consumer.close(); // Third close
-        }, "Multiple close calls should not throw");
+        })
+            .compose(v -> producer.send("test-message"))
+            .compose(v -> awaitStatus(vertx, "COMPLETED", 100))
+            .compose(v -> typedConsumer.closeAsync())
+            .compose(v -> typedConsumer.closeAsync())
+            .compose(v -> typedConsumer.closeAsync())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMessageWithNullPayload(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMessageWithNullPayload(Vertx vertx, VertxTestContext testContext) {
         // producer.send(null) returns a failed Future no message is stored,
         // so the consumer never receives anything. Verify the send fails.
         producer.send(null)
@@ -271,66 +270,169 @@ public class OutboxConsumerErrorHandlingTest {
                     "Cause should be IllegalArgumentException");
                 testContext.completeNow();
             }));
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
-    void testRapidSubscribeUnsubscribeCycle(Vertx vertx, VertxTestContext testContext) throws Exception {
-        // Verify that rapid subscribe/unsubscribe cycles don't throw exceptions.
-        // Don't use checkpoints here re-subscribing on the same consumer creates
-        // duplicate polling tasks and checkpoint accumulation breaks VertxTestContext.
+    void testRapidSubscribeUnsubscribeCycle(Vertx vertx, VertxTestContext testContext) {
+        Future<Void> cycles = Future.succeededFuture();
         for (int i = 0; i < 5; i++) {
-        logger.info("Test: rapid subscribe unsubscribe cycle");
-            consumer.subscribe(message -> Future.succeededFuture());
-            consumer.unsubscribe();
+            cycles = cycles.compose(v -> consumer.subscribe(message -> Future.succeededFuture()))
+                    .map(v -> {
+                        consumer.unsubscribe();
+                        return (Void) null;
+                    });
         }
-        testContext.completeNow();
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+        cycles
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHandlerWithInterruptedException(Vertx vertx, VertxTestContext testContext) throws Exception {
-        Checkpoint checkpoint = testContext.checkpoint();
+    void testHandlerWithInterruptedException(Vertx vertx, VertxTestContext testContext) {
+        AtomicInteger attempts = new AtomicInteger();
+        AtomicInteger observedInterrupts = new AtomicInteger();
 
         consumer.subscribe(message -> {
-        logger.info("Test: handler with interrupted exception");
-            Thread.currentThread().interrupt();
-            checkpoint.flag();
-            return Future.failedFuture(new RuntimeException("Interrupted"));
-        });
-
-        producer.send("interrupt-test").onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Consumer should handle interrupted exception");
+            attempts.incrementAndGet();
+            if (Thread.currentThread().isInterrupted()) {
+                observedInterrupts.incrementAndGet();
+            }
+            return Future.failedFuture(new RuntimeException(
+                    "Interrupted operation",
+                    new InterruptedException("simulated interruption")));
+        })
+            .compose(v -> producer.send("interrupt-test"))
+            .compose(v -> awaitStatus(vertx, "DEAD_LETTER", 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertState(row, attempts, 4, "DEAD_LETTER", 3);
+                assertEquals(0, observedInterrupts.intValue(),
+                        "Test must not poison the shared event-loop interrupt flag");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) {
         int messageCount = 10;
-        Checkpoint checkpoint = testContext.checkpoint(messageCount);
-        AtomicInteger processedCount = new AtomicInteger(0);
+        AtomicInteger processedCount = new AtomicInteger();
 
         consumer.subscribe(message -> {
-        logger.info("Test: concurrent message processing");
             processedCount.incrementAndGet();
-            // Simulate processing via non-blocking delay
-            return vertx.timer(50).<Void>map(t -> {
-                checkpoint.flag();
-                return null;
-            });
-        });
+            return vertx.timer(50).mapEmpty();
+        })
+            .compose(v -> sendMessages("concurrent-message-", messageCount))
+            .compose(v -> awaitCompletedCount(vertx, messageCount, 100))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(messageCount, count);
+                assertEquals(messageCount, processedCount.intValue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+    }
 
-        // Send multiple messages
-        for (int i = 0; i < messageCount; i++) {
-            producer.send("concurrent-message-" + i).onFailure(testContext::failNow);
+    private Future<Void> sendMessages(String prefix, int count) {
+        List<Future<?>> sends = new ArrayList<>();
+        for (int i = 0; i < count; i++) {
+            sends.add(producer.send(prefix + i));
         }
+        return Future.all(sends).mapEmpty();
+    }
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
-            "Should process all messages");
-        assertEquals(messageCount, processedCount.get(), 
-            "Should process exactly " + messageCount + " messages");
+    private Future<Integer> awaitCompletedCount(Vertx vertx, int expectedCount, int remainingAttempts) {
+        return statusCount("COMPLETED").compose(count -> {
+            if (count == expectedCount) {
+                return Future.succeededFuture(count);
+            }
+            if (remainingAttempts == 0) {
+                return Future.failedFuture(
+                        "Expected " + expectedCount + " completed messages but found " + count);
+            }
+            return vertx.timer(100)
+                    .compose(v -> awaitCompletedCount(vertx, expectedCount, remainingAttempts - 1));
+        });
+    }
+
+    private Future<Integer> statusCount(String status) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT CAST(COUNT(*) AS INTEGER) AS message_count
+                        FROM outbox
+                        WHERE topic = $1 AND status = $2
+                        """).execute(Tuple.of(testTopic, status))))
+                .map(rows -> rows.iterator().next().getInteger("message_count"));
+    }
+
+    private Future<Row> awaitTerminalCounts(
+            Vertx vertx,
+            int expectedCompleted,
+            int expectedPending,
+            int remainingAttempts) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT
+                            CAST(COUNT(*) FILTER (WHERE status = 'COMPLETED') AS INTEGER) AS completed_count,
+                            CAST(COUNT(*) FILTER (WHERE status = 'PENDING') AS INTEGER) AS pending_count
+                        FROM outbox
+                        WHERE topic = $1
+                        """).execute(Tuple.of(testTopic))))
+                .compose(rows -> {
+                    Row row = rows.iterator().next();
+                    if (row.getInteger("completed_count") == expectedCompleted
+                            && row.getInteger("pending_count") == expectedPending) {
+                        return Future.succeededFuture(row);
+                    }
+                    if (remainingAttempts == 0) {
+                        return Future.failedFuture("Topic did not reach expected completed/pending counts");
+                    }
+                    return vertx.timer(100).compose(v -> awaitTerminalCounts(
+                            vertx,
+                            expectedCompleted,
+                            expectedPending,
+                            remainingAttempts - 1));
+                });
+    }
+
+    private void assertTerminalCounts(Row row, int expectedCompleted, int expectedPending) {
+        assertEquals(expectedCompleted, row.getInteger("completed_count"));
+        assertEquals(expectedPending, row.getInteger("pending_count"));
+    }
+
+    private Future<Row> awaitStatus(Vertx vertx, String expectedStatus, int remainingAttempts) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT status, retry_count
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """).execute(Tuple.of(testTopic))))
+                .compose(rows -> {
+                    if (rows.size() == 1) {
+                        Row row = rows.iterator().next();
+                        if (expectedStatus.equals(row.getString("status"))) {
+                            return Future.succeededFuture(row);
+                        }
+                    }
+                    if (remainingAttempts == 0) {
+                        return Future.failedFuture("Message did not reach " + expectedStatus);
+                    }
+                    return vertx.timer(100)
+                            .compose(v -> awaitStatus(vertx, expectedStatus, remainingAttempts - 1));
+                });
+    }
+
+    private void assertState(
+            Row row,
+            AtomicInteger attempts,
+            int expectedAttempts,
+            String expectedStatus,
+            int expectedRetryCount) {
+        assertEquals(expectedAttempts, attempts.intValue());
+        assertEquals(expectedStatus, row.getString("status"));
+        assertEquals(expectedRetryCount, row.getInteger("retry_count"));
     }
 }
-
-

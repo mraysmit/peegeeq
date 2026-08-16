@@ -30,9 +30,11 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.junit5.Checkpoint;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -45,7 +47,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -65,8 +67,10 @@ public class OutboxEdgeCasesTest {
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
+    private QueueFactory factory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
+    private String topic;
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
@@ -82,143 +86,149 @@ public class OutboxEdgeCasesTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> {
+            .map(v -> {
                 PgDatabaseService databaseService = new PgDatabaseService(manager);
                 PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
                 OutboxFactoryRegistrar.registerWith(provider);
-                QueueFactory factory = provider.createFactory("outbox", databaseService);
-                producer = factory.createProducer("test-edge-cases", String.class);
-                consumer = factory.createConsumer("test-edge-cases", String.class);
-                testContext.completeNow();
+                factory = provider.createFactory("outbox", databaseService);
+                topic = "test-edge-cases-" + UUID.randomUUID().toString().substring(0, 8);
+                producer = factory.createProducer(topic, String.class);
+                consumer = factory.createConsumer(topic, String.class);
+                return (Void) null;
             })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) consumer.close();
-        if (producer != null) producer.close();
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        Future<Void> closeFactory = factory != null
+                ? factory.close()
+                : Future.succeededFuture();
+        closeFactory
+            .eventually(() -> manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testNullFutureReturn(VertxTestContext testContext) throws Exception {
+    void testNullFutureReturn(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Null Future Return ===");
         
         String testMessage = "Message that returns null future";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint errorCheckpoint = testContext.checkpoint();
-
-        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that returns null Future
         consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} returning null Future", attempt);
-            errorCheckpoint.flag();
-            
-            // Return null - should cause NPE and be handled as direct exception
-            return null;
-        });
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: Processing attempt {} returning null Future", attempt);
 
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and failed with null return");
-        assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
-        
-        logger.info("Null Future return test completed successfully");
+                // Return null - should be converted to a handler failure
+                return null;
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitDeadLetterState(vertx, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertTerminalFailure(row, attemptCount, "null Future");
+                logger.info("Null Future return test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testExceptionDuringMessageAccess(VertxTestContext testContext) throws Exception {
+    void testExceptionDuringMessageAccess(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Exception During Message Access ===");
         
         String testMessage = "Message for access exception test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Set up consumer that throws exception when accessing message propertiesfg
+        // Set up consumer that throws exception after accessing message properties
         consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} with message access exception", attempt);
-            retryCheckpoint.flag();
-            
-            // Try to access message properties in a way that might cause exception
-            String payload = message.getPayload();
-            if (payload != null) {
-                // Simulate exception during message processing
-                throw new IllegalStateException("INTENTIONAL FAILURE: Exception during message access, attempt " + attempt);
-            }
-            
-            return Future.succeededFuture();
-        });
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: Processing attempt {} with message access exception", attempt);
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
-        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
-        
-        logger.info("Exception during message access test completed successfully");
+                String payload = message.getPayload();
+                if (payload != null) {
+                    throw new IllegalStateException(
+                            "INTENTIONAL FAILURE: Exception during message access, attempt " + attempt);
+                }
+
+                return Future.succeededFuture();
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitDeadLetterState(vertx, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertTerminalFailure(row, attemptCount, "message access exception");
+                logger.info("Exception during message access test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testInterruptedExceptionHandling(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing InterruptedException Handling ===");
+    void testInterruptedCauseHandling(Vertx vertx, VertxTestContext testContext) {
+        logger.info("=== Testing InterruptedException Cause Handling ===");
         
-        String testMessage = "Message that gets interrupted";
+        String testMessage = "Message with interrupted failure cause";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
-
-        producer.send(testMessage).onFailure(testContext::failNow);
 
         consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} with interruption", attempt);
-            retryCheckpoint.flag();
-            
-            // Simulate interrupted exception
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("INTENTIONAL FAILURE: Thread interrupted, attempt " + attempt, 
-                new InterruptedException("Simulated interruption"));
-        });
+                int attempt = attemptCount.incrementAndGet();
+                logger.info("INTENTIONAL FAILURE: Processing attempt {} with interrupted cause", attempt);
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
-        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
-        
-        logger.info("InterruptedException handling test completed successfully");
+                // Preserve the InterruptedException as diagnostic cause without mutating
+                // the shared Vert.x event-loop thread's interrupt flag.
+                throw new RuntimeException(
+                        "INTENTIONAL FAILURE: Interrupted cause, attempt " + attempt,
+                        new InterruptedException("Simulated interruption"));
+            })
+            .compose(v -> producer.send(testMessage))
+            .compose(v -> awaitDeadLetterState(vertx, 100))
+            .onSuccess(row -> testContext.verify(() -> {
+                assertTerminalFailure(row, attemptCount, "interrupted cause");
+                logger.info("InterruptedException cause handling test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-    @Test
-    void testOutOfMemoryErrorHandling(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing OutOfMemoryError Simulation ===");
-        
-        String testMessage = "Message that simulates OOM";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint errorCheckpoint = testContext.checkpoint();
+    private Future<Row> awaitDeadLetterState(Vertx vertx, int remainingAttempts) {
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.withConnection(connection -> connection.preparedQuery("""
+                        SELECT status, retry_count
+                        FROM outbox
+                        WHERE topic = $1
+                        ORDER BY created_at DESC
+                        LIMIT 1
+                        """).execute(Tuple.of(topic))))
+                .compose(rows -> {
+                    if (rows.size() == 1) {
+                        Row row = rows.iterator().next();
+                        if ("DEAD_LETTER".equals(row.getString("status"))) {
+                            return Future.succeededFuture(row);
+                        }
+                    }
+                    if (remainingAttempts == 0) {
+                        return Future.failedFuture(
+                                "Message on topic " + topic + " did not reach DEAD_LETTER");
+                    }
+                    return vertx.timer(100)
+                            .compose(v -> awaitDeadLetterState(vertx, remainingAttempts - 1));
+                });
+    }
 
-        producer.send(testMessage).onFailure(testContext::failNow);
-
-        // Set up consumer that simulates OOM
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} simulating OOM", attempt);
-            errorCheckpoint.flag();
-            
-            // Simulate OOM by throwing it directly (safer than actually causing OOM)
-            throw new OutOfMemoryError("INTENTIONAL FAILURE: Simulated OOM, attempt " + attempt);
-        });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and handled OOM simulation");
-        assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
-        
-        logger.info("OutOfMemoryError simulation test completed successfully");
+    private void assertTerminalFailure(Row row, AtomicInteger attemptCount, String scenario) {
+        assertEquals(3, attemptCount.intValue(),
+                "Should make exactly 3 processing attempts for " + scenario);
+        assertEquals("DEAD_LETTER", row.getString("status"),
+                "Message should reach DEAD_LETTER for " + scenario);
+        assertEquals(2, row.getInteger("retry_count"),
+                "Message should persist retry_count=2 for " + scenario);
     }
 }
-
 

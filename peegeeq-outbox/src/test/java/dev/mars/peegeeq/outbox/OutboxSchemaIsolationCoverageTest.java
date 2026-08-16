@@ -84,22 +84,24 @@ public class OutboxSchemaIsolationCoverageTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        Future.<Void>succeededFuture()
-                .eventually(() -> consumerGroup != null
-                        ? consumerGroup.stop().compose(v -> consumerGroup.close())
-                                .onFailure(e -> logger.warn("consumerGroup stop/close failed", e))
-                        : Future.succeededFuture())
-                .eventually(() -> consumerGroupB != null
-                        ? consumerGroupB.stop().compose(v -> consumerGroupB.close())
-                                .onFailure(e -> logger.warn("consumerGroupB stop/close failed", e))
-                        : Future.succeededFuture())
-                .eventually(() -> {
-                    if (factory != null) factory.close();
-                    if (factoryB != null) factoryB.close();
-                    Future<Void> closeA = manager != null ? manager.closeReactive() : Future.succeededFuture();
-                    Future<Void> closeB = managerB != null ? managerB.closeReactive() : Future.succeededFuture();
-                    return closeA.compose(ignored -> closeB);
-                })
+        Future<Void> closeFactories = Future.join(
+                        factory != null ? factory.close() : Future.succeededFuture(),
+                        factoryB != null ? factoryB.close() : Future.succeededFuture())
+                .mapEmpty();
+        closeFactories
+                .transform(factoryResult -> Future.join(
+                                manager != null ? manager.closeReactive() : Future.succeededFuture(),
+                                managerB != null ? managerB.closeReactive() : Future.succeededFuture())
+                        .mapEmpty()
+                        .transform(managerResult -> {
+                            if (factoryResult.failed()) {
+                                return Future.failedFuture(factoryResult.cause());
+                            }
+                            if (managerResult.failed()) {
+                                return Future.failedFuture(managerResult.cause());
+                            }
+                            return Future.succeededFuture();
+                        }))
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
 
@@ -373,17 +375,14 @@ public class OutboxSchemaIsolationCoverageTest {
         manager.start()
                 .compose(v -> {
                     factory = new OutboxFactory(new PgDatabaseService(manager), config);
-                    return factory.createProducer(topic, String.class).send("roundtrip-payload");
-                })
-                .compose(v -> {
-                    factory.createConsumer(topic, String.class)
+                    MessageProducer<String> producer = factory.createProducer(topic, String.class);
+                    return factory.createConsumer(topic, String.class)
                             .subscribe(msg -> {
                                 receivedPayloads.add(msg.getPayload());
                                 received.flag();
                                 return Future.succeededFuture();
                             })
-                            .onFailure(testContext::failNow);
-                    return Future.succeededFuture();
+                            .compose(v2 -> producer.send("roundtrip-payload"));
                 })
                 .onFailure(testContext::failNow);
 
@@ -678,17 +677,17 @@ public class OutboxSchemaIsolationCoverageTest {
                             .pollingInterval(Duration.ofMillis(100))
                             .build();
 
-                    factory.createConsumer(topic, String.class, consumerConfig)
+                    Future<Void> subscribed = factory.createConsumer(topic, String.class, consumerConfig)
                             .subscribe(msg -> {
                                 matchReceived.flag();
                                 return Future.succeededFuture();
-                            })
-                            .onFailure(testContext::failNow);
+                            });
 
                     MessageProducer<String> producer = factory.createProducer(topic, String.class);
                     Map<String, String> matchHeaders = Map.of(matchHeaderKey, matchHeaderValue);
 
-                    return producer.send("match-1", matchHeaders)
+                    return subscribed
+                            .compose(ignored -> producer.send("match-1", matchHeaders))
                             .compose(ignored -> producer.send("match-2", matchHeaders))
                             .compose(ignored -> producer.send("match-3", matchHeaders))
                             .compose(ignored -> producer.send("no-match-1"))

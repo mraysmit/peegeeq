@@ -29,10 +29,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Properties;
 import java.util.UUID;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -88,75 +87,51 @@ public class OutboxConsumerErrorPathsCoverageTest {
     @AfterEach
     void teardown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        if (consumer != null) {
-            consumer.close();
-        }
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
+        Future<Void> closeFactory = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        closeFactory
+                .eventually(() -> manager != null
+                        ? manager.closeReactive()
+                        : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test handler throws exception triggering error handling")
     void testHandlerExceptionTriggersErrorHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint failureCheckpoint = testContext.checkpoint();
-        AtomicBoolean errorHandled = new AtomicBoolean(false);
-        
+
         MessageHandler<TestMessage> failingHandler = message -> {
-        logger.info("Test: handler exception triggers error handling");
-            errorHandled.set(true);
+            logger.info("Test: handler exception triggers error handling");
             failureCheckpoint.flag();
-            // Fail to trigger error handling path
             throw new RuntimeException("Simulated processing failure");
         };
-        
-        consumer.subscribe(failingHandler);
-        
-        // Send message that will fail processing
+
         TestMessage testMsg = new TestMessage("error-test", "This message will fail");
-        producer.send(testMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message");
-        assertTrue(errorHandled.get(), "Error handler should have been invoked");
+        consumer.subscribe(failingHandler)
+                .compose(v -> producer.send(testMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Test async handler completes exceptionally")
     void testAsyncHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint messageCheckpoint = testContext.checkpoint();
-        AtomicReference<Throwable> capturedError = new AtomicReference<>();
-        
+
         MessageHandler<TestMessage> asyncFailingHandler = message -> {
-        logger.info("Test: async handler completes exceptionally");
-            Promise<Void> promise = Promise.promise();
-            
-            // Simulate async processing that fails immediately
+            logger.info("Test: async handler completes exceptionally");
             RuntimeException error = new RuntimeException("Async processing failed");
-            capturedError.set(error);
-            promise.fail(error);
+            testContext.verify(() -> assertEquals("Async processing failed", error.getMessage()));
             messageCheckpoint.flag();
-            
-            return promise.future();
+            return Future.failedFuture(error);
         };
-        
-        consumer.subscribe(asyncFailingHandler);
-        
+
         TestMessage testMsg = new TestMessage("async-fail", "Async failure test");
-        producer.send(testMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive and process message");
-        assertNotNull(capturedError.get(), "Should capture exception");
+        consumer.subscribe(asyncFailingHandler)
+                .compose(v -> producer.send(testMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -164,25 +139,23 @@ public class OutboxConsumerErrorPathsCoverageTest {
     void testRapidMessageFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
         Checkpoint failureCheckpoint = testContext.checkpoint(messageCount);
-        AtomicInteger failureCount = new AtomicInteger(0);
-        
+
         MessageHandler<TestMessage> rapidFailHandler = message -> {
-        logger.info("Test: rapid message failures");
-            failureCount.incrementAndGet();
+            logger.info("Test: rapid message failures");
             failureCheckpoint.flag();
             throw new RuntimeException("Rapid failure: " + message.getId());
         };
-        
-        consumer.subscribe(rapidFailHandler);
-        
-        // Send multiple messages rapidly
-        for (int i = 0; i < messageCount; i++) {
-            TestMessage msg = new TestMessage("rapid-fail-" + i, "Rapid failure test " + i);
-            producer.send(msg);
-        }
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all messages");
-        assertTrue(failureCount.get() >= messageCount, "All messages should fail initially");
+
+        consumer.subscribe(rapidFailHandler)
+                .compose(v -> {
+                    List<Future<?>> sends = new ArrayList<>();
+                    for (int i = 0; i < messageCount; i++) {
+                        TestMessage msg = new TestMessage("rapid-fail-" + i, "Rapid failure test " + i);
+                        sends.add(producer.send(msg));
+                    }
+                    return Future.all(sends).mapEmpty();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -199,12 +172,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
             return Future.succeededFuture();
         };
         
-        consumer.subscribe(nullPointerHandler);
-        
         TestMessage testMsg = new TestMessage("npe-test", "NPE test message");
-        producer.send(testMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
+        consumer.subscribe(nullPointerHandler)
+                .compose(v -> producer.send(testMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -219,12 +190,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
             throw new AssertionError("Simulated assertion error");
         };
         
-        consumer.subscribe(errorHandler);
-        
         TestMessage testMsg = new TestMessage("error-test", "Error test message");
-        producer.send(testMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
+        consumer.subscribe(errorHandler)
+                .compose(v -> producer.send(testMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -238,15 +207,13 @@ public class OutboxConsumerErrorPathsCoverageTest {
             throw new RuntimeException("Failed with special chars: " + message.getPayload().getData());
         };
         
-        consumer.subscribe(failHandler);
-        
         TestMessage specialMsg = new TestMessage(
             "special-chars-fail",
             "Special: <>&\"'\n\t\r\\/"
         );
-        producer.send(specialMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should handle message with special characters");
+        consumer.subscribe(failHandler)
+                .compose(v -> producer.send(specialMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -260,18 +227,15 @@ public class OutboxConsumerErrorPathsCoverageTest {
             throw new RuntimeException("Failed processing large message");
         };
         
-        consumer.subscribe(failHandler);
-        
-        // Create large message
         StringBuilder largeData = new StringBuilder();
         for (int i = 0; i < 1000; i++) {
             largeData.append("This is line ").append(i).append(" of a very large message. ");
         }
-        
+
         TestMessage largeMsg = new TestMessage("large-fail", largeData.toString());
-        producer.send(largeMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should handle large message");
+        consumer.subscribe(failHandler)
+                .compose(v -> producer.send(largeMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -289,12 +253,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
             return promise.future();
         };
         
-        consumer.subscribe(slowFailHandler);
-        
         TestMessage testMsg = new TestMessage("timeout-test", "Timeout simulation");
-        producer.send(testMsg);
-        
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should start processing");
+        consumer.subscribe(slowFailHandler)
+                .compose(v -> producer.send(testMsg))
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -302,28 +264,28 @@ public class OutboxConsumerErrorPathsCoverageTest {
     void testMultipleConsumersWithFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         MessageConsumer<TestMessage> consumer2 = outboxFactory.createConsumer(testTopic, TestMessage.class);
         
-        try {
         logger.info("Test: multiple consumers with failures");
-            Checkpoint receivedCheckpoint = testContext.checkpoint();
-            
-            consumer.subscribe(message -> {
-                receivedCheckpoint.flag();
-                return Future.failedFuture(new RuntimeException("Consumer 1 failure"));
-            });
-            
-            consumer2.subscribe(message -> {
-                receivedCheckpoint.flag();
-                return Future.failedFuture(new RuntimeException("Consumer 2 failure"));
-            });
-            
-            TestMessage testMsg = new TestMessage("multi-consumer", "Multiple consumer test");
-            producer.send(testMsg);
-            
-            // At least one consumer should process
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "At least one consumer should process message");
-        } finally {
-            consumer2.close();
-        }
+        Promise<Void> received = Promise.promise();
+
+        Future<Void> subscribeFirst = consumer.subscribe(message -> {
+            received.tryComplete();
+            return Future.failedFuture(new RuntimeException("Consumer 1 failure"));
+        });
+        Future<Void> subscribeSecond = consumer2.subscribe(message -> {
+            received.tryComplete();
+            return Future.failedFuture(new RuntimeException("Consumer 2 failure"));
+        });
+
+        TestMessage testMsg = new TestMessage("multi-consumer", "Multiple consumer test");
+        Future.all(subscribeFirst, subscribeSecond)
+                .compose(v -> producer.send(testMsg))
+                .compose(v -> received.future())
+                .eventually(() -> {
+                    consumer2.close();
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -344,13 +306,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
             return Future.succeededFuture();
         };
         
-        consumer.subscribe(intermittentHandler);
-        
         TestMessage testMsg = new TestMessage("intermittent", "Intermittent failure test");
-        producer.send(testMsg);
-        
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should eventually succeed after retry");
-        assertTrue(attemptCount.get() >= 2, "Should have multiple attempts");
+        consumer.subscribe(intermittentHandler)
+                .compose(v -> producer.send(testMsg))
+                .onFailure(testContext::failNow);
     }
 
     static class TestMessage {
@@ -370,5 +329,3 @@ public class OutboxConsumerErrorPathsCoverageTest {
         public void setData(String data) { this.data = data; }
     }
 }
-
-

@@ -19,6 +19,7 @@ package dev.mars.peegeeq.outbox;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -138,10 +139,8 @@ class OutboxConsumerGroupFaultToleranceTest {
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        try { if (producer != null) producer.close(); } catch (Exception e) { logger.warn("Error closing producer", e); }
-        try { if (outboxFactory != null) outboxFactory.close(); } catch (Exception e) { logger.warn("Error closing outboxFactory", e); }
         Future.<Void>succeededFuture()
-                .eventually(() -> consumerGroup != null ? consumerGroup.stop().compose(v -> consumerGroup.close()) : Future.succeededFuture())
+                .eventually(() -> outboxFactory != null ? outboxFactory.close() : Future.succeededFuture())
                 .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .eventually(() -> verificationConnectionManager != null ? verificationConnectionManager.close() : Future.<Void>succeededFuture())
                 .onSuccess(v -> tearDownContext.completeNow())
@@ -278,40 +277,33 @@ class OutboxConsumerGroupFaultToleranceTest {
     class StopDuringProcessing {
 
         @Test
-        @DisplayName("stop() during active handler completes cleanly")
+        @DisplayName("stop() waits for an active handler and completes cleanly")
         void stopDuringActiveHandlerCompletesCleanly(Vertx vertx, VertxTestContext testContext) throws Exception {
             Promise<Void> handlerGate = Promise.promise();
-            AtomicInteger handlerEntryCount = new AtomicInteger();
+            Promise<Void> handlerEntered = Promise.promise();
 
             consumerGroup = outboxFactory.createConsumerGroup("stop-active-group", testTopic, String.class);
             consumerGroup.addConsumer("c1", message -> {
-                handlerEntryCount.incrementAndGet();
+                handlerEntered.tryComplete();
                 logger.info("Handler entered for message: {}", message.getPayload());
-                // Block until gate is released simulates slow processing
+                // Hold the handler in flight until the test verifies stop is waiting.
                 return handlerGate.future();
             });
-            // Wait for group to start, then send a message handler will hang on the gate
+            // Wait for group to start, then send a message whose handler waits on the gate.
             consumerGroup.start()
                 .compose(v -> vertx.timer(500).mapEmpty())
                 .compose(v -> producer.send("slow-message").mapEmpty())
+                .compose(v -> handlerEntered.future())
                 .compose(v -> {
-                    // Poll until handler is entered
-                    Promise<Void> entered = Promise.promise();
-                    vertx.setPeriodic(100, id -> {
-                        if (handlerEntryCount.get() > 0) {
-                            vertx.cancelTimer(id);
-                            entered.complete();
-                        }
-                    });
-                    return entered.future();
-                })
-                .compose(v -> {
-                    // Stop the group while the user handler is still in-flight.
-                    // stopGracefully() no longer waits for user-handler futures, so the hung
-                    // gate is simply abandoned that is the documented contract: handler
-                    // lifetime is the caller's concern, not the consumer's.
                     logger.info("Calling stopGracefully() while handler is in-flight");
-                    return consumerGroup.stopGracefully();
+                    Future<Void> stopFuture = consumerGroup.stopGracefully();
+                    try {
+                        testContext.verify(() -> assertFalse(stopFuture.isComplete(),
+                                "stopGracefully() must wait for the active handler"));
+                    } finally {
+                        handlerGate.tryComplete();
+                    }
+                    return stopFuture;
                 })
                 .compose(v -> {
                     // Verify the group is no longer active
@@ -338,6 +330,45 @@ class OutboxConsumerGroupFaultToleranceTest {
             assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                     "Test should complete within timeout");
         }
+
+        @Test
+        @DisplayName("factory close waits for an active handler and persists completion")
+        void factoryCloseWaitsForActiveHandlerAndPersistsCompletion(
+                VertxTestContext testContext) throws Exception {
+            Promise<Void> handlerGate = Promise.promise();
+            Promise<Void> handlerEntered = Promise.promise();
+            MessageConsumer<String> directConsumer = outboxFactory.createConsumer(testTopic, String.class);
+
+            directConsumer.subscribe(message -> {
+                handlerEntered.tryComplete();
+                return handlerGate.future();
+            })
+                .compose(v -> producer.send("factory-close-message").mapEmpty())
+                .compose(v -> handlerEntered.future())
+                .compose(v -> {
+                    Future<Void> factoryClose = outboxFactory.close();
+                    try {
+                        testContext.verify(() -> assertFalse(factoryClose.isComplete(),
+                                "OutboxFactory.close() must wait for the active handler"));
+                    } finally {
+                        handlerGate.tryComplete();
+                    }
+                    return factoryClose;
+                })
+                .compose(v -> verificationPool.preparedQuery(
+                        "SELECT status FROM outbox WHERE topic = $1")
+                        .execute(Tuple.of(testTopic)))
+                .onSuccess(rows -> testContext.verify(() -> {
+                    assertEquals(1, rows.size(), "The sent message should remain queryable");
+                    assertEquals("COMPLETED", rows.iterator().next().getString("status"),
+                            "Close must allow the in-flight completion update to finish");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+            assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                    "Factory close should complete after the handler is released");
+        }
     }
 
     // ========================================================================
@@ -352,6 +383,7 @@ class OutboxConsumerGroupFaultToleranceTest {
         @DisplayName("hung handler blocks poll loop no further messages processed")
         void hungHandlerBlocksPollLoop(Vertx vertx, VertxTestContext testContext) throws Exception {
             AtomicInteger handlerCalls = new AtomicInteger();
+            Promise<Void> handlerGate = Promise.promise();
             int totalMessages = 15;
             int initialBatchSize = 10;
 
@@ -359,8 +391,7 @@ class OutboxConsumerGroupFaultToleranceTest {
             consumerGroup.addConsumer("c1", message -> {
                 handlerCalls.incrementAndGet();
                 logger.info("Handler entered for message: {}", message.getPayload());
-                // Return a Future that never completes simulates permanently hung handler
-                return Promise.<Void>promise().future();
+                return handlerGate.future();
             });
             // Wait for group to start, send multiple messages, then wait
             consumerGroup.start()
@@ -413,6 +444,10 @@ class OutboxConsumerGroupFaultToleranceTest {
 
                     logger.info("F3 PASSED: hung handler blocks poll loop (documented behavior)");
                     return (Void) null;
+                })
+                .eventually(() -> {
+                    handlerGate.tryComplete();
+                    return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);

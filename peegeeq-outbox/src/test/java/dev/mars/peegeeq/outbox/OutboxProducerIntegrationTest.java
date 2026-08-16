@@ -28,8 +28,10 @@ import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -40,8 +42,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
+import java.util.UUID;
 
 /**
  * Integration tests for OutboxProducer.
@@ -94,17 +97,19 @@ public class OutboxProducerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
+                    .onSuccess(v -> {
+                        logger.info("OutboxProducer integration test teardown completed");
+                        testContext.completeNow();
+                    })
                     .onFailure(testContext::failNow);
         } else {
+            logger.info("OutboxProducer integration test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("OutboxProducer integration test teardown completed");
     }
 
     @Test
@@ -363,23 +368,28 @@ public class OutboxProducerIntegrationTest {
     }
 
     @Test
-    void testSend_OverloadsWithIncreasingParameters() {
+    void testSend_OverloadsWithIncreasingParameters(VertxTestContext testContext) {
+        String topic = "pi-over-" + UUID.randomUUID().toString().substring(0, 8);
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
-            "test-topic",
+            topic,
             String.class,
             null
         );
 
-        // These will fail at runtime due to no database, but should pass validation
-        // Testing that methods exist and accept parameters correctly
-        assertNotNull(producer.send("payload"));
-        assertNotNull(producer.send("payload", null));
-        assertNotNull(producer.send("payload", null, "correlation-id"));
-        assertNotNull(producer.send("payload", null, "correlation-id", "message-group"));
-
-        producer.close();
+        Future.all(List.of(
+                        producer.send("payload"),
+                        producer.send("payload", null),
+                        producer.send("payload", null, "correlation-id"),
+                        producer.send("payload", null, "correlation-id", "message-group")))
+                .compose(v -> verifyPersistedMetadata(topic, 4, 2, 1, 4, 4))
+                .eventually(() -> {
+                    producer.close();
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -407,36 +417,82 @@ public class OutboxProducerIntegrationTest {
     }
 
     @Test
-    void testSendWithEmptyHeaders() {
+    void testSendWithEmptyHeaders(VertxTestContext testContext) {
+        String topic = "pi-head-" + UUID.randomUUID().toString().substring(0, 8);
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
-            "test-topic",
+            topic,
             String.class,
             null
         );
 
         // Empty headers map should be acceptable
         java.util.Map<String, String> emptyHeaders = new java.util.HashMap<>();
-        assertNotNull(producer.send("payload", emptyHeaders));
-
-        producer.close();
+        producer.send("payload", emptyHeaders)
+                .compose(v -> verifyPersistedMetadata(topic, 1, 0, 0, 1, 1))
+                .eventually(() -> {
+                    producer.close();
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSendWithNullCorrelationId() {
+    void testSendWithNullCorrelationId(VertxTestContext testContext) {
+        String topic = "pi-corr-" + UUID.randomUUID().toString().substring(0, 8);
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
-            "test-topic",
+            topic,
             String.class,
             null
         );
 
         // Null correlation ID should be acceptable
-        assertNotNull(producer.send("payload", null, null));
+        producer.send("payload", null, null)
+                .compose(v -> verifyPersistedMetadata(topic, 1, 0, 0, 1, 1))
+                .eventually(() -> {
+                    producer.close();
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
 
-        producer.close();
+    private Future<Void> verifyPersistedMetadata(String topic, long expectedMessages,
+                                                 long expectedCorrelationIds,
+                                                 long expectedMessageGroups,
+                                                 long expectedEmptyHeaders,
+                                                 long expectedPopulatedCorrelationIds) {
+        String sql = """
+                SELECT COUNT(*) AS message_count,
+                       COUNT(*) FILTER (WHERE correlation_id = 'correlation-id') AS correlation_count,
+                       COUNT(*) FILTER (WHERE message_group = 'message-group') AS message_group_count,
+                       COUNT(*) FILTER (WHERE headers = '{}'::jsonb) AS empty_headers_count,
+                       COUNT(*) FILTER (WHERE correlation_id IS NOT NULL AND correlation_id <> '') AS populated_correlation_count
+                FROM outbox
+                WHERE topic = $1
+                """;
+
+        return manager.getDatabaseService().getConnectionProvider()
+                .getReactivePool("peegeeq-main")
+                .compose(pool -> pool.preparedQuery(sql).execute(Tuple.of(topic)))
+                .map(rows -> {
+                    var row = rows.iterator().next();
+                    assertEquals(expectedMessages, row.getLong("message_count"),
+                            "Every completed send overload must persist one message");
+                    assertEquals(expectedCorrelationIds, row.getLong("correlation_count"),
+                            "Correlation IDs must be persisted by the matching overloads");
+                    assertEquals(expectedMessageGroups, row.getLong("message_group_count"),
+                            "Message group must be persisted by the four-argument overload");
+                    assertEquals(expectedEmptyHeaders, row.getLong("empty_headers_count"),
+                            "Null and empty headers must serialize as an empty JSON object");
+                    assertEquals(expectedPopulatedCorrelationIds, row.getLong("populated_correlation_count"),
+                            "Every persisted message must have an explicit or generated correlation ID");
+                    return (Void) null;
+                });
     }
 
     // Helper class for testing generic types
@@ -458,6 +514,3 @@ public class OutboxProducerIntegrationTest {
         }
     }
 }
-
-
-

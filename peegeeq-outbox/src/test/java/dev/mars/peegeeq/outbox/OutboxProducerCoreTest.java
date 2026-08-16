@@ -46,8 +46,6 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -71,7 +69,7 @@ public class OutboxProducerCoreTest {
     private String testTopic;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("=== OutboxProducerCoreTest SETUP STARTED ===");
 
         // Initialize schema first
@@ -87,37 +85,60 @@ public class OutboxProducerCoreTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        // Create factory and producer
-        DatabaseService databaseService = new PgDatabaseService(manager);
-        outboxFactory = new OutboxFactory(databaseService, config);
-        producer = outboxFactory.createProducer(testTopic, String.class);
-
-        logger.info("=== OutboxProducerCoreTest SETUP COMPLETED ===");
+        manager.start()
+                .compose(v -> {
+                    DatabaseService databaseService = new PgDatabaseService(manager);
+                    outboxFactory = new OutboxFactory(databaseService, config);
+                    producer = outboxFactory.createProducer(testTopic, String.class);
+                    logger.info("=== OutboxProducerCoreTest SETUP COMPLETED ===");
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext tearDownContext) throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+    void tearDown(VertxTestContext tearDownContext) {
         logger.info("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
 
-        if (producer != null) {
-            producer.close();
-        }
-        if (outboxFactory != null) {
-            outboxFactory.close();
-        }
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> tearDownContext.completeNow())
-                    .onFailure(tearDownContext::failNow);
-            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
-        } else {
-            tearDownContext.completeNow();
-        }
+        Future<Void> factoryClose = outboxFactory != null
+                ? outboxFactory.close()
+                : Future.succeededFuture();
+        factoryClose.transform(factoryResult -> {
+                    Future<Void> managerClose = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return managerClose.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> {
+                    logger.info("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
+                    tearDownContext.completeNow();
+                })
+                .onFailure(tearDownContext::failNow);
+    }
 
-        logger.info("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
+    private void verifyMessageCount(Future<Void> sendFuture, long expectedCount,
+                                    VertxTestContext testContext, String completionMessage) {
+        assertNotNull(sendFuture, "Send should return a future");
+        sendFuture
+                .compose(v -> outboxFactory.countMessages(testTopic))
+                .map(count -> {
+                    assertEquals(expectedCount, count, "Persisted outbox message count");
+                    return (Void) null;
+                })
+                .onSuccess(v -> {
+                    logger.info(completionMessage);
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test
@@ -130,23 +151,19 @@ public class OutboxProducerCoreTest {
     }
 
     @Test
-    void testSendBasicMessage() throws Exception {
+    void testSendBasicMessage(VertxTestContext testContext) {
         logger.info("Test: producer creation");
         logger.info("=== TEST: testSendBasicMessage STARTED ===");
 
         String testMessage = "Hello, OutboxProducer Test!";
 
         Future<Void> sendFuture = producer.send(testMessage);
-        assertNotNull(sendFuture, "Send should return a future");
-
-        // Wait for send to complete
-        sendFuture.await();
-
-        logger.info("=== TEST: testSendBasicMessage COMPLETED ===");
+        verifyMessageCount(sendFuture, 1, testContext,
+                "=== TEST: testSendBasicMessage COMPLETED ===");
     }
 
     @Test
-    void testSendMessageWithHeaders() throws Exception {
+    void testSendMessageWithHeaders(VertxTestContext testContext) {
         logger.info("=== TEST: testSendMessageWithHeaders STARTED ===");
 
         String testMessage = "Message with headers";
@@ -155,16 +172,12 @@ public class OutboxProducerCoreTest {
         headers.put("source", "producer-test");
 
         Future<Void> sendFuture = producer.send(testMessage, headers);
-        assertNotNull(sendFuture, "Send should return a future");
-
-        // Wait for send to complete
-        sendFuture.await();
-
-        logger.info("=== TEST: testSendMessageWithHeaders COMPLETED ===");
+        verifyMessageCount(sendFuture, 1, testContext,
+                "=== TEST: testSendMessageWithHeaders COMPLETED ===");
     }
 
     @Test
-    void testSendMessageWithCorrelationId() throws Exception {
+    void testSendMessageWithCorrelationId(VertxTestContext testContext) {
         logger.info("Test: send message with headers");
         logger.info("=== TEST: testSendMessageWithCorrelationId STARTED ===");
 
@@ -174,16 +187,12 @@ public class OutboxProducerCoreTest {
         String correlationId = UUID.randomUUID().toString();
 
         Future<Void> sendFuture = producer.send(testMessage, headers, correlationId);
-        assertNotNull(sendFuture, "Send should return a future");
-
-        // Wait for send to complete
-        sendFuture.await();
-
-        logger.info("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
+        verifyMessageCount(sendFuture, 1, testContext,
+                "=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
     }
 
     @Test
-    void testSendMessageWithAllParameters() throws Exception {
+    void testSendMessageWithAllParameters(VertxTestContext testContext) {
         logger.info("=== TEST: testSendMessageWithAllParameters STARTED ===");
 
         String testMessage = "Message with all parameters";
@@ -193,40 +202,45 @@ public class OutboxProducerCoreTest {
         String messageGroup = "test-group";
 
         Future<Void> sendFuture = producer.send(testMessage, headers, correlationId, messageGroup);
-        assertNotNull(sendFuture, "Send should return a future");
-
-        // Wait for send to complete
-        sendFuture.await();
-
-        logger.info("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
+        verifyMessageCount(sendFuture, 1, testContext,
+                "=== TEST: testSendMessageWithAllParameters COMPLETED ===");
     }
 
     @Test
-    void testSendMultipleMessages() throws Exception {
+    void testSendMultipleMessages(VertxTestContext testContext) {
         logger.info("Test: send message with all parameters");
         logger.info("=== TEST: testSendMultipleMessages STARTED ===");
 
         int messageCount = 10;
+        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 0; i < messageCount; i++) {
             String message = "Message " + i;
-            producer.send(message).await();
+            sendChain = sendChain.compose(v -> producer.send(message));
         }
 
-        logger.info("=== TEST: testSendMultipleMessages COMPLETED ===");
+        verifyMessageCount(sendChain, messageCount, testContext,
+                "=== TEST: testSendMultipleMessages COMPLETED ===");
     }
 
     @Test
-    void testProducerClose() throws Exception {
+    void testProducerClose(VertxTestContext testContext) {
         logger.info("=== TEST: testProducerClose STARTED ===");
 
-        // Send a message first
-        producer.send("test message").await();
-
-        // Close producer
-        producer.close();
-
-        logger.info("=== TEST: testProducerClose COMPLETED ===");
+        producer.send("test message")
+                .compose(v -> outboxFactory.countMessages(testTopic))
+                .compose(count -> {
+                    assertEquals(1L, count, "Message should be persisted before close");
+                    producer.close();
+                    return producer.send("must fail after close")
+                            .transform(sendAfterClose -> {
+                                assertTrue(sendAfterClose.failed(), "Send after close should fail");
+                                return Future.succeededFuture();
+                            });
+                })
+                .onSuccess(v -> {
+                    logger.info("=== TEST: testProducerClose COMPLETED ===");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 }
-
-

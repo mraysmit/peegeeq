@@ -47,12 +47,13 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Phaser;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -95,13 +96,12 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         Future.<Void>succeededFuture()
                 .eventually(() -> group != null ? group.close() : Future.succeededFuture())
                 .eventually(() -> manager != null ? manager.closeReactive() : Future.succeededFuture())
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -226,7 +226,7 @@ class OutboxConsumerGroupReviewFixesTest {
             member.start();
 
             int threadCount = 10;
-            CyclicBarrier barrier = new CyclicBarrier(threadCount);
+            Phaser startGate = new Phaser(threadCount);
             AtomicInteger accepted = new AtomicInteger();
             AtomicInteger rejected = new AtomicInteger();
 
@@ -235,25 +235,21 @@ class OutboxConsumerGroupReviewFixesTest {
                 for (int i = 0; i < threadCount; i++) {
                     final int index = i;
                     executor.submit(() -> {
-                        try {
-                            barrier.await(5, TimeUnit.SECONDS);
-                            Future<Void> result = member.processMessage(
+                        startGate.arriveAndAwaitAdvance();
+                        Future<Void> result = member.processMessage(
                                 new SimpleMessage<>("msg-" + index, "t", "p"));
-                            if (result.failed() && result.cause().getMessage().contains("max concurrency")) {
-                                rejected.incrementAndGet();
-                            } else {
-                                accepted.incrementAndGet();
-                            }
-                        } catch (Exception e) {
-                            // barrier timeout
+                        if (result.failed() && result.cause().getMessage().contains("max concurrency")) {
+                            rejected.incrementAndGet();
+                        } else {
+                            accepted.incrementAndGet();
                         }
                     });
                 }
                 executor.shutdown();
                 assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
-                assertEquals(1, accepted.get(),
+                assertEquals(1, accepted.intValue(),
                     "Exactly one thread should get through the concurrency gate");
-                assertEquals(threadCount - 1, rejected.get(),
+                assertEquals(threadCount - 1, rejected.intValue(),
                     "All other threads should be rejected at max concurrency");
             } finally {
                 completion.complete();
@@ -303,7 +299,7 @@ class OutboxConsumerGroupReviewFixesTest {
             // Route once to discover which consumer gets "target-msg"
             Message<String> msg = new SimpleMessage<>("target-msg", "test-topic", "payload");
             invokeDistributeMessage(group, msg);
-            String selectedId = targetConsumerId.get();
+            String selectedId = targetConsumerId.getAcquire();
             assertNotNull(selectedId, "Should have routed to one consumer");
 
             // Now remove that consumer and try the same message
@@ -319,7 +315,7 @@ class OutboxConsumerGroupReviewFixesTest {
             // The remaining consumer should get it (hash changes with set size)
             // or if hash still picks the removed one, liveness check catches it
             if (result.succeeded()) {
-                assertNotEquals(selectedId, targetConsumerId.get(),
+                assertNotEquals(selectedId, targetConsumerId.getAcquire(),
                     "Message should not have been delivered to removed consumer");
             }
             // Either way, the removed consumer must NOT have received it
@@ -388,16 +384,12 @@ class OutboxConsumerGroupReviewFixesTest {
                 for (int i = 0; i < messageCount; i++) {
                     final int idx = i;
                     executor.submit(() -> {
-                        try {
-                            Future<Void> result = invokeDistributeMessage(group,
+                        Future<Void> result = invokeDistributeMessage(group,
                                 new SimpleMessage<>("msg-" + idx, "test-topic", "p"));
-                            if (result.succeeded()) {
-                                delivered.incrementAndGet();
-                            } else {
-                                filtered.incrementAndGet();
-                            }
-                        } catch (Exception e) {
-                            // reflection exception
+                        if (result.succeeded()) {
+                            delivered.incrementAndGet();
+                        } else {
+                            filtered.incrementAndGet();
                         }
                     });
                 }
@@ -405,7 +397,7 @@ class OutboxConsumerGroupReviewFixesTest {
                 executor.shutdown();
                 assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 // Key invariant: total delivered + filtered == messageCount
-                assertEquals(messageCount, delivered.get() + filtered.get(),
+                assertEquals(messageCount, delivered.intValue() + filtered.intValue(),
                     "Every message should either be delivered or filtered");
             } finally {
                 executor.shutdownNow();
@@ -423,32 +415,38 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group close() transitions to CLOSED and clears members")
-        void groupCloseTransitionsClearsMembers() {
+        void groupCloseTransitionsClearsMembers(VertxTestContext testContext) {
             group = createGroup("close-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-            assertTrue(group.close().succeeded(), "group.close() should succeed");
-
-            assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
-            assertTrue(group.getConsumerIds().isEmpty());
+            group.start()
+                    .compose(v -> group.close())
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
+                        assertTrue(group.getConsumerIds().isEmpty());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("group close() returns completion future and clears members")
-        void groupCloseReturnsCompletionFuture() {
+        void groupCloseReturnsCompletionFuture(VertxTestContext testContext) {
             group = createGroup("close-async-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            Future<Void> result = group.close();
-
-            assertTrue(result.succeeded(), "close() should return a completed future in the CORE path");
-            assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
-            assertTrue(group.getConsumerIds().isEmpty(), "close() should clear members");
-
-            group = null;
+            group.start()
+                    .compose(v -> {
+                        Future<Void> closeFuture = group.close();
+                        assertNotNull(closeFuture, "close() should return a completion Future");
+                        return closeFuture;
+                    })
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
+                        assertTrue(group.getConsumerIds().isEmpty(), "close() should clear members");
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
@@ -479,37 +477,45 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group close from ACTIVE stops members before closing")
-        void groupCloseFromActiveStopsMembers() {
+        void groupCloseFromActiveStopsMembers(VertxTestContext testContext) {
             group = createGroup("close-active-group", "test-topic");
             var m1 = (OutboxConsumerGroupMember<String>) group.addConsumer("c1", msg -> Future.succeededFuture());
             var m2 = (OutboxConsumerGroupMember<String>) group.addConsumer("c2", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            assertTrue(m1.isActive());
-            assertTrue(m2.isActive());
-            assertTrue(group.close().succeeded(), "group.close() should succeed");
-
-            // Members should be stopped and closed
-            assertFalse(m1.isActive());
-            assertFalse(m2.isActive());
-            assertEquals(ProcessingState.STOPPED, m1.getProcessingState());
-            assertEquals(ProcessingState.STOPPED, m2.getProcessingState());
+            group.start()
+                    .compose(v -> {
+                        assertTrue(m1.isActive());
+                        assertTrue(m2.isActive());
+                        return group.close();
+                    })
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertFalse(m1.isActive());
+                        assertFalse(m2.isActive());
+                        assertEquals(ProcessingState.STOPPED, m1.getProcessingState());
+                        assertEquals(ProcessingState.STOPPED, m2.getProcessingState());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("group stop() transitions ACTIVE  NEW and allows restart")
-        void groupStopAllowsRestart() {
+        void groupStopAllowsRestart(VertxTestContext testContext) {
             group = createGroup("stop-restart-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-            assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
-
-            assertTrue(group.stop().succeeded(), "group.stop() should succeed");
-            assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
-
-            // Should be restartable
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-            assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+            group.start()
+                    .compose(v -> {
+                        assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+                        return group.stop();
+                    })
+                    .compose(v -> {
+                        assertEquals(OutboxConsumerGroup.State.NEW, group.getState());
+                        return group.start();
+                    })
+                    .onSuccess(v -> testContext.verify(() -> {
+                        assertEquals(OutboxConsumerGroup.State.ACTIVE, group.getState());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
     }
 
@@ -563,97 +569,135 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group avgProcessingTime is weighted by per-member processed count, not simple average")
-        void weightedAverageNotSimpleAverage() {
-            group = createGroup("stats-group", "test-topic");
-
-            // c1 processes 1 fast message, c2 processes 10 slow messages
-            // If simple avg: (fast_avg + slow_avg) / 2  wrong
-            // If weighted:   (fast_total_ms + slow_total_ms) / 11  correct
-
-            group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.addConsumer("c2", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            // Route messages with hash routing, different IDs go to different consumers
-            // Send 1 message to c1, 10 to c2 (by finding IDs that route to each)
-            // Instead, just use a single consumer approach for deterministic verification
-            assertTrue(group.close().succeeded(), "group.close() should succeed");
-
-            // Use a controlled setup: two members with known stats
+        void weightedAverageNotSimpleAverage(VertxTestContext testContext) {
             group = createGroup("weighted-group", "test-topic");
-            group.addConsumer("c1", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
+            group.addConsumer("c1", msg -> {
+                Promise<Void> completion = Promise.promise();
+                vertx.setTimer(5, ignored -> completion.complete());
+                return completion.future();
+            }, msg -> msg.getId().startsWith("fast-"));
+            OutboxConsumerGroupMember<String> slowMember =
+                    (OutboxConsumerGroupMember<String>) group.addConsumer("c2", msg -> {
+                        Promise<Void> completion = Promise.promise();
+                        vertx.setTimer(50, ignored -> completion.complete());
+                        return completion.future();
+                    }, msg -> msg.getId().startsWith("slow-"));
+            slowMember.setMaxConcurrency(10);
 
-            // Process messages through c1 to establish known counts
-            for (int i = 0; i < 5; i++) {
-                invokeDistributeMessage(group,
-                    new SimpleMessage<>("msg-" + i, "test-topic", "payload"));
-            }
+            group.start()
+                    .compose(v -> {
+                        List<Future<Void>> processing = new ArrayList<>();
+                        processing.add(invokeDistributeMessage(group,
+                                new SimpleMessage<>("fast-0", "test-topic", "payload")));
+                        for (int i = 0; i < 10; i++) {
+                            processing.add(invokeDistributeMessage(group,
+                                    new SimpleMessage<>("slow-" + i, "test-topic", "payload")));
+                        }
+                        return Future.all(processing).mapEmpty();
+                    })
+                    .onSuccess(v -> testContext.verify(() -> {
+                        ConsumerGroupStats stats = group.getStats();
+                        var fastStats = stats.getMemberStats().get("c1");
+                        var slowStats = stats.getMemberStats().get("c2");
+                        double expectedWeightedAverage =
+                                (fastStats.getAverageProcessingTimeMs() * fastStats.getMessagesProcessed()
+                                        + slowStats.getAverageProcessingTimeMs() * slowStats.getMessagesProcessed())
+                                        / stats.getTotalMessagesProcessed();
+                        double simpleAverage = (fastStats.getAverageProcessingTimeMs()
+                                + slowStats.getAverageProcessingTimeMs()) / 2.0;
 
-            ConsumerGroupStats stats = group.getStats();
-            // With a single consumer, weighted avg == that consumer's avg
-            assertEquals(stats.getMemberStats().get("c1").getAverageProcessingTimeMs(),
-                stats.getAverageProcessingTimeMs(), 0.001,
-                "With one member, group avg should equal member avg");
+                        assertEquals(1, fastStats.getMessagesProcessed());
+                        assertEquals(10, slowStats.getMessagesProcessed());
+                        assertEquals(11, stats.getTotalMessagesProcessed());
+                        assertTrue(slowStats.getAverageProcessingTimeMs()
+                                        > fastStats.getAverageProcessingTimeMs() + 20.0,
+                                "Controlled delays should produce materially different member averages");
+                        assertEquals(expectedWeightedAverage, stats.getAverageProcessingTimeMs(), 0.001,
+                                "Group average should weight each member average by its processed count");
+                        assertNotEquals(simpleAverage, stats.getAverageProcessingTimeMs(), 1.0,
+                                "Unequal member counts must not produce a simple average");
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("group stats zero when no messages processed")
-        void zeroMessagesProduceZeroAvg() {
+        void zeroMessagesProduceZeroAvg(VertxTestContext testContext) {
             group = createGroup("empty-stats-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            ConsumerGroupStats stats = group.getStats();
-            assertEquals(0.0, stats.getAverageProcessingTimeMs());
-            assertEquals(0, stats.getTotalMessagesProcessed());
+            group.start()
+                    .onSuccess(v -> testContext.verify(() -> {
+                        ConsumerGroupStats stats = group.getStats();
+                        assertEquals(0.0, stats.getAverageProcessingTimeMs());
+                        assertEquals(0, stats.getTotalMessagesProcessed());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("group lastActiveAt is the most recent across all members")
-        void lastActiveAtIsMostRecent() {
+        void lastActiveAtIsMostRecent(VertxTestContext testContext) {
             group = createGroup("lastactive-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            // Process some messages to set lastActiveAt
-            for (int i = 0; i < 10; i++) {
-                invokeDistributeMessage(group,
-                    new SimpleMessage<>("msg-" + i, "test-topic", "payload"));
-            }
-
-            ConsumerGroupStats stats = group.getStats();
-            assertNotNull(stats.getLastActiveAt(), "lastActiveAt should be set after processing");
+            group.start()
+                    .compose(v -> {
+                        Future<Void> processing = Future.succeededFuture();
+                        for (int i = 0; i < 10; i++) {
+                            Message<String> message =
+                                    new SimpleMessage<>("msg-" + i, "test-topic", "payload");
+                            processing = processing.compose(ignored -> invokeDistributeMessage(group, message));
+                        }
+                        return processing;
+                    })
+                    .onSuccess(v -> testContext.verify(() -> {
+                        ConsumerGroupStats stats = group.getStats();
+                        assertNotNull(stats.getLastActiveAt(),
+                                "lastActiveAt should be set after processing");
+                        assertEquals(10, stats.getTotalMessagesProcessed());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("filtered messages increment totalMessagesFiltered in group stats")
-        void filteredMessagesIncrementGroupTotal() {
+        void filteredMessagesIncrementGroupTotal(VertxTestContext testContext) {
             group = createGroup("filtered-stats-group", "test-topic");
             group.setGroupFilter(msg -> false); // reject all
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            invokeDistributeMessage(group, new SimpleMessage<>("f1", "test-topic", "p"));
-            invokeDistributeMessage(group, new SimpleMessage<>("f2", "test-topic", "p"));
-            invokeDistributeMessage(group, new SimpleMessage<>("f3", "test-topic", "p"));
-
-            assertEquals(3, group.getStats().getTotalMessagesFiltered());
+            group.start()
+                    .onSuccess(v -> testContext.verify(() -> {
+                        for (int i = 1; i <= 3; i++) {
+                            Future<Void> rejected = invokeDistributeMessage(group,
+                                    new SimpleMessage<>("f" + i, "test-topic", "p"));
+                            assertTrue(rejected.failed(), "Group filter should reject message f" + i);
+                        }
+                        assertEquals(3, group.getStats().getTotalMessagesFiltered());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("handler failures increment totalFailed in group stats")
-        void handlerFailuresIncrementFailed() {
+        void handlerFailuresIncrementFailed(VertxTestContext testContext) {
             group = createGroup("failed-stats-group", "test-topic");
             group.addConsumer("c1", msg ->
                 Future.failedFuture(new RuntimeException("boom")));
-            assertTrue(group.start().succeeded(), "group.start() should succeed");
-
-            invokeDistributeMessage(group, new SimpleMessage<>("e1", "test-topic", "p"));
-            invokeDistributeMessage(group, new SimpleMessage<>("e2", "test-topic", "p"));
-
-            assertEquals(2, group.getStats().getTotalMessagesFailed());
+            group.start()
+                    .onSuccess(v -> testContext.verify(() -> {
+                        for (int i = 1; i <= 2; i++) {
+                            Future<Void> failed = invokeDistributeMessage(group,
+                                    new SimpleMessage<>("e" + i, "test-topic", "p"));
+                            assertTrue(failed.failed(), "Handler should fail message e" + i);
+                        }
+                        assertEquals(2, group.getStats().getTotalMessagesFailed());
+                        testContext.completeNow();
+                    }))
+                    .onFailure(testContext::failNow);
         }
     }
 

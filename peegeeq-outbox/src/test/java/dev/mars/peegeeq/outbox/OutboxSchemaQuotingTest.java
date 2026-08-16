@@ -21,11 +21,11 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -33,8 +33,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
@@ -72,17 +70,32 @@ class OutboxSchemaQuotingTest {
     private OutboxFactory factory;
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
-        if (factory != null) factory.close();
-        if (manager != null) {
-            manager.closeReactive()
-                    .onSuccess(v -> testContext.completeNow())
-                    .onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        Future<Void> factoryClose = factory != null ? factory.close() : Future.succeededFuture();
+        factoryClose.transform(factoryResult -> {
+                    Future<Void> managerClose = manager != null
+                            ? manager.closeReactive()
+                            : Future.succeededFuture();
+                    return managerClose.transform(managerResult -> {
+                        if (factoryResult.failed()) {
+                            return Future.failedFuture(factoryResult.cause());
+                        }
+                        if (managerResult.failed()) {
+                            return Future.failedFuture(managerResult.cause());
+                        }
+                        return Future.succeededFuture();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+    }
+
+    private PeeGeeQConfiguration createTestConfiguration(String profile, String schema) {
+        return new PeeGeeQConfiguration(profile, PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema(schema)
+                .build());
     }
 
     /**
@@ -195,33 +208,29 @@ class OutboxSchemaQuotingTest {
 
     @Test
     @DisplayName("Schema with simple identifier (underscore) should work for stats queries")
-    void simpleSchemaNameShouldWork(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void simpleSchemaNameShouldWork(VertxTestContext testContext) throws Exception {
         logger.info("Test: simple schema name should work");
         String schema = "simple_tenant";
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema,
                 SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
-                "simple-test", postgres.getHost(), postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
-                schema);
+        PeeGeeQConfiguration config = createTestConfiguration("simple-test", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        factory = new OutboxFactory(new PgDatabaseService(manager), config);
-
-        var producer = factory.createProducer("test-topic", String.class);
-        producer.send("hello")
-            .compose(v -> factory.getStats("test-topic"))
-            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
-                assertEquals(1, stats.getPendingMessages(),
-                    "Stats query with simple schema name should work");
-                producer.close();
-                testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        manager.start()
+                .compose(v -> {
+                    factory = new OutboxFactory(new PgDatabaseService(manager), config);
+                    var producer = factory.createProducer("test-topic", String.class);
+                    return producer.send("hello")
+                            .compose(ignored -> factory.getStats("test-topic"))
+                            .map(stats -> {
+                                assertEquals(1, stats.getPendingMessages(),
+                                        "Stats query with simple schema name should work");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -230,7 +239,7 @@ class OutboxSchemaQuotingTest {
 
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted getStatsAsync")
-    void reservedWordOrderShouldWorkForStats(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void reservedWordOrderShouldWorkForStats(VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word order should work for stats");
         // "order" passes PgConnectionManager's regex [A-Za-z0-9_,\s]+ but is a SQL reserved word.
         // Unquoted SQL: FROM order.outbox PostgreSQL parses "order" as ORDER BY keyword.
@@ -238,120 +247,103 @@ class OutboxSchemaQuotingTest {
         String schema = "order";
         createSchemaWithQuotedDDL(schema);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
-                "order-stats", postgres.getHost(), postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
-                schema);
+        PeeGeeQConfiguration config = createTestConfiguration("order-stats", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        factory = new OutboxFactory(new PgDatabaseService(manager), config);
-
-        var producer = factory.createProducer("stats-topic", String.class);
-        producer.send("hello")
-            .compose(v -> factory.getStats("stats-topic"))
-            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
-                // With the old bug: recover() used to swallow the SQL error and return 0.
-                // With the fix: query succeeds and returns 1.
-                // Either way, getting 0 when we inserted 1 is evidence of the bug.
-                assertEquals(1, stats.getPendingMessages(),
-                    "getStatsAsync with reserved-word schema 'order' should return 1 pending message. " +
-                    "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error the query fails instead of returning 1.");
-                producer.close();
-                testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        manager.start()
+                .compose(v -> {
+                    factory = new OutboxFactory(new PgDatabaseService(manager), config);
+                    var producer = factory.createProducer("stats-topic", String.class);
+                    return producer.send("hello")
+                            .compose(ignored -> factory.getStats("stats-topic"))
+                            .map(stats -> {
+                                // With the old bug, the SQL error was swallowed and zero was returned.
+                                // With the fix, the query succeeds and returns one.
+                                assertEquals(1, stats.getPendingMessages(),
+                                        "getStatsAsync with reserved-word schema 'order' should return 1 pending message. " +
+                                        "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error the query fails instead of returning 1.");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted countMessagesAsync")
-    void reservedWordOrderShouldWorkForCount(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void reservedWordOrderShouldWorkForCount(VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word order should work for count");
         String schema = "order";
         createSchemaWithQuotedDDL(schema);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
-                "order-count", postgres.getHost(), postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
-                schema);
+        PeeGeeQConfiguration config = createTestConfiguration("order-count", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        factory = new OutboxFactory(new PgDatabaseService(manager), config);
-
-        var producer = factory.createProducer("count-topic", String.class);
-        producer.send("hello")
-            .compose(v -> factory.countMessages("count-topic"))
-            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
-                assertEquals(1L, count,
-                    "countMessagesAsync with schema 'order' should return 1. " +
-                    "Unquoted 'FROM order.outbox' is a SQL syntax error.");
-                producer.close();
-                testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        manager.start()
+                .compose(v -> {
+                    factory = new OutboxFactory(new PgDatabaseService(manager), config);
+                    var producer = factory.createProducer("count-topic", String.class);
+                    return producer.send("hello")
+                            .compose(ignored -> factory.countMessages("count-topic"))
+                            .map(count -> {
+                                assertEquals(1L, count,
+                                        "countMessagesAsync with schema 'order' should return 1. " +
+                                        "Unquoted 'FROM order.outbox' is a SQL syntax error.");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted purgeMessagesAsync")
-    void reservedWordOrderShouldWorkForPurge(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void reservedWordOrderShouldWorkForPurge(VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word order should work for purge");
         String schema = "order";
         createSchemaWithQuotedDDL(schema);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
-                "order-purge", postgres.getHost(), postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
-                schema);
+        PeeGeeQConfiguration config = createTestConfiguration("order-purge", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        factory = new OutboxFactory(new PgDatabaseService(manager), config);
-
-        var producer = factory.createProducer("purge-topic", String.class);
-        producer.send("to-be-purged")
-            .compose(v -> factory.purgeMessages("purge-topic"))
-            .onComplete(testContext.succeeding(purged -> testContext.verify(() -> {
-                assertEquals(1, purged,
-                    "purgeMessagesAsync with schema 'order' should purge 1 message. " +
-                    "Unquoted 'DELETE FROM order.outbox' is a SQL syntax error.");
-                producer.close();
-                testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        manager.start()
+                .compose(v -> {
+                    factory = new OutboxFactory(new PgDatabaseService(manager), config);
+                    var producer = factory.createProducer("purge-topic", String.class);
+                    return producer.send("to-be-purged")
+                            .compose(ignored -> factory.purgeMessages("purge-topic"))
+                            .map(purged -> {
+                                assertEquals(1, purged,
+                                        "purgeMessagesAsync with schema 'order' should purge 1 message. " +
+                                        "Unquoted 'DELETE FROM order.outbox' is a SQL syntax error.");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Schema 'select' (reserved word) should work when properly quoted")
-    void reservedWordSelectShouldWork(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void reservedWordSelectShouldWork(VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word select should work");
         // "select" is another SQL reserved word that passes the regex validator
         String schema = "select";
         createSchemaWithQuotedDDL(schema);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
-                "select-test", postgres.getHost(), postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
-                schema);
+        PeeGeeQConfiguration config = createTestConfiguration("select-test", schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start().await();
-
-        factory = new OutboxFactory(new PgDatabaseService(manager), config);
-
-        var producer = factory.createProducer("select-topic", String.class);
-        producer.send("hello")
-            .compose(v -> factory.countMessages("select-topic"))
-            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
-                assertEquals(1L, count,
-                    "countMessagesAsync with schema 'select' should return 1. " +
-                    "Unquoted 'FROM select.outbox' is a SQL syntax error.");
-                producer.close();
-                testContext.completeNow();
-            })));
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        manager.start()
+                .compose(v -> {
+                    factory = new OutboxFactory(new PgDatabaseService(manager), config);
+                    var producer = factory.createProducer("select-topic", String.class);
+                    return producer.send("hello")
+                            .compose(ignored -> factory.countMessages("select-topic"))
+                            .map(count -> {
+                                assertEquals(1L, count,
+                                        "countMessagesAsync with schema 'select' should return 1. " +
+                                        "Unquoted 'FROM select.outbox' is a SQL syntax error.");
+                                return (Void) null;
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 }

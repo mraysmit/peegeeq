@@ -72,6 +72,17 @@ import static org.junit.jupiter.api.Assertions.fail;
  *       {@code .onComplete}, or {@code .eventually()} chain. Such calls return immediately
  *       while cleanup may still be in-flight, causing subsequent assertions to race against
  *       the in-progress shutdown.</li>
+ *
+ *   <li><b>Tier 8  async operation asserted only as non-null</b>:
+ *       {@code assertNotNull(receiver.send(...))}, and the equivalent for
+ *       {@code subscribe(...)} or {@code close(...)}, proves only that a Future object was
+ *       allocated. The operation may fail after the assertion and the test still passes.
+ *       Tests must compose or observe the returned Future and assert the resulting behavior.</li>
+ *
+ *   <li><b>Tier 9  discarded {@code Future} from {@code subscribe()}</b>:
+ *       a bare {@code consumer.subscribe(handler);} starts asynchronous subscription but
+ *       discards its completion. A following send can race the subscription, and startup
+ *       failure is never reported to the test. Tests must compose the returned Future.</li>
  * </ul>
  *
  * <h2>Safe constructs (not flagged)</h2>
@@ -236,8 +247,25 @@ class OnSuccessExceptionSwallowingGuardTest {
     private static final Pattern FUTURE_CHAIN_CONTINUATION =
             Pattern.compile("^\\.(?:compose|onSuccess|onFailure|onComplete|eventually|map|recover|transform|andThen)\\s*\\(");
 
+    // -------------------------------------------------------------------------
+    // Patterns  Tier 8: Future-returning operations asserted only as non-null
+    // -------------------------------------------------------------------------
+
+    private static final Pattern ASSERT_NOT_NULL_ASYNC_OPERATION =
+            Pattern.compile("\\bassertNotNull\\s*\\([^;]*?\\.(?:send|subscribe|close)\\s*\\(",
+                    Pattern.DOTALL);
+
+    // -------------------------------------------------------------------------
+    // Patterns  Tier 9: discarded Future from subscribe()
+    // -------------------------------------------------------------------------
+
+    private static final Pattern SUBSCRIBE_CALL =
+            Pattern.compile("\\b[A-Za-z_$][A-Za-z0-9_$]*\\.subscribe\\s*\\(");
+
     /** Baseline CSV for the T7 ratchet. */
     private static final String TIER_7_BASELINE_RESOURCE = "/quality/discarded-future-baseline.csv";
+    /** Baseline CSV for the T9 ratchet. */
+    private static final String TIER_9_BASELINE_RESOURCE = "/quality/discarded-subscribe-future-baseline.csv";
     /** Baseline CSV for the T4 ratchet. */
     private static final String TIER_4_BASELINE_RESOURCE = "/quality/future-await-baseline.csv";
     /** Baseline CSV for the T5 ratchet. */
@@ -316,12 +344,27 @@ class OnSuccessExceptionSwallowingGuardTest {
         fail(sb.toString());
     }
 
+    @Test
+    void noAsyncOperationsAssertedOnlyAsNonNullInTestSources() throws IOException {
+        runCheck(CheckType.TIER_8_ASSERTED_ONLY);
+    }
+
+    @Test
+    void noDiscardedFuturesFromSubscribeInTestSources() throws IOException {
+        Path workspaceRoot = locateWorkspaceRoot();
+        Map<String, Integer> baseline = loadPathCountBaseline(TIER_9_BASELINE_RESOURCE);
+        Map<String, Integer> actual = scanDiscardedSubscribeFuturePerFile(workspaceRoot);
+        assertRatchet("Discarded subscribe Future [Tier 9]",
+                "discarded-subscribe-future-baseline.csv", baseline, actual);
+    }
+
     // =========================================================================
     // Dispatch
     // =========================================================================
 
     private enum CheckType {
-        TIER_2_3, TIER_4_AWAIT, TIER_5_SLEEP, TIER_6_ONCOMPLETE, TIER_7_DISCARD
+        TIER_2_3, TIER_4_AWAIT, TIER_5_SLEEP, TIER_6_ONCOMPLETE, TIER_7_DISCARD,
+        TIER_8_ASSERTED_ONLY
     }
 
     private static void runCheck(CheckType type) throws IOException {
@@ -347,6 +390,7 @@ class OnSuccessExceptionSwallowingGuardTest {
                                  case TIER_5_SLEEP   -> scanSleep(p, violations);
                                  case TIER_6_ONCOMPLETE -> scanOnComplete(p, violations);
                                  case TIER_7_DISCARD -> scanDiscardedFuture(p, violations);
+                                 case TIER_8_ASSERTED_ONLY -> scanAssertedOnlyAsyncOperation(p, violations);
                              }
                          });
                 }
@@ -415,6 +459,12 @@ class OnSuccessExceptionSwallowingGuardTest {
                   .append("subsequent assertions race against in-flight cleanup.\n")
                   .append("Fix: compose on the returned Future:\n")
                   .append("     .compose(v -> job.stop().compose(ignored -> nextStep()))\n\n");
+            }
+            case TIER_8_ASSERTED_ONLY -> {
+                sb.append("Found ").append(violations.size())
+                  .append(" async operation(s) asserted only as non-null [Tier 8].\n")
+                  .append("A non-null Future does not establish that send/subscribe/close succeeded.\n")
+                  .append("Fix: compose or observe the Future, then assert the resulting state or behavior.\n\n");
             }
         }
     }
@@ -624,6 +674,50 @@ class OnSuccessExceptionSwallowingGuardTest {
     }
 
     // =========================================================================
+    // Tier 8: async operation asserted only as non-null
+    // =========================================================================
+
+    private static void scanAssertedOnlyAsyncOperation(Path file, List<Violation> violations) {
+        String content = readFile(file);
+        if (content == null) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
+
+        String masked = maskNonCode(content);
+        Matcher matcher = ASSERT_NOT_NULL_ASYNC_OPERATION.matcher(masked);
+        while (matcher.find()) {
+            violations.add(new Violation(file.toString(), lineOf(content, matcher.start()),
+                    snippet(content, matcher.start()), 8));
+        }
+    }
+
+    // =========================================================================
+    // Tier 9: discarded Future from subscribe()
+    // =========================================================================
+
+    private static void scanDiscardedSubscribeFuture(Path file, List<Violation> violations) {
+        String content = readFile(file);
+        if (content == null) return;
+        if (BLOCKING_EXEMPT_TAG.matcher(content).find()) return;
+
+        String masked = maskNonCode(content);
+        Matcher matcher = SUBSCRIBE_CALL.matcher(masked);
+        while (matcher.find()) {
+            int openParen = matcher.end() - 1;
+            int closeParen = findMatchingParen(content, openParen);
+            if (closeParen < 0) continue;
+
+            int afterClose = skipWhitespace(content, closeParen + 1);
+            if (afterClose >= content.length() || content.charAt(afterClose) != ';') continue;
+
+            String prefix = statementPrefix(masked, matcher.start());
+            if (isAssignedOrReturned(prefix)) continue;
+
+            violations.add(new Violation(file.toString(), lineOf(content, matcher.start()),
+                    snippet(content, matcher.start()), 9));
+        }
+    }
+
+    // =========================================================================
     // T7 ratchet helpers
     // =========================================================================
 
@@ -653,6 +747,33 @@ class OnSuccessExceptionSwallowingGuardTest {
                                  result.put(rel, fileViolations.size());
                              }
                          });
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Map<String, Integer> scanDiscardedSubscribeFuturePerFile(Path workspaceRoot) throws IOException {
+        Map<String, Integer> result = new TreeMap<>();
+        try (Stream<Path> modules = Files.list(workspaceRoot)) {
+            List<Path> testRoots = modules
+                    .filter(Files::isDirectory)
+                    .filter(p -> p.getFileName().toString().startsWith("peegeeq-"))
+                    .map(p -> p.resolve("src").resolve("test").resolve("java"))
+                    .filter(Files::isDirectory)
+                    .toList();
+            for (Path testRoot : testRoots) {
+                try (Stream<Path> files = Files.walk(testRoot)) {
+                    files.filter(Files::isRegularFile)
+                            .filter(p -> p.getFileName().toString().endsWith(".java"))
+                            .forEach(p -> {
+                                List<Violation> fileViolations = new ArrayList<>();
+                                scanDiscardedSubscribeFuture(p, fileViolations);
+                                if (!fileViolations.isEmpty()) {
+                                    String rel = workspaceRoot.relativize(p).toString().replace('\\', '/');
+                                    result.put(rel, fileViolations.size());
+                                }
+                            });
                 }
             }
         }

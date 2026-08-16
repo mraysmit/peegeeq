@@ -128,20 +128,30 @@ public class MessagePriorityExampleTest {
         logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Message Priority Example Test");
 
-        if (manager != null) {
-            manager.closeReactive()
-                .onSuccess(v -> {
-                    logger.info(" Message Priority Example Test teardown completed");
-                    testContext.completeNow();
-                })
-                .onFailure(err -> {
-                    logger.error("Error closing manager", err);
-                    testContext.failNow(err);
+        Future<Void> closeFactory = factory != null ? factory.close() : Future.succeededFuture();
+        closeFactory
+            .transform(factoryResult -> {
+                Future<Void> closeManager = manager != null
+                    ? manager.closeReactive()
+                    : Future.succeededFuture();
+                return closeManager.transform(managerResult -> {
+                    if (factoryResult.failed()) {
+                        return Future.failedFuture(factoryResult.cause());
+                    }
+                    if (managerResult.failed()) {
+                        return Future.failedFuture(managerResult.cause());
+                    }
+                    return Future.succeededFuture();
                 });
-        } else {
-            logger.info(" Message Priority Example Test teardown completed");
-            testContext.completeNow();
-        }
+            })
+            .onSuccess(v -> {
+                logger.info(" Message Priority Example Test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(err -> {
+                logger.error("Error closing Message Priority Example Test resources", err);
+                testContext.failNow(err);
+            });
     }
 
     /**
@@ -168,16 +178,16 @@ public class MessagePriorityExampleTest {
                 order, payload.getContent(), payload.getPriorityLabel());
             latch.flag();
             return Future.succeededFuture();
-        });
-        
-        // Send messages in reverse priority order to demonstrate reordering
-        logger.info("Sending messages in reverse priority order...");
-        
-        sendPriorityMessage(producer, "msg-1", "BULK", "Bulk processing task", PRIORITY_BULK);
-        sendPriorityMessage(producer, "msg-2", "LOW", "Background cleanup", PRIORITY_LOW);
-        sendPriorityMessage(producer, "msg-3", "NORMAL", "Regular business operation", PRIORITY_NORMAL);
-        sendPriorityMessage(producer, "msg-4", "HIGH", "Important notification", PRIORITY_HIGH);
-        sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL);
+        })
+            .compose(v -> {
+                logger.info("Sending messages in reverse priority order...");
+                return sendPriorityMessage(producer, "msg-1", "BULK", "Bulk processing task", PRIORITY_BULK);
+            })
+            .compose(v -> sendPriorityMessage(producer, "msg-2", "LOW", "Background cleanup", PRIORITY_LOW))
+            .compose(v -> sendPriorityMessage(producer, "msg-3", "NORMAL", "Regular business operation", PRIORITY_NORMAL))
+            .compose(v -> sendPriorityMessage(producer, "msg-4", "HIGH", "Important notification", PRIORITY_HIGH))
+            .compose(v -> sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL))
+            .onFailure(testContext::failNow);
         
         // Wait for processing
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
@@ -185,9 +195,6 @@ public class MessagePriorityExampleTest {
         
         // Verify all messages were processed
         assertEquals(5, processedCount.get(), "Should have processed 5 messages");
-        
-        consumer.close();
-        producer.close();
         
         logger.info("Basic priority ordering validated successfully");
     }
@@ -213,21 +220,20 @@ public class MessagePriorityExampleTest {
             logger.info("Processed #{}: [{}] {} - {}",
                 order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
             
-            // Verify priority label is correct
-            assertNotNull(payload.getPriorityLabel(), "Priority label should not be null");
-            assertTrue(payload.getPriorityLabel().matches("CRITICAL|HIGH|NORMAL|LOW|BULK"), 
-                "Priority label should be valid");
-            
-            latch.flag();
+            testContext.verify(() -> {
+                assertNotNull(payload.getPriorityLabel(), "Priority label should not be null");
+                assertTrue(payload.getPriorityLabel().matches("CRITICAL|HIGH|NORMAL|LOW|BULK"),
+                    "Priority label should be valid");
+                latch.flag();
+            });
             return Future.succeededFuture();
-        });
-        
-        // Send messages with different priority levels
-        sendPriorityMessage(producer, "critical-1", "SECURITY", "Security breach detected", PRIORITY_CRITICAL);
-        sendPriorityMessage(producer, "high-1", "ALERT", "System overload warning", PRIORITY_HIGH);
-        sendPriorityMessage(producer, "normal-1", "ORDER", "New customer order", PRIORITY_NORMAL);
-        sendPriorityMessage(producer, "low-1", "MAINTENANCE", "Scheduled cleanup", PRIORITY_LOW);
-        sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Daily report generation", PRIORITY_BULK);
+        })
+            .compose(v -> sendPriorityMessage(producer, "critical-1", "SECURITY", "Security breach detected", PRIORITY_CRITICAL))
+            .compose(v -> sendPriorityMessage(producer, "high-1", "ALERT", "System overload warning", PRIORITY_HIGH))
+            .compose(v -> sendPriorityMessage(producer, "normal-1", "ORDER", "New customer order", PRIORITY_NORMAL))
+            .compose(v -> sendPriorityMessage(producer, "low-1", "MAINTENANCE", "Scheduled cleanup", PRIORITY_LOW))
+            .compose(v -> sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Daily report generation", PRIORITY_BULK))
+            .onFailure(testContext::failNow);
         
         // Wait for processing
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
@@ -235,9 +241,6 @@ public class MessagePriorityExampleTest {
         
         // Verify all messages were processed
         assertEquals(5, processedCount.get(), "Should have processed 5 messages");
-        
-        consumer.close();
-        producer.close();
         
         logger.info("Priority levels validated successfully");
     }
@@ -256,35 +259,34 @@ public class MessagePriorityExampleTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         Checkpoint latch = testContext.checkpoint(3);
         
-        // Consumer that validates message structure
-        consumer.subscribe(message -> {
-            int order = processedCount.incrementAndGet();
-            PriorityMessage payload = message.getPayload();
-            
-            // Validate message structure
-            assertNotNull(payload.getMessageId(), "Message ID should not be null");
-            assertNotNull(payload.getMessageType(), "Message type should not be null");
-            assertNotNull(payload.getContent(), "Content should not be null");
-            assertNotNull(payload.getTimestamp(), "Timestamp should not be null");
-            assertNotNull(payload.getMetadata(), "Metadata should not be null");
-            assertTrue(payload.getPriority() >= 0, "Priority should be non-negative");
-            
-            logger.info("Processed #{}: {} (ID: {}, Type: {}, Priority: {})",
-                order, payload.getContent(), payload.getMessageId(), 
-                payload.getMessageType(), payload.getPriority());
-            
-            latch.flag();
-            return Future.succeededFuture();
-        });
-        
         // Send messages with metadata
         Map<String, String> metadata = new HashMap<>();
         metadata.put("source", "test-system");
         metadata.put("version", "1.0");
-        
-        sendPriorityMessageWithMetadata(producer, "proc-1", "PROCESS", "Process execution", PRIORITY_HIGH, metadata);
-        sendPriorityMessageWithMetadata(producer, "proc-2", "PROCESS", "Process validation", PRIORITY_NORMAL, metadata);
-        sendPriorityMessageWithMetadata(producer, "proc-3", "PROCESS", "Process cleanup", PRIORITY_LOW, metadata);
+
+        consumer.subscribe(message -> {
+            int order = processedCount.incrementAndGet();
+            PriorityMessage payload = message.getPayload();
+
+            logger.info("Processed #{}: {} (ID: {}, Type: {}, Priority: {})",
+                order, payload.getContent(), payload.getMessageId(),
+                payload.getMessageType(), payload.getPriority());
+
+            testContext.verify(() -> {
+                assertNotNull(payload.getMessageId(), "Message ID should not be null");
+                assertNotNull(payload.getMessageType(), "Message type should not be null");
+                assertNotNull(payload.getContent(), "Content should not be null");
+                assertNotNull(payload.getTimestamp(), "Timestamp should not be null");
+                assertNotNull(payload.getMetadata(), "Metadata should not be null");
+                assertTrue(payload.getPriority() >= 0, "Priority should be non-negative");
+                latch.flag();
+            });
+            return Future.succeededFuture();
+        })
+            .compose(v -> sendPriorityMessageWithMetadata(producer, "proc-1", "PROCESS", "Process execution", PRIORITY_HIGH, metadata))
+            .compose(v -> sendPriorityMessageWithMetadata(producer, "proc-2", "PROCESS", "Process validation", PRIORITY_NORMAL, metadata))
+            .compose(v -> sendPriorityMessageWithMetadata(producer, "proc-3", "PROCESS", "Process cleanup", PRIORITY_LOW, metadata))
+            .onFailure(testContext::failNow);
         
         // Wait for processing
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
@@ -293,23 +295,24 @@ public class MessagePriorityExampleTest {
         // Verify all messages were processed
         assertEquals(3, processedCount.get(), "Should have processed 3 messages");
         
-        consumer.close();
-        producer.close();
-        
         logger.info("Message processing validated successfully");
     }
 
     // Helper methods
-    private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
+    private Future<Void> sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type,
+                                             String content, int priority) {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
-        producer.send(message).await();
-        logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
+        return producer.send(message)
+            .onSuccess(v -> logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel()));
     }
 
-    private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
+    private Future<Void> sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id,
+                                                         String type, String content, int priority,
+                                                         Map<String, String> metadata) {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
-        producer.send(message).await();
-        logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
+        return producer.send(message)
+            .onSuccess(v -> logger.info("Sent: {} (Priority: {}, Metadata: {})",
+                content, message.getPriorityLabel(), metadata.size()));
     }
 
     /**
@@ -375,5 +378,3 @@ public class MessagePriorityExampleTest {
         }
     }
 }
-
-

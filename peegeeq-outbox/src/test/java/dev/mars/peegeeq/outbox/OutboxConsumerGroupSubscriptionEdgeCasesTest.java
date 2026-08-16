@@ -31,7 +31,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.junit5.Checkpoint;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -46,10 +46,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.*;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,10 +83,12 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
     private PeeGeeQManager manager;
     private QueueFactory factory;
     private MessageProducer<String> producer;
+    private String topic;
 
     @BeforeEach
     void setUp(VertxTestContext testContext) {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        topic = "subscription-edge-" + UUID.randomUUID().toString().substring(0, 8);
         Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
                 .schema(PostgreSQLTestConstants.TEST_SCHEMA)
                 .property("peegeeq.queue.polling-interval", "PT0.5S")
@@ -104,13 +105,13 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
             factory = provider.createFactory("outbox", databaseService);
-            producer = factory.createProducer("test-topic", String.class);
+            producer = factory.createProducer(topic, String.class);
             testContext.completeNow();
         }).onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
@@ -125,7 +126,6 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         } else {
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, SECONDS));
     }
 
     // ========================================================================
@@ -138,7 +138,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
         @Test
         @DisplayName("should start from specific message ID")
-        void testStartFromMessageId_Valid(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testStartFromMessageId_Valid(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: start from message id  valid");
             // Send 5 messages with gaps
             Future<Void> sendChain = Future.succeededFuture();
@@ -152,7 +152,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             sendChain.compose(v -> {
                 ConsumerGroup<String> group = factory.createConsumerGroup(
-                    "test-group", "test-topic", String.class);
+                    "test-group", topic, String.class);
 
                 List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
                 group.setMessageHandler(msg -> {
@@ -178,16 +178,16 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     })
                     .eventually(() -> group.close());
             })
-            .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-            assertTrue(testContext.awaitCompletion(30, SECONDS));
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("should handle message ID that doesn't exist")
-        void testStartFromMessageId_NonExistent(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testStartFromMessageId_NonExistent(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: start from message id  non existent");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
@@ -206,18 +206,17 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .compose(v -> {
                     testContext.verify(() -> {
                         assertTrue(group.isActive());
-                        assertEquals(1, count.get(), "Consumer should process the newly sent message");
+                        assertEquals(1, count.intValue(), "Consumer should process the newly sent message");
                     });
                     return group.close();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("should handle message ID = 0")
-        void testStartFromMessageId_Zero(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testStartFromMessageId_Zero(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: start from message id  zero");
             // Send some messages first
             Future<Void> sendChain = Future.succeededFuture();
@@ -226,34 +225,30 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 sendChain = sendChain.compose(v -> producer.send("Message-" + idx));
             }
 
-            ConsumerGroup<String>[] groupHolder = new ConsumerGroup[1];
+            ConsumerGroup<String> group = factory.createConsumerGroup(
+                    "test-group", topic, String.class);
+            Promise<Void> allMessagesReceived = Promise.promise();
+            AtomicInteger receivedCount = new AtomicInteger();
+            group.setMessageHandler(msg -> {
+                if (receivedCount.incrementAndGet() == 3) {
+                    allMessagesReceived.complete();
+                }
+                return Future.succeededFuture();
+            });
+
+            SubscriptionOptions options = SubscriptionOptions.builder()
+                    .startFromMessageId(0L)
+                    .build();
 
             sendChain.compose(v -> vertx.timer(500))
-                .compose(timerId -> {
-                    ConsumerGroup<String> group = factory.createConsumerGroup(
-                        "test-group", "test-topic", String.class);
-                    groupHolder[0] = group;
-
-                    List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-                    Checkpoint received = testContext.checkpoint(2);
-                    group.setMessageHandler(msg -> {
-                        receivedMessages.add(msg.getPayload());
-                        received.flag();
-                        return Future.succeededFuture();
-                    });
-
-                    SubscriptionOptions options = SubscriptionOptions.builder()
-                        .startFromMessageId(0L)
-                        .build();
-
-                    return group.start(options);
-                })
+                .compose(timerId -> group.start(options))
+                .compose(v -> allMessagesReceived.future())
+                .compose(v -> group.close())
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(3, receivedCount.intValue());
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
-            if (groupHolder[0] != null) {
-                groupHolder[0].close().onFailure(err -> logger.warn("group close failed", err));
-            }
         }
 
         @Test
@@ -281,7 +276,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         void testHeartbeat_CustomSettings(VertxTestContext testContext) throws Exception {
         logger.info("Test: heartbeat  custom settings");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             group.setMessageHandler(msg -> Future.succeededFuture());
 
@@ -300,9 +295,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     });
                     return group.close();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -351,7 +345,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         void testHeartbeat_MinimalValid(VertxTestContext testContext) throws Exception {
         logger.info("Test: heartbeat  minimal valid");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             group.setMessageHandler(msg -> Future.succeededFuture());
 
@@ -365,9 +359,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     testContext.verify(() -> assertTrue(group.isActive()));
                     return group.close();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
     }
 
@@ -381,7 +374,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
         @Test
         @DisplayName("should handle very old timestamp")
-        void testTimestamp_VeryOld(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testTimestamp_VeryOld(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: timestamp  very old");
             // Send current messages
             Future<Void> sendChain = Future.succeededFuture();
@@ -390,47 +383,41 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 sendChain = sendChain.compose(v -> producer.send("Message-" + idx));
             }
 
-            ConsumerGroup<String>[] groupHolder = new ConsumerGroup[1];
+            ConsumerGroup<String> group = factory.createConsumerGroup(
+                    "test-group", topic, String.class);
+            Promise<Void> allMessagesReceived = Promise.promise();
+            AtomicInteger receivedCount = new AtomicInteger();
+            group.setMessageHandler(msg -> {
+                if (receivedCount.incrementAndGet() == 3) {
+                    allMessagesReceived.complete();
+                }
+                return Future.succeededFuture();
+            });
+
+            Instant veryOldTimestamp = Instant.now().minus(365, ChronoUnit.DAYS);
+            SubscriptionOptions options = SubscriptionOptions.builder()
+                    .startFromTimestamp(veryOldTimestamp)
+                    .build();
 
             sendChain.compose(v -> vertx.timer(500))
-                .compose(timerId -> {
-                    ConsumerGroup<String> group = factory.createConsumerGroup(
-                        "test-group", "test-topic", String.class);
-                    groupHolder[0] = group;
-
-                    List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-                    Checkpoint received = testContext.checkpoint(2);
-                    group.setMessageHandler(msg -> {
-                        receivedMessages.add(msg.getPayload());
-                        received.flag();
-                        return Future.succeededFuture();
-                    });
-
-                    // Use timestamp from 1 year ago
-                    Instant veryOldTimestamp = Instant.now().minus(365, ChronoUnit.DAYS);
-
-                    SubscriptionOptions options = SubscriptionOptions.builder()
-                        .startFromTimestamp(veryOldTimestamp)
-                        .build();
-
-                    return group.start(options);
-                })
+                .compose(timerId -> group.start(options))
+                .compose(v -> allMessagesReceived.future())
+                .compose(v -> group.close())
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(3, receivedCount.intValue());
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
-            if (groupHolder[0] != null) {
-                groupHolder[0].close().onFailure(err -> logger.warn("group close failed", err));
-            }
         }
 
         @Test
         @DisplayName("should handle future timestamp gracefully")
-        void testTimestamp_Future(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testTimestamp_Future(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: timestamp  future");
             // Don't send any messages before starting
             
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
@@ -451,8 +438,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     testContext.verify(() -> assertTrue(group.isActive(), "Consumer should start successfully with future timestamp"));
                     return group.close();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-            assertTrue(testContext.awaitCompletion(30, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -487,11 +474,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
         @Test
         @DisplayName("should handle start on empty topic with FROM_BEGINNING")
-        void testEmptyTopic_FromBeginning(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testEmptyTopic_FromBeginning(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: empty topic  from beginning");
             // Don't send any messages
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "empty-topic", String.class);
+                "test-group", topic + "-empty", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
@@ -508,20 +495,20 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .compose(v -> {
                     testContext.verify(() -> {
                         assertTrue(group.isActive());
-                        assertEquals(0, count.get(), "Should not receive any messages from empty topic");
+                        assertEquals(0, count.intValue(), "Should not receive any messages from empty topic");
                     });
                     return group.close();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-            assertTrue(testContext.awaitCompletion(30, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
 
         @Test
         @DisplayName("should handle start on empty topic with FROM_TIMESTAMP")
-        void testEmptyTopic_FromTimestamp(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testEmptyTopic_FromTimestamp(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: empty topic  from timestamp");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "empty-topic", String.class);
+                "test-group", topic + "-empty", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
@@ -538,12 +525,12 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .compose(v -> {
                     testContext.verify(() -> {
                         assertTrue(group.isActive());
-                        assertEquals(0, count.get());
+                        assertEquals(0, count.intValue());
                     });
                     return group.close();
                 })
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-            assertTrue(testContext.awaitCompletion(30, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
     }
 
@@ -557,10 +544,10 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
         @Test
         @DisplayName("should handle setMessageHandler during message processing")
-        void testConcurrent_SetHandlerDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        void testConcurrent_SetHandlerDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) {
         logger.info("Test: concurrent  set handler during processing");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             AtomicInteger count = new AtomicInteger(0);
 
@@ -581,15 +568,17 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             group.start()
                 .compose(v -> producer.send("Message"))
                 .compose(v -> vertx.timer(500))
-                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
-                    // The handler was already set above  a second call always throws,
-                    // whether or not a message is currently being processed.
-                    assertThrows(IllegalStateException.class, () -> {
-                        group.setMessageHandler(msg -> Future.succeededFuture());
+                .compose(timerId -> {
+                    testContext.verify(() -> {
+                        // The handler was already set above  a second call always throws,
+                        // whether or not a message is currently being processed.
+                        assertThrows(IllegalStateException.class, () ->
+                                group.setMessageHandler(msg -> Future.succeededFuture()));
                     });
-                    testContext.completeNow();
-                })));
-            assertTrue(testContext.awaitCompletion(30, SECONDS));
+                    return group.close();
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -601,7 +590,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 final int idx = i;
                 chain = chain.compose(v -> {
                     ConsumerGroup<String> group = factory.createConsumerGroup(
-                        "test-group-" + idx, "test-topic", String.class);
+                        "test-group-" + idx, topic, String.class);
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
                     SubscriptionOptions options = SubscriptionOptions.builder()
@@ -620,9 +609,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 });
             }
             chain
-                .onComplete(testContext.succeeding(v -> testContext.completeNow()));
-
-            assertTrue(testContext.awaitCompletion(30, SECONDS));
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         }
     }
 
@@ -729,7 +717,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         void testCleanup_ImmediateClose(VertxTestContext testContext) throws Exception {
         logger.info("Test: cleanup  immediate close");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             group.setMessageHandler(msg -> Future.succeededFuture());
 
@@ -739,11 +727,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options)
                 .compose(v -> group.close())
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     assertFalse(group.isActive());
                     testContext.completeNow();
-                })));
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
+                }))
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -751,18 +739,18 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         void testCleanup_MultipleClose(VertxTestContext testContext) throws Exception {
         logger.info("Test: cleanup  multiple close");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults())
                 .compose(v -> group.close())
                 .compose(v -> group.close())
                 .compose(v -> group.close())
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .onSuccess(v -> testContext.verify(() -> {
                     assertFalse(group.isActive());
                     testContext.completeNow();
-                })));
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
+                }))
+                .onFailure(testContext::failNow);
         }
 
         @Test
@@ -770,30 +758,22 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         void testCleanup_PreventOperationsAfterClose(VertxTestContext testContext) throws Exception {
         logger.info("Test: cleanup  prevent operations after close");
             ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+                "test-group", topic, String.class);
 
             group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults())
                 .compose(v -> group.close())
-                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
-                    // start(options) returns failed Future (not throw) after close
-                    group.start(SubscriptionOptions.defaults())
-                        .onSuccess(v2 -> testContext.failNow("Should have failed after close"))
-                        .onFailure(e -> testContext.verify(() -> {
-                            assertInstanceOf(IllegalStateException.class, e);
+                .compose(v -> group.start(SubscriptionOptions.defaults()))
+                .onSuccess(v -> testContext.failNow("Should have failed after close"))
+                .onFailure(e -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, e);
 
-                            // setMessageHandler throws synchronously after close
-                            assertThrows(IllegalStateException.class, () -> {
-                                group.setMessageHandler(msg -> Future.succeededFuture());
-                            });
+                    // setMessageHandler throws synchronously after close
+                    assertThrows(IllegalStateException.class, () ->
+                            group.setMessageHandler(msg -> Future.succeededFuture()));
 
-                            testContext.completeNow();
-                        }));
-                })));
-
-            assertTrue(testContext.awaitCompletion(10, SECONDS));
+                    testContext.completeNow();
+                }));
         }
     }
 }
-
-
